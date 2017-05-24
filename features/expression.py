@@ -55,8 +55,6 @@ def get_expr_bmeg(cohort):
     expr_mat = pd.DataFrame(expr_list).transpose().fillna(0.0)
     gene_set = expr_mat.columns
     expr_data = log_norm_expr(expr_mat.loc[:, gene_set])
-    expr_data.index = [x[-2] + ':' + x[-1]
-                       for x in expr_data.index.str.split(':')]
 
     return expr_data
 
