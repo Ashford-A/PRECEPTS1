@@ -55,7 +55,7 @@ def get_variants_mc3(syn):
     return muts
 
 
-def get_variants_bmeg(sample_list, gene_list, mut_fields=["term"]):
+def get_variants_bmeg(sample_list, gene_list, mut_fields=("term", )):
     """Gets variants from BMEG."""
 
     oph = Ophion("http://bmeg.io")
@@ -675,7 +675,7 @@ class MuType(object):
            within the MuType."""
         new_str = ''
 
-        for k,v in self:
+        for k, v in self:
             if isinstance(k, str):
                 new_str += self.cur_level + ' IS ' + k
             else:
@@ -692,7 +692,7 @@ class MuType(object):
         """Gets a condensed label for the MuType."""
         new_str = ''
 
-        for k,v in self:
+        for k, v in self:
             if v is None:
                 new_str = new_str + k
             else:
@@ -713,6 +713,7 @@ class MuType(object):
         """Returns the union of two MuTypes."""
         if not isinstance(other, MuType):
             return NotImplemented
+
         new_key = {}
         self_dict = dict(self)
         other_dict = dict(other)
@@ -731,10 +732,11 @@ class MuType(object):
                         (self.cur_level, k): self_dict[k] | other_dict[k]})
 
         else:
-            raise ValueError("Cannot take the union of two MuTypes with "
-                                 "mismatching mutation levels "
-                                 + self.cur_level + " and "
-                                 + other.cur_level + "!")
+            raise ValueError(
+                "Cannot take the union of two MuTypes with mismatching "
+                "mutation levels " + self.cur_level + " and "
+                + other.cur_level + "!"
+                )
 
         return MuType(new_key)
 
@@ -742,6 +744,7 @@ class MuType(object):
         """Finds the intersection of two MuTypes."""
         if not isinstance(other, MuType):
             return NotImplemented
+
         new_key = {}
         self_dict = dict(self)
         other_dict = dict(other)
@@ -768,6 +771,7 @@ class MuType(object):
         """Checks if one MuType is a subset of the other."""
         if not isinstance(other, MuType):
             return NotImplemented
+
         self_dict = dict(self)
         other_dict = dict(other)
 
@@ -791,6 +795,7 @@ class MuType(object):
         """Checks if one MuType is a proper subset of the other."""
         if not isinstance(other, MuType):
             return NotImplemented
+
         self_dict = dict(self)
         other_dict = dict(other)
 
@@ -916,6 +921,7 @@ class MuType(object):
 
         for k in (set(mtree.child.keys()) - set(self_ch.keys())):
             new_key[(self.cur_level, k)] = None
+
         for k in (set(mtree.child.keys()) & set(self_ch.keys())):
             if self_ch[k] is not None and isinstance(mtree.child[k], MuTree):
                 new_key[(self.cur_level, k)] = self_ch[k].invert(
@@ -928,11 +934,11 @@ class MuType(object):
            exactly one of the leaf properties."""
         mkeys = []
 
-        for k,v in list(self.child.items()):
+        for k, v in list(self.child.items()):
             if v is None:
-                mkeys += [{(self.cur_level, i):None} for i in k]
+                mkeys += [{(self.cur_level, i): None} for i in k]
             else:
-                mkeys += [{(self.cur_level, i):s}
+                mkeys += [{(self.cur_level, i): s}
                           for i in k for s in v.subkeys()]
 
         return mkeys

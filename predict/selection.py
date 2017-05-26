@@ -19,41 +19,59 @@ class PathwaySelect(SelectorMixin):
     """
 
     def __init__(self, path_keys=None):
-        self.path_keys = path_keys
+        if isinstance(path_keys, set) or path_keys is None:
+            self.path_keys = path_keys
+        else:
+            self.path_keys = {path_keys}
+
+        self.select_genes = None
+        self.expr_genes = None
         super(PathwaySelect, self).__init__()
 
     def fit(self, X, y, **fit_params):
-        mut_genes = fit_params['mut_genes']
+        """Gets the list of genes selected based on pathway information."""
+
         if self.path_keys is None:
-            self.select_genes = set(X.columns)
+            select_genes = set(X.columns)
+
         else:
             path_obj = fit_params['path_obj']
             select_genes = set()
-            for gene in mut_genes:
-                for pdirs, ptypes in self.path_keys:
-                    if len(pdirs) == 0:
-                        select_genes |= set(chain(*chain(
-                            *[[g for t,g in v.items() if t in ptypes]
-                            for v in path_obj[gene].values()]
-                            )))
-                    elif len(ptypes) == 0:
-                        select_genes |= set(chain(*chain(
-                            *[v.values() for k,v in path_obj[gene].items()
-                            if k in pdirs]
-                            )))
-                    else:
-                        select_genes |= set(chain(*chain(
-                            *[[g for t,g in v.items() if t in ptypes]
-                            for k,v in path_obj[gene].items() if k in pdirs]
-                            )))
-            self.select_genes = select_genes
 
-        self.select_genes -= set(mut_genes)
+            for gene in fit_params['mut_genes']:
+                for path_key in self.path_keys:
+                    for pdirs, ptypes in path_key:
+
+                        if len(pdirs) == 0:
+                            select_genes |= set(chain(*chain(
+                                *[[g for t,g in v.items() if t in ptypes]
+                                  for v in path_obj[gene].values()]
+                                )))
+
+                        elif len(ptypes) == 0:
+                            select_genes |= set(chain(*chain(
+                                *[v.values() for k,v in path_obj[gene].items()
+                                  if k in pdirs]
+                                )))
+
+                        else:
+                            select_genes |= set(chain(*chain(
+                                *[[g for t,g in v.items() if t in ptypes]
+                                  for k,v in path_obj[gene].items()
+                                  if k in pdirs]
+                                )))
+
+        self.select_genes = select_genes - set(fit_params['mut_genes'])
         self.expr_genes = X.columns
+
         return self
 
     def _get_support_mask(self):
-        return np.array([g in self.select_genes for g in self.expr_genes])
+        """Gets the index of selected genes used to subset a matrix."""
+        if self.select_genes is None:
+            raise ValueError("PathwaySelect instance has not been fit yet!")
+        else:
+            return np.array([g in self.select_genes for g in self.expr_genes])
     
     def set_params(self, **kwargs):
         for k,v in kwargs.items():
