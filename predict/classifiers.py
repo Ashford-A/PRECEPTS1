@@ -9,6 +9,7 @@ This file contains the algorithms used to predict discrete mutation states.
 
 from .pipelines import UniVariantPipe, MultiVariantPipe
 from .selection import PathwaySelect
+from .bayesian_transfer.single_domain import MultiVariant
 
 from math import exp
 from scipy import stats
@@ -22,7 +23,7 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.gaussian_process import GaussianProcessClassifier
 
 
-# .. classifiers that don't use any prior information ..
+# .. basic sklearn classifiers ..
 class NaiveBayes(UniVariantPipe):
     """A class corresponding to Gaussian Naive Bayesian classification
        of mutation status.
@@ -33,9 +34,9 @@ class NaiveBayes(UniVariantPipe):
         norm_step = StandardScaler()
         fit_step = GaussianNB()
         UniVariantPipe.__init__(
-            self, steps=[
-                ('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],
-            path_keys=path_keys
+            self,
+            [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],
+            path_keys
             )
 
 
@@ -69,9 +70,11 @@ class Lasso(UniVariantPipe):
         norm_step = StandardScaler()
         fit_step = LogisticRegression(
             penalty='l1', tol=1e-2, class_weight='balanced')
-        UniVariantPipe.__init__(self,
-                                [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],
-                                path_keys)
+        UniVariantPipe.__init__(
+            self,
+            [('feat', feat_step), ('norm', norm_step),('fit', fit_step)],
+            path_keys
+            )
 
 
 class LogReg(UniVariantPipe):
@@ -90,9 +93,11 @@ class LogReg(UniVariantPipe):
         fit_step = SGDClassifier(
             loss='log', penalty='elasticnet',
             n_iter=100, class_weight='balanced')
-        UniVariantPipe.__init__(self,
-                                [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],
-                                path_keys)
+        UniVariantPipe.__init__(
+            self,
+            [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],
+            path_keys
+            )
 
 
 class Ridge(UniVariantPipe):
@@ -109,9 +114,11 @@ class Ridge(UniVariantPipe):
         norm_step = StandardScaler()
         fit_step = LogisticRegression(
             penalty='l1', tol=1e-2, class_weight='balanced')
-        UniVariantPipe.__init__(self,
-                                [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],
-                                path_keys)
+        UniVariantPipe.__init__(
+            self,
+            [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],
+            path_keys
+            )
 
 
 class SVCpoly(UniVariantPipe):
@@ -130,9 +137,11 @@ class SVCpoly(UniVariantPipe):
         fit_step = SVC(
             kernel='poly', probability=True, degree=2,
             cache_size=500, class_weight='balanced')
-        UniVariantPipe.__init__(self,
-                                [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],
-                                path_keys)
+        UniVariantPipe.__init__(
+            self,
+            [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],
+            path_keys
+            )
 
 
 class SVCrbf(UniVariantPipe):
@@ -151,9 +160,11 @@ class SVCrbf(UniVariantPipe):
         fit_step = SVC(
             kernel='rbf', probability=True,
             cache_size=500, class_weight='balanced')
-        UniVariantPipe.__init__(self,
-                                [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],
-                                path_keys)
+        UniVariantPipe.__init__(
+            self,
+            [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],
+            path_keys
+            )
 
 
 class rForest(UniVariantPipe):
@@ -171,9 +182,11 @@ class rForest(UniVariantPipe):
         norm_step = StandardScaler()
         fit_step = RandomForestClassifier(
                     n_estimators=500, class_weight='balanced')
-        UniVariantPipe.__init__(self,
-                                [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],
-                                path_keys)
+        UniVariantPipe.__init__(
+            self,
+            [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],
+            path_keys
+            )
 
 
 class KNeigh(UniVariantPipe):
@@ -190,9 +203,11 @@ class KNeigh(UniVariantPipe):
         norm_step = StandardScaler()
         fit_step = KNeighborsClassifier(
             weights='distance', algorithm='ball_tree')
-        UniVariantPipe.__init__(self,
-                                [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],
-                                path_keys)
+        UniVariantPipe.__init__(
+            self,
+            [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],
+            path_keys
+            )
 
 
 class GBCrbf(UniVariantPipe):
@@ -200,10 +215,37 @@ class GBCrbf(UniVariantPipe):
        of mutation status with a radial basis kernel.
     """
 
-    def __init__(self, mut_genes=None, expr_genes=None):
-        self._tune_priors = {}
+    def __init__(self, path_keys=None):
+        feat_step = PathwaySelect(path_keys=path_keys)
         norm_step = StandardScaler()
         fit_step = GaussianProcessClassifier()
-        UniVariantPipe.__init__(self,
-                                [('norm', norm_step), ('fit', fit_step)])
+        UniVariantPipe.__init__(
+            self,
+            [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],
+            path_keys
+            )
+
+
+# .. classifiers utilizing Bayesian transfer learning ..
+class MKBMTL(MultiVariantPipe):
+    """A class corresponding to Bayesian transfer learning with multi-feature
+    """
+
+    tune_priors = (
+        ('fit__prec_alpha', (2.0, 5.0, 10.0)),
+        ('fit__prec_beta', (0.5, 1.0, 2.0)),
+        ('fit__sigma_h', (0.02, 0.05, 0.1, 0.2))
+        )
+
+    def __init__(self, path_keys=None):
+        feat_step = PathwaySelect(path_keys=path_keys)
+        norm_step = StandardScaler()
+        fit_step = MultiVariant(
+            latent_features=2, path_keys=path_keys, kernel='rbf'
+            )
+        MultiVariantPipe.__init__(
+            self,
+            [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],
+            path_keys
+            )
 

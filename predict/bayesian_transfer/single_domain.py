@@ -17,7 +17,7 @@ class MultiVariant(object):
     def __init__(self,
                  kernel, path_keys, latent_features,
                  sigma_h=0.1, prec_alpha=1.0, prec_beta=1.0, margin=1.0,
-                 max_iter=50, stop_tol=1e-3):
+                 max_iter=20, stop_tol=1e-3):
         self.kernel = kernel
         self.path_keys = path_keys
         self.R = latent_features
@@ -28,6 +28,9 @@ class MultiVariant(object):
         self.max_iter = max_iter
         self.stop_tol = stop_tol
 
+        self.expr_genes = None
+        self.path_obj = None
+        self.mut_genes = None
         self.X = None
         self.lambda_mat = None
         self.A_mat = None
@@ -35,11 +38,24 @@ class MultiVariant(object):
         self.eta_mat = None
         self.bw_mat = None
         self.f_mat = None
+        self.H_mat = None
 
     def compute_kernels(self, x_mat, y_mat=None, **fit_params):
         """Gets the kernel matrices from a list of feature matrices."""
 
-        select_list = [PathwaySelect(pk) for pk in self.path_keys]
+        if 'expr_genes' in fit_params:
+            self.expr_genes = fit_params['expr_genes']
+        if 'feat__path_obj' in fit_params:
+            self.path_obj = fit_params['feat__path_obj']
+        if 'fit__path_obj' in fit_params:
+            self.path_obj = fit_params['fit__path_obj']
+        if 'feat__mut_genes' in fit_params:
+            self.mut_genes = fit_params['feat__mut_genes']
+        if 'fit__mut_genes' in fit_params:
+            self.mut_genes = fit_params['fit__mut_genes']
+
+        select_list = [PathwaySelect(pk, expr_genes=self.expr_genes)
+                       for pk in self.path_keys]
         x_list = [ps.fit(X=x_mat, y=None, **fit_params).transform(x_mat)
                   for ps in select_list]
 
@@ -56,8 +72,8 @@ class MultiVariant(object):
             kernel_list = [
                 metrics.pairwise.rbf_kernel(
                     x, y,
-                    gamma=np.mean(metrics.pairwise.pairwise_distances(x))
-                          ** -2.0
+                    gamma=np.mean(
+                        metrics.pairwise.pairwise_distances(x)) ** -2.0
                     )
                 for x, y in zip(x_list, y_list)
                 ]
@@ -75,11 +91,15 @@ class MultiVariant(object):
     def fit(self, X, y_list, verbose=False, **fit_params):
         """Fits the classifier."""
 
-        # computes the kernel matrices and concatenates them, gets output
-        # labels and input data characteristics
+        # computes the kernel matrices and concatenates them, gets number of
+        # training samples and total number of kernel features
         kernel_mat = self.compute_kernels(X, **fit_params)
         kern_size = kernel_mat.shape[0]
         data_size = kernel_mat.shape[1]
+
+        # makes sure training labels are of the correct format
+        if len(y_list) == data_size:
+            y_list = np.array(y_list).transpose().tolist()
         y_list = [[1.0 if x else -1.0 for x in y] for y in y_list]
 
         # initializes matrix of posterior distributions of precision priors
@@ -187,6 +207,7 @@ class MultiVariant(object):
                      for j in range(len(y_list))]
                     )
                 )
+
             # updates posterior distributions of classification priors
             # in the shared subspace
             gamma_list['beta'] = [self.prec_beta
@@ -262,13 +283,16 @@ class MultiVariant(object):
         self.eta_mat = eta_mat
         self.bw_mat = bw_mat
         self.f_mat = f_mat
+        self.H_mat = H_mat
 
         return self
 
-    def predict_proba(self, X, **fit_params):
+    def predict_proba(self, X):
         """Predicts probability of each type of mutation in a new dataset."""
 
-        kernel_mat = self.compute_kernels(x_mat=self.X, y_mat=X, **fit_params)
+        kernel_mat = self.compute_kernels(x_mat=self.X, y_mat=X,
+                                          path_obj=self.path_obj,
+                                          mut_genes=self.mut_genes)
         data_size = X.shape[0]
         pred_count = self.f_mat['mu'].shape[0]
 
