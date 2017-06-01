@@ -1,0 +1,35 @@
+# 
+# htCondor submit file for baseline PRECEPTS classification testing
+#
+# Usage:
+# condor_submit scripts/HetMan/experiments/baseline_test.submit -append 'arguments=$(Process)'
+
+
+common_dir = /home/users/grzadkow/compbio
+getenv = True
+
+#Program
+executable = $(common_dir)/scripts/HetMan/experiments/baseline/baseline_test.sh
+
+#stdout
+output=$(common_dir)/condor/HetMan/out-logs/base_$(Process).log
+
+#stderr
+error=$(common_dir)/condor/HetMan/err-logs/base_$(Process).log
+
+#Condor log file
+log=$(common_dir)/condor/HetMan/sum-logs/base_$(Process).log
+
+# #processor cores requested
+request_cpus = 16
+
+#Memory requested
+request_memory = 16 GB
+
+#Disk space
+#request_disk = 200 GB
+
+#Queue the job
+queue 5
+
+
