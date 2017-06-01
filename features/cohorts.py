@@ -8,7 +8,7 @@ testing classifiers.
 
 # Author: Michal Grzadkowski <grzadkow@ohsu.edu>
 
-from .expression import get_expr_bmeg
+from .expression import get_expr_bmeg, parse_tcga_barcodes
 from .variants import get_variants_mc3, MuTree
 from .pathways import parse_sif
 from .annot import get_gencode
@@ -76,7 +76,9 @@ class VariantCohort(Cohort):
                  if a['gene_name'] in expr.columns}
         annot_genes = [a['gene_name'] for g,a in annot.items()]
         expr = expr.loc[:, annot_genes]
+        expr.index = parse_tcga_barcodes(expr.index)
         expr = expr.loc[:, ~expr.columns.duplicated()]
+        expr = expr.loc[~expr.index.duplicated(), :]
 
         # gets set of samples shared across expression and mutation datasets,
         # subsets these datasets to use only these samples
@@ -152,4 +154,80 @@ class VariantCohort(Cohort):
             alternative='less')
 
         return pval
+
+
+class DrugCohort(Cohort):
+
+    def __init__(self, drug, source='CCLE', random_state=None):
+        exp_data = {}
+        drug_data = {}
+
+        if source == 'CCLE':
+            for i in oph.query().has(
+                "gid", "cohort:CCLE").outgoing(
+                    "hasSample").incoming("expressionForSample").execute():
+
+                if ('properties' in i
+                    and 'serializedExpressions' in i['properties']):
+                    drug_querr = oph.query().has("gid", i['gid']).outgoing(
+                        "expressionForSample").outEdge(
+                            "responseToCompound").values(
+                                ['gid', 'responseSummary']).execute()
+                    drug_data[i['gid']] = {}
+
+                    for dg in drug_querr:
+                        if dg:
+                            dg_parse = dg.split(':')
+                            if dg_parse[0] == 'responseCurve':
+                                cur_drug = dg_parse[-1]
+
+                            elif cur_drug == drug:
+                                drug_data[i['gid']] = [
+                                    x['value'] for x in json.loads(dg)
+                                    if x['type'] == 'AUC'][0]
+
+                s = json.loads(i['properties']['serializedExpressions'])
+                exp_data[i['gid']] = s
+
+            drug_resp = pd.Series({k:v for k,v in drug_data.items() if v})
+            drug_expr = exp_norm(pd.DataFrame(exp_data).transpose())
+            drug_expr = drug_expr.loc[drug_resp.index, :]
+
+        elif source == 'ioria':
+            cell_expr = pd.read_csv(
+                '/home/users/grzadkow/compbio/input-data/ioria-landscape/'
+                'cell-line/Cell_line_RMA_proc_basalExp.txt',
+                sep='\t', comment='#')
+            cell_expr = cell_expr.ix[~pd.isnull(cell_expr['GENE_SYMBOLS']), :]
+            drug_annot = pd.read_csv('/home/users/grzadkow/compbio/'
+                                     'scripts/HetMan/experiments/'
+                                     'drug_predictions/input/drug_annot.txt',
+                                     sep='\t', comment='#')
+
+            cell_expr.index = cell_expr['GENE_SYMBOLS']
+            cell_expr = cell_expr.ix[:, 2:]
+
+            drug_resp = pd.read_csv('/home/users/grzadkow/compbio/input-data'
+                                    '/ioria-landscape/cell-line/drug-auc.txt',
+                                    sep='\t', comment='#')
+            drug_match = process.extractOne(drug, drug_annot['Name'])
+            drug_lbl = 'X' + str(drug_annot['Identifier'][drug_match[-1]])
+            drug_resp = drug_resp.loc[:, drug_lbl]
+            drug_resp = drug_resp[~pd.isnull(drug_resp)]
+            drug_expr = cell_expr.loc[:, drug_resp.index].transpose().dropna(
+                axis=0, how='all').dropna(axis=1, how='any')
+            drug_resp = drug_resp.loc[drug_expr.index]
+
+        random.seed(a=random_state)
+        cv_seed = random.getstate()
+        self.train_samps_ = frozenset(
+            random.sample(population=list(drug_expr.index),
+                          k=int(round(drug_expr.shape[0] * 0.8)))
+            )
+        self.test_samps_ = frozenset(
+            set(drug_expr.index) - self.train_samps_)
+
+        self.random_state = random_state
+        self.drug_resp = drug_resp
+        self.drug_expr = drug_expr
 

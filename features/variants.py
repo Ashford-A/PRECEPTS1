@@ -8,6 +8,8 @@ See .copies for code dealing with copy number alterations.
 
 # Author: Michal Grzadkowski <grzadkow@ohsu.edu>
 
+from .expression import parse_tcga_barcodes
+
 import numpy as np
 import pandas as pd
 
@@ -51,6 +53,7 @@ def get_variants_mc3(syn):
                       for s in muts['Sample']]
     muts['PolyPhen'] = [gsub('\)$', '', gsub('^.*\(', '', x))
                         if x != '.' else 0 for x in muts['PolyPhen']]
+    muts['Sample'] = parse_tcga_barcodes(muts['Sample'])
 
     return muts
 

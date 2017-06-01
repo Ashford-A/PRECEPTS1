@@ -10,9 +10,15 @@ This file contains functions for loading and processing expression datasets.
 import numpy as np
 import pandas as pd
 
+from functools import reduce
 import json
 from ophion import Ophion
 
+def parse_tcga_barcodes(barcodes):
+    """Extracts the sample labels from TCGA barcodes."""
+    return [reduce(lambda x,y: x + '-' + y,
+                   s.split('-', 4)[:3])
+            for s in barcodes]
 
 def log_norm_expr(expr):
     """Log-normalizes expression data."""
