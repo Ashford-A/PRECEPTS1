@@ -11,4 +11,3 @@ sys.path.extend(['../ophion/client/python/'])
 DATA_PATH = os.path.join(os.path.dirname(__file__), '../data/')
 
 __all__ = ['cohorts']
-

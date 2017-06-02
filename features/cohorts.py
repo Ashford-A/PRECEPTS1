@@ -64,7 +64,6 @@ class VariantCohort(Cohort):
         # loads gene expression and mutation data, as well as pathway
         # neighbourhood for mutated genes
         expr = get_expr_bmeg(cohort)
-        expr.index = [x[-1] for x in expr.index.str.split(':')]
         variants = get_variants_mc3(syn)
         self.path_ = parse_sif(mut_genes)
         annot = get_gencode()
@@ -76,9 +75,6 @@ class VariantCohort(Cohort):
                  if a['gene_name'] in expr.columns}
         annot_genes = [a['gene_name'] for g,a in annot.items()]
         expr = expr.loc[:, annot_genes]
-        expr.index = parse_tcga_barcodes(expr.index)
-        expr = expr.loc[:, ~expr.columns.duplicated()]
-        expr = expr.loc[~expr.index.duplicated(), :]
 
         # gets set of samples shared across expression and mutation datasets,
         # subsets these datasets to use only these samples

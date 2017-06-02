@@ -1,21 +1,23 @@
 
-"""
-HetMan (Heterogeneity Manifold)
-Classification of mutation sub-types using expression data.
-This file contains classes for representing and storing variants.
-See .copies for code dealing with copy number alterations.
-"""
+"""Loading and processing variant datasets.
 
-# Author: Michal Grzadkowski <grzadkow@ohsu.edu>
+This file contains functions and classes for loading, processing, and storing
+mutations such as SNPs, indels, and frameshifts in formats suitable for use
+in machine learning pipelines.
 
-from .expression import parse_tcga_barcodes
+See Also:
+    :module:`.copies`: Dealing with copy number alterations.
+
+Author: Michal Grzadkowski <grzadkow@ohsu.edu>
+
+"""
 
 import numpy as np
 import pandas as pd
 
+import json
 from re import sub as gsub
 from math import exp
-import json
 from ophion import Ophion
 
 from functools import reduce
@@ -28,19 +30,15 @@ from sklearn.cluster import MeanShift
 def get_variants_mc3(syn):
     """Reads ICGC mutation data from the MC3 synapse file.
 
-    Parameters
-    ----------
-    syn : object
-        An instance of Synapse that has already been logged into.
+    Args:
+        syn (Synapse): A logged-in synapseclient instance.
 
-    Returns
-    -------
-    muts : ndarray, shape (n_mutations, mut_levels+1)
-        A mutation array, with a row for each mutation appearing in an
-        individual sample.
+    Returns:
+        muts (pandas DataFrame), shape = (n_mutations, mut_levels+1)
+            An array of mutation data, with a row for each mutation
+            appearing in an individual sample.
+
     """
-
-    # gets data from Synapse, figures out which columns to use
     mc3 = syn.get('syn7824274')
     use_cols = [0, 8, 15, 36, 38, 72]
     use_names = ['Gene', 'Form', 'Sample', 'Protein', 'Exon', 'PolyPhen']
@@ -53,7 +51,6 @@ def get_variants_mc3(syn):
                       for s in muts['Sample']]
     muts['PolyPhen'] = [gsub('\)$', '', gsub('^.*\(', '', x))
                         if x != '.' else 0 for x in muts['PolyPhen']]
-    muts['Sample'] = parse_tcga_barcodes(muts['Sample'])
 
     return muts
 
@@ -84,21 +81,27 @@ def get_variants_bmeg(sample_list, gene_list, mut_fields=("term", )):
                 if k in mut_fields}
 
     mut_table = pd.DataFrame(mut_list)
+
     return mut_table
 
 
 class MuTree(object):
-    """A class corresponding to a hierarchy of mutation types
-       present in a set of samples.
-       
-    Parameters
-    ----------
-    muts : pandas DataFrame, shape (n_muts,)
-        Input mutation data, each record is a mutation occurring in a sample.
-        Must contain a 'Sample' column.
+    """A hierarchy of samples organized by mutation annotation levels.
+
+    Attributes:
+        depth (int): How many mutation levels are above the tree
+                     in the hierarchy.
+        mut_level (str): The mutation annotation level described by the top
+                         level of the tree.
+
+    Args:
+        muts (pandas DataFrame), shape = [n_muts, ]
+            Input mutation data, each record is a mutation occurring in
+            a sample to be included in the tree.
+            Must contain a 'Sample' column.
         
-    levels : tuple
-        A list of mutation levels to be included in the tree.
+        levels (tuple of str):
+            A list of mutation levels to be included in the tree.
         All sub-trees will have list the same set of levels regardless of
         their depth in the hierarchy.
 
@@ -112,11 +115,13 @@ class MuTree(object):
         individual samples as children if they are at the very bottom of the
         hierarchy which are stored as frozensets in the case of discrete
         mutation types and dicts in the case of continuous mutations.
+
     """
 
-    # mapping between mutation fields and custom mutation levels
+    # mapping between fields in the input mutation table and
+    # custom mutation levels
     mut_fields = {
-        'Type': ['Gene', 'Form', 'Protein']
+        'Type': ('Gene', 'Form', 'Protein')
         }
 
     # .. functions for finding available branches of mutation levels ..
@@ -254,7 +259,6 @@ class MuTree(object):
     def parse_scores(muts, parse_lvl):
         return tuple(zip(muts['Sample'], pd.to_numeric(muts[parse_lvl])))
 
-
     def __new__(cls, muts, levels=('Gene', 'Form'), **kwargs):
         new_muts = cls.check_muts(muts, levels)
         if new_muts:
@@ -263,56 +267,69 @@ class MuTree(object):
             return frozenset(muts['Sample'])
 
     def __init__(self, muts, levels=('Gene', 'Form'), **kwargs):
+        """
+
+        :param muts (pandas DataFrame):
+        :param levels (tuple):
+        :param kwargs:
+        """
+
         if 'Sample' not in muts:
-            raise ValueError("Mutations must have a 'Sample' field!")
+            raise ValueError("Mutation table must have a 'Sample' field!")
+
         if 'depth' in kwargs:
-            depth = kwargs['depth']
+            self.depth = kwargs['depth']
         else:
-            depth = 0
-        self.depth = depth
+            self.depth = 0
 
         # recursively builds the mutation hierarchy
         lvls_left = list(levels)
-        self.child = {}
+        self._child = {}
         rel_depth = 0
 
-        while lvls_left and not self.child:
+        while lvls_left and not self._child:
             cur_lvl = lvls_left.pop(0)
             splat_muts = self.split_muts(muts, cur_lvl)
 
             if splat_muts:
-                self.cur_level = levels[rel_depth]
+                self.mut_level = levels[rel_depth]
                 if isinstance(splat_muts, tuple):
-                    self.child = dict(splat_muts)
+                    self._child = dict(splat_muts)
 
                 else:
                     for nm, mut in splat_muts.items():
-                        self.child[nm] = MuTree(mut, lvls_left,
-                                                depth=self.depth+1)
+                        self._child[nm] = MuTree(mut, lvls_left,
+                                                 depth=self.depth+1)
             else:
                 rel_depth += 1
 
     def __iter__(self):
-        """Allows iteration over mutation categories at the current level."""
-        if isinstance(self.child, frozenset):
-            return iter(self.child)
+        """Allows iteration over mutation categories at the current level, or
+           the samples at the current level if we are at a leaf node.
+        """
+        if isinstance(self._child, frozenset):
+            return iter(self._child)
         else:
-            return iter(self.child.items())
+            return iter(self._child.items())
 
     def __getitem__(self, key):
         """Gets a particular category of mutations at the current level."""
         if not key:
             key_item = self
+
         elif isinstance(key, str):
-            key_item = self.child[key]
+            key_item = self._child[key]
+
         elif hasattr(key, '__getitem__'):
-            sub_item = self.child[key[0]]
+            sub_item = self._child[key[0]]
+
             if isinstance(sub_item, MuTree):
                 key_item = sub_item[key[1:]]
             elif key[1:]:
                 raise KeyError("Key has more levels than this MuTree!")
             else:
                 key_item = sub_item
+
         else:
             raise TypeError("Unsupported key type " + type(key) + "!")
 
@@ -320,41 +337,26 @@ class MuTree(object):
 
     def __str__(self):
         """Printing a MuTree shows each of the branches of the tree and
-           the samples at the end of each branch."""
-        new_str = self.cur_level
+           the samples at the end of each branch.
+        """
+        new_str = self.mut_level
 
-        # if the current level is continuous, print summary statistics
-        if '_scores' in self.cur_level:
-            if len(self) > 8:
-                score_dict = np.percentile(tuple(self.get_scores().values()),
-                                           [0, 25, 50, 75, 100])
-                new_str = (new_str + ": {} samples with score distribution "
-                           "Min({:05.4f}) 1Q({:05.4f}) Med({:05.4f}) "
-                           "3Q({:05.4f}) Max({:05.4f})".format(
-                               len(self), *score_dict))
+        for nm, mut in self:
+            new_str += ' IS {}'.format(nm)
+
+            if isinstance(mut, MuTree):
+                new_str += (' AND ' + '\n'
+                            + '\t' * (self.depth + 1) + str(mut))
+
+            # if we have reached a root node, print the samples
+            elif len(mut) > 8:
+                    new_str += ': ({} samples)'.format(str(len(mut)))
             else:
-                new_str = new_str + ': ' + str(self.get_scores())
+                    new_str += ': {}'.format(
+                        reduce(lambda x, y: '{},{}'.format(x, y), mut))
 
-        # otherwise, iterate over the branches, recursing when necessary
-        else:
-            for nm, mut in self:
-                new_str = new_str + ' IS ' + nm
-                if isinstance(mut, MuTree):
-                    new_str = (new_str + ' AND '
-                               + '\n' + '\t'*(self.depth+1) + str(mut))
-
-                # if we have reached a root node, print the samples
-                else:
-                    if not hasattr(mut, '__len__'):
-                        new_str = new_str + str(round(mut, 2))
-                    elif len(mut) > 10:
-                        new_str = (new_str
-                                   + ': (' + str(len(mut)) + ' samples)')
-                    elif isinstance(mut, frozenset):
-                        new_str = (new_str + ': '
-                                   + reduce(lambda x,y: x + ',' + y, mut))
-                new_str = new_str + '\n' + '\t'*self.depth
-            new_str = gsub('\n$', '', new_str)
+            new_str += ('\n' + '\t' * self.depth)
+        new_str = gsub('\n$', '', new_str)
 
         return new_str
 
@@ -364,7 +366,7 @@ class MuTree(object):
 
     def get_levels(self):
         """Gets all the levels present in this tree and its children."""
-        levels = set([self.cur_level])
+        levels = {self.mut_level}
 
         for _, mut in self:
             if isinstance(mut, MuTree):
@@ -391,7 +393,7 @@ class MuTree(object):
            samples appears in."""
         samp_count = {s:0 for s in samps}
 
-        for v in list(self.child.values()):
+        for v in list(self._child.values()):
             if isinstance(v, MuTree):
                 new_counts = v.get_samp_count(samps)
                 samp_count.update(
@@ -446,14 +448,14 @@ class MuTree(object):
         """
         if levels is None:
             levels = self.get_levels()
-        new_lvls = set(levels) - set([self.cur_level])
+        new_lvls = set(levels) - set([self.mut_level])
 
-        if self.cur_level in levels:
-            if '_scores' in self.cur_level:
-                new_key = {(self.cur_level, 'Value'): None}
+        if self.mut_level in levels:
+            if '_scores' in self.mut_level:
+                new_key = {(self.mut_level, 'Value'): None}
 
             else:
-                new_key = {(self.cur_level, nm):
+                new_key = {(self.mut_level, nm):
                            (mut.allkey(new_lvls)
                             if isinstance(mut, MuTree) and new_lvls
                             else None)
@@ -467,9 +469,9 @@ class MuTree(object):
                             else (k, {**x[k], **y[k]})
                             for k in set(x) & set(y))),
                 [mut.allkey(new_lvls) if isinstance(mut, MuTree) and new_lvls
-                 else {(self.cur_level, 'Value'): None}
-                 if '_scores' in self.cur_level
-                 else {(self.cur_level, nm): None}
+                 else {(self.mut_level, 'Value'): None}
+                 if '_scores' in self.mut_level
+                 else {(self.mut_level, nm): None}
                  for nm, mut in self]
                 )
 
@@ -500,16 +502,16 @@ class MuTree(object):
             levels = self.get_levels()
         mtypes = []
 
-        if self.cur_level in levels:
+        if self.mut_level in levels:
             for nm, mut in self:
                 for k, v in mtype:
                     if k in nm:
-                        new_lvls = list(set(levels) - {[self.cur_level]})
+                        new_lvls = list(set(levels) - {[self.mut_level]})
                         if isinstance(mut, MuTree) and len(new_lvls) > 0:
-                            mtypes += [MuType({(self.cur_level, k): s})
+                            mtypes += [MuType({(self.mut_level, k): s})
                                        for s in mut.subsets(v, new_lvls)]
                         else:
-                            mtypes += [MuType({(self.cur_level, k): None})]
+                            mtypes += [MuType({(self.mut_level, k): None})]
 
         else:
             mtypes += [mut.subsets(mtype, levels) for _, mut in self
@@ -890,9 +892,9 @@ class MuType(object):
         """
         samps = set()
 
-        if self.cur_level == mtree.cur_level:
+        if self.cur_level == mtree.mut_level:
             if '_scores' in self.cur_level:
-                samps |= set(mtree.child.keys())
+                samps |= set(mtree._child.keys())
 
             else:
                 for nm, mut in mtree:
