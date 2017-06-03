@@ -28,7 +28,7 @@ class PathwaySelect(SelectorMixin):
         self.expr_genes = expr_genes
         super(PathwaySelect, self).__init__()
 
-    def fit(self, X, y, **fit_params):
+    def fit(self, X, y=None, **fit_params):
         """Gets the list of genes selected based on pathway information."""
 
         fit_params = {k.split('__')[-1]: v for k, v in fit_params.items()}

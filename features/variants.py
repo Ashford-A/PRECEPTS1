@@ -305,8 +305,7 @@ class MuTree(object):
 
     def __iter__(self):
         """Allows iteration over mutation categories at the current level, or
-           the samples at the current level if we are at a leaf node.
-        """
+           the samples at the current level if we are at a leaf node."""
         if isinstance(self._child, frozenset):
             return iter(self._child)
         else:
@@ -337,8 +336,7 @@ class MuTree(object):
 
     def __str__(self):
         """Printing a MuTree shows each of the branches of the tree and
-           the samples at the end of each branch.
-        """
+           the samples at the end of each branch."""
         new_str = self.mut_level
 
         for nm, mut in self:
@@ -393,13 +391,14 @@ class MuTree(object):
            samples appears in."""
         samp_count = {s:0 for s in samps}
 
-        for v in list(self._child.values()):
-            if isinstance(v, MuTree):
-                new_counts = v.get_samp_count(samps)
+        for _, mut in self:
+            if isinstance(mut, MuTree):
+                new_counts = mut.get_samp_count(samps)
                 samp_count.update(
-                    {s:(samp_count[s] + new_counts[s]) for s in samps})
+                    {s: (samp_count[s] + new_counts[s]) for s in samps})
+
             else:
-                samp_count.update({s:(samp_count[s] + 1) for s in v})
+                samp_count.update({s:(samp_count[s] + 1) for s in mut})
 
         return samp_count
 
@@ -417,11 +416,13 @@ class MuTree(object):
         ov : float
             The ratio of overlap between the two given sets.
         """
-        samps1 = self.get_samples(mtype1)
-        samps2 = self.get_samples(mtype2)
+        samps1 = mtype1.get_samples(self)
+        samps2 = mtype2.get_samples(self)
+
         if len(samps1) and len(samps2):
             ovlp = float(len(samps1 & samps2))
             ov = max(ovlp / len(samps1), ovlp / len(samps2))
+
         else:
             ov = 0
 
@@ -448,7 +449,7 @@ class MuTree(object):
         """
         if levels is None:
             levels = self.get_levels()
-        new_lvls = set(levels) - set([self.mut_level])
+        new_lvls = set(levels) - {self.mut_level}
 
         if self.mut_level in levels:
             if '_scores' in self.mut_level:

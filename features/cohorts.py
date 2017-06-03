@@ -1,14 +1,16 @@
 
-"""
-HetMan (Heterogeneity Manifold)
-Classification of mutation sub-types using expression data.
-This file contains classes that consolidate -omics datasets for use in
-testing classifiers.
+"""Consolidating -omics datasets.
+
+This module contains classes for grouping expression datasets with other
+-omic features such as variants, copy number alterations, and drug response
+data so that the former can be used to predict the latter using machine
+learning pipelines.
+
+Author: Michal Grzadkowski <grzadkow@ohsu.edu>
+
 """
 
-# Author: Michal Grzadkowski <grzadkow@ohsu.edu>
-
-from .expression import get_expr_bmeg, parse_tcga_barcodes
+from .expression import get_expr_bmeg
 from .variants import get_variants_mc3, MuTree
 from .pathways import parse_sif
 from .annot import get_gencode
@@ -19,6 +21,17 @@ import random
 
 
 class Cohort(object):
+    """A matched pair of expression and feature datasets for use in learning.
+
+    Attributes:
+        cohort (str): The source of the datasets.
+        cv_seed (int): A seed used for random sampling from the datasets.
+
+    """
+
+    def __init__(self, cohort, cv_seed):
+        self.cohort = cohort
+        self.cv_seed = cv_seed
 
     def _validate_dims(self,
                        mtype=None, include_samps=None, exclude_samps=None,
@@ -51,29 +64,34 @@ class Cohort(object):
 
 
 class VariantCohort(Cohort):
+    """An expression dataset used to predict genes' variant mutations.
+
+    Attributes:
+
+    Args:
+
+    """
 
     def __init__(self,
                  syn, cohort, mut_genes, mut_levels=('Gene', 'Form'),
                  cv_info=None):
-        self.cohort_ = cohort
         if cv_info is None:
-            cv_info = {'Prop': 2.0/3, 'Seed':1}
-        self.intern_cv_ = cv_info['Seed'] ** 2
+            cv_info = {'Prop': 2.0/3, 'Seed': 1}
+        self.path_ = parse_sif(mut_genes)
         self.mut_genes = mut_genes
 
         # loads gene expression and mutation data, as well as pathway
         # neighbourhood for mutated genes
         expr = get_expr_bmeg(cohort)
         variants = get_variants_mc3(syn)
-        self.path_ = parse_sif(mut_genes)
         annot = get_gencode()
 
         # filters out genes that don't have any variation across the samples
         # or are not included in the annotation data
         expr = expr.loc[:, expr.apply(lambda x: np.var(x) > 0.005)].dropna()
-        annot = {g:a for g,a in annot.items()
+        annot = {g: a for g,a in annot.items()
                  if a['gene_name'] in expr.columns}
-        annot_genes = [a['gene_name'] for g,a in annot.items()]
+        annot_genes = [a['gene_name'] for g, a in annot.items()]
         expr = expr.loc[:, annot_genes]
 
         # gets set of samples shared across expression and mutation datasets,
@@ -93,16 +111,17 @@ class VariantCohort(Cohort):
 
         # gets subset of samples to use for training
         random.seed(a=cv_info['Seed'])
-        self.cv_seed = random.getstate()
-        if cv_info['Prop'] < 1.0 and cv_info['Prop'] > 0.0:
+        if 0 < cv_info['Prop'] < 1:
             self.train_samps_ = frozenset(
                 random.sample(
                     population=self.samples,
                     k=int(round(len(self.samples) * cv_info['Prop'])))
                 )
             self.test_samps_ = self.samples - self.train_samps_
+
             self.test_mut_ = MuTree(
-                muts=variants.loc[variants['Sample'].isin(self.test_samps_), :],
+                muts=variants.loc[
+                     variants['Sample'].isin(self.test_samps_), :],
                 levels=mut_levels)
             self.test_expr_ = expr.loc[self.test_samps_]
 
@@ -119,6 +138,8 @@ class VariantCohort(Cohort):
         self.train_mut_ = MuTree(
             muts=variants.loc[variants['Sample'].isin(self.train_samps_), :],
             levels=mut_levels)
+
+        super(VariantCohort, self).__init__(cohort, cv_info['Seed'])
 
     def mutex_test(self, mtype1, mtype2):
         """Checks the mutual exclusivity of two mutation types in the
@@ -227,3 +248,4 @@ class DrugCohort(Cohort):
         self.drug_resp = drug_resp
         self.drug_expr = drug_expr
 
+        super(DrugCohort, self).__init__(cohort, cv_info)

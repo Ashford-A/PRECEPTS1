@@ -8,6 +8,7 @@ and prediction methods into robust pipelines.
 
 # Author: Michal Grzadkowski <grzadkow@ohsu.edu>
 
+from ..features.pathways import parse_sif
 from .cross_validation import (
     MutRandomizedCV, cross_val_predict_mut, MutShuffleSplit)
 
@@ -22,23 +23,30 @@ from sklearn.pipeline import Pipeline
 from sklearn.model_selection import RandomizedSearchCV
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import cross_val_score
+from sklearn.externals import six
+
 
 
 class CohortPipe(Pipeline):
-    """A class corresponding to pipelines for predicting genotypic and
-       phenotypic features from expresssion data.
+    """A class pipelines for predicting features from expression data.
+
+    Args:
+        steps (list): A series of transformations and classifiers.
+            An ordered list of feature selection, normalization, and
+            classification/regression steps, the last of which produce
+            feature predictions.
+
     """
 
     # the parameters that are to be tuned, with either statistical
     # distributions or iterables to be sampled from as values
     tune_priors = {}
 
-    def __init__(self, steps, path_keys):
+    def __init__(self, steps):
         super(CohortPipe, self).__init__(steps)
-        self.set_params(path_keys=path_keys)
         self.cur_tuning = dict(self.tune_priors)
         self.expr_genes = None
-        self.path_obj = None
+        self.expr_samps = None
 
     def __repr__(self):
         """Prints the classifier name and path key."""
@@ -88,17 +96,44 @@ class VariantPipe(CohortPipe):
        mutation states such as SNPs, indels, and frameshifts.
     """
 
-    def __init__(self, steps, path_keys):
+    def __init__(self, steps):
         if not hasattr(steps[-1][-1], 'predict_proba'):
             raise ValueError(
                 "Variant pipelines must have a classification estimator"
                 "with a 'predict_proba' method as their final step!")
-        super(VariantPipe, self).__init__(steps, path_keys)
+        super(VariantPipe, self).__init__(steps)
+
+    def _fit(self, X, y=None, **fit_params):
+        self._validate_steps()
+        fit_params_steps = dict((name, {}) for name, step in self.steps
+                                if step is not None)
+        for pname, pval in six.iteritems(fit_params):
+            if '__' in pname:
+                step, param = pname.split('__', 1)
+                fit_params_steps[step][param] = pval
+
+            else:
+                for step in fit_params_steps:
+                    if step != 'norm':
+                        fit_params_steps[step][pname] = pval
+
+        Xt = X
+        for name, transform in self.steps[:-1]:
+            if transform is None:
+                pass
+            elif hasattr(transform, "fit_transform"):
+                Xt = transform.fit_transform(Xt, y, **fit_params_steps[name])
+            else:
+                Xt = transform.fit(Xt, y, **fit_params_steps[name]) \
+                              .transform(Xt)
+        if self._final_estimator is None:
+            return Xt, {}
+        return Xt, fit_params_steps[self.steps[-1][0]]
 
     def fit(self, X, y=None, **fit_params):
         """Fits the steps of the pipeline in turn."""
 
-        Xt, _ = self._fit(X, y, **fit_params)
+        Xt, _ = self._fit(X, y, **{**fit_params, **{'expr_genes': X.columns}})
         self.expr_genes = X.columns[
             self.named_steps['feat']._get_support_mask()]
         fit_params = {**fit_params, **{'expr_genes': self.expr_genes}}
@@ -133,15 +168,13 @@ class UniVariantPipe(VariantPipe):
         """Returns the probability of mutation presence calculated by the
            classifier based on the given expression matrix.
         """
-        mut_scores = self.predict_proba(expr)
+        mut_probs = self.predict_proba(expr)
 
         if hasattr(self, 'classes_'):
             true_indx = [i for i, x in enumerate(self.classes_) if x]
-        else:
-            wghts = tuple(self.named_steps['fit'].weights_)
-            true_indx = wghts.index(min(wghts))
+            mut_preds = [scrs[true_indx] for scrs in mut_probs]
 
-        return [scrs[true_indx] for scrs in mut_scores]
+        return mut_probs
 
     @classmethod
     def score_mut(cls, estimator, expr, mut):
@@ -181,7 +214,8 @@ class UniVariantPipe(VariantPipe):
         # them to tune the classifier
         tune_cvs = MutShuffleSplit(
             n_splits=tune_splits, test_size=0.2,
-            random_state=(cohort.intern_cv_ ** 2) % 42949672)
+            random_state=(cohort.cv_seed ** 2) % 42949672
+            )
 
         # checks if the classifier has parameters to be tuned
         if self.tune_priors:
@@ -193,8 +227,8 @@ class UniVariantPipe(VariantPipe):
             # samples parameter combinations and tests each one
             grid_test = RandomizedSearchCV(
                 estimator=self, param_distributions=self.cur_tuning,
-                fit_params={'feat__mut_genes': cohort.mut_genes,
-                            'feat__path_obj': cohort.path_,
+                fit_params={'mut_genes': cohort.mut_genes,
+                            'path_obj': cohort.path_,
                             'fit__mut_genes': cohort.mut_genes,
                             'fit__path_obj': cohort.path_},
                 n_iter=test_count, scoring=self.score_mut,
@@ -310,6 +344,10 @@ class MultiVariantPipe(VariantPipe):
 
     @classmethod
     def get_scores(cls, estimator, expr, mut_list):
+        data_size = estimator.named_steps['fit'].H_mat['mu'].shape[0]
+        if len(mut_list[0]) == data_size:
+            mut_list = np.array(mut_list).transpose().tolist()
+
         pred_y = estimator.predict_mut(expr)
         auc_scores = [roc_auc_score(actl, pred)
                       for actl, pred in zip(mut_list, pred_y)]
@@ -340,7 +378,8 @@ class MultiVariantPipe(VariantPipe):
         return np.min(cls.get_scores(estimator, expr, mut_list))
 
     def tune_coh(self,
-                 cohort, mtypes, gene_list=None, exclude_samps=None,
+                 cohort, mtypes, path_keys,
+                 gene_list=None, exclude_samps=None,
                  tune_splits=2, test_count=16, verbose=False):
         """Tunes the pipeline by sampling over the tuning parameters."""
 
@@ -354,7 +393,7 @@ class MultiVariantPipe(VariantPipe):
         # them to tune the classifier
         tune_cvs = MutShuffleSplit(
             n_splits=tune_splits, test_size=0.2,
-            random_state=(cohort.intern_cv_ ** 2) % 42949672)
+            random_state=(cohort.cv_seed ** 2) % 42949672)
 
         # checks if the classifier has parameters to be tuned
         if self.tune_priors:
@@ -364,14 +403,13 @@ class MultiVariantPipe(VariantPipe):
             test_count = min(test_count, max_tests)
 
             # samples parameter combinations and tests each one
-            fit_params = {'feat__mut_genes': cohort.mut_genes,
-                          'feat__path_obj': cohort.path_,
-                          'fit__mut_genes': cohort.mut_genes,
-                          'fit__path_obj': cohort.path_}
             grid_test = MutRandomizedCV(
                 estimator=self, param_distributions=self.cur_tuning,
-                fit_params=fit_params, n_iter=test_count,
-                scoring=self.score_mut, cv=tune_cvs, n_jobs=1, refit=False
+                fit_params={'mut_genes': cohort.mut_genes,
+                            'path_obj': cohort.path_,
+                            'path_keys': path_keys},
+                n_iter=test_count, scoring=self.score_mut,
+                cv=tune_cvs, n_jobs=-1, refit=False
                 )
             grid_test.fit(expr, mut_list)
 
@@ -385,7 +423,9 @@ class MultiVariantPipe(VariantPipe):
 
         return self
 
-    def fit_coh(self, cohort, mtypes, gene_list=None, exclude_samps=None):
+    def fit_coh(self,
+                cohort, mtypes, path_keys,
+                gene_list=None, exclude_samps=None):
         """Fits a classifier."""
         samps, genes = cohort._validate_dims(exclude_samps=exclude_samps,
                                              gene_list=gene_list)
@@ -394,9 +434,9 @@ class MultiVariantPipe(VariantPipe):
 
         return self.fit(
             X=cohort.train_expr_.loc[samps, genes], y=mut_list,
-            feat__mut_genes=reduce(lambda x, y: x | y,
-                                   [set(dict(mtype)) for mtype in mtypes]),
-            feat__path_obj=cohort.path_
+            **{'mut_genes': cohort.mut_genes,
+               'path_obj': cohort.path_,
+               'path_keys': path_keys}
             )
 
     def score_coh(self,

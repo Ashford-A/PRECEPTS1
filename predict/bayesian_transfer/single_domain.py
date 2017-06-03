@@ -15,9 +15,9 @@ from functools import reduce
 class MultiVariant(object):
 
     def __init__(self,
-                 kernel, path_keys, latent_features,
+                 kernel, path_keys, latent_features=5,
                  sigma_h=0.1, prec_alpha=1.0, prec_beta=1.0, margin=1.0,
-                 max_iter=20, stop_tol=1e-3):
+                 max_iter=50, stop_tol=1e-3):
         self.kernel = kernel
         self.path_keys = path_keys
         self.R = latent_features
@@ -43,16 +43,14 @@ class MultiVariant(object):
     def compute_kernels(self, x_mat, y_mat=None, **fit_params):
         """Gets the kernel matrices from a list of feature matrices."""
 
-        if 'expr_genes' in fit_params:
+        for param in ('path_keys', 'path_obj', 'mut_genes'):
+            if self.__getattribute__(param) is None:
+                self.__setattr__(param, fit_params[param])
+            else:
+                fit_params = {**fit_params,
+                              **{param: self.__getattribute__(param)}}
+        if self.expr_genes is None:
             self.expr_genes = fit_params['expr_genes']
-        if 'feat__path_obj' in fit_params:
-            self.path_obj = fit_params['feat__path_obj']
-        if 'fit__path_obj' in fit_params:
-            self.path_obj = fit_params['fit__path_obj']
-        if 'feat__mut_genes' in fit_params:
-            self.mut_genes = fit_params['feat__mut_genes']
-        if 'fit__mut_genes' in fit_params:
-            self.mut_genes = fit_params['fit__mut_genes']
 
         select_list = [PathwaySelect(pk, expr_genes=self.expr_genes)
                        for pk in self.path_keys]
@@ -290,9 +288,7 @@ class MultiVariant(object):
     def predict_proba(self, X):
         """Predicts probability of each type of mutation in a new dataset."""
 
-        kernel_mat = self.compute_kernels(x_mat=self.X, y_mat=X,
-                                          path_obj=self.path_obj,
-                                          mut_genes=self.mut_genes)
+        kernel_mat = self.compute_kernels(x_mat=self.X, y_mat=X)
         data_size = X.shape[0]
         pred_count = self.f_mat['mu'].shape[0]
 
@@ -323,7 +319,9 @@ class MultiVariant(object):
         return pred_list
 
     def get_params(self, deep=True):
-        return {'sigma_h':self.sigma_h}
+        return {'sigma_h': self.sigma_h,
+                'prec_alpha': self.prec_alpha,
+                'prec_beta': self.prec_beta}
 
     def set_params(self, **kwargs):
         for k,v in kwargs.items():

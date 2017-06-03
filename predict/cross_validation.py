@@ -166,10 +166,10 @@ def check_consistent_mut_length(expr, mut):
     #                     " samples: %r" % [int(l) for l in mut_lengths])
 
 
-def _fit_and_score(estimator, X, y, scorer, train, test, verbose,
-                   parameters, fit_params, return_train_score=False,
-                   return_parameters=False, return_n_test_samples=False,
-                   return_times=False, error_score='raise'):
+def _mut_fit_and_score(estimator, X, y, scorer, train, test, verbose,
+                       parameters, fit_params, return_train_score=False,
+                       return_parameters=False, return_n_test_samples=False,
+                       return_times=False, error_score='raise'):
     """Fit estimator and compute scores for a given dataset split.
 
     Parameters
@@ -401,13 +401,13 @@ class MutRandomizedCV(RandomizedSearchCV):
         out = Parallel(
             n_jobs=self.n_jobs, verbose=self.verbose,
             pre_dispatch=pre_dispatch
-        )(delayed(_fit_and_score)(clone(base_estimator), X, y, self.scorer_,
-                                  train, test, self.verbose, parameters,
-                                  fit_params=self.fit_params,
-                                  return_train_score=self.return_train_score,
-                                  return_n_test_samples=True,
-                                  return_times=True, return_parameters=True,
-                                  error_score=self.error_score)
+        )(delayed(_mut_fit_and_score)(clone(base_estimator), X, y, self.scorer_,
+                                      train, test, self.verbose, parameters,
+                                      fit_params=self.fit_params,
+                                      return_train_score=self.return_train_score,
+                                      return_n_test_samples=True,
+                                      return_times=True, return_parameters=True,
+                                      error_score=self.error_score)
           for parameters in parameter_iterable
           for train, test in cv_iter)
 

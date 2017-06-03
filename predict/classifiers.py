@@ -232,20 +232,20 @@ class MKBMTL(MultiVariantPipe):
     """
 
     tune_priors = (
-        ('fit__prec_alpha', (2.0, 5.0, 10.0)),
-        ('fit__prec_beta', (0.5, 1.0, 2.0)),
-        ('fit__sigma_h', (0.02, 0.05, 0.1, 0.2))
+        ('fit__latent_features', (2, 3, 5, 10)),
+        ('fit__prec_alpha', (1.0, 1.5, 2.0, 5.0)),
+        ('fit__prec_beta', (0.25, 0.5, 1.0, 2.0)),
+        ('fit__sigma_h', (0.01, 0.02, 0.05, 0.1, 0.2))
         )
 
     def __init__(self, path_keys=None):
         feat_step = PathwaySelect(path_keys=path_keys)
         norm_step = StandardScaler()
         fit_step = MultiVariant(
-            latent_features=2, path_keys=path_keys, kernel='rbf'
+            path_keys=path_keys, kernel='rbf'
             )
         MultiVariantPipe.__init__(
             self,
-            [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],
-            path_keys
+            [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)]
             )
 
