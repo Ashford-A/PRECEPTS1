@@ -12,21 +12,12 @@ from sklearn import metrics
 from functools import reduce
 
 
-class MultiVariant(object):
+class BaseSingleDomain(object):
 
-    def __init__(self,
-                 kernel, path_keys, latent_features=5,
-                 sigma_h=0.1, prec_alpha=1.0, prec_beta=1.0, margin=1.0,
-                 max_iter=50, stop_tol=1e-3):
-        self.kernel = kernel
-        self.path_keys = path_keys
-        self.R = latent_features
-        self.sigma_h = sigma_h
+    def __init__(self, prec_alpha, prec_beta, sigma_h):
         self.prec_alpha = prec_alpha
         self.prec_beta = prec_beta
-        self.margin = margin
-        self.max_iter = max_iter
-        self.stop_tol = stop_tol
+        self.sigma_h = sigma_h
 
         self.expr_genes = None
         self.path_obj = None
@@ -39,6 +30,99 @@ class MultiVariant(object):
         self.bw_mat = None
         self.f_mat = None
         self.H_mat = None
+
+    def log_likelihood(self, kernel_mat, y_list):
+        """Computes the log-likelihood of the current model state."""
+        if self.lambda_mat is None:
+            raise ValueError("Can't compute model likelihood before fitting!")
+
+        # precision prior distribution given precision hyper-parameters
+        prec_distr = stats.gamma(a=self.prec_alpha,
+                                 scale=self.prec_beta ** -1.0)
+
+        # likelihood of projection matrix precision priors given
+        # precision hyper-parameters
+        lambda_logl = np.sum(
+            prec_distr.logpdf(self.lambda_mat['alpha']
+                              / self.lambda_mat['beta'])
+            )
+
+        # likelihood of projection matrix values given their precision priors
+        a_logl = np.sum(
+            stats.norm(loc=0, scale=(self.lambda_mat['beta']
+                                     / self.lambda_mat['alpha']))
+                .logpdf(self.A_mat['mu'])
+            )
+
+        # likelihood of latent feature matrix given kernel matrix,
+        # projection matrix, and standard deviation hyper-parameter
+        h_logl = np.sum(
+            stats.norm(loc=self.A_mat['mu'].transpose() @ kernel_mat,
+                       scale=self.sigma_h)
+                .logpdf(self.H_mat['mu'])
+            )
+
+        # likelihood of bias parameter precision priors given
+        # precision hyper-parameters
+        gamma_logl = np.sum(
+            prec_distr.logpdf(np.array(self.gamma_list['alpha'])
+                           / np.array(self.gamma_list['beta']))
+            )
+
+        # likelihood of bias parameters given their precision priors
+        b_logl = np.sum(
+            stats.norm(loc=0, scale=(np.array(self.gamma_list['beta'])
+                                     / np.array(self.gamma_list['alpha'])))
+                .logpdf(self.bw_mat['mu'][:, 0])
+            )
+
+        # likelihood of latent feature weight parameter precision priors
+        # given precision hyper-parameters
+        eta_logl = np.sum(prec_distr.logpdf(self.eta_mat['alpha']
+                                            / self.eta_mat['beta']))
+
+        # likelihood of latent feature weight parameters given
+        # their precision priors
+        w_logl = np.sum(
+            stats.norm(loc=0, scale=(self.eta_mat['beta']
+                                     / self.eta_mat['alpha']))
+                .logpdf(self.bw_mat['mu'][:, 1:])
+            )
+
+        # likelihood of predicted outputs given latent features, bias
+        # parameters, and latent feature weight parameters
+        f_logl = np.sum(
+            stats.norm(loc=(self.bw_mat['mu'][:, 1:] @ self.H_mat['mu']
+                            + np.vstack(self.bw_mat['mu'][:, 0])),
+                       scale=1)
+                .logpdf(self.f_mat['mu'])
+            )
+
+        # likelihood of actual output labels given class separation margin
+        # and predicted output labels
+        y_logl = np.sum(
+            stats.norm(loc=self.f_mat['mu'] * np.vstack(y_list),
+                       scale=self.f_mat['sigma']).logsf(1)
+            )
+
+        return (lambda_logl + a_logl + h_logl
+                + gamma_logl + b_logl + eta_logl + w_logl + f_logl + y_logl)
+
+
+class MultiVariant(BaseSingleDomain):
+
+    def __init__(self,
+                 kernel, path_keys, latent_features=5,
+                 sigma_h=0.1, prec_alpha=1.0, prec_beta=1.0, margin=1.0,
+                 max_iter=500, stop_tol=1e-3):
+        self.kernel = kernel
+        self.path_keys = path_keys
+        self.R = latent_features
+        self.margin = margin
+        self.max_iter = max_iter
+        self.stop_tol = stop_tol
+
+        super(MultiVariant, self).__init__(prec_alpha, prec_beta, sigma_h)
 
     def compute_kernels(self, x_mat, y_mat=None, **fit_params):
         """Gets the kernel matrices from a list of feature matrices."""
@@ -91,6 +175,7 @@ class MultiVariant(object):
 
         # computes the kernel matrices and concatenates them, gets number of
         # training samples and total number of kernel features
+        self.X = X
         kernel_mat = self.compute_kernels(X, **fit_params)
         kern_size = kernel_mat.shape[0]
         data_size = kernel_mat.shape[1]
@@ -144,7 +229,7 @@ class MultiVariant(object):
         f_mat = {'mu': np.array([[(abs(rnorm(0,1)) + self.margin) * np.sign(i)
                                   for i in y]
                                  for y in y_list]),
-                 'sigma': np.array([[1 for _ in range(data_size)]
+                 'sigma': np.array([[1.0 for _ in range(data_size)]
                                     for _ in y_list])}
 
         # precomputes kernel crossproducts, initializes lower-upper matrix
@@ -158,9 +243,9 @@ class MultiVariant(object):
         # proceeds with inference using variational Bayes for the given
         # number of iterations
         cur_iter = 1
-        while cur_iter <= self.max_iter:
-            if verbose and (cur_iter % 10) == 0:
-                print(("On iteration " + str(cur_iter) + "...."))
+        old_log_like = float('-inf')
+        log_like_stop = False
+        while cur_iter <= self.max_iter and not log_like_stop:
 
             # updates posterior distributions of projection priors
             for j in range(self.R):
@@ -259,7 +344,7 @@ class MultiVariant(object):
                 beta_norm = lu_list[j]['upper'] - f_out
                 norm_factor = [stats.norm.cdf(b) - stats.norm.cdf(a) if a != b
                                else 1
-                               for a,b in zip(alpha_norm, beta_norm)]
+                               for a, b in zip(alpha_norm, beta_norm)]
 
                 f_mat['mu'][j, :] = [
                     f + ((stats.norm.pdf(a) - stats.norm.pdf(b)) / n)
@@ -267,21 +352,28 @@ class MultiVariant(object):
                     zip(alpha_norm, beta_norm, norm_factor, f_out)
                     ]
                 f_mat['sigma'][j, :] = [
-                    1 + (a * stats.norm.pdf(a) - b * stats.norm.pdf(b)) / n
+                    1.0 + (a * stats.norm.pdf(a) - b * stats.norm.pdf(b)) / n
                     - ((stats.norm.pdf(a) - stats.norm.pdf(b)) ** 2) / n ** 2
                     for a, b, n in zip(alpha_norm, beta_norm, norm_factor)
                     ]
 
-            cur_iter += 1
+            self.lambda_mat = lambda_mat
+            self.A_mat = A_mat
+            self.gamma_list = gamma_list
+            self.eta_mat = eta_mat
+            self.bw_mat = bw_mat
+            self.f_mat = f_mat
+            self.H_mat = H_mat
 
-        self.X = X
-        self.lambda_mat = lambda_mat
-        self.A_mat = A_mat
-        self.gamma_list = gamma_list
-        self.eta_mat = eta_mat
-        self.bw_mat = bw_mat
-        self.f_mat = f_mat
-        self.H_mat = H_mat
+            if (cur_iter % 5) == 0:
+                cur_log_like = self.log_likelihood(kernel_mat, y_list)
+                if cur_log_like < (old_log_like + 1.0):
+                    log_like_stop = True
+                else:
+                    old_log_like = cur_log_like
+                    print('Iteration {}: {}'.format(cur_iter, cur_log_like))
+
+            cur_iter += 1
 
         return self
 
