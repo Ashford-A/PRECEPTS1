@@ -344,8 +344,7 @@ class MultiVariantPipe(VariantPipe):
 
     @classmethod
     def get_scores(cls, estimator, expr, mut_list):
-        data_size = estimator.named_steps['fit'].H_mat['mu'].shape[0]
-        if len(mut_list[0]) == data_size:
+        if len(mut_list[0]) == estimator.named_steps['fit'].task_count:
             mut_list = np.array(mut_list).transpose().tolist()
 
         pred_y = estimator.predict_mut(expr)

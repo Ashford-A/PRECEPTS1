@@ -30,8 +30,8 @@ def log_norm_expr(expr):
     Examples:
         >>> norm_expr = log_norm_expr(np.array([[1.0, 0], [2.0, 8.0]]))
         >>> print(norm_expr)
-        [[ 0.5849625 , -1.],
-         [ 1.32192809,  3.08746284]]
+                [[ 0.5849625 , -1.],
+                 [ 1.32192809,  3.08746284]]
 
     """
     log_add = np.nanmin(expr[expr > 0]) * 0.5
