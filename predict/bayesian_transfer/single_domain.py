@@ -1,5 +1,13 @@
 
-"""
+"""Using transfer learning to predict one or more labels in a single domain.
+
+This module contains classes corresponding to particular versions of Bayesian
+transfer learning algorithms for predicting binary labels in one or more
+tasks. Learning is done within one domain using one or more kernels to map the
+decision boundary to higher dimensions using pathway-based feature selection.
+Optimizing over the set of unknown parameters and latent variables in each
+model is done using variational inference, in which the posterior probability
+of each is approximated analytically.
 
 Authors: Michal Grzadkowski <grzadkow@ohsu.edu>
          Hannah Manning <manningh@ohsu.edu>
@@ -10,6 +18,7 @@ from ..selection import PathwaySelect
 
 import numpy as np
 from scipy import stats
+from abc import abstractmethod
 
 import collections
 from sklearn import metrics
@@ -56,17 +65,19 @@ class BaseSingleDomain(object):
     """
 
     def __init__(self,
-                 kernel, path_keys, latent_features,
-                 prec_alpha, prec_beta, sigma_h, max_iter, stop_tol):
+                 path_keys=None, kernel='rbf', latent_features=5,
+                 prec_alpha=1.0, prec_beta=1.0, sigma_h=0.1, margin=1.0,
+                 max_iter=100, stop_tol=1.0):
         self.kernel = kernel
         self.path_keys = path_keys
         self.R = latent_features
-        self.max_iter = max_iter
-        self.stop_tol = stop_tol
 
         self.prec_alpha = prec_alpha
         self.prec_beta = prec_beta
         self.sigma_h = sigma_h
+        self.margin = margin
+        self.max_iter = max_iter
+        self.stop_tol = stop_tol
 
         self.expr_genes = None
         self.path_obj = None
@@ -143,6 +154,160 @@ class BaseSingleDomain(object):
                 "Unknown kernel " + str(self.kernel) + " specified!")
 
         return np.vstack(kernel_list)
+
+    def fit(self, X, y_list, verbose=False, **fit_params):
+        """Fits the classifier.
+
+        Args:
+            X (array-like of float), shape = [n_samples, n_features]
+            y_list (array-like of bool): Known output labels.
+            verbose (bool): How much information to print during fitting.
+            fit_params (dict): Other parameters to control fitting process.
+
+        Returns:
+            self (MultiVariant): The fitted instance of the classifier.
+
+        """
+        self.X = X
+
+        # computes the kernel matrices and concatenates them, gets number of
+        # training samples and total number of kernel features
+        self.kernel_mat = self.compute_kernels(X, **fit_params)
+        self.kkt_mat = self.kernel_mat @ self.kernel_mat.transpose()
+        self.kern_size = self.kernel_mat.shape[0]
+        self.sample_count = self.kernel_mat.shape[1]
+
+        # makes sure training labels are of the correct format
+        if len(y_list) == self.sample_count:
+            y_list = np.array(y_list).transpose().tolist()
+        y_list = [[1.0 if x else -1.0 for x in y] for y in y_list]
+        self.task_count = len(y_list)
+
+        # initializes matrix of posterior distributions of precision priors
+        # for the projection matrix
+        self.lambda_mat = {'alpha': (np.zeros((self.kern_size, self.R))
+                                     + self.prec_alpha + 0.5),
+                           'beta': (np.zeros((self.kern_size, self.R))
+                                    + self.prec_beta)}
+
+        # initializes posteriors of precision priors for coupled
+        # classification matrices
+        self.weight_priors = {
+            'alpha': (np.zeros((self.R + 1, self.task_count))
+                      + self.prec_alpha + 0.5),
+            'beta': np.zeros((self.R + 1, self.task_count)) + self.prec_beta
+            }
+
+        self.A_mat = {'mu': np.random.randn(self.kern_size, self.R),
+                      'sigma': np.array(np.eye(self.kern_size)[..., None]
+                                        * ([1] * self.R)).transpose()}
+
+        self.H_mat = {'mu': np.random.randn(self.R, self.sample_count),
+                      'sigma': np.eye(self.R)}
+
+        self.weight_mat = {
+            'mu': np.vstack((np.zeros((1, self.task_count)),
+                             np.random.randn(self.R, self.task_count))),
+            'sigma': np.tile(np.eye(self.R + 1), (self.task_count, 1, 1))
+            }
+
+        self.output_mat = self.init_output_mat(y_list)
+        lu_list = self.get_lu_list(y_list)
+
+        # proceeds with inference using variational Bayes for the given
+        # number of iterations
+        cur_iter = 1
+        old_log_like = float('-inf')
+        log_like_stop = False
+        while cur_iter <= self.max_iter and not log_like_stop:
+
+            new_lambda = self.update_precision_priors(self.lambda_mat,
+                                                      self.A_mat)
+            new_proj = self.update_projection(new_lambda,
+                                              self.A_mat, self.H_mat)
+            new_latent = self.update_latent(new_proj,
+                                            self.weight_mat, self.output_mat)
+
+            new_weight_priors = self.update_precision_priors(
+                self.weight_priors, self.weight_mat)
+            new_weights = self.update_weights(
+                new_weight_priors, new_latent, self.output_mat)
+            new_outputs = self.update_output(new_latent, new_weights,
+                                             y_list, lu_list)
+
+            self.lambda_mat = new_lambda
+            self.A_mat = new_proj
+            self.H_mat = new_latent
+
+            self.weight_priors = new_weight_priors
+            self.weight_mat = new_weights
+            self.output_mat = new_outputs
+
+            if (cur_iter % 5) == 0:
+                cur_log_like = self.log_likelihood(y_list)
+
+                if cur_log_like < (old_log_like + self.stop_tol):
+                    log_like_stop = True
+
+                else:
+                    old_log_like = cur_log_like
+
+                    if verbose:
+                        print('Iteration {}: {}'.format(
+                            cur_iter, cur_log_like))
+
+            cur_iter += 1
+
+        return self
+
+    def predict_proba(self, X):
+        """Predicts probability of each type of mutation in a new dataset.
+
+        Args:
+            X (array-like of floats)
+
+        Returns:
+            pred_list
+
+        """
+        kern_dist = self.compute_kernels(x_mat=self.X, y_mat=X)
+        predict_samps = X.shape[0]
+
+        h_mu = self.A_mat['mu'].transpose() @ kern_dist
+        f_mu = [np.zeros(predict_samps) for _ in range(self.task_count)]
+        f_sigma = [np.zeros(predict_samps) for _ in range(self.task_count)]
+        pred_list = [np.zeros(predict_samps) for _ in range(self.task_count)]
+
+        for i in range(self.task_count):
+            f_mu[i] = np.dot(
+                np.vstack(([1 for _ in range(predict_samps)], h_mu))
+                    .transpose(),
+                self.weight_mat['mu'][:, i]
+                )
+
+            f_sigma[i] = 1.0 + np.diag(
+                np.dot(
+                    np.dot(
+                        np.vstack(([1 for _ in
+                                    range(predict_samps)], h_mu)).transpose(),
+                        self.weight_mat['sigma'][i, :, :]),
+                    np.vstack(([1 for _ in range(predict_samps)], h_mu))
+                    )
+                )
+
+            pred_p = 1 - stats.norm.cdf((self.margin - f_mu[i]) / f_sigma[i])
+            pred_n = stats.norm.cdf((-self.margin - f_mu[i]) / f_sigma[i])
+            pred_list[i] = pred_p / (pred_p + pred_n)
+
+        return pred_list
+
+    @abstractmethod
+    def init_output_mat(self, y_list):
+        """Initialize posterior distributions of the output predictions."""
+
+    @abstractmethod
+    def get_lu_list(self, y_list):
+        """Gets the truncations for the posterior output distributions."""
 
     def update_precision_priors(self, precision_mat, variable_mat):
         """Updates the posterior distributions of a set of precision priors.
@@ -264,39 +429,15 @@ class BaseSingleDomain(object):
 
         return new_weights
 
-    def update_output(self, latent_mat, weight_mat, lu_list):
-        """Update the predicted output labels.
+    @abstractmethod
+    def update_output(self, latent_mat, weight_mat, y_list, lu_list):
+        """Update the predicted output labels."""
 
-        Args:
-
-        Returns:
-
+    @abstractmethod
+    def get_y_logl(self, y_list):
+        """Computes the log-likelihood of a set of output labels given
+           the current model state.
         """
-        new_output = {k: np.zeros(self.output_mat[k].shape)
-                      for k in self.output_mat}
-
-        for i in range(self.task_count):
-            f_raw = np.dot(np.tile(weight_mat['mu'][1:, i], (1, 1)),
-                           latent_mat['mu']) + weight_mat['mu'][0, i]
-
-            alpha_norm = (lu_list[i]['lower'] - f_raw)[0, :].tolist()
-            beta_norm = (lu_list[i]['upper'] - f_raw)[0, :].tolist()
-            norm_factor = [stats.norm.cdf(b) - stats.norm.cdf(a) if a != b
-                           else 1
-                           for a, b in zip(alpha_norm, beta_norm)]
-
-            new_output['mu'][i, :] = [
-                f + ((stats.norm.pdf(a) - stats.norm.pdf(b)) / n)
-                for a, b, n, f in
-                zip(alpha_norm, beta_norm, norm_factor, f_raw[0, :].tolist())
-                ]
-            new_output['sigma'][i, :] = [
-                1.0 + (a * stats.norm.pdf(a) - b * stats.norm.pdf(b)) / n
-                - ((stats.norm.pdf(a) - stats.norm.pdf(b)) ** 2) / n ** 2
-                for a, b, n in zip(alpha_norm, beta_norm, norm_factor)
-                ]
-
-        return new_output
 
     def log_likelihood(self, y_list):
         """Computes the log-likelihood of the current model state.
@@ -361,10 +502,7 @@ class BaseSingleDomain(object):
 
         # likelihood of actual output labels given class separation margin
         # and predicted output labels
-        y_logl = np.sum(
-            stats.norm(loc=self.output_mat['mu'] * np.vstack(y_list),
-                       scale=self.output_mat['sigma']).logsf(1)
-            )
+        y_logl = np.sum(self.get_y_logl(y_list))
 
         return (lambda_logl + a_logl + h_logl
                 + weight_prior_logl + weight_logl + f_logl + y_logl)
@@ -375,7 +513,7 @@ class BaseSingleDomain(object):
         Returns:
             out_probs (list): For each task, a list of (x, prob) pairs
         """
-        out_probs = [np.zeros(1000) for _ in self.task_count]
+        out_probs = [np.zeros(1000) for _ in range(self.task_count)]
 
         # for each task, get the posterior distribution for each predicted
         # output label
@@ -387,8 +525,8 @@ class BaseSingleDomain(object):
                 ]
 
             # calculate the range of possible predicted output values
-            min_range = min(distr.ppf(0.001) for distr in distr_vec)
-            max_range = max(distr.ppf(0.001) for distr in distr_vec)
+            min_range = min(distr.ppf(0.01) for distr in distr_vec)
+            max_range = max(distr.ppf(0.99) for distr in distr_vec)
             x_vals = np.linspace(min_range, max_range, 1000)
 
             # calculate the cumulative probability density function across all
@@ -402,167 +540,56 @@ class BaseSingleDomain(object):
 
 class MultiVariant(BaseSingleDomain):
 
-    def __init__(self,
-                 kernel, path_keys, latent_features=5,
-                 sigma_h=0.1, prec_alpha=1.0, prec_beta=1.0, margin=1.0,
-                 max_iter=500, stop_tol=1):
-        self.margin = margin
-
-        super(MultiVariant, self).__init__(
-            kernel, path_keys, latent_features,
-            prec_alpha, prec_beta, sigma_h, max_iter, stop_tol
-            )
-
-    def fit(self, X, y_list, verbose=False, **fit_params):
-        """Fits the classifier.
-
-        Args:
-            X (array-like of float), shape = [n_samples, n_features]
-            y_list (array-like of bool): Known output labels.
-            verbose (bool): How much information to print during fitting.
-            fit_params (dict): Other parameters to control fitting process.
-
-        Returns:
-            self (MultiVariant): The fitted instance of the classifier.
-
-        """
-        self.X = X
-
-        # computes the kernel matrices and concatenates them, gets number of
-        # training samples and total number of kernel features
-        self.kernel_mat = self.compute_kernels(X, **fit_params)
-        self.kkt_mat = self.kernel_mat @ self.kernel_mat.transpose()
-        self.kern_size = self.kernel_mat.shape[0]
-        self.sample_count = self.kernel_mat.shape[1]
-
-        # makes sure training labels are of the correct format
-        if len(y_list) == self.sample_count:
-            y_list = np.array(y_list).transpose().tolist()
-        y_list = [[1.0 if x else -1.0 for x in y] for y in y_list]
-        self.task_count = len(y_list)
-
-        # initializes matrix of posterior distributions of precision priors
-        # for the projection matrix
-        self.lambda_mat = {'alpha': (np.zeros((self.kern_size, self.R))
-                                     + self.prec_alpha + 0.5),
-                           'beta': (np.zeros((self.kern_size, self.R))
-                                    + self.prec_beta)}
-
-        # initializes posteriors of precision priors for coupled
-        # classification matrices
-        self.weight_priors = {
-            'alpha': (np.zeros((self.R + 1, self.task_count))
-                      + self.prec_alpha + 0.5),
-            'beta': np.zeros((self.R + 1, self.task_count)) + self.prec_beta
-            }
-
-        self.A_mat = {'mu': np.random.randn(self.kern_size, self.R),
-                      'sigma': np.array(np.eye(self.kern_size)[..., None]
-                                        * ([1] * self.R)).transpose()}
-
-        self.H_mat = {'mu': np.random.randn(self.R, self.sample_count),
-                      'sigma': np.eye(self.R)}
-
-        self.weight_mat = {
-            'mu': np.vstack((np.zeros((1, self.task_count)),
-                             np.random.randn(self.R, self.task_count))),
-            'sigma': np.tile(np.eye(self.R + 1), (self.task_count, 1, 1))
-            }
-
-        self.output_mat = {
+    def init_output_mat(self, y_list):
+        """Initialize posterior distributions of the output predictions."""
+        output_mat = {
             'mu': (abs(np.random.randn(self.task_count, self.sample_count))
                    + self.margin),
             'sigma': np.ones((self.task_count, self.sample_count))
             }
         for i in range(self.task_count):
-            self.output_mat['mu'][i, :] *= np.sign(y_list[i])
+            output_mat['mu'][i, :] *= np.sign(y_list[i])
 
-        lu_list = [
-            {'lower': np.array([-1e40 if i <= 0 else self.margin for i in y]),
-             'upper': np.array([1e40 if i >= 0 else -self.margin for i in y])}
-            for y in y_list
-            ]
+        return output_mat
 
-        # proceeds with inference using variational Bayes for the given
-        # number of iterations
-        cur_iter = 1
-        old_log_like = float('-inf')
-        log_like_stop = False
-        while cur_iter <= self.max_iter and not log_like_stop:
+    def get_lu_list(self, y_list):
+        return [{'lower': np.array([-1e40 if i <= 0 else self.margin
+                                    for i in y]),
+                 'upper': np.array([1e40 if i >= 0 else -self.margin
+                                    for i in y])}
+                for y in y_list]
 
-            new_lambda = self.update_precision_priors(self.lambda_mat,
-                                                      self.A_mat)
-            new_proj = self.update_projection(new_lambda,
-                                              self.A_mat, self.H_mat)
-            new_latent = self.update_latent(new_proj,
-                                            self.weight_mat, self.output_mat)
-
-            new_weight_priors = self.update_precision_priors(
-                self.weight_priors, self.weight_mat)
-            new_weights = self.update_weights(
-                new_weight_priors, new_latent, self.output_mat)
-            new_outputs = self.update_output(new_latent, new_weights, lu_list)
-
-            self.lambda_mat = new_lambda
-            self.A_mat = new_proj
-            self.H_mat = new_latent
-
-            self.weight_priors = new_weight_priors
-            self.weight_mat = new_weights
-            self.output_mat = new_outputs
-
-            if (cur_iter % 5) == 0:
-                cur_log_like = self.log_likelihood(y_list)
-                if cur_log_like < (old_log_like + self.stop_tol):
-                    log_like_stop = True
-                else:
-                    old_log_like = cur_log_like
-                    print('Iteration {}: {}'.format(cur_iter, cur_log_like))
-
-            cur_iter += 1
-
-        return self
-
-    def predict_proba(self, X):
-        """Predicts probability of each type of mutation in a new dataset.
-
-        Args:
-            X (array-like of floats)
-
-        Returns:
-            pred_list
-
-        """
-        kern_dist = self.compute_kernels(x_mat=self.X, y_mat=X)
-        predict_samps = X.shape[0]
-
-        h_mu = self.A_mat['mu'].transpose() @ kern_dist
-        f_mu = [np.zeros(predict_samps) for _ in range(self.task_count)]
-        f_sigma = [np.zeros(predict_samps) for _ in range(self.task_count)]
-        pred_list = [np.zeros(predict_samps) for _ in range(self.task_count)]
+    def update_output(self, latent_mat, weight_mat, y_list, lu_list):
+        """Update the predicted output labels."""
+        new_output = {k: np.zeros(self.output_mat[k].shape)
+                      for k in self.output_mat}
 
         for i in range(self.task_count):
-            f_mu[i] = np.dot(
-                np.vstack(([1 for _ in range(predict_samps)], h_mu))
-                    .transpose(),
-                self.weight_mat['mu'][:, i]
-                )
+            f_raw = np.dot(np.tile(weight_mat['mu'][1:, i], (1, 1)),
+                           latent_mat['mu']) + weight_mat['mu'][0, i]
 
-            f_sigma[i] = 1.0 + np.diag(
-                np.dot(
-                    np.dot(
-                        np.vstack(([1 for _ in
-                                    range(predict_samps)], h_mu)).transpose(),
-                        self.weight_mat['sigma'][i, :, :]),
-                    np.vstack(([1 for _ in range(predict_samps)], h_mu))
-                    )
-                )
+            alpha_norm = (lu_list[i]['lower'] - f_raw)[0, :].tolist()
+            beta_norm = (lu_list[i]['upper'] - f_raw)[0, :].tolist()
+            norm_factor = [stats.norm.cdf(b) - stats.norm.cdf(a) if a != b
+                           else 1
+                           for a, b in zip(alpha_norm, beta_norm)]
 
-            pred_p = 1 - stats.norm.cdf((self.margin - f_mu[i]) / f_sigma[i])
-            pred_n = stats.norm.cdf((-self.margin - f_mu[i]) / f_sigma[i])
-            pred_list[i] = pred_p / (pred_p + pred_n)
+            new_output['mu'][i, :] = [
+                f + ((stats.norm.pdf(a) - stats.norm.pdf(b)) / n)
+                for a, b, n, f in
+                zip(alpha_norm, beta_norm, norm_factor, f_raw[0, :].tolist())
+                ]
+            new_output['sigma'][i, :] = [
+                1.0 + (a * stats.norm.pdf(a) - b * stats.norm.pdf(b)) / n
+                - ((stats.norm.pdf(a) - stats.norm.pdf(b)) ** 2) / n ** 2
+                for a, b, n in zip(alpha_norm, beta_norm, norm_factor)
+                ]
 
-        return pred_list
+        return new_output
+
+    def get_y_logl(self, y_list):
+        return stats.norm(loc=self.output_mat['mu'] * np.vstack(y_list),
+                          scale=self.output_mat['sigma']).logsf(1)
 
 
 class MultiVariantAsym(BaseSingleDomain):
@@ -574,19 +601,76 @@ class MultiVariantAsym(BaseSingleDomain):
 
     """
 
-    def __init__(self,
-                 kernel, path_keys, latent_features=5,
-                 sigma_h=0.1, prec_alpha=1.0, prec_beta=1.0, margin=1.0,
-                 max_iter=500, stop_tol=1):
-        self.margin = margin
+    def init_output_mat(self, y_list):
+        """Initialize posterior distributions of the output predictions."""
+        output_mat = {
+            'mu': np.array([[stats.norm.rvs(self.margin, self.margin)
+                             if y == 1.0
+                             else stats.norm.rvs(0, 2.0 * self.margin)
+                             for y in y_vec] for y_vec in y_list]),
+            'sigma': np.array([[self.margin if y == 1.0
+                                else 2.0 * self.margin
+                                for y in y_vec] for y_vec in y_list])
+            }
 
-        super(MultiVariantAsym, self).__init__(
-            kernel, path_keys, latent_features,
-            prec_alpha, prec_beta, sigma_h, max_iter, stop_tol
-            )
+        return output_mat
 
-    def fit(self, X, y_list, verbose=False, **fit_params):
-        pass
+    def get_lu_list(self, y_list):
+        return [{'lower': np.array([-1e40 if i <= 0 else self.margin
+                                    for i in y]),
+                 'upper': np.array([1e40 if i >= 0 else 2.0 * self.margin
+                                    for i in y])}
+                for y in y_list]
 
-    def predict_proba(self, X):
-        pass
+    def update_output(self, latent_mat, weight_mat, y_list, lu_list):
+        """Update the predicted output labels."""
+        new_output = {k: np.zeros(self.output_mat[k].shape)
+                      for k in self.output_mat}
+
+        for i in range(self.task_count):
+            f_raw = np.dot(np.tile(weight_mat['mu'][1:, i], (1, 1)),
+                           latent_mat['mu']) + weight_mat['mu'][0, i]
+
+            alpha_norm = (lu_list[i]['lower'] - f_raw)[0, :].tolist()
+            beta_norm = (lu_list[i]['upper'] - f_raw)[0, :].tolist()
+            pos_distr = stats.norm(scale=1.0)
+            neg_distr = stats.norm(scale=2.0)
+
+            norm_factor = [
+                1.0 if a == b
+                else pos_distr.cdf(b) - pos_distr.cdf(a) if y == 1.0
+                else neg_distr.cdf(b) - neg_distr.cdf(a)
+                for a, b, y in zip(alpha_norm, beta_norm, y_list[i])
+                ]
+
+            new_output['mu'][i, :] = [
+                f + ((pos_distr.pdf(a) - pos_distr.pdf(b)) / n) if y == 1.0
+                else f + ((neg_distr.pdf(a) - neg_distr.pdf(b)) / n)
+                for a, b, n, f, y in
+                zip(alpha_norm, beta_norm, norm_factor,
+                    f_raw[0, :].tolist(), y_list[i])
+                ]
+
+            new_output['sigma'][i, :] = [
+                1.0 + (
+                    (a * pos_distr.pdf(a) - b * pos_distr.pdf(b)) / n
+                    - ((pos_distr.pdf(a) - pos_distr.pdf(b)) ** 2) / n ** 2
+                    ) if y == 1.0 else
+                2.0 + (
+                    (a * neg_distr.pdf(a) - b * neg_distr.pdf(b)) / n
+                    - ((neg_distr.pdf(a) - neg_distr.pdf(b)) ** 2) / n ** 2
+                )
+                for a, b, n, y in zip(alpha_norm, beta_norm, norm_factor,
+                                      y_list[i])
+                ]
+
+        return new_output
+
+    def get_y_logl(self, y_list):
+        distr_mat = stats.norm(loc=self.output_mat['mu'] * np.vstack(y_list),
+                               scale=self.output_mat['sigma'])
+        cutoff_mat = np.array([[1.0 if i == 1.0 else -2.0 for i in y]
+                               for y in y_list])
+        y_logl = np.sum(distr_mat.sf(cutoff_mat))
+
+        return y_logl

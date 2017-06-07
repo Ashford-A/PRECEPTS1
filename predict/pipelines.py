@@ -423,7 +423,7 @@ class MultiVariantPipe(VariantPipe):
         return self
 
     def fit_coh(self,
-                cohort, mtypes, path_keys,
+                cohort, mtypes, path_keys, verbose=False,
                 gene_list=None, exclude_samps=None):
         """Fits a classifier."""
         samps, genes = cohort._validate_dims(exclude_samps=exclude_samps,
@@ -433,6 +433,7 @@ class MultiVariantPipe(VariantPipe):
 
         return self.fit(
             X=cohort.train_expr_.loc[samps, genes], y=mut_list,
+            verbose=verbose,
             **{'mut_genes': cohort.mut_genes,
                'path_obj': cohort.path_,
                'path_keys': path_keys}
