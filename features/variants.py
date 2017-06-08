@@ -12,7 +12,6 @@ Author: Michal Grzadkowski <grzadkow@ohsu.edu>
 
 """
 
-import numpy as np
 import pandas as pd
 
 import json

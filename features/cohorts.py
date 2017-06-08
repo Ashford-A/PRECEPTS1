@@ -14,6 +14,7 @@ from .expression import get_expr_bmeg
 from .variants import get_variants_mc3, MuTree
 from .pathways import parse_sif
 from .annot import get_gencode
+from .drugs import get_expr_ioria, get_drug_ioria, get_drug_bmeg
 
 import numpy as np
 from scipy.stats import fisher_exact
@@ -66,25 +67,46 @@ class Cohort(object):
 class VariantCohort(Cohort):
     """An expression dataset used to predict genes' variant mutations.
 
-    Attributes:
-
     Args:
+        syn (synapseclient.Synapse): A logged-into Synapse instance.
+        mut_genes (list of str): Which genes' variants to include.
+        mut_levels (list of str): What variant annotation level to consider.
+        cv_prop (float): Proportion of samples to use for cross-validation.
+
+    Attributes:
+        train_expr (pandas DataFrame of floats)
+        test_expr(pandas DataFrame of floats)
+        train_mut (MuTree)
+        test_mut (MuTree)
+        path (dict)
+
+    Examples:
+        >>> syn = synapseclient.Synapse()
+        >>> syn.login()
+        >>> cdata = VariantCohort(
+        >>>     syn, cohort='TCGA-BRCA', mut_genes=['TP53', 'PIK3CA'],
+        >>>     mut_levels=['Gene', 'Form', 'Exon']
+        >>>     )
 
     """
 
     def __init__(self,
                  syn, cohort, mut_genes, mut_levels=('Gene', 'Form'),
-                 cv_info=None):
+                 cv_seed=None, cv_prop=2.0/3):
         # TODO: double-check how Python handles random seeds
-        if cv_info is None:
-            cv_info = {'Prop': 2.0/3, 'Seed': 1}
-        self.path_ = parse_sif(mut_genes)
+        if cv_prop <= 0 or cv_prop > 1:
+            raise ValueError("Improper cross-validation ratio that is "
+                             "not > 0 and <= 1.0")
         self.mut_genes = mut_genes
+        self.cv_prop = cv_prop
 
-        # loads gene expression and mutation data, as well as pathway
-        # neighbourhood for mutated genes
+        # loads gene expression and mutation data
         expr = get_expr_bmeg(cohort)
         variants = get_variants_mc3(syn)
+
+        # loads the pathway neighbourhood of the variant genes, as well as
+        # annotation data for all genes
+        self.path = parse_sif(mut_genes)
         annot = get_gencode()
 
         # filters out genes that don't have any variation across the samples
@@ -110,37 +132,32 @@ class VariantCohort(Cohort):
         self.annot = annot
         self.mut_annot = annot_data
 
-        # gets subset of samples to use for training
-        random.seed(a=cv_info['Seed'])
-        if 0 < cv_info['Prop'] < 1:
+        # gets subset of samples to use for training, and split the expression
+        # and variant datasets accordingly into training/testing cohorts
+        random.seed(a=cv_seed)
+        if cv_prop < 1:
             self.train_samps_ = frozenset(
-                random.sample(
-                    population=self.samples,
-                    k=int(round(len(self.samples) * cv_info['Prop'])))
+                random.sample(population=self.samples,
+                              k=int(round(len(self.samples) * cv_prop)))
                 )
             self.test_samps_ = self.samples - self.train_samps_
 
+            self.test_expr_ = expr.loc[self.test_samps_]
             self.test_mut_ = MuTree(
                 muts=variants.loc[
                      variants['Sample'].isin(self.test_samps_), :],
                 levels=mut_levels)
-            self.test_expr_ = expr.loc[self.test_samps_]
 
-        elif cv_info['Prop'] == 1:
+        else:
             self.train_samps_ = self.samples
             self.test_samps_ = None
 
-        else:
-            raise ValueError("Improper cross-validation ratio that is"
-                             "not > 0 and <= 1.0")
-
-        # creates training and testing expression and mutation datasets
         self.train_expr_ = expr.loc[self.train_samps_, :]
         self.train_mut_ = MuTree(
             muts=variants.loc[variants['Sample'].isin(self.train_samps_), :],
             levels=mut_levels)
 
-        super(VariantCohort, self).__init__(cohort, cv_info['Seed'])
+        super(VariantCohort, self).__init__(cohort, cv_seed)
 
     def mutex_test(self, mtype1, mtype2):
         """Checks the mutual exclusivity of two mutation types in the
@@ -175,69 +192,27 @@ class VariantCohort(Cohort):
 
 
 class DrugCohort(Cohort):
+    """An expression dataset used to predict clinical drug response.
 
-    def __init__(self, drug, source='CCLE', random_state=None):
-        exp_data = {}
-        drug_data = {}
+        Args:
 
-        if source == 'CCLE':
-            for i in oph.query().has(
-                "gid", "cohort:CCLE").outgoing(
-                    "hasSample").incoming("expressionForSample").execute():
+        Attributes:
 
-                if ('properties' in i
-                    and 'serializedExpressions' in i['properties']):
-                    drug_querr = oph.query().has("gid", i['gid']).outgoing(
-                        "expressionForSample").outEdge(
-                            "responseToCompound").values(
-                                ['gid', 'responseSummary']).execute()
-                    drug_data[i['gid']] = {}
+        Examples:
 
-                    for dg in drug_querr:
-                        if dg:
-                            dg_parse = dg.split(':')
-                            if dg_parse[0] == 'responseCurve':
-                                cur_drug = dg_parse[-1]
+        """
 
-                            elif cur_drug == drug:
-                                drug_data[i['gid']] = [
-                                    x['value'] for x in json.loads(dg)
-                                    if x['type'] == 'AUC'][0]
+    def __init__(self, cohort, drug, cv_seed=None):
+        self.drug = drug
 
-                s = json.loads(i['properties']['serializedExpressions'])
-                exp_data[i['gid']] = s
+        cell_expr = get_expr_ioria()
+        drug_resp = get_drug_ioria()
 
-            drug_resp = pd.Series({k:v for k,v in drug_data.items() if v})
-            drug_expr = exp_norm(pd.DataFrame(exp_data).transpose())
-            drug_expr = drug_expr.loc[drug_resp.index, :]
+        cell_expr = cell_expr.loc[:, drug_resp.index].transpose().dropna(
+            axis=0, how='all').dropna(axis=1, how='any')
+        drug_resp = drug_resp.loc[cell_expr.index]
 
-        elif source == 'ioria':
-            cell_expr = pd.read_csv(
-                '/home/users/grzadkow/compbio/input-data/ioria-landscape/'
-                'cell-line/Cell_line_RMA_proc_basalExp.txt',
-                sep='\t', comment='#')
-            cell_expr = cell_expr.ix[~pd.isnull(cell_expr['GENE_SYMBOLS']), :]
-            drug_annot = pd.read_csv('/home/users/grzadkow/compbio/'
-                                     'scripts/HetMan/experiments/'
-                                     'drug_predictions/input/drug_annot.txt',
-                                     sep='\t', comment='#')
-
-            cell_expr.index = cell_expr['GENE_SYMBOLS']
-            cell_expr = cell_expr.ix[:, 2:]
-
-            drug_resp = pd.read_csv('/home/users/grzadkow/compbio/input-data'
-                                    '/ioria-landscape/cell-line/drug-auc.txt',
-                                    sep='\t', comment='#')
-            drug_match = process.extractOne(drug, drug_annot['Name'])
-            drug_lbl = 'X' + str(drug_annot['Identifier'][drug_match[-1]])
-            drug_resp = drug_resp.loc[:, drug_lbl]
-            drug_resp = drug_resp[~pd.isnull(drug_resp)]
-            drug_expr = cell_expr.loc[:, drug_resp.index].transpose().dropna(
-                axis=0, how='all').dropna(axis=1, how='any')
-            drug_resp = drug_resp.loc[drug_expr.index]
-
-        random.seed(a=random_state)
-        cv_seed = random.getstate()
+        random.seed(a=cv_seed)
         self.train_samps_ = frozenset(
             random.sample(population=list(drug_expr.index),
                           k=int(round(drug_expr.shape[0] * 0.8)))
@@ -245,8 +220,7 @@ class DrugCohort(Cohort):
         self.test_samps_ = frozenset(
             set(drug_expr.index) - self.train_samps_)
 
-        self.random_state = random_state
         self.drug_resp = drug_resp
         self.drug_expr = drug_expr
 
-        super(DrugCohort, self).__init__(cohort, cv_info)
+        super(DrugCohort, self).__init__(cohort, cv_seed)
