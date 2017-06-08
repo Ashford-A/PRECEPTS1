@@ -824,6 +824,7 @@ class MuType(object):
         """Subtracts one MuType from another."""
         if not isinstance(other, MuType):
             return NotImplemented
+
         new_key = {}
         self_dict = dict(self)
         other_dict = dict(other)

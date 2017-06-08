@@ -75,6 +75,7 @@ class VariantCohort(Cohort):
     def __init__(self,
                  syn, cohort, mut_genes, mut_levels=('Gene', 'Form'),
                  cv_info=None):
+        # TODO: double-check how Python handles random seeds
         if cv_info is None:
             cv_info = {'Prop': 2.0/3, 'Seed': 1}
         self.path_ = parse_sif(mut_genes)

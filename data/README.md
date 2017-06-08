@@ -13,3 +13,7 @@ Gene interaction data in simplified format.
 
 Annotation data for ENSEMBL genes, transcripts, and exons.
 
+### copies ###
+
+Thresholded gene-level copy number alteration data downloaded as
+part of the Broad Firehose analyses__2016_01_28 collection.
