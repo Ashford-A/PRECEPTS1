@@ -26,7 +26,6 @@ from sklearn.model_selection import cross_val_score
 from sklearn.externals import six
 
 
-
 class CohortPipe(Pipeline):
     """A class pipelines for predicting features from expression data.
 
@@ -63,7 +62,7 @@ class CohortPipe(Pipeline):
                 lambda x, y: x + ', ' + y,
                 [k + ': ' + '%s' % float('%.4g' % param_list[k])
                  if isinstance(param_list[k], Number)
-                 else k + ': ' + param_list[k]
+                 else k + ': ' + str(param_list[k])
                  for k in self.cur_tuning.keys()]
                 )
         else:
@@ -228,9 +227,9 @@ class UniVariantPipe(VariantPipe):
             grid_test = RandomizedSearchCV(
                 estimator=self, param_distributions=self.cur_tuning,
                 fit_params={'mut_genes': cohort.mut_genes,
-                            'path_obj': cohort.path_,
+                            'path_obj': cohort.path,
                             'fit__mut_genes': cohort.mut_genes,
-                            'fit__path_obj': cohort.path_},
+                            'fit__path_obj': cohort.path},
                 n_iter=test_count, scoring=self.score_mut,
                 cv=tune_cvs, n_jobs=-1, refit=False
                 )
@@ -255,7 +254,7 @@ class UniVariantPipe(VariantPipe):
         return self.fit(X=cohort.train_expr_.loc[samps, genes],
                         y=cohort.train_mut_.status(samps, mtype),
                         feat__mut_genes=cohort.mut_genes,
-                        feat__path_obj=cohort.path_)
+                        feat__path_obj=cohort.path)
 
     def score_coh(self,
                   cohort, mtype, score_splits=16,
@@ -299,7 +298,7 @@ class UniVariantPipe(VariantPipe):
             X=cohort.train_expr_.loc[samps, genes],
             y=cohort.train_mut_.status(samps, mtype),
             fit_params={'feat__mut_genes': cohort.mut_genes,
-                        'feat__path_obj': cohort.path_},
+                        'feat__path_obj': cohort.path},
             scoring=self.score_mut, cv=score_cvs, n_jobs=-1
             ), 25)
 
@@ -324,7 +323,7 @@ class UniVariantPipe(VariantPipe):
             y=cohort.train_mut_.status(samps, mtype),
             exclude_samps=exclude_samps, cv_fold=4, cv_count=infer_splits,
             fit_params={'feat__mut_genes': cohort.mut_genes,
-                        'feat__path_obj': cohort.path_},
+                        'feat__path_obj': cohort.path},
             random_state=int(cohort.intern_cv_ ** 1.5) % 42949672, n_jobs=-1
             )
 
@@ -405,7 +404,7 @@ class MultiVariantPipe(VariantPipe):
             grid_test = MutRandomizedCV(
                 estimator=self, param_distributions=self.cur_tuning,
                 fit_params={'mut_genes': cohort.mut_genes,
-                            'path_obj': cohort.path_,
+                            'path_obj': cohort.path,
                             'path_keys': path_keys},
                 n_iter=test_count, scoring=self.score_mut,
                 cv=tune_cvs, n_jobs=-1, refit=False
@@ -435,7 +434,7 @@ class MultiVariantPipe(VariantPipe):
             X=cohort.train_expr_.loc[samps, genes], y=mut_list,
             verbose=verbose,
             **{'mut_genes': cohort.mut_genes,
-               'path_obj': cohort.path_,
+               'path_obj': cohort.path,
                'path_keys': path_keys}
             )
 
@@ -481,9 +480,9 @@ class MultiVariantPipe(VariantPipe):
             X=cohort.train_expr_.loc[samps, genes],
             y=cohort.train_mut_.status(samps, mtype),
             fit_params={'feat__mut_genes': cohort.mut_genes,
-                        'feat__path_obj': cohort.path_,
+                        'feat__path_obj': cohort.path,
                         'fit__mut_genes': cohort.mut_genes,
-                        'fit__path_obj': cohort.path_},
+                        'fit__path_obj': cohort.path},
             scoring=self.score_mut, cv=score_cvs, n_jobs=-1
             ), 25)
 
@@ -510,9 +509,9 @@ class MultiVariantPipe(VariantPipe):
             y=cohort.train_mut_.status(samps, mtype),
             exclude_samps=exclude_samps, cv_fold=4, cv_count=infer_splits,
             fit_params={'feat__mut_genes': cohort.mut_genes,
-                        'feat__path_obj': cohort.path_,
+                        'feat__path_obj': cohort.path,
                         'fit__mut_genes': cohort.mut_genes,
-                        'fit__path_obj': cohort.path_},
+                        'fit__path_obj': cohort.path},
             random_state=int(cohort.intern_cv_ ** 1.5) % 42949672, n_jobs=-1
             )
 

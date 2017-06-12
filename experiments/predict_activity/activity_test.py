@@ -36,7 +36,7 @@ def main(argv):
                           cv_info={'Prop': 0.8, 'Seed':argv[-1]})
     cdata.train_expr_ = cdata.train_expr_.sort_index()
 
-    prot_data = pd.read_csv(in_path + 'PNLL-causality-formatted.txt.zip',
+    prot_data = pd.read_csv(in_path + 'PNNL-causality-formatted.txt.zip',
                             sep='\t')
     prot_vec = prot_data.ix[prot_data['ID'] == 'TTN', :]
     prot_vec = prot_vec.loc[:, prot_vec.columns.isin(cdata.train_expr_.index)]

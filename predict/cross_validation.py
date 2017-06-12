@@ -546,18 +546,25 @@ class MutShuffleSplit(StratifiedShuffleSplit):
             new_info = list(class_info)
             new_info[0] = new_info[0].tolist()
 
+            remove_indx = []
             for i, count in enumerate(merged_counts):
-                if count < 2:
-                    cur_ind = merged_classes == new_info[0][i]
+                if count < 2 and i in new_info[0]:
+
+                    remove_indx += [i]
+                    cur_ind = merged_classes == i
+
                     if i > 0:
                         new_counts[i - 1] += new_counts[i]
-                        merged_classes[cur_ind] = new_info[0][i-1]
+                        rep_indx = new_info[0].index(i) - 1
+
                     else:
                         new_counts[i + 1] += new_counts[i]
-                        merged_classes[cur_ind] = new_info[0][i+1]
+                        rep_indx = new_info[0].index(i) + 1
 
-                    new_info[0] = new_info[0][:i] + new_info[0][(i+1):]
-                    new_counts = new_counts[:i] + new_counts[(i+1):]
+                    merged_classes[cur_ind] = new_info[0][rep_indx]
+
+            for i in remove_indx:
+                new_info[0].remove(i)
             new_counts = np.array(new_counts)
 
             n_class = len(new_info[0])
@@ -579,13 +586,17 @@ class MutShuffleSplit(StratifiedShuffleSplit):
 
                 train = []
                 test = []
-                for i, class_i in enumerate(new_info[0]):
-                    permutation = rng.permutation(new_counts[i])
 
+                for class_i in new_info[0]:
+                    permutation = rng.permutation(new_counts[class_i])
                     perm_indices_class = np.where(
                         merged_classes == class_i)[0][permutation]
-                    train.extend(perm_indices_class[:n_is[i]])
-                    test.extend(perm_indices_class[n_is[i]:n_is[i] + t_is[i]])
+
+                    train.extend(perm_indices_class[:n_is[class_i]])
+                    test.extend(
+                        perm_indices_class[n_is[class_i]:(n_is[class_i]
+                                                          + t_is[class_i])]
+                        )
 
                     train = rng.permutation(train).tolist()
                     test = rng.permutation(test).tolist()

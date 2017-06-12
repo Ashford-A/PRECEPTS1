@@ -37,6 +37,11 @@ def get_variants_mc3(syn):
             An array of mutation data, with a row for each mutation
             appearing in an individual sample.
 
+    Examples:
+        >>> syn = synapseclient.Synapse()
+        >>> syn.login()
+        >>> muts = get_variants_mc3(syn)
+
     """
     mc3 = syn.get('syn7824274')
     use_cols = [0, 8, 15, 36, 38, 72]
@@ -585,49 +590,67 @@ class MuTree(object):
 
 
 class MuType(object):
-    """A class corresponding to a subset of mutations defined through
-       hierarchy of properties. Used in conjunction with the above MuTree
-       class to navigate the space of possible mutation subsets.
+    """A particular type of mutation defined by annotation properties.
 
-    Parameters
-    ----------
-    set_key : dict
-        Define the mutation sub-types that are to be included in this set.
-        Takes the form {(Level,Sub-Type):None or set_key, ...}.
+    A class corresponding to a subset of mutations defined through a hierarchy
+    of properties. Used in conjunction with the above MuTree class to
+    represent and navigate the space of possible mutation subsets.
 
-        A value of None denotes all of the samples with the given sub-type of
-        mutation at the given level, otherwise another set-key which defines a
-        further subset of mutations contained within the given sub-type.
-        Sub-Type can consist of multiple values, in which case the
-        corresponding value applies to all of the included sub-types.
+    MuTypes are defined through a set key, which is a recursively structured
+    dictionary of annotation property values of the form
+        {(Level, Sub-Type1): (None or set_key), (Level, Sub-Type1): ...}
 
-        i.e. {('Gene','TP53'):None} is the subset containing any mutation
-        of the TP53 gene.
-        {('Gene','BRAF'):{('Conseq',('missense','frameshift')):None}} contains
-        the mutations of BRAF that result in a missense variation or a shift
-        of the reading frame.
+    Each item in the set key dictionary denotes a annotation property value
+    contained within this mutation type. The key of an item is a 2-tuple
+    with the first entry being a annotation hierarchy level (eg. 'Gene',
+    'Form', 'Exon', etc.) and the second entry being a type or tuple of types
+    available at this level (eg. 'KRAS', ('Missense_Mutation', 'Silent'),
+    ('3/23', '6/13', '4/201'). The value of item can either be None, which
+    means the mutation subtype contains all possible mutations with this
+    property, or a set key to denote further subsetting of mutation types at
+    more specific annotation property levels.
 
-        As with MuTrees, MuTypes are constructed recursively, and so each
-        value in a set key is used to create another MuType, unless it is None
-        signifying a leaf node in the hierarchy.
+    All combinations of mutation subtypes within a MuType are defined as
+    unions, that is, a MuType represents the abstract set of samples that
+    has at least one of the mutation sub-types contained within it, as opposed
+    to all of them.
 
-    Attributes
-    ----------
-    cur_level : str
-        The mutation level at the head of this mutation set.
+    Arguments:
+        set_key (dict): Defines the mutation sub-types included in this set.
+
+    Attributes:
+        cur_level (str): The mutation property level at the head of this set.
+
+    Examples:
+        >>> # mutations of the KRAS gene
+        >>> mtype1 = MuType({('Gene', 'KRAS'): None})
+        >>>
+        >>> # missense mutations of the KRAS gene
+        >>> mtype2 = MuType({('Gene', 'KRAS'):
+        >>>             {('Form', 'Missense_Mutation'): None}})
+        >>>
+        >>> # mutations of the BRAF or RB1 genes
+        >>> mtype3 = MuType({('Gene', ('BRAF', 'RB1')): None})
+        >>>
+        >>> # frameshift mutations of the BRAF or RB1 genes and nonsense
+        >>> # mutations of the TP53 gene occuring on its 8th exon
+        >>> mtype4 = MuType({('Gene', ('BRAF', 'RB1')):
+        >>>                     {('Type', 'Frame_Shift'): None},
+        >>>                 {('Gene', 'TP53'):
+        >>>                     {('Form', 'Nonsense_Mutation'):
+        >>>                         {('Exon', '8/33'): None}}})
+
     """
 
     def __init__(self, set_key):
-        # gets the mutation hierarchy level of this set, makes sure
-        # the key is properly specified
-        level = set(k for k,_ in list(set_key.keys()))
-        if len(level) > 1:
+        level = set(k for k, _ in list(set_key.keys()))
+
+        # gets the property hierarchy level of this mutation type after making
+        # sure the set key is properly specified
+        if len(level) != 1:
             raise ValueError(
                 "improperly defined MuType key (multiple mutation levels)")
-        if level:
-            self.cur_level = tuple(level)[0]
-        else:
-            self.cur_level = None
+        self.cur_level = tuple(level)[0]
 
         # gets the subsets of mutations defined at this level, and
         # their further subdivisions if they exist

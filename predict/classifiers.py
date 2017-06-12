@@ -233,17 +233,15 @@ class MKBMTL(MultiVariantPipe):
 
     tune_priors = (
         ('fit__latent_features', (2, 3, 4, 5, 8, 12)),
-        ('fit__prec_alpha', (0.5, 1.0, 1.5, 2.0, 5.0)),
-        ('fit__prec_beta', (0.1, 0.25, 0.5, 1.0, 1.5)),
-        ('fit__sigma_h', (0.01, 0.02, 0.05, 0.1, 0.2, 0.5))
+        ('fit__prec_distr', ((0.5, 0.5), (1.0, 1.0), (2.0, 0.5), (4.0, 0.5),
+                             (2.0, 2.0), (1.0, 2.0), (5.0, 1.0), (1.0, 0.5))),
+        ('fit__sigma_h', (0.01, 0.02, 0.05, 0.1, 0.2, 0.5)),
         )
 
     def __init__(self, path_keys=None):
         feat_step = PathwaySelect(path_keys=path_keys)
         norm_step = StandardScaler()
-        fit_step = MultiVariant(
-            path_keys=path_keys, kernel='rbf'
-            )
+        fit_step = MultiVariant(path_keys=path_keys)
         MultiVariantPipe.__init__(
             self,
             [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)]
@@ -256,17 +254,16 @@ class MKBMTLasym(MultiVariantPipe):
 
     tune_priors = (
         ('fit__latent_features', (2, 3, 4, 5, 8, 12)),
-        ('fit__prec_alpha', (0.5, 1.0, 1.5, 2.0, 5.0)),
-        ('fit__prec_beta', (0.1, 0.25, 0.5, 1.0, 1.5)),
-        ('fit__sigma_h', (0.01, 0.02, 0.05, 0.1, 0.2, 0.5))
+        ('fit__prec_distr', ((0.5, 0.5), (1.0, 1.0), (2.0, 0.5), (4.0, 0.5),
+                             (2.0, 2.0), (1.0, 2.0), (5.0, 1.0), (1.0, 0.5))),
+        ('fit__sigma_h', (0.01, 0.02, 0.05, 0.1, 0.2, 0.5)),
+        ('fit__margin', (1.5, 2.0, 3.0, 4.0)),
         )
 
-    def __init__(self, path_keys=None):
+    def __init__(self, path_keys=None, margin=1.0):
         feat_step = PathwaySelect(path_keys=path_keys)
         norm_step = StandardScaler()
-        fit_step = MultiVariantAsym(
-            path_keys=path_keys, kernel='rbf'
-            )
+        fit_step = MultiVariantAsym(path_keys=path_keys)
         MultiVariantPipe.__init__(
             self,
             [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)]

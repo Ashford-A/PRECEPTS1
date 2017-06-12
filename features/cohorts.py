@@ -159,6 +159,12 @@ class VariantCohort(Cohort):
 
         super(VariantCohort, self).__init__(cohort, cv_seed)
 
+    def train_status(self, mtype):
+        return self.train_mut_.status(self.train_expr_.index, mtype)
+
+    def test_status(self, mtype):
+        return self.test_mut_.status(self.test_expr_.index, mtype)
+
     def mutex_test(self, mtype1, mtype2):
         """Checks the mutual exclusivity of two mutation types in the
            training data using a one-sided Fisher's exact test.
@@ -175,18 +181,17 @@ class VariantCohort(Cohort):
         """
         samps1 = mtype1.get_samples(self.train_mut_)
         samps2 = mtype2.get_samples(self.train_mut_)
-
         if not samps1 or not samps2:
             raise ValueError("Both sets must be non-empty!")
 
         all_samps = set(self.train_expr_.index)
         both_samps = samps1 & samps2
-        _, pval = fisher_exact(
-            [[len(all_samps - (samps1 | samps2)),
-              len(samps1 - both_samps)],
-             [len(samps2 - both_samps),
-              len(both_samps)]],
-            alternative='less')
+
+        _, pval = fisher_exact(np.array([[len(all_samps - (samps1 | samps2)),
+                                          len(samps1 - both_samps)],
+                                         [len(samps2 - both_samps),
+                                          len(both_samps)]]),
+                               alternative='less')
 
         return pval
 
