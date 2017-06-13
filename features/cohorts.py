@@ -75,7 +75,7 @@ class VariantCohort(Cohort):
 
     Attributes:
         train_expr (pandas DataFrame of floats)
-        test_expr(pandas DataFrame of floats)
+        test_expr (pandas DataFrame of floats)
         train_mut (MuTree)
         test_mut (MuTree)
         path (dict)

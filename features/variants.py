@@ -92,6 +92,28 @@ def get_variants_bmeg(sample_list, gene_list, mut_fields=("term", )):
 class MuTree(object):
     """A hierarchy of samples organized by mutation annotation levels.
 
+    A MuTree stores variant mutant data for a set of samples in a tree-like
+    data structure. Each level in the tree corresponds to a particular
+    mutation annotation hierarchy level, such as Gene, Form, Exon, Protein,
+    etc. Each node in the tree corresponds to a particular value of the
+    annotation level present in at least one of the samples stored in the
+    tree. A node at the ith level of the tree has children nodes for each of
+    the values present at the (i+1)th annotation level for the samples having
+    mutations with the ith level node value.
+
+    Every node in a MuTree is also a MuTree, except for the leaf nodes, which
+    are frozensets of the samples which have all of the annotation level
+    values of their parent nodes. Thus a MuTree with mutation levels ['Gene',
+    'Exon'] may have a 'KRAS' and 'TP53' nodes at the top level, which have
+    children nodes ('4', '5') and ('7'), which list the samples having
+    KRAS mutations on the 4th exon, KRAS mutations on the 5th exon, and TP53
+    mutations on the 7th exon respectively.
+
+    Levels can either be fields in the 'muts' DataFrame, in which case
+    the tree will have a branch for each unique value in the field, or
+    one of the keys of the MuTree.mut_fields object, in which case they
+    will be defined by the corresponding MuType.muts_<level> method.
+
     Attributes:
         depth (int): How many mutation levels are above the tree
                      in the hierarchy.
@@ -105,24 +127,30 @@ class MuTree(object):
             Must contain a 'Sample' column.
         
         levels (tuple of str):
-            A list of mutation levels to be included in the tree.
-        All sub-trees will have list the same set of levels regardless of
-        their depth in the hierarchy.
+            A list of mutation annotation levels to be included in the tree.
 
-        Levels can either be fields in the 'muts' DataFrame, in which case
-        the tree will have a branch for each unique value in the field, or
-        one of the keys of the MuTree.mut_fields object, in which case they
-        will be defined by the corresponding MuType.muts_<level> method.
-
-        Mutation trees can either have other mutation trees as children,
-        corresponding to lower levels in the hierarchy, or have lists of
-        individual samples as children if they are at the very bottom of the
-        hierarchy which are stored as frozensets in the case of discrete
-        mutation types and dicts in the case of continuous mutations.
+    Examples:
+        >>> mut_data = pd.DataFrame(
+        >>>     {'Sample': ['S1', 'S2', 'S3', 'S4'],
+        >>>      'Gene': ['TP53', 'TP53', 'KRAS', 'TP53'],
+        >>>      'Exon': ['3', '3', '2', '7'],
+        >>>      'Protein': ['H3R', 'S7T', 'E1R', 'Y11R']}
+        >>>     )
+        >>> mtree = MuTree(mut_data, levels=['Gene', 'Exon', 'Protein'])
+        >>> print(mtree)
+            Gene IS TP53 AND
+                Exon is 3 AND
+                    Protein is H3R: S1
+                    Protein is S7T: S2
+                Exon is 7 AND
+                    Protein is Y11R: S4
+            Gene is KRAS AND
+                Exon is 2 AND
+                    Protein is E1R: S3
 
     """
 
-    # mapping between fields in the input mutation table and
+    # mapping between fields in an input mutation table and
     # custom mutation levels
     mut_fields = {
         'Type': ('Gene', 'Form', 'Protein')
@@ -252,7 +280,7 @@ class MuTree(object):
         mshift = MeanShift(bandwidth=exp(-3))
         mshift.fit(pd.DataFrame(muts[parse_lvl]))
         clust_vec = [(parse_lvl + '_'
-                      + str(round(mshift.cluster_centers_[x,0], 2)))
+                      + str(round(mshift.cluster_centers_[x, 0], 2)))
                      for x in mshift.labels_]
         new_muts = muts
         new_muts[parse_lvl + '_clust'] = clust_vec
@@ -649,17 +677,16 @@ class MuType(object):
         # sure the set key is properly specified
         if len(level) != 1:
             raise ValueError(
-                "improperly defined MuType key (multiple mutation levels)")
+                "Improperly defined set key with multiple mutation levels!")
         self.cur_level = tuple(level)[0]
 
         # gets the subsets of mutations defined at this level, and
         # their further subdivisions if they exist
-        membs = [(k,) if isinstance(k, str) else k
-                 for _,k in list(set_key.keys())]
+        membs = [(k,) if isinstance(k, str) else k for k in set_key.keys()]
         children = {
             tuple(i for i in k):
             (ch if ch is None or isinstance(ch, MuType) else MuType(ch))
-            for k,ch in zip(membs, set_key.values())
+            for k, ch in zip(membs, set_key.values())
             }
 
         # merges subsets at this level if their children are the same:
@@ -669,16 +696,20 @@ class MuType(object):
         #    => (missense, splice):(M1, M2)
         uniq_ch = set(children.values())
         uniq_vals = tuple((frozenset(i for j in
-                              [k for k,v in children.items() if v == ch]
-                              for i in j), ch) for ch in uniq_ch)
+                                     [k for k, v in children.items()
+                                      if v == ch] for i in j), ch)
+                          for ch in uniq_ch)
 
+        # adds the children nodes of this MuTree
         self.child = {}
         for val, ch in uniq_vals:
+
             if val in self.child:
                 if ch is None or self.child[val] is None:
                     self.child[val] = None
                 else:
                     self.child[val] |= ch
+
             else:
                 self.child[val] = ch
 
@@ -971,4 +1002,3 @@ class MuType(object):
                           for i in k for s in v.subkeys()]
 
         return mkeys
-

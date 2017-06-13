@@ -193,7 +193,8 @@ class BaseSingleDomain(object):
         self.weight_priors = {
             'alpha': (np.zeros((self.R + 1, self.task_count))
                       + self.prec_distr[0] + 0.5),
-            'beta': np.zeros((self.R + 1, self.task_count)) + self.prec_distr[1]
+            'beta': (np.zeros((self.R + 1, self.task_count))
+                     + self.prec_distr[1])
             }
 
         self.A_mat = {'mu': np.random.randn(self.kern_size, self.R),
@@ -208,9 +209,7 @@ class BaseSingleDomain(object):
                              np.random.randn(self.R, self.task_count))),
             'sigma': np.tile(np.eye(self.R + 1), (self.task_count, 1, 1))
             }
-
         self.output_mat = self.init_output_mat(y_list)
-        lu_list = self.get_lu_list(y_list)
 
         # proceeds with inference using variational Bayes for the given
         # number of iterations
@@ -223,8 +222,8 @@ class BaseSingleDomain(object):
                                                       self.A_mat)
             new_proj = self.update_projection(new_lambda,
                                               self.A_mat, self.H_mat)
-            new_latent = self.update_latent(new_proj,
-                                            self.weight_mat, self.output_mat)
+            new_latent = self.update_latent(new_proj, self.weight_mat,
+                                            self.output_mat, y_list)
 
             new_weight_priors = self.update_precision_priors(
                 self.weight_priors, self.weight_mat)
@@ -294,10 +293,6 @@ class BaseSingleDomain(object):
     def init_output_mat(self, y_list):
         """Initialize posterior distributions of the output predictions."""
 
-    @abstractmethod
-    def get_lu_list(self, y_list):
-        """Gets the truncations for the posterior output distributions."""
-
     def update_precision_priors(self, precision_mat, variable_mat):
         """Updates the posterior distributions of a set of precision priors.
 
@@ -345,7 +340,7 @@ class BaseSingleDomain(object):
 
         return new_variable
 
-    def update_latent(self, variable_mat, weight_mat, output_mat):
+    def update_latent(self, variable_mat, weight_mat, output_mat, y_list):
         """Updates latent feature matrix.
 
         Args:
@@ -419,7 +414,7 @@ class BaseSingleDomain(object):
         return new_weights
 
     @abstractmethod
-    def update_output(self, latent_mat, weight_mat, y_list, lu_list):
+    def update_output(self, latent_mat, weight_mat, y_list):
         """Update the predicted output labels."""
 
     @abstractmethod
@@ -558,17 +553,17 @@ class MultiVariant(BaseSingleDomain):
 
         return output_mat
 
-    def get_lu_list(self, y_list):
-        return [{'lower': np.array([-1e40 if i <= 0 else self.margin
-                                    for i in y]),
-                 'upper': np.array([1e40 if i >= 0 else -self.margin
-                                    for i in y])}
-                for y in y_list]
-
-    def update_output(self, latent_mat, weight_mat, y_list, lu_list):
+    def update_output(self, latent_mat, weight_mat, y_list):
         """Update the predicted output labels."""
         new_output = {k: np.zeros(self.output_mat[k].shape)
                       for k in self.output_mat}
+
+        # gets the margin boundaries for each output label class
+        lu_list = [{'lower': np.array([-1e40 if i <= 0 else self.margin
+                                       for i in y]),
+                    'upper': np.array([1e40 if i >= 0 else -self.margin
+                                       for i in y])}
+                   for y in y_list]
 
         for i in range(self.task_count):
             f_raw = np.dot(np.tile(weight_mat['mu'][1:, i], (1, 1)),
@@ -609,12 +604,12 @@ class MultiVariantAsym(BaseSingleDomain):
 
     def __init__(self,
                  path_keys=None, kernel='rbf', latent_features=5,
-                 prec_distr=(1.0, 1.0), sigma_h=0.1, margin=1.0,
+                 prec_distr=(1.0, 1.0), sigma_h=0.1, margin=5.0/3,
                  max_iter=100, stop_tol=1.0):
         super(MultiVariantAsym, self).__init__(
             path_keys=path_keys, kernel=kernel,
             latent_features=latent_features, prec_distr=prec_distr,
-            sigma_h=sigma_h, margin=5.0/3,
+            sigma_h=sigma_h, margin=margin,
             max_iter=max_iter, stop_tol=stop_tol)
 
     def init_output_mat(self, y_list):
@@ -631,13 +626,56 @@ class MultiVariantAsym(BaseSingleDomain):
         return output_mat
 
     def get_lu_list(self, y_list):
-        return [{'lower': np.array([-1e40 if i <= 0 else 0.0
+        return [{'lower': np.array([-1e40 if i <= 0
+                                    else self.margin - self.margin ** -0.5
                                     for i in y]),
-                 'upper': np.array([1e40 if i >= 0 else self.margin
+                 'upper': np.array([1e40 if i >= 0 else 2.0
                                     for i in y])}
                 for y in y_list]
 
-    def update_output(self, latent_mat, weight_mat, y_list, lu_list):
+    def update_latent(self, variable_mat, weight_mat, output_mat, y_list):
+        """Updates latent feature matrix.
+
+        Args:
+
+        Returns:
+
+        """
+        new_latent = {k: np.zeros(self.H_mat[k].shape) for k in self.H_mat}
+        y_sigma = [np.array([self.margin ** -1.0 if i == 1.0 else 1.0
+                             for i in y])
+                   for y in y_list]
+
+        new_latent['sigma'] = np.linalg.inv(
+            np.diag([self.sigma_h ** -1.0 for _ in range(self.R)])
+            + reduce(lambda x, y: x + y,
+                     [(np.outer(weight_mat['mu'][1:, i],
+                                weight_mat['mu'][1:, i])
+                       + weight_mat['sigma'][i][1:, 1:])
+                      / (np.prod(y_sigma[0]) ** (1.0 / self.sample_count))
+                      for i in range(self.task_count)])
+            )
+
+        new_latent['mu'] = np.dot(
+            new_latent['sigma'],
+            np.dot(variable_mat['mu'].transpose(),
+                   self.kernel_mat) / self.sigma_h
+            + reduce(
+                lambda x, y: x + y,
+                [(np.outer(weight_mat['mu'][1:, i], output_mat['mu'][i, :])
+                  - np.repeat(a=np.array([
+                    [x * weight_mat['mu'][0, i] + y for x, y in
+                     zip(weight_mat['mu'][1:, i],
+                         weight_mat['sigma'][i, 1:, 0])]]
+                    ), repeats=self.sample_count, axis=0).transpose())
+                 / y_sigma[i]
+                 for i in range(self.task_count)]
+                )
+            )
+
+        return new_latent
+
+    def update_output(self, latent_mat, weight_mat, y_list):
         """Update the predicted output labels."""
         new_output = {k: np.zeros(self.output_mat[k].shape)
                       for k in self.output_mat}
@@ -646,38 +684,21 @@ class MultiVariantAsym(BaseSingleDomain):
             f_raw = np.dot(np.tile(weight_mat['mu'][1:, i], (1, 1)),
                            latent_mat['mu']) + weight_mat['mu'][0, i]
 
-            alpha_norm = (lu_list[i]['lower'] - f_raw)[0, :].tolist()
-            beta_norm = (lu_list[i]['upper'] - f_raw)[0, :].tolist()
-            pos_distr = stats.norm(loc=self.margin, scale=self.margin ** -1.0)
-            neg_distr = stats.norm(loc=0.0, scale=1)
+            neg_indx = np.array(y_list[i]) == -1.0
+            pos_indx = np.array(y_list[i]) == 1.0
 
-            norm_factor = [
-                1.0 if a == b
-                else pos_distr.cdf(b) - pos_distr.cdf(a) if y == 1.0
-                else neg_distr.cdf(b) - neg_distr.cdf(a)
-                for a, b, y in zip(alpha_norm, beta_norm, y_list[i])
-                ]
-
-            new_output['mu'][i, :] = [
-                f + ((pos_distr.pdf(a) - pos_distr.pdf(b)) / n) if y == 1.0
-                else f + ((neg_distr.pdf(a) - neg_distr.pdf(b)) / n)
-                for a, b, n, f, y in
-                zip(alpha_norm, beta_norm, norm_factor,
-                    f_raw[0, :].tolist(), y_list[i])
-                ]
-
-            new_output['sigma'][i, :] = [
-                self.margin ** -1.0 + (
-                    (a * pos_distr.pdf(a) - b * pos_distr.pdf(b)) / n
-                    - ((pos_distr.pdf(a) - pos_distr.pdf(b)) ** 2) / n ** 2
-                    ) if y == 1.0 else
-                1.0 + (
-                    (a * neg_distr.pdf(a) - b * neg_distr.pdf(b)) / n
-                    - ((neg_distr.pdf(a) - neg_distr.pdf(b)) ** 2) / n ** 2
+            new_output['mu'][i, neg_indx] = (
+                (f_raw[i, neg_indx] - np.mean(f_raw[i, neg_indx]))
+                / (np.var(f_raw[i, neg_indx]) ** 0.5)
                 )
-                for a, b, n, y in zip(alpha_norm, beta_norm, norm_factor,
-                                      y_list[i])
-                ]
+            new_output['sigma'][i, neg_indx] = 1.0
+
+            new_output['mu'][i, pos_indx] = (
+                ((f_raw[i, pos_indx] - np.mean(f_raw[i, pos_indx]))
+                 / ((np.var(f_raw[i, pos_indx]) ** 0.5) * self.margin))
+                + self.margin
+                )
+            new_output['sigma'][i, pos_indx] = self.margin ** -1.0
 
         return new_output
 
