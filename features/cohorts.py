@@ -12,6 +12,7 @@ Author: Michal Grzadkowski <grzadkow@ohsu.edu>
 
 from .expression import get_expr_bmeg
 from .variants import get_variants_mc3, MuTree
+from .copies import get_copies_firehose
 from .pathways import parse_sif
 from .annot import get_gencode
 from .drugs import get_expr_ioria, get_drug_ioria, get_drug_bmeg
@@ -19,6 +20,7 @@ from .drugs import get_expr_ioria, get_drug_ioria, get_drug_bmeg
 import numpy as np
 from scipy.stats import fisher_exact
 import random
+from functools import reduce
 
 
 class Cohort(object):
@@ -202,6 +204,96 @@ class VariantCohort(Cohort):
                 alternative='less')
 
         return pval
+
+
+class MutCohort(VariantCohort):
+    """An expression dataset used to predict mutations, including CNAs.
+
+    A MutCohort is constructed by first constructing a VariantCohort with the
+    same attributes, and then adding copy number alteration (CNA) data on top
+    of the variant mutation data.
+
+    Note that CNAs are split according to the 'Type' mutation level, with each
+    branch at this level corresponding to a type of CNA, eg. -2 for homozygous
+    loss, 1 for heterozygous amplification, etc. If further mutation levels
+    specified they will only be added to the branches of the mutation trees
+    corresponding to variants.
+
+    Examples:
+        >>> syn = synapseclient.Synapse()
+        >>> syn.login()
+        >>> cdata = MutCohort(
+        >>>     syn, cohort='TCGA-OV', mut_genes=['RB1', 'TTN'],
+        >>>     mut_levels=['Gene', 'Type', 'Protein']
+        >>>     )
+
+    """
+
+    def __init__(self,
+                 syn, cohort, mut_genes, mut_levels=('Gene', 'Type'),
+                 cv_seed=None, cv_prop=2.0 / 3):
+        if mut_levels[0] != 'Gene' or mut_levels[1] != 'Type':
+            raise ValueError("A cohort with CNA info must use 'Gene' as the"
+                             "first mutation level and 'Type' as the second!")
+
+        # initiates a cohort with expression and variant mutation data
+        super(MutCohort, self).__init__(syn, cohort, mut_genes, mut_levels,
+                                        cv_seed, cv_prop)
+
+        # loads copy number data, gets list of samples with CNA info
+        copy_data = get_copies_firehose(cohort.split('-')[-1], mut_genes)
+        copy_samps = frozenset(
+            reduce(lambda x, y: x & y,
+                   set(tuple(copies.keys())
+                       for gn, copies in copy_data.items()))
+            )
+
+        # removes samples that don't have CNA info
+        self.samples = self.samples & copy_samps
+        self.train_samps_ = self.train_samps_ & copy_samps
+        self.test_samps_ = self.test_samps_ & copy_samps
+
+        # removes expression data for samples with no CNA info
+        self.train_expr_ = self.train_expr_.loc[self.train_samps_, :]
+        self.test_expr_ = self.test_expr_.loc[self.test_samps_, :]
+
+        # removes variant data for samples with no CNA info
+        self.train_mut_ = self.train_mut_.subtree(self.train_samps_)
+        self.test_mut_ = self.test_mut_.subtree(self.test_samps_)
+
+        # adds copy number alteration data to the mutation trees
+        for gn in mut_genes:
+            copy_vals = list(np.unique(list(copy_data[gn].values())))
+            copy_vals.remove(0)
+            val_labels = ['CNA_{}'.format(val) for val in copy_vals]
+
+            for val_lbl in val_labels:
+                self.train_mut_[gn]._child[val_lbl] = set()
+                self.test_mut_[gn]._child[val_lbl] = set()
+
+            for samp, val in copy_data[gn].items():
+                if val != 0:
+                    lbl_indx = copy_vals.index(val)
+
+                    if samp in self.train_samps_:
+                        self.train_mut_[gn]._child[val_labels[lbl_indx]].\
+                            update({samp})
+                    else:
+                        self.test_mut_[gn]._child[val_labels[lbl_indx]].\
+                            update({samp})
+
+            for val_lbl in val_labels:
+                if self.train_mut_[gn]._child[val_lbl]:
+                    self.train_mut_[gn]._child[val_lbl] = frozenset(
+                        self.train_mut_[gn]._child[val_lbl])
+                else:
+                    del(self.train_mut_[gn]._child[val_lbl])
+
+                if self.test_mut_[gn]._child[val_lbl]:
+                    self.test_mut_[gn]._child[val_lbl] = frozenset(
+                        self.test_mut_[gn]._child[val_lbl])
+                else:
+                    del(self.test_mut_[gn]._child[val_lbl])
 
 
 class DrugCohort(Cohort):

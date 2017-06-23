@@ -20,8 +20,10 @@ from re import sub as gsub
 from math import exp
 from ophion import Ophion
 
+from copy import deepcopy
 from functools import reduce
 from itertools import combinations as combn
+from itertools import product
 
 from sklearn.cluster import MeanShift
 
@@ -454,6 +456,40 @@ class MuTree(object):
 
         return samp_count
 
+    def subtree(self, samps):
+        """Modifies the MuTree in place so that it only has the given samples.
+
+        Args:
+            samps (list or set)
+
+        Returns:
+            self
+
+        Examples:
+            >>> # remove a sample from the tree
+            >>> mtree = MuTree(...)
+            >>> new_tree = mtree.subtree(mtree.get_samples() - {'TCGA-04'})
+
+        """
+        new_child = self._child.copy()
+        for nm, mut in self:
+
+            if isinstance(mut, MuTree):
+                new_samps = mut.get_samples() & set(samps)
+                if new_samps:
+                    new_child[nm] = mut.subtree(new_samps)
+
+            elif isinstance(mut, frozenset):
+                new_samps = mut & frozenset(samps)
+                if new_samps:
+                    new_child[nm] = new_samps
+
+            else:
+                pass
+
+        self._child = new_child
+        return self
+
     def get_overlap(self, mtype1, mtype2):
         """Gets the proportion of samples in one mtype that also fall under
            another, taking the maximum of the two possible mtype orders.
@@ -531,7 +567,7 @@ class MuTree(object):
 
         return new_key
 
-    def subsets(self, mtype=None, sub_levels=None, min_size=1):
+    def subtypes(self, mtype=None, sub_levels=None, min_size=1):
         """Gets all MuTypes corresponding to one branch of the MuTree.
 
         Args:
@@ -550,21 +586,22 @@ class MuTree(object):
 
         Examples:
             >>> # get all possible single-branch MuTypes
-            >>> mtree.subsets()
+            >>> mtree = MuTree(...)
+            >>> mtree.subtypes()
             >>>
             >>> # get all possible MuTypes with at least five samples
-            >>> mtree.subsets(min_size=5)
+            >>> mtree.subtypes(min_size=5)
             >>>
             >>> # use different filters on the MuTypes returned for a given
             >>> # MuTree based on mutation type and mutation level
-            >>> mtree.subsets(sub_levels=['Gene'])
+            >>> mtree.subtypes(sub_levels=['Gene'])
                 {MuType({('Gene', 'TP53'): None}),
                  MuType({('Gene', 'TTN'): None})}
-            >>> mtree.subsets(sub_levels=['Gene', 'Type'])
+            >>> mtree.subtypes(sub_levels=['Gene', 'Type'])
                 {MuType({('Gene', 'TP53'): {('Type', 'Point'): None}}),
                  MuType({('Gene', 'TP53'): {('Type', 'Frame'): None}}),
                  MuType({('Gene', 'TTN'): {('Type', 'Point'): None}})}
-            >>> mtree.subsets(mtype=MuType({('Gene', 'TTN'): None}),
+            >>> mtree.subtypes(mtype=MuType({('Gene', 'TTN'): None}),
             >>>               sub_levels=['Gene', 'Type'])
                 {MuType({('Gene', 'TTN'): {('Type', 'Point'): None}})}
 
@@ -579,67 +616,71 @@ class MuTree(object):
 
         # finds the branches at the current mutation level that are a subset
         # of the given mutation type and have the minimum number of samples
-        for nm, mut in self:
-            for k, v in mtype:
-                if k in nm and len(mut) >= min_size:
+        for (nm, branch), (_, btype) in filter(lambda x: (x[0][0] == x[1][0]
+                                               and len(x[0][1]) >= min_size),
+                                               product(self, mtype)):
 
-                    # returns the current branch if we are at one of the given
-                    # mutation levels or at a leaf branch...
-                    if self.mut_level in sub_levels or mut is None:
-                        sub_mtypes |= {MuType({(self.mut_level, k): None})}
+            # returns the current branch if we are at one of the given
+            # mutation levels or at a leaf branch...
+            if self.mut_level in sub_levels or branch is None:
+                sub_mtypes.update(
+                    {MuType({(self.mut_level, nm): None})})
 
-                    # ...otherwise, recurses into the children of the current
-                    # branch that have at least one of the given levels
-                    if (isinstance(mut, MuTree)
-                            and set(sub_levels) & mut.get_levels()):
-                        sub_mtypes |= set(
-                            MuType({(self.mut_level, k): sub_mtype})
-                            for sub_mtype in mut.subsets(
-                                v, sub_levels, min_size)
-                            )
+            # ...otherwise, recurses into the children of the current
+            # branch that have at least one of the given levels
+            if (isinstance(branch[1], MuTree)
+                    and set(sub_levels) & branch.get_levels()):
+                sub_mtypes |= set(
+                    MuType({(self.mut_level, nm): sub_mtype})
+                    for sub_mtype in branch.subtypes(
+                        btype, sub_levels, min_size)
+                    )
 
         return sub_mtypes
 
     def combsets(self,
-                 mtype=None, levels=None,
-                 min_size=1, comb_sizes=(1,)):
-        """Gets the MuTypes that are subsets of this tree and that contain
-           at least the given number of samples and the given number of
-           individual branches at the given hierarchy levels.
+                 mtype=None, sub_levels=None,
+                 min_size=1, comb_sizes=(1, 2)):
+        """Gets all MuTypes that combine multiple branches of the tree.
 
-        Parameters
-        ----------
-        mtype : MuType
-            A set of mutations whose subsets are to be obtained.
+        Args:
+            mtype (MuType), optional
+                A set of mutations of which the returned MuTypes must be a
+                subset. The default is to use all MuTypes within this MuTree.
+            sub_levels (list of str), optional
+                The levels of the leaf nodes of the returned MuTypes. The
+                default is to use all levels of the MuTree.
+            min_size (int), optional
+                The minimum number of samples in each returned MuType. The
+                default is not to do filtering based on MuType sample count.
+            comb_sizes (list of int), optional
+                The number of branches that each returned MyType can combine.
+                The default is to consider combinations of up to two branches.
 
-        levels : tuple
-            The levels that the output sets are to contain.
+        Returns:
+            comb_mtypes (set of MuType)
 
-        min_size : int
-            The minimum number of samples each returned
-            subset has to contain.
-
-        comb_sizes : tuple of ints
-            The number of individual branches each returned
-            subset can contain.
-
-        Returns
-        -------
-        csets : list
-            A list of MuTypes satisfying the given criteria.
+        Examples:
+            >>> # get all possible MuTypes that combine three branches
+            >>> mtree = MuTree(...)
+            >>> mtree.subtypes(comb_sizes=(3,))
+            >>>
+            >>> # get all possible MuTypes that combine two 'Type' branches
+            >>> # that have at least twenty samples in this tree
+            >>> mtree.subtypes(min_size=20, sub_levels=['Type'])
 
         """
-        csets = {}
-        all_subs = self.subsets(mtype, levels)
+        comb_mtypes = set()
+        all_subs = self.subtypes(mtype, sub_levels)
 
         for csize in comb_sizes:
             for kc in combn(all_subs, csize):
                 new_set = reduce(lambda x, y: x | y, kc)
 
                 if len(new_set.get_samples(self)) >= min_size:
-                    csets |= {new_set}
+                    comb_mtypes |= {new_set}
 
-        return csets
+        return comb_mtypes
 
     def status(self, samples, mtype=None):
         """For a given set of samples and a MuType, finds if each sample
