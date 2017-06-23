@@ -166,32 +166,40 @@ class VariantCohort(Cohort):
         return self.test_mut_.status(self.test_expr_.index, mtype)
 
     def mutex_test(self, mtype1, mtype2):
-        """Checks the mutual exclusivity of two mutation types in the
-           training data using a one-sided Fisher's exact test.
+        """Tests the mutual exclusivity of two mutation types.
 
-        Parameters
-        ----------
-        mtype1,mtype2 : MuTypes
-            The mutation types to be compared.
+        Args:
+            mtype1, mtype2 (MuType)
 
-        Returns
-        -------
-        pval : float
-            The p-value given by the test.
+        Returns:
+            pval (float): The p-value given by a Fisher's one-sided exact test
+                          using the training samples in the cohort.
+
+        Examples:
+            >>> self.mutex_test(MuType({('Gene', 'TP53'): None}),
+            >>>                 MuType({('Gene', 'CDH1'): None}))
+            >>> self.mutex_test(MuType({('Gene', 'PIK3CA'): None}),
+            >>>                 MuType({('Gene', 'BRAF'): {
+            >>>                             ('Location', '600'): None
+            >>>                        }}))
+
         """
         samps1 = mtype1.get_samples(self.train_mut_)
         samps2 = mtype2.get_samples(self.train_mut_)
+
         if not samps1 or not samps2:
-            raise ValueError("Both sets must be non-empty!")
+            pval = 1
 
-        all_samps = set(self.train_expr_.index)
-        both_samps = samps1 & samps2
+        else:
+            all_samps = set(self.train_expr_.index)
+            both_samps = samps1 & samps2
 
-        _, pval = fisher_exact(np.array([[len(all_samps - (samps1 | samps2)),
-                                          len(samps1 - both_samps)],
-                                         [len(samps2 - both_samps),
-                                          len(both_samps)]]),
-                               alternative='less')
+            _, pval = fisher_exact(
+                np.array([[len(all_samps - (samps1 | samps2)),
+                           len(samps1 - both_samps)],
+                          [len(samps2 - both_samps),
+                           len(both_samps)]]),
+                alternative='less')
 
         return pval
 

@@ -571,8 +571,11 @@ class MuTree(object):
         """
         sub_mtypes = set()
 
+        # gets default values for filtering arguments
         if mtype is None:
             mtype = MuType(self.allkey())
+        if sub_levels is None:
+            sub_levels = self.get_levels()
 
         # finds the branches at the current mutation level that are a subset
         # of the given mutation type and have the minimum number of samples
@@ -582,8 +585,7 @@ class MuTree(object):
 
                     # returns the current branch if we are at one of the given
                     # mutation levels or at a leaf branch...
-                    if (sub_levels is None or self.mut_level in sub_levels
-                            or mut is None):
+                    if self.mut_level in sub_levels or mut is None:
                         sub_mtypes |= {MuType({(self.mut_level, k): None})}
 
                     # ...otherwise, recurses into the children of the current
@@ -663,7 +665,7 @@ class MuTree(object):
             mtype = MuType(self.allkey())
         samp_list = mtype.get_samples(self)
 
-        return [s in samp_list for s in samples]
+        return np.array([s in samp_list for s in samples])
 
 
 class MuType(object):

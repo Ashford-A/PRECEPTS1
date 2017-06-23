@@ -502,12 +502,6 @@ class MutShuffleSplit(StratifiedShuffleSplit):
        testing sets that are stratified according to the mutation vectors.
     """
 
-    def __init__(self,
-                 n_splits=10, test_size=0.1, train_size=None,
-                 random_state=None):
-        super(MutShuffleSplit, self).__init__(
-            n_splits, test_size, train_size, random_state)
-
     def _iter_indices(self, expr, mut=None, groups=None):
         """Generates indices of training/testing splits for use in
            stratified shuffle splitting of cohort data.
@@ -673,12 +667,16 @@ class MutShuffleSplit(StratifiedShuffleSplit):
     def split(self, expr, mut=None, groups=None):
         """Gets the training/testing splits for a cohort."""
 
-        if not hasattr(expr, 'shape') or not hasattr(mut, 'shape'):
+        if isinstance(mut, np.ndarray):
+            mut = check_array(mut, ensure_2d=False, dtype=None)
+
+        elif isinstance(mut, list):
             mut = [check_array(y, ensure_2d=False, dtype=None) for y in mut]
 
         else:
-            mut = check_array(mut, ensure_2d=False, dtype=None)
+            raise ValueError("Output values must be either a list of features"
+                             "for a set of tasks or an numpy array of"
+                             "features for a single task!")
 
         expr, mut = mut_indexable(expr, mut)
         return self._iter_indices(expr, mut)
-

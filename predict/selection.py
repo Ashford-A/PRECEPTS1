@@ -28,19 +28,17 @@ class PathwaySelect(SelectorMixin):
         self.expr_genes = expr_genes
         super(PathwaySelect, self).__init__()
 
-    def fit(self, X, y=None, **fit_params):
-        """Gets the list of genes selected based on pathway information."""
+    def fit(self, X, y=None, path_obj=None, mut_genes=None):
+        """Gets the list of genes selected based on pathway information.
 
-        fit_params = {k.split('__')[-1]: v for k, v in fit_params.items()}
-
+        """
         if self.path_keys is None:
             select_genes = set(X.columns)
 
         else:
-            path_obj = fit_params['path_obj']
             select_genes = set()
 
-            for gene in fit_params['mut_genes']:
+            for gene in mut_genes:
                 for path_key in self.path_keys:
                     for pdirs, ptypes in path_key:
 
@@ -64,7 +62,7 @@ class PathwaySelect(SelectorMixin):
                                   if k in pdirs]
                                 )))
 
-        self.select_genes = select_genes - set(fit_params['mut_genes'])
+        self.select_genes = select_genes - set(mut_genes)
         if hasattr(X, 'columns'):
             self.expr_genes = X.columns
 

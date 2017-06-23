@@ -1,19 +1,24 @@
 
-"""
-HetMan (Heterogeneity Manifold)
-Prediction of mutation sub-types using expression data.
+"""Frameworks for applying machine learning algorithms to -omics datasets.
+
 This file contains classes used to organize feature selection, normalization,
-and prediction methods into robust pipelines.
+and prediction methods into robust pipelines that can be used to infer
+phenotypic information from -omic datasets.
+
+See Also:
+    :module:`../features/cohorts`: Storing -omic and phenotypic data.
+    :module:`.classifiers`: Specific machine learning algorithms.
+
+Author: Michal Grzadkowski <grzadkow@ohsu.edu>
+
 """
 
-# Author: Michal Grzadkowski <grzadkow@ohsu.edu>
-
-from ..features.pathways import parse_sif
 from .cross_validation import (
     MutRandomizedCV, cross_val_predict_mut, MutShuffleSplit)
 
 from abc import abstractmethod
 import numpy as np
+import inspect
 
 from numbers import Number
 from functools import reduce
@@ -23,16 +28,15 @@ from sklearn.pipeline import Pipeline
 from sklearn.model_selection import RandomizedSearchCV
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import cross_val_score
-from sklearn.externals import six
 
 
 class CohortPipe(Pipeline):
-    """A class pipelines for predicting features from expression data.
+    """Extracting phenotypic prediction from an -omics dataset.
 
     Args:
         steps (list): A series of transformations and classifiers.
             An ordered list of feature selection, normalization, and
-            classification/regression steps, the last of which produce
+            classification/regression steps, the last of which produces
             feature predictions.
 
     """
@@ -45,10 +49,9 @@ class CohortPipe(Pipeline):
         super(CohortPipe, self).__init__(steps)
         self.cur_tuning = dict(self.tune_priors)
         self.expr_genes = None
-        self.expr_samps = None
 
     def __repr__(self):
-        """Prints the classifier name and path key."""
+        """Prints the classifier name and the feature selection path key."""
         return '{}_{}'.format(
             type(self).__name__, str(self.get_params()['path_keys']))
 
@@ -72,22 +75,18 @@ class CohortPipe(Pipeline):
 
     @abstractmethod
     def predict_mut(self, expr):
-        """Get the vector of mutation probabilities predicted
-           by the pipeline.
-        """
+        """Get the vector of probabilities that each sample in the given
+           dataset has the phenotype we are trying to predict."""
 
     @abstractmethod
     def score_mut(cls, estimator, expr, mut):
-        """Score the accuracy of the pipeline in predicting the state
-           of a given set of mutations. Used to ensure compatibility with
-           scoring methods implemented in sklearn.
-        """
+        """Score the accuracy of the pipeline in predicting the given
+           phenotype. Used eg. to ensure compatibility with cross-validation
+           methods implemented in sklearn."""
 
-    # TODO: make this an abstract method, extract coefs from all classifiers
+    @abstractmethod
     def get_coef(self):
-        """Gets the coefficients of the classifier."""
-        return dict(zip(self.named_steps['feat'].expr_genes,
-                        self.named_steps['fit'].coef_[0]))
+        """Gets the coefficients of the pipeline if it has been fit."""
 
 
 class VariantPipe(CohortPipe):
@@ -95,52 +94,71 @@ class VariantPipe(CohortPipe):
        mutation states such as SNPs, indels, and frameshifts.
     """
 
-    def __init__(self, steps):
+    def __init__(self, steps, path_keys=None):
         if not hasattr(steps[-1][-1], 'predict_proba'):
             raise ValueError(
                 "Variant pipelines must have a classification estimator"
                 "with a 'predict_proba' method as their final step!")
         super(VariantPipe, self).__init__(steps)
+        self.path_keys = path_keys
 
     def _fit(self, X, y=None, **fit_params):
         self._validate_steps()
-        fit_params_steps = dict((name, {}) for name, step in self.steps
-                                if step is not None)
-        for pname, pval in six.iteritems(fit_params):
+        step_names = [name for name, _ in self.steps]
+
+        fit_params_steps = {name: {} for name, step in self.steps
+                            if step is not None}
+        for pname, pval in fit_params.items():
+
             if '__' in pname:
-                step, param = pname.split('__', 1)
+                step, param = pname.split('__', maxsplit=1)
                 fit_params_steps[step][param] = pval
 
             else:
                 for step in fit_params_steps:
-                    if step != 'norm':
+                    step_indx = step_names.index(step)
+
+                    if (pname in self.steps[step_indx][1].fit
+                            .__code__.co_varnames):
                         fit_params_steps[step][pname] = pval
 
         Xt = X
         for name, transform in self.steps[:-1]:
+
             if transform is None:
                 pass
+
             elif hasattr(transform, "fit_transform"):
                 Xt = transform.fit_transform(Xt, y, **fit_params_steps[name])
+
             else:
                 Xt = transform.fit(Xt, y, **fit_params_steps[name]) \
                               .transform(Xt)
+
         if self._final_estimator is None:
-            return Xt, {}
-        return Xt, fit_params_steps[self.steps[-1][0]]
+            final_params = {}
+        else:
+            final_params = fit_params_steps[self.steps[-1][0]]
+
+        return Xt, final_params
 
     def fit(self, X, y=None, **fit_params):
         """Fits the steps of the pipeline in turn."""
 
-        Xt, _ = self._fit(X, y, **{**fit_params, **{'expr_genes': X.columns}})
+        Xt, final_params = self._fit(
+            X, y, **{**fit_params, **{'expr_genes': X.columns}})
         self.expr_genes = X.columns[
             self.named_steps['feat']._get_support_mask()]
-        fit_params = {**fit_params, **{'expr_genes': self.expr_genes}}
 
+        if 'expr_genes' in final_params:
+            final_params['expr_genes'] = self.expr_genes
         if self._final_estimator is not None:
-            self._final_estimator.fit(Xt, y, **fit_params)
+            self._final_estimator.fit(Xt, y, **final_params)
 
         return self
+
+    def get_coef(self):
+        return {gene: 0 for gene in self.expr_genes}
 
     def predict_coh(self,
                     cohort, use_test=False,
@@ -157,6 +175,14 @@ class VariantPipe(CohortPipe):
 
         return muts
 
+    def labels_coh(self, cohort):
+        Xt = cohort.test_expr_
+        for name, transform in self.steps[:-1]:
+            if transform is not None:
+                Xt = transform.transform(Xt)
+
+        return self.steps[-1][-1].predict_labels(Xt)
+
 
 class UniVariantPipe(VariantPipe):
     """A class corresponding to pipelines for predicting
@@ -171,7 +197,7 @@ class UniVariantPipe(VariantPipe):
 
         if hasattr(self, 'classes_'):
             true_indx = [i for i, x in enumerate(self.classes_) if x]
-            mut_preds = [scrs[true_indx] for scrs in mut_probs]
+            mut_probs = [scrs[true_indx] for scrs in mut_probs]
 
         return mut_probs
 
@@ -227,9 +253,7 @@ class UniVariantPipe(VariantPipe):
             grid_test = RandomizedSearchCV(
                 estimator=self, param_distributions=self.cur_tuning,
                 fit_params={'mut_genes': cohort.mut_genes,
-                            'path_obj': cohort.path,
-                            'fit__mut_genes': cohort.mut_genes,
-                            'fit__path_obj': cohort.path},
+                            'path_obj': cohort.path},
                 n_iter=test_count, scoring=self.score_mut,
                 cv=tune_cvs, n_jobs=-1, refit=False
                 )
@@ -253,8 +277,8 @@ class UniVariantPipe(VariantPipe):
 
         return self.fit(X=cohort.train_expr_.loc[samps, genes],
                         y=cohort.train_mut_.status(samps, mtype),
-                        feat__mut_genes=cohort.mut_genes,
-                        feat__path_obj=cohort.path)
+                        **{'mut_genes': cohort.mut_genes,
+                           'path_obj': cohort.path})
 
     def score_coh(self,
                   cohort, mtype, score_splits=16,
@@ -297,8 +321,8 @@ class UniVariantPipe(VariantPipe):
             estimator=self,
             X=cohort.train_expr_.loc[samps, genes],
             y=cohort.train_mut_.status(samps, mtype),
-            fit_params={'feat__mut_genes': cohort.mut_genes,
-                        'feat__path_obj': cohort.path},
+            fit_params={'mut_genes': cohort.mut_genes,
+                        'path_obj': cohort.path},
             scoring=self.score_mut, cv=score_cvs, n_jobs=-1
             ), 25)
 
@@ -340,6 +364,10 @@ class MultiVariantPipe(VariantPipe):
            classifier based on the given expression matrix.
         """
         return self.predict_proba(expr)
+
+    def predict_labels(self, expr):
+        expr_t = self.transform(expr)
+        return self.predict_labels(expr_t)
 
     @classmethod
     def get_scores(cls, estimator, expr, mut_list):
