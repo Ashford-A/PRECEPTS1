@@ -94,3 +94,18 @@ def get_drug_bmeg(cohort, drug_list):
     drug_data = {drug: None for drug in drug_list}
 
     return drug_expr
+
+def get_drug_annot_bmeg(drug_list):
+    """Get annotation data for specified drugs (i.e. target).
+
+    Args:
+        drug_list (list of str): List of drug names to be annotated
+
+    """
+    # how to handle drug name mismatches?
+
+    oph = Ophion("http://bmeg.io")
+
+    # some ophion query to fetch targets for drugs in drug_list
+
+    pass

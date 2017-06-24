@@ -300,32 +300,65 @@ class DrugCohort(Cohort):
     """An expression dataset used to predict clinical drug response.
 
         Args:
+            drug_list (list of str): Which drugs to include
+            cv_prop (float): Proportion of samples to use for cross-validation
 
         Attributes:
+            train_samps_(frozenset of str)
+            test_samps_ (frozenset of str)
+            train_expr_ (pandas DataFrame of floats)
+            test_expr_ (pandas DataFrame of floats)
+            train_resp_ (pandas DataFrame of floats)
+            test_resp_ (pandas DataFrame of floats)
 
         Examples:
 
         """
 
-    def __init__(self, cohort, drug, cv_seed=None):
-        self.drug = drug
+    def __init__(self, cohort, drug_list, cv_seed=None, cv_prop=2.0/3):
+        if cv_prop <= 0 or cv_prop > 1:
+            raise ValueError("Improper cross-validation ratio that is "
+                             "not > 0 and <= 1.0")
+        self.drug_list = drug_list
+        self.cv_prop = cv_prop
 
         cell_expr = get_expr_ioria()
-        drug_resp = get_drug_ioria()
 
-        cell_expr = cell_expr.loc[:, drug_resp.index].transpose().dropna(
-            axis=0, how='all').dropna(axis=1, how='any')
-        drug_resp = drug_resp.loc[cell_expr.index]
+        # TODO: choose a non-AUC measure of drug response
+        drug_resp = get_drug_ioria(drug_list)
+
+        # drops cell lines (rows) w/ no expression data & genes (cols) with any missing values
+        cell_expr = cell_expr.dropna(axis=0, how='all').dropna(axis=1, how='any')
+
+        # drops cell lines (rows) w/ no expression data
+        drug_resp = drug_resp.dropna(axis=0, how='all')
+
+        # gets set of cell lines ("samples") shared between drug_resp and cell_expr datasets
+        self.samples = set(cell_expr.index) & set(drug_resp.index)
+
+        # discards data for cell lines which are not in samples set
+        cell_expr = cell_expr.loc[self.samples,:]
+        drug_resp = drug_resp.loc[self.samples,:]
+
+        # TODO: query bmeg for annotation data on each drug (def in drugs.py), set as attribute
 
         random.seed(a=cv_seed)
-        self.train_samps_ = frozenset(
-            random.sample(population=list(drug_expr.index),
-                          k=int(round(drug_expr.shape[0] * 0.8)))
-            )
-        self.test_samps_ = frozenset(
-            set(drug_expr.index) - self.train_samps_)
+        if cv_prop < 1:
 
-        self.drug_resp = drug_resp
-        self.drug_expr = drug_expr
+            # separate samples (cell line names) into train and test frozensets.
+            self.train_samps_ = frozenset(
+                random.sample(population=self.samples, k=int(round(len(self.samples) * cv_prop))))
+            self.test_samps_ = self.samples - self.train_samps_
+
+            # bifurcate cell_expr and drug_resp based on those sets.
+            self.train_expr_ = cell_expr.loc[self.train_samps_, :]
+            self.test_expr_ = cell_expr.loc[self.test_samps_, :]
+
+            self.train_resp_ = drug_resp.loc[self.train_samps_, :]
+            self.test_resp_ = drug_resp.loc[self.test_samps_, :]
+
+        else:
+            self.train_samps = self.samples
+            self.test_samps_ = None
 
         super(DrugCohort, self).__init__(cohort, cv_seed)
