@@ -21,6 +21,7 @@ from scipy import stats
 from abc import abstractmethod
 
 import collections
+from math import log
 from sklearn import metrics
 from functools import reduce
 
@@ -67,7 +68,7 @@ class BaseSingleDomain(object):
     def __init__(self,
                  path_keys=None, kernel='rbf', latent_features=5,
                  prec_distr=(1.0, 1.0), sigma_h=0.1, margin=1.0,
-                 max_iter=100, stop_tol=1.0):
+                 kern_gamma=-1.85, max_iter=200, stop_tol=1.0):
         self.kernel = kernel
         self.path_keys = path_keys
         self.R = latent_features
@@ -75,6 +76,8 @@ class BaseSingleDomain(object):
         self.prec_distr = prec_distr
         self.sigma_h = sigma_h
         self.margin = margin
+        self.kern_gamma = kern_gamma
+
         self.max_iter = max_iter
         self.stop_tol = stop_tol
 
@@ -101,7 +104,9 @@ class BaseSingleDomain(object):
     def get_params(self, deep=True):
         return {'sigma_h': self.sigma_h,
                 'prec_distr': self.prec_distr,
-                'latent_features': self.R}
+                'latent_features': self.R,
+                'margin': self.margin,
+                'kern_gamma': self.kern_gamma}
 
     def set_params(self, **kwargs):
         for k,v in kwargs.items():
@@ -137,8 +142,8 @@ class BaseSingleDomain(object):
             kernel_list = [
                 metrics.pairwise.rbf_kernel(
                     x, y,
-                    gamma=np.mean(
-                        metrics.pairwise.pairwise_distances(x)) ** -2.0
+                    gamma=(np.mean(metrics.pairwise.pairwise_distances(x))
+                           ** self.kern_gamma)
                     )
                 for x, y in zip(x_list, y_list)
                 ]
@@ -191,10 +196,8 @@ class BaseSingleDomain(object):
         # initializes posteriors of precision priors for coupled
         # classification matrices
         self.weight_priors = {
-            'alpha': (np.zeros((self.R + 1, self.task_count))
-                      + self.prec_distr[0] + 0.5),
-            'beta': (np.zeros((self.R + 1, self.task_count))
-                     + self.prec_distr[1])
+            'alpha': np.zeros((self.R + 1, self.task_count)) + 1.5,
+            'beta': np.zeros((self.R + 1, self.task_count)) + 1.0
             }
 
         self.A_mat = {'mu': np.random.randn(self.kern_size, self.R),
@@ -218,19 +221,22 @@ class BaseSingleDomain(object):
         log_like_stop = False
         while cur_iter <= self.max_iter and not log_like_stop:
 
-            new_lambda = self.update_precision_priors(self.lambda_mat,
-                                                      self.A_mat)
+            new_lambda = self.update_precision_priors(
+                self.lambda_mat, self.A_mat,
+                self.prec_distr[0], self.prec_distr[1]
+                )
             new_proj = self.update_projection(new_lambda,
                                               self.A_mat, self.H_mat)
             new_latent = self.update_latent(new_proj, self.weight_mat,
                                             self.output_mat, y_list)
 
             new_weight_priors = self.update_precision_priors(
-                self.weight_priors, self.weight_mat)
+                self.weight_priors, self.weight_mat, 1.0, 1.0
+                )
             new_weights = self.update_weights(
                 new_weight_priors, new_latent, self.output_mat)
             new_outputs = self.update_output(new_latent, new_weights,
-                                             y_list, lu_list)
+                                             y_list)
 
             self.lambda_mat = new_lambda
             self.A_mat = new_proj
@@ -240,10 +246,13 @@ class BaseSingleDomain(object):
             self.weight_mat = new_weights
             self.output_mat = new_outputs
 
-            if (cur_iter % 5) == 0:
+            # every ten update iterations, check the likelihood of the model
+            # given current latent variable distributions
+            if (cur_iter % 10) == 0:
                 cur_log_like = self.log_likelihood(y_list)
 
-                if cur_log_like < (old_log_like + self.stop_tol):
+                if (cur_log_like < (old_log_like + self.stop_tol)
+                        and cur_iter > 10):
                     log_like_stop = True
 
                 else:
@@ -257,18 +266,16 @@ class BaseSingleDomain(object):
 
         return self
 
-    def predict_proba(self, X):
+    def predict_labels(self, X):
         kern_dist = self.compute_kernels(x_mat=self.X, y_mat=X)
-        predict_samps = X.shape[0]
 
         h_mu = self.A_mat['mu'].transpose() @ kern_dist
-        f_mu = [np.zeros(predict_samps) for _ in range(self.task_count)]
-        f_sigma = [np.zeros(predict_samps) for _ in range(self.task_count)]
-        pred_list = [np.zeros(predict_samps) for _ in range(self.task_count)]
+        f_mu = [np.zeros(X.shape[0]) for _ in range(self.task_count)]
+        f_sigma = [np.zeros(X.shape[0]) for _ in range(self.task_count)]
 
         for i in range(self.task_count):
             f_mu[i] = np.dot(
-                np.vstack(([1 for _ in range(predict_samps)], h_mu))
+                np.vstack(([1 for _ in range(X.shape[0])], h_mu))
                     .transpose(),
                 self.weight_mat['mu'][:, i]
                 )
@@ -277,23 +284,38 @@ class BaseSingleDomain(object):
                 np.dot(
                     np.dot(
                         np.vstack(([1 for _ in
-                                    range(predict_samps)], h_mu)).transpose(),
+                                    range(X.shape[0])], h_mu)).transpose(),
                         self.weight_mat['sigma'][i, :, :]),
-                    np.vstack(([1 for _ in range(predict_samps)], h_mu))
+                    np.vstack(([1 for _ in range(X.shape[0])], h_mu))
                     )
                 )
 
-            pred_p = 1 - stats.norm.cdf((self.margin - f_mu[i]) / f_sigma[i])
-            pred_n = stats.norm.cdf((-self.margin - f_mu[i]) / f_sigma[i])
+        return f_mu, f_sigma
+
+    def predict_proba(self, X):
+        f_mu, f_sigma = self.predict_labels(X)
+
+        pred_list = [np.zeros(X.shape[0]) for _ in range(self.task_count)]
+        for i in range(self.task_count):
+            pred_p, pred_n = self.get_pred_class_probs(f_mu[i], f_sigma[i])
             pred_list[i] = pred_p / (pred_p + pred_n)
 
         return pred_list
+
+    def transform(self, X):
+        return X
+
+    @abstractmethod
+    def get_pred_class_probs(self, pred_mu, pred_sigma):
+        """Gets the predicted probability of falling into output classes."""
 
     @abstractmethod
     def init_output_mat(self, y_list):
         """Initialize posterior distributions of the output predictions."""
 
-    def update_precision_priors(self, precision_mat, variable_mat):
+    def update_precision_priors(self,
+                                precision_mat, variable_mat,
+                                prec_alpha, prec_beta):
         """Updates the posterior distributions of a set of precision priors.
 
         Performs an update step for the approximate posterior distributions
@@ -309,8 +331,8 @@ class BaseSingleDomain(object):
 
         """
         new_priors = {'alpha': (np.zeros(precision_mat['alpha'].shape)
-                                + self.prec_distr[0] + 0.5),
-                      'beta': (self.prec_distr[1]
+                                + prec_alpha + 0.5),
+                      'beta': (prec_beta
                                + 0.5 * get_square_gauss(variable_mat))}
 
         return new_priors
@@ -541,6 +563,12 @@ class BaseSingleDomain(object):
 
 class MultiVariant(BaseSingleDomain):
 
+    def get_pred_class_probs(self, pred_mu, pred_sigma):
+        pred_p = 1 - stats.norm.cdf((self.margin - pred_mu) / pred_sigma)
+        pred_n = stats.norm.cdf((-self.margin - pred_mu) / pred_sigma)
+
+        return pred_p, pred_n
+
     def init_output_mat(self, y_list):
         """Initialize posterior distributions of the output predictions."""
         output_mat = {
@@ -572,8 +600,9 @@ class MultiVariant(BaseSingleDomain):
             alpha_norm = (lu_list[i]['lower'] - f_raw)[0, :].tolist()
             beta_norm = (lu_list[i]['upper'] - f_raw)[0, :].tolist()
             norm_factor = [stats.norm.cdf(b) - stats.norm.cdf(a) if a != b
-                           else 1
+                           else 1.0
                            for a, b in zip(alpha_norm, beta_norm)]
+            norm_factor = [1.0 if x == 0 else x for x in norm_factor]
 
             new_output['mu'][i, :] = [
                 f + ((stats.norm.pdf(a) - stats.norm.pdf(b)) / n)
@@ -605,21 +634,28 @@ class MultiVariantAsym(BaseSingleDomain):
     def __init__(self,
                  path_keys=None, kernel='rbf', latent_features=5,
                  prec_distr=(1.0, 1.0), sigma_h=0.1, margin=5.0/3,
-                 max_iter=100, stop_tol=1.0):
+                 max_iter=500, stop_tol=1.0):
         super(MultiVariantAsym, self).__init__(
             path_keys=path_keys, kernel=kernel,
             latent_features=latent_features, prec_distr=prec_distr,
             sigma_h=sigma_h, margin=margin,
             max_iter=max_iter, stop_tol=stop_tol)
 
+    def get_pred_class_probs(self, pred_mu, pred_sigma):
+        pred_p = stats.norm(loc=self.margin, scale=self.margin ** -1.0)\
+            .pdf(pred_mu)
+        pred_n = stats.norm(loc=0.0, scale=1.0).pdf(pred_mu)
+
+        return pred_p, pred_n
+
     def init_output_mat(self, y_list):
         """Initialize posterior distributions of the output predictions."""
         output_mat = {
             'mu': np.array([[stats.norm.rvs(self.margin, self.margin ** -1.0)
                              if y == 1.0
-                             else stats.norm.rvs(0.0, 1.0)
+                             else stats.norm.rvs(-2.0, 1.0)
                              for y in y_vec] for y_vec in y_list]),
-            'sigma': np.array([[self.margin ** -1.0 if y == 1.0 else 1.0
+            'sigma': np.array([[self.margin ** -1.0 if y == 1.0 else 3.0
                                 for y in y_vec] for y_vec in y_list])
             }
 
@@ -642,7 +678,7 @@ class MultiVariantAsym(BaseSingleDomain):
 
         """
         new_latent = {k: np.zeros(self.H_mat[k].shape) for k in self.H_mat}
-        y_sigma = [np.array([self.margin ** -1.0 if i == 1.0 else 1.0
+        y_sigma = [np.array([self.margin ** -1.0 if i == 1.0 else 4.0
                              for i in y])
                    for y in y_list]
 
@@ -687,15 +723,19 @@ class MultiVariantAsym(BaseSingleDomain):
             neg_indx = np.array(y_list[i]) == -1.0
             pos_indx = np.array(y_list[i]) == 1.0
 
-            new_output['mu'][i, neg_indx] = (
-                (f_raw[i, neg_indx] - np.mean(f_raw[i, neg_indx]))
-                / (np.var(f_raw[i, neg_indx]) ** 0.5)
-                )
+            adj_val = (np.percentile(f_raw[0, neg_indx],
+                                    stats.norm.cdf(1.0) * 100)
+                       - 1.0)
+
+            if adj_val > 0:
+                new_output['mu'][i, neg_indx] = f_raw[0, neg_indx] - adj_val
+            else:
+                new_output['mu'][i, neg_indx] = f_raw[0, neg_indx]
             new_output['sigma'][i, neg_indx] = 1.0
 
             new_output['mu'][i, pos_indx] = (
-                ((f_raw[i, pos_indx] - np.mean(f_raw[i, pos_indx]))
-                 / ((np.var(f_raw[i, pos_indx]) ** 0.5) * self.margin))
+                ((f_raw[0, pos_indx] - np.mean(f_raw[0, pos_indx]))
+                 / ((np.var(f_raw[0, pos_indx]) ** 0.5) * self.margin))
                 + self.margin
                 )
             new_output['sigma'][i, pos_indx] = self.margin ** -1.0

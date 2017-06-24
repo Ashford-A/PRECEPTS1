@@ -49,10 +49,10 @@ class RobustNB(UniVariantPipe):
         feat_step = PathwaySelect(path_keys=path_keys)
         norm_step = RobustScaler()
         fit_step = GaussianNB()
-        UniVariantPipe.__init__(
-            self,
+
+        super(RobustNB, self).__init__(
             [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],
-            path_keys
+            path_keys=path_keys
             )
 
 
@@ -63,17 +63,22 @@ class Lasso(UniVariantPipe):
 
     tune_priors = (
         ('fit__C', stats.lognorm(scale=exp(-1), s=exp(1))),
-    )
+        )
 
     def __init__(self, path_keys=None):
         feat_step = PathwaySelect(path_keys=path_keys)
         norm_step = StandardScaler()
-        fit_step = LogisticRegression(
-            penalty='l1', tol=1e-2, class_weight='balanced')
-        UniVariantPipe.__init__(
-            self,
+        fit_step = LogisticRegression(penalty='l1', tol=1e-2,
+                                      class_weight='balanced')
+
+        super(Lasso, self).__init__(
             [('feat', feat_step), ('norm', norm_step),('fit', fit_step)],
+            path_keys=path_keys
             )
+
+    def get_coef(self):
+        return {gene: coef for gene, coef in
+                zip(self.expr_genes, self.named_steps['fit'].coef_[0])}
 
 
 class LogReg(UniVariantPipe):
@@ -231,10 +236,12 @@ class MKBMTL(MultiVariantPipe):
     """
 
     tune_priors = (
+        ('fit__margin', (1.0, 1.5, 2.0, 3.0)),
         ('fit__latent_features', (2, 3, 4, 5, 8, 12)),
         ('fit__prec_distr', ((0.5, 0.5), (1.0, 1.0), (2.0, 0.5), (4.0, 0.5),
                              (2.0, 2.0), (1.0, 2.0), (5.0, 1.0), (1.0, 0.5))),
         ('fit__sigma_h', (0.01, 0.02, 0.05, 0.1, 0.2, 0.5)),
+        ('fit__kern_gamma', (-1.7, -1.8, -1.9, -2.0, -2.1, -2.2, -2.3))
         )
 
     def __init__(self, path_keys=None):
@@ -254,15 +261,37 @@ class MKBMTLasym(MultiVariantPipe):
     tune_priors = (
         ('fit__latent_features', (2, 3, 4, 5, 8, 12)),
         ('fit__prec_distr', ((0.5, 0.5), (1.0, 1.0), (2.0, 0.5), (4.0, 0.5),
-                             (2.0, 2.0), (1.0, 2.0), (5.0, 1.0), (1.0, 0.5))),
+                             (2.0, 2.0), (1.0, 2.0), (0.5, 2.0), (2.0, 1.0))),
         ('fit__sigma_h', (0.01, 0.02, 0.05, 0.1, 0.2, 0.5)),
-        ('fit__margin', (1.0, 1.5, 2.0, 2.25, 2.5, 2.75, 3.0, 3.5)),
+        ('fit__margin', (1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5)),
         )
 
     def __init__(self, path_keys=None):
         feat_step = PathwaySelect(path_keys=path_keys)
         norm_step = StandardScaler()
         fit_step = MultiVariantAsym(path_keys=path_keys)
+        MultiVariantPipe.__init__(
+            self,
+            [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)]
+            )
+
+
+class MKBMTLnew(MultiVariantPipe):
+    """A class corresponding to Bayesian transfer learning with multi-feature
+    """
+
+    tune_priors = (
+        ('fit__prec_distr', ((1.0, 1.0), (1.0, 2.0), (0.5, 0.5), (2.0, 2.0),
+                             (1.5, 1.5), (2.5, 2.5), (2.0, 1.0), (3.0, 1.0),
+                             (2.0, 4.0), (1.5, 3.0), (1.5, 0.5), (4.0, 4.0))),
+        ('fit__sigma_h', (0.01, 0.02, 0.04, 0.06, 0.1, 0.15, 0.2, 0.25, 0.4)),
+        ('fit__margin', (1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 3.0)),
+        )
+
+    def __init__(self, path_keys=None):
+        feat_step = PathwaySelect(path_keys=path_keys)
+        norm_step = RobustScaler()
+        fit_step = MultiVariantAsym(path_keys=path_keys, latent_features=2)
         MultiVariantPipe.__init__(
             self,
             [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)]
