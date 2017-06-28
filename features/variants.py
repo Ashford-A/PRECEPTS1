@@ -347,13 +347,15 @@ class MuTree(object):
 
             if splat_muts:
                 self.mut_level = levels[rel_depth]
+
                 if isinstance(splat_muts, tuple):
                     self._child = dict(splat_muts)
 
                 else:
-                    for nm, mut in splat_muts.items():
-                        self._child[nm] = MuTree(mut, lvls_left,
-                                                 depth=self.depth+1)
+                    self._child = {nm: MuTree(mut, lvls_left,
+                                              depth=self.depth+1)
+                                   for nm, mut in splat_muts.items()}
+
             else:
                 rel_depth += 1
 
@@ -628,7 +630,7 @@ class MuTree(object):
 
             # ...otherwise, recurses into the children of the current
             # branch that have at least one of the given levels
-            if (isinstance(branch[1], MuTree)
+            if (isinstance(branch, MuTree)
                     and set(sub_levels) & branch.get_levels()):
                 sub_mtypes |= set(
                     MuType({(self.mut_level, nm): sub_mtype})
@@ -638,9 +640,9 @@ class MuTree(object):
 
         return sub_mtypes
 
-    def combsets(self,
-                 mtype=None, sub_levels=None,
-                 min_size=1, comb_sizes=(1, 2)):
+    def combtypes(self,
+                  mtype=None, sub_levels=None,
+                  min_size=1, comb_sizes=(1, 2)):
         """Gets all MuTypes that combine multiple branches of the tree.
 
         Args:

@@ -43,8 +43,9 @@ def get_copies_firehose(cohort, gene_list):
                           for samp in copy_table.columns]
 
     # filter the copy-number data for the genes in the given list
-    copy_data = {gene: copy_table.ix[copy_table.ix[:, 0] == gene, 3:]
+    copy_data = {gene: (copy_table.ix[copy_table.ix[:, 0] == gene, 3:]
                            .iloc[0, :].to_dict()
+                        if gene in list(copy_table.ix[:, 0]) else None)
                  for gene in gene_list}
 
     return copy_data

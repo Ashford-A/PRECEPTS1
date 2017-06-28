@@ -18,6 +18,8 @@ from .annot import get_gencode
 from .drugs import get_expr_ioria, get_drug_ioria, get_drug_bmeg
 
 import numpy as np
+import pandas as pd
+
 from scipy.stats import fisher_exact
 import random
 from functools import reduce
@@ -127,10 +129,10 @@ class VariantCohort(Cohort):
 
         # gets annotation data for the genes whose mutations
         # are under consideration
-        annot_data = {mut_g: {'ID': g, 'Chr': a['chr'],
-                              'Start': a['Start'], 'End': a['End']}
-                      for g, a in annot.items() for mut_g in mut_genes
-                      if a['gene_name'] == mut_g}
+        annot_data = {a['gene_name']: {'ID': g, 'Chr': a['chr'],
+                                       'Start': a['Start'], 'End': a['End']}
+                      for g, a in annot.items()
+                      if a['gene_name'] in mut_genes}
         self.annot = annot
         self.mut_annot = annot_data
 
@@ -213,7 +215,7 @@ class MutCohort(VariantCohort):
     same attributes, and then adding copy number alteration (CNA) data on top
     of the variant mutation data.
 
-    Note that CNAs are split according to the 'Type' mutation level, with each
+    Note that CNAs are split according to the 'Form' mutation level, with each
     branch at this level corresponding to a type of CNA, eg. -2 for homozygous
     loss, 1 for heterozygous amplification, etc. If further mutation levels
     specified they will only be added to the branches of the mutation trees
@@ -224,7 +226,7 @@ class MutCohort(VariantCohort):
         >>> syn.login()
         >>> cdata = MutCohort(
         >>>     syn, cohort='TCGA-OV', mut_genes=['RB1', 'TTN'],
-        >>>     mut_levels=['Gene', 'Type', 'Protein']
+        >>>     mut_levels=['Gene', 'Form', 'Protein']
         >>>     )
 
     """
@@ -232,9 +234,9 @@ class MutCohort(VariantCohort):
     def __init__(self,
                  syn, cohort, mut_genes, mut_levels=('Gene', 'Type'),
                  cv_seed=None, cv_prop=2.0 / 3):
-        if mut_levels[0] != 'Gene' or mut_levels[1] != 'Type':
+        if mut_levels[0] != 'Gene' or mut_levels[1] != 'Form':
             raise ValueError("A cohort with CNA info must use 'Gene' as the"
-                             "first mutation level and 'Type' as the second!")
+                             "first mutation level and 'Form' as the second!")
 
         # initiates a cohort with expression and variant mutation data
         super(MutCohort, self).__init__(syn, cohort, mut_genes, mut_levels,
@@ -266,6 +268,22 @@ class MutCohort(VariantCohort):
             copy_vals = list(np.unique(list(copy_data[gn].values())))
             copy_vals.remove(0)
             val_labels = ['CNA_{}'.format(val) for val in copy_vals]
+
+            if gn not in self.train_mut_._child:
+                self.train_mut_._child[gn] = MuTree(
+                    muts=pd.DataFrame(
+                        {'Form': val_labels,
+                         'Sample': [None for _ in val_labels]}
+                        ),
+                    levels=['Form'])
+
+            if gn not in self.test_mut_._child:
+                self.test_mut_._child[gn] = MuTree(
+                    muts=pd.DataFrame(
+                        {'Form': val_labels,
+                         'Sample': [None for _ in val_labels]}
+                        ),
+                    levels=['Form'])
 
             for val_lbl in val_labels:
                 self.train_mut_[gn]._child[val_lbl] = set()
