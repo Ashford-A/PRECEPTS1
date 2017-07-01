@@ -103,6 +103,73 @@ def cross_val_predict_mut(estimator, X, y=None, groups=None,
     return pred_mat
 
 
+def cross_val_predict_drug(estimator, X, y=None, groups=None,
+                           exclude_samps=None, cv_fold=4, cv_count=16,
+                           n_jobs=1, verbose=0, fit_params=None,
+                           pre_dispatch='2*n_jobs', random_state=None):
+    """Generates predicted mutation states for samples using internal
+       cross-validation via repeated stratified K-fold sampling.
+    """
+
+    # gets the number of K-fold repeats
+    if (cv_count % cv_fold) != 0:
+        raise ValueError("The number of folds should evenly divide the total"
+                         "number of cross-validation splits.")
+    cv_rep = int(cv_count / cv_fold)
+
+    # checks that the given estimator can predict continuous mutation states
+    if not callable(getattr(estimator, 'predict_proba')):
+        raise AttributeError('predict_proba not implemented in estimator')
+
+    # gets absolute indices for samples to train and test over
+    X, y, groups = indexable(X, y, groups)
+    if exclude_samps is None:
+        exclude_samps = []
+    else:
+        exclude_samps = list(set(exclude_samps) - set(X.index[y]))
+    use_samps = list(set(X.index) - set(exclude_samps))
+    use_samps_indx = X.index.get_indexer_for(use_samps)
+    ex_samps_indx = X.index.get_indexer_for(exclude_samps)
+
+    # generates the training/prediction splits
+    cv_iter = []
+    for i in range(cv_rep):
+        cv = StratifiedKFold(n_splits=cv_fold, shuffle=True,
+                             random_state=(random_state * i) % 12949671)
+        cv_iter += [
+            (use_samps_indx[train],
+             np.append(use_samps_indx[test], ex_samps_indx))
+            for train, test in cv.split(X.ix[use_samps_indx, :],
+                                        np.array(y)[use_samps_indx],
+                                        groups)
+            ]
+
+    # for each split, fit on the training set and get predictions for
+    # remaining cohort
+    parallel = Parallel(n_jobs=n_jobs, verbose=verbose,
+                        pre_dispatch=pre_dispatch)
+    prediction_blocks = parallel(delayed(_fit_and_predict)(
+        clone(estimator), X, y,
+        train, test, verbose, fit_params, 'predict_proba')
+                                 for train, test in cv_iter)
+
+    # consolidates the predictions into an array
+    pred_mat = [[] for _ in range(X.shape[0])]
+    for i in range(cv_rep):
+        predictions = np.concatenate(
+            [pred_block_i for pred_block_i, _
+             in prediction_blocks[(i * cv_fold):((i + 1) * cv_fold)]])
+        test_indices = np.concatenate(
+            [indices_i for _, indices_i
+             in prediction_blocks[(i * cv_fold):((i + 1) * cv_fold)]]
+            )
+
+        for j in range(X.shape[0]):
+            pred_mat[j] += list(predictions[test_indices == j, 1])
+
+    return pred_mat
+
+
 def mut_indexable(expr, mut):
     """Make arrays indexable for cross-validation.
 
@@ -680,3 +747,106 @@ class MutShuffleSplit(StratifiedShuffleSplit):
 
         expr, mut = mut_indexable(expr, mut)
         return self._iter_indices(expr, mut)
+
+class DrugShuffleSplit(StratifiedShuffleSplit):
+    """Generates splits of single or multiple cohorts into training and
+       testing sets that are stratified such that they maintain proportionality
+       with regards to direction and magnitude of drug response (needs verification))
+    """
+
+    def __init__(self,
+                 n_splits=10, test_size=0.1, train_size=None,
+                 random_state=None):
+        super(DrugShuffleSplit, self).__init__(
+            n_splits, test_size, train_size, random_state)
+
+    def _iter_indices(self, expr, drug=None, groups=None):
+        """Generates indices of training/testing splits for use in
+           stratified shuffle splitting of drug cohort data.
+        """
+
+        # with one cohort, proceed with stratified sampling, binning mutation
+        # values if they are continuous
+        if hasattr(expr, 'shape'):
+            if len(np.unique(drug)) > 2:
+                drug = drug > np.percentile(drug, 50)
+            for train, test in super(DrugShuffleSplit, self)._iter_indices(
+                    X=expr, y=drug, groups=groups):
+                yield train, test
+
+        # otherwise, perform stratified sampling on each cohort separately
+        else:
+
+            # gets info about input
+            n_samples = [_num_samples(X) for X in expr]
+            drug = [check_array(y, ensure_2d=False, dtype=None)
+                    for y in drug]
+            n_train_test = [
+                _validate_shuffle_split(n_samps,
+                                        self.test_size, self.train_size)
+                for n_samps in n_samples]
+            class_info = [np.unique(y, return_inverse=True) for y in drug]
+            n_classes = [classes.shape[0] for classes, _ in class_info]
+            classes_counts = [bincount(y_indices)
+                              for _, y_indices in class_info]
+
+            # makes sure we have enough samples in each class for stratification
+            for i, (n_train, n_test) in enumerate(n_train_test):
+                if np.min(classes_counts[i]) < 2:
+                    raise ValueError(
+                        "The least populated class in y has only 1 "
+                        "member, which is too few. The minimum "
+                        "number of groups for any class cannot "
+                        "be less than 2.")
+
+                if n_train < n_classes[i]:
+                    raise ValueError(
+                        'The train_size = %d should be greater or '
+                        'equal to the number of classes = %d'
+                        % (n_train, n_classes[i]))
+
+                if n_test < n_classes[i]:
+                    raise ValueError(
+                        'The test_size = %d should be greater or '
+                        'equal to the number of classes = %d'
+                        % (n_test, n_classes[i]))
+
+            # generates random training and testing cohorts
+            rng = check_random_state(self.random_state)
+            for _ in range(self.n_splits):
+                n_is = [_approximate_mode(class_counts, n_train, rng)
+                        for class_counts, (n_train, _)
+                        in zip(classes_counts, n_train_test)]
+                classes_counts_remaining = [class_counts - n_i
+                                            for class_counts, n_i
+                                            in zip(classes_counts, n_is)]
+                t_is = [_approximate_mode(class_counts_remaining, n_test, rng)
+                        for class_counts_remaining, (_, n_test)
+                        in zip(classes_counts_remaining, n_train_test)]
+
+                train = [[] for _ in expr]
+                test = [[] for _ in expr]
+
+                for i, (classes, _) in enumerate(class_info):
+                    for j, class_j in enumerate(classes):
+                        permutation = rng.permutation(classes_counts[i][j])
+                        perm_indices_class_j = np.where(
+                            (drug[i] == class_j))[0][permutation]
+                        train[i].extend(perm_indices_class_j[:n_is[i][j]])
+                        test[i].extend(
+                            perm_indices_class_j[n_is[i][j]:n_is[i][j]
+                                                            + t_is[i][j]])
+                    train[i] = rng.permutation(train[i])
+                    test[i] = rng.permutation(test[i])
+
+                yield train, test
+
+    def split(self, expr, drug=None, groups=None):
+        if not hasattr(expr, 'shape'):
+            drug = [check_array(y, ensure_2d=False, dtype=None)
+                    for y in drug]
+        else:
+            drug = check_array(drug, ensure_2d=False, dtype=None)
+
+        expr, drug, groups = indexable(expr, drug, groups)
+        return self._iter_indices(expr, drug, groups)

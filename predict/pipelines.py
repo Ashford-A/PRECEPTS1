@@ -41,13 +41,11 @@ class CohortPipe(Pipeline):
 
     """
 
-    # the parameters that are to be tuned, with either statistical
-    # distributions or iterables to be sampled from as values
-    tune_priors = {}
-
     def __init__(self, steps):
         super(CohortPipe, self).__init__(steps)
-        self.cur_tuning = dict(self.tune_priors)
+
+        # rename self.expr_genes to be more flexible
+        # (i.e. so it could also be proteomic data)
         self.expr_genes = None
 
     def __repr__(self):
@@ -55,6 +53,8 @@ class CohortPipe(Pipeline):
         return '{}_{}'.format(
             type(self).__name__, str(self.get_params()['path_keys']))
 
+    # does this need to be in this class? can i move this into DiscretePipe
+    # and ContinuousPipe since that's where tune_priors is now defined?
     def __str__(self):
         """Prints the tuned parameters of the pipeline."""
         param_str = type(self).__name__ + ' with '
@@ -73,43 +73,14 @@ class CohortPipe(Pipeline):
 
         return param_str
 
-    @abstractmethod
-    def predict_mut(self, expr):
-        """Get the vector of probabilities that each sample in the given
-           dataset has the phenotype we are trying to predict."""
-
-    @abstractmethod
-    def score_mut(cls, estimator, expr, mut):
-        """Score the accuracy of the pipeline in predicting the given
-           phenotype. Used eg. to ensure compatibility with cross-validation
-           methods implemented in sklearn."""
-
-    @abstractmethod
-    def get_coef(self):
-        """Gets the coefficients of the pipeline if it has been fit."""
-
-
-class VariantPipe(CohortPipe):
-    """A class corresponding to pipelines for predicting discrete gene
-       mutation states such as SNPs, indels, and frameshifts.
-    """
-
-    def __init__(self, steps, path_keys=None):
-        if not hasattr(steps[-1][-1], 'predict_proba'):
-            raise ValueError(
-                "Variant pipelines must have a classification estimator"
-                "with a 'predict_proba' method as their final step!")
-        super(VariantPipe, self).__init__(steps)
-        self.path_keys = path_keys
-
     def _fit(self, X, y=None, **fit_params):
         self._validate_steps()
         step_names = [name for name, _ in self.steps]
 
         fit_params_steps = {name: {} for name, step in self.steps
                             if step is not None}
-        for pname, pval in fit_params.items():
 
+        for pname, pval in fit_params.items():
             if '__' in pname:
                 step, param = pname.split('__', maxsplit=1)
                 fit_params_steps[step][param] = pval
@@ -123,6 +94,7 @@ class VariantPipe(CohortPipe):
                         fit_params_steps[step][pname] = pval
 
         Xt = X
+
         for name, transform in self.steps[:-1]:
 
             if transform is None:
@@ -157,6 +129,86 @@ class VariantPipe(CohortPipe):
 
         return self
 
+
+    @abstractmethod
+    def get_coef(self):
+        """Gets the coefficients of the pipeline if it has been fit."""
+
+class DiscretePipe(CohortPipe):
+    """A class corresponding to pipelines which use continuous data to
+       predict discrete data.
+    """
+
+    # the parameters that are to be tuned, with either statistical
+    # distributions or iterables to be sampled from as values
+    tune_priors = {}
+
+    def __init__(selfself, steps):
+        super(CohortPipe, self).__init__(steps)
+        self.cur_tuning = dict(self.tune_priors)
+
+    @abstractmethod
+    def predict_mut(self, expr):
+        """Get the vector of probabilities that each sample in the given
+           dataset has the phenotype we are trying to predict."""
+
+    @abstractmethod
+    def score_mut(cls, estimator, expr, mut):
+        """Score the accuracy of the pipeline in predicting the given
+           phenotype. Used eg. to ensure compatibility with cross-validation
+           methods implemented in sklearn."""
+
+class ContinuousPipe(CohortPipe):
+    """A class corresponding to pipelines which use continuous data to
+       predict continuous data.
+    """
+    tune_priors = ()
+
+    # or call it tune_priors? they mean the same thing
+    def tune_coh(self,
+             expr, drug, cv_samples, test_count=16):
+        """Tunes the pipeline by sampling over the tuning parameters."""
+
+        # checks if the classifier has parameters to be tuned
+        if self.tune_priors:
+            prior_counts = [len(x) if hasattr(x, '__len__') else float('Inf')
+                            for x in self.cur_tuning.values()]
+            max_tests = reduce(mul, prior_counts, 1)
+            test_count = min(test_count, max_tests)
+
+            # samples parameter combinations and tests each one
+            grid_test = RandomizedSearchCV(
+                estimator=self, param_distributions=self.cur_tuning,
+                n_iter=test_count, cv=cv_samples, n_jobs=-1, refit=False
+                )
+            grid_test.fit(expr, drug)
+
+            # finds the best parameter combination and updates the classifier
+            tune_scores = (grid_test.cv_results_['mean_test_score']
+                           - grid_test.cv_results_['std_test_score'])
+            self.set_params(
+                **grid_test.cv_results_['params'][tune_scores.argmax()])
+
+        return self
+
+
+class VariantPipe(DiscretePipe):
+    """A class corresponding to pipelines for predicting discrete gene
+       mutation states such as SNPs, indels, and frameshifts.
+    """
+
+    def __init__(self, steps, path_keys=None):
+        if not hasattr(steps[-1][-1], 'predict_proba'):
+            raise ValueError(
+                "Variant pipelines must have a classification estimator"
+                "with a 'predict_proba' method as their final step!")
+        super(VariantPipe, self).__init__(steps)
+        self.path_keys = path_keys
+
+
+    # is the 0 just a placeholder here? how does this work with the
+    # abstract method with the same name?
+    # is this complete?
     def get_coef(self):
         return {gene: 0 for gene in self.expr_genes}
 
@@ -184,7 +236,7 @@ class VariantPipe(CohortPipe):
         return self.steps[-1][-1].predict_labels(Xt)
 
 
-class UniVariantPipe(VariantPipe):
+class UniVariantPipe(DiscretePipe):
     """A class corresponding to pipelines for predicting
        discrete gene mutation states individually.
     """
@@ -276,7 +328,7 @@ class UniVariantPipe(VariantPipe):
         muts = cohort.train_mut_.status(samps, mtype)
 
         return self.fit(X=cohort.train_expr_.loc[samps, genes],
-                        y=cohort.train_mut_.status(samps, mtype),
+                        y=muts,
                         **{'mut_genes': cohort.mut_genes,
                            'path_obj': cohort.path})
 
@@ -354,7 +406,7 @@ class UniVariantPipe(VariantPipe):
         return infer_scores
 
 
-class MultiVariantPipe(VariantPipe):
+class MultiVariantPipe(DiscretePipe):
     """A class corresponding to pipelines for predicting a collection of
        discrete gene mutation states simultaenously.
     """
@@ -545,3 +597,144 @@ class MultiVariantPipe(VariantPipe):
 
         return infer_scores
 
+class ProteoPipe(DiscretePipe):
+    """A class corresponding to pipelines for predicting mutation status
+       from proteomic data.
+    """
+    # TODO: determine whether this should fall into VariantPipe
+
+# TODO: actually use drug_list in each method...
+class DrugPipe(ContinuousPipe):
+    """A class corresponding to pipelines for predicting drug sensitivity
+       using expression data.
+    """
+
+    def __init__(self, steps):
+        super(DrugPipe, self).__init__(steps)
+
+    # TODO: ask Mike to put your head on straight w/ this fit vs. other fits (what are my **fit_params)?
+    # TODO: check on how _validate_dims works with drug data (exclude samps? gene list? or is that handled in cohorts.py?)
+    def fit_coh(self, cohort, drug_list=None, exclude_samps=None, gene_list=None):
+        """Fits a classifier."""
+
+        # samples and genes to include in X
+        samps, genes = cohort._validate_dims(exclude_samps=exclude_samps, gene_list=gene_list)
+
+        # y
+        # compare to: muts = cohort.train_mut_.status(samps,mtype)
+        # choosing not to pare it down b/c it would be redundant to drugcohort(?)
+
+        return self.fit(X=cohort.train_expr_.loc[samps,genes],
+                        y=cohort.train_resp_)
+
+
+    def tune_coh(self,
+             expr, drug_list, cv_samples, test_count=16):
+        """Tunes the pipeline by sampling over the tuning parameters."""
+
+        # checks if the classifier has parameters to be tuned
+        if self.tune_priors:
+            prior_counts = [len(x) if hasattr(x, '__len__') else float('Inf')
+                            for x in self.cur_tuning.values()]
+            max_tests = reduce(mul, prior_counts, 1)
+            test_count = min(test_count, max_tests)
+
+            # samples parameter combinations and tests each one
+            grid_test = RandomizedSearchCV(
+                estimator=self, param_distributions=self.cur_tuning,
+                n_iter=test_count, cv=cv_samples, n_jobs=-1, refit=False
+            )
+            grid_test.fit(expr, drug)
+
+            # finds the best parameter combination and updates the classifier
+            tune_scores = (grid_test.cv_results_['mean_test_score']
+                           - grid_test.cv_results_['std_test_score'])
+            self.set_params(
+                **grid_test.cv_results_['params'][tune_scores.argmax()])
+
+        return self
+
+
+    # TODO: determine if there's anything to do like the @classmethod score_mut
+    # and fix everything down the line
+    # score_mut calculates AUC using classifier on expr-mut pair...
+    def score_coh(self, cohort, score_splits=16, drug_list=None, gene_list=None, exclude_samps=None):
+        """
+        Test a classifier using tuning and cross-validation
+           within the training samples of this dataset.
+
+        Parameters
+        ----------
+        clf : UniClassifier
+            An instance of the classifier to test.
+
+        verbose : boolean
+            Whether or not the classifier should print information about the
+            optimal hyper-parameters found during tuning.
+
+        Returns
+        -------
+        P : float
+            The 1st quartile of tuned classifier performance across the
+            cross-validation samples. Used instead of the mean of performance
+            to take into account performance variation for "hard" samples.
+
+            Performance is measured using the area under the receiver operator
+            curve metric.
+        """
+        samps, genes = cohort._validate_dims(exclude_samps=exclude_samps, gene_list=gene_list)
+
+        score_cvs = DrugShuffleSplit(
+            n_splits=score_splits, test_size=0.2
+            random_state=cohort.intern_cv_)
+
+        return np.percentile(cross_val_score(
+            estimator=self,
+            X=cohort.train_expr_.loc[samps,genes],
+            y=cohort.train_resp_,
+            # fit_params={?,?,?},
+            # scoring=self.score_mut,
+            cv = score_cvs, n_jobs=-1),25)
+
+
+    def eval_coh(self,
+                 cohort, drug_list=None, gene_list=None, exclude_samps=None):
+        """Evaluate the performance of a classifier."""
+        samps, genes = samps, genes = cohort._validate_dims(
+            exclude_samps=exclude_samps,
+            gene_list=gene_list,
+            use_test=True
+        )
+
+        # return self.score_mut(
+        #   self,
+        #   cohort.test_expr_.loc[samps,genes],
+        #   cohort.test_resp_
+        #   )
+        pass
+
+
+    def infer_coh(self,
+                  cohort, infer_splits=16,
+                  drug_list=None, gene_list=None, exclude_samps=None):
+
+        # is that all that needs to be in this _validate_dims?
+        samps, genes = cohort._validate_dims(gene_list=gene_list
+                                             )
+        infer_scores = cross_val_predict_drug*(
+
+        )
+
+        infer_scores = cross_val_predict_mut(
+            estimator=self,
+            X=cohort.train_expr_.loc[:, genes],
+            y=cohort.train_resp
+            exclude_samps=exclude_samps, cv_fold=4, cv_count=infer_splits,
+            # fit_params={'feat__mut_genes': cohort.mut_genes,
+            #            'feat__path_obj': cohort.path,
+            #            'fit__mut_genes': cohort.mut_genes,
+            #            'fit__path_obj': cohort.path},
+            # random_state=int(cohort.intern_cv_ ** 1.5) % 42949672, n_jobs=-1
+        )
+
+        return infer_scores
