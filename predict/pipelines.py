@@ -136,14 +136,14 @@ class CohortPipe(Pipeline):
 
 class DiscretePipe(CohortPipe):
     """A class corresponding to pipelines which use continuous data to
-       predict discrete data.
+       predict discrete outcomes.
     """
 
     # the parameters that are to be tuned, with either statistical
     # distributions or iterables to be sampled from as values
     tune_priors = {}
 
-    def __init__(selfself, steps):
+    def __init__(self, steps):
         super(CohortPipe, self).__init__(steps)
         self.cur_tuning = dict(self.tune_priors)
 
@@ -158,38 +158,31 @@ class DiscretePipe(CohortPipe):
            phenotype. Used eg. to ensure compatibility with cross-validation
            methods implemented in sklearn."""
 
+
 class ContinuousPipe(CohortPipe):
     """A class corresponding to pipelines which use continuous data to
-       predict continuous data.
+       predict continuous outcomes.
     """
+    # the parameters that are to be tuned, with either statistical
+    # distributions or iterables to be sampled from as values
     tune_priors = ()
 
-    # or call it tune_priors? they mean the same thing
-    def tune_coh(self,
-             expr, drug, cv_samples, test_count=16):
-        """Tunes the pipeline by sampling over the tuning parameters."""
+    def __init__(self, steps):
+        super(CohortPipe, self).__init__(steps)
+        self.cur_tuning = dict(self.tune_priors)
 
-        # checks if the classifier has parameters to be tuned
-        if self.tune_priors:
-            prior_counts = [len(x) if hasattr(x, '__len__') else float('Inf')
-                            for x in self.cur_tuning.values()]
-            max_tests = reduce(mul, prior_counts, 1)
-            test_count = min(test_count, max_tests)
+    @abstractmethod
+    def predict_resp(self, expr):
+        """Get the vector of predicted drug responses (in AUC) for each sample
+           for the drug of interest
+        """
 
-            # samples parameter combinations and tests each one
-            grid_test = RandomizedSearchCV(
-                estimator=self, param_distributions=self.cur_tuning,
-                n_iter=test_count, cv=cv_samples, n_jobs=-1, refit=False
-                )
-            grid_test.fit(expr, drug)
-
-            # finds the best parameter combination and updates the classifier
-            tune_scores = (grid_test.cv_results_['mean_test_score']
-                           - grid_test.cv_results_['std_test_score'])
-            self.set_params(
-                **grid_test.cv_results_['params'][tune_scores.argmax()])
-
-        return self
+    @abstractmethod
+    def score_resp(cls, estimator, expr, drug_list):
+        """Score the accuracy of the pipeline in predicting the drug response.
+           Used eg. to ensure compatibility with cross-validation methods
+           implemented in sklearn.
+        """
 
 
 class VariantPipe(DiscretePipe):
@@ -597,13 +590,15 @@ class MultiVariantPipe(DiscretePipe):
 
         return infer_scores
 
+
+# TODO: determine whether this should fall into VariantPipe
 class ProteoPipe(DiscretePipe):
     """A class corresponding to pipelines for predicting mutation status
        from proteomic data.
     """
-    # TODO: determine whether this should fall into VariantPipe
 
-# TODO: actually use drug_list in each method...
+
+# TODO: Employ drug_list in relevant methods...
 class DrugPipe(ContinuousPipe):
     """A class corresponding to pipelines for predicting drug sensitivity
        using expression data.
@@ -612,52 +607,49 @@ class DrugPipe(ContinuousPipe):
     def __init__(self, steps):
         super(DrugPipe, self).__init__(steps)
 
-    # TODO: ask Mike to put your head on straight w/ this fit vs. other fits (what are my **fit_params)?
-    # TODO: check on how _validate_dims works with drug data (exclude samps? gene list? or is that handled in cohorts.py?)
-    def fit_coh(self, cohort, drug_list=None, exclude_samps=None, gene_list=None):
+    # TODO: Compare this fit vs. other fits (and _fits) (what are my **fit_params)?
+    def fit_coh(self, cohort, exclude_samps=None, gene_list=None, drug_list=None):
         """Fits a classifier."""
 
-        # samples and genes to include in X
-        samps, genes = cohort._validate_dims(exclude_samps=exclude_samps, gene_list=gene_list)
-
-        # y
-        # compare to: muts = cohort.train_mut_.status(samps,mtype)
-        # choosing not to pare it down b/c it would be redundant to drugcohort(?)
+        # is the following sufficient?
+        samps, genes = cohort._validate_dims(exclude_samps=exclude_samps,
+                                             gene_list=gene_list,
+                                             )
 
         return self.fit(X=cohort.train_expr_.loc[samps,genes],
-                        y=cohort.train_resp_)
-
+                        y=cohort.train_resp_.loc[samps,drug_list]
+                        )
 
     def tune_coh(self,
              expr, drug_list, cv_samples, test_count=16):
         """Tunes the pipeline by sampling over the tuning parameters."""
 
-        # checks if the classifier has parameters to be tuned
-        if self.tune_priors:
-            prior_counts = [len(x) if hasattr(x, '__len__') else float('Inf')
-                            for x in self.cur_tuning.values()]
-            max_tests = reduce(mul, prior_counts, 1)
-            test_count = min(test_count, max_tests)
+        for drug in drug_list:
+            # checks if the classifier has parameters to be tuned
+            if self.tune_priors:
+                prior_counts = [len(x) if hasattr(x, '__len__') else float('Inf')
+                                for x in self.cur_tuning.values()]
+                max_tests = reduce(mul, prior_counts, 1)
+                test_count = min(test_count, max_tests)
 
-            # samples parameter combinations and tests each one
-            grid_test = RandomizedSearchCV(
-                estimator=self, param_distributions=self.cur_tuning,
-                n_iter=test_count, cv=cv_samples, n_jobs=-1, refit=False
-            )
-            grid_test.fit(expr, drug)
+                # samples parameter combinations and tests each one
+                grid_test = RandomizedSearchCV(
+                    estimator=self, param_distributions=self.cur_tuning,
+                    n_iter=test_count, cv=cv_samples, n_jobs=-1, refit=False
+                )
+                grid_test.fit(expr, drug)
 
-            # finds the best parameter combination and updates the classifier
-            tune_scores = (grid_test.cv_results_['mean_test_score']
-                           - grid_test.cv_results_['std_test_score'])
-            self.set_params(
-                **grid_test.cv_results_['params'][tune_scores.argmax()])
+                # finds the best parameter combination and updates the classifier
+                tune_scores = (grid_test.cv_results_['mean_test_score']
+                               - grid_test.cv_results_['std_test_score'])
+
+                # TODO: how to store this for each drug instead of (probably) writing over each time?
+                self.set_params(
+                    **grid_test.cv_results_['params'][tune_scores.argmax()])
 
         return self
 
 
-    # TODO: determine if there's anything to do like the @classmethod score_mut
-    # and fix everything down the line
-    # score_mut calculates AUC using classifier on expr-mut pair...
     def score_coh(self, cohort, score_splits=16, drug_list=None, gene_list=None, exclude_samps=None):
         """
         Test a classifier using tuning and cross-validation
@@ -682,6 +674,7 @@ class DrugPipe(ContinuousPipe):
             Performance is measured using the area under the receiver operator
             curve metric.
         """
+
         samps, genes = cohort._validate_dims(exclude_samps=exclude_samps, gene_list=gene_list)
 
         score_cvs = DrugShuffleSplit(
@@ -690,10 +683,10 @@ class DrugPipe(ContinuousPipe):
 
         return np.percentile(cross_val_score(
             estimator=self,
-            X=cohort.train_expr_.loc[samps,genes],
+            X=cohort.train_expr_,
             y=cohort.train_resp_,
             # fit_params={?,?,?},
-            # scoring=self.score_mut,
+            scoring=self.score_resp,
             cv = score_cvs, n_jobs=-1),25)
 
 
@@ -706,9 +699,9 @@ class DrugPipe(ContinuousPipe):
             use_test=True
         )
 
-        # return self.score_mut(
+        # return self.score_resp(
         #   self,
-        #   cohort.test_expr_.loc[samps,genes],
+        #   cohort.test_expr_,
         #   cohort.test_resp_
         #   )
         pass
@@ -718,16 +711,15 @@ class DrugPipe(ContinuousPipe):
                   cohort, infer_splits=16,
                   drug_list=None, gene_list=None, exclude_samps=None):
 
-        # is that all that needs to be in this _validate_dims?
-        samps, genes = cohort._validate_dims(gene_list=gene_list
-                                             )
+        samps, genes = cohort._validate_dims(exclude_samps=exclude_samps, gene_list=gene_list)
+
         infer_scores = cross_val_predict_drug*(
 
         )
 
         infer_scores = cross_val_predict_mut(
             estimator=self,
-            X=cohort.train_expr_.loc[:, genes],
+            X=cohort.train_expr_,
             y=cohort.train_resp
             exclude_samps=exclude_samps, cv_fold=4, cv_count=infer_splits,
             # fit_params={'feat__mut_genes': cohort.mut_genes,
