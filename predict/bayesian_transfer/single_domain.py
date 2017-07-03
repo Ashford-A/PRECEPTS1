@@ -21,7 +21,6 @@ from scipy import stats
 from abc import abstractmethod
 
 import collections
-from math import log
 from sklearn import metrics
 from functools import reduce
 
@@ -400,7 +399,11 @@ class BaseSingleDomain(object):
         return new_latent
 
     def update_weights(self, weight_priors, latent_mat, output_mat):
-        """Update the weights.
+        """Update the binary classification weights.
+
+        Args:
+
+        Returns:
 
         """
         new_weights = {'mu': np.zeros(weight_priors['alpha'].shape),
@@ -623,7 +626,7 @@ class MultiVariant(BaseSingleDomain):
 
 
 class MultiVariantAsym(BaseSingleDomain):
-    """A multi-task transfer learning classifier with assymetric margins.
+    """A multi-task transfer learning classifier with asymmetric margins.
 
     Args:
 

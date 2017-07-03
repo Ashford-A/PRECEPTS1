@@ -47,10 +47,10 @@ class Cohort(object):
 
         # get samples and genes from the specified cohort as specified
         if use_test:
-            samps = self.test_samps_
+            samps = self.test_samps_.copy()
             genes = set(self.test_expr_.columns)
         else:
-            samps = self.train_samps_
+            samps = self.train_samps_.copy()
             genes = set(self.train_expr_.columns)
 
         # remove samples and/or genes as necessary
@@ -123,7 +123,7 @@ class VariantCohort(Cohort):
 
         # gets set of samples shared across expression and mutation datasets,
         # subsets these datasets to use only these samples
-        self.samples = set(variants['Sample']) & set(expr.index)
+        self.samples = frozenset(variants['Sample']) & frozenset(expr.index)
         expr = expr.loc[self.samples, :]
         variants = variants.loc[variants['Gene'].isin(mut_genes), :]
 
@@ -146,7 +146,7 @@ class VariantCohort(Cohort):
                 )
             self.test_samps_ = self.samples - self.train_samps_
 
-            self.test_expr_ = expr.loc[self.test_samps_]
+            self.test_expr_ = expr.loc[self.test_samps_, :]
             self.test_mut_ = MuTree(
                 muts=variants.loc[
                      variants['Sample'].isin(self.test_samps_), :],

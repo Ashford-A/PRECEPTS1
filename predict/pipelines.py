@@ -197,7 +197,7 @@ class UniVariantPipe(VariantPipe):
 
         if hasattr(self, 'classes_'):
             true_indx = [i for i, x in enumerate(self.classes_) if x]
-            mut_probs = [scrs[true_indx] for scrs in mut_probs]
+            mut_probs = [list(scrs[true_indx])[0] for scrs in mut_probs]
 
         return mut_probs
 

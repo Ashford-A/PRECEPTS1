@@ -8,7 +8,7 @@ Author: Michal Grzadkowski <grzadkow@ohsu.edu>
 
 """
 
-import numpy as np
+import pandas as pd
 from itertools import groupby
 
 from . import DATA_PATH
@@ -35,32 +35,23 @@ def parse_sif(mut_genes):
         >>> parse_sif(['PIK3CA', 'RB1', 'ACT1'])
 
     """
+    neighb = {gene: {'Up': {}, 'Down': {}} for gene in mut_genes}
 
-    # loads the pathway data from file
-    sif_dt = np.dtype([('UpGene', '|S16'),
-                       ('Type', '|S32'),
-                       ('DownGene', '|S16')])
-    sif_data = np.genfromtxt(fname=path_file, dtype=sif_dt, delimiter='\t')
+    # loads pathway interaction data
+    sif_data = pd.read_csv(path_file,
+                           names=['UpGene', 'Type', 'DownGene'],
+                           sep='\t', header=None)
 
-    # create neighbourhood dictionary with an entry for each given gene
-    neighb = {gene: {'Up': None, 'Down': None} for gene in mut_genes}
-    for gene in mut_genes:
+    # sorts upstream interactions according to downstream mutated gene
+    # and interaction type
+    up_data = sif_data.loc[sif_data['DownGene'].isin(mut_genes), :]
+    for (gn, tp), dt in up_data.groupby(['DownGene', 'Type']):
+        neighb[gn]['Up'][tp] = set(dt['UpGene'])
 
-        # filter pathway data for interactions involving each given gene,
-        # separated by pathway interaction direction
-        up_neighbs = sorted([(x['Type'].decode(), x['UpGene'].decode())
-                             for x in sif_data
-                             if x['DownGene'].decode() == gene],
-                            key=lambda x: x[0])
-        down_neighbs = sorted([(x['Type'].decode(), x['DownGene'].decode())
-                               for x in sif_data
-                               if x['UpGene'].decode() == gene],
-                              key=lambda x: x[0])
-
-        # further separate pathway data according to interaction type
-        neighb[gene]['Up'] = {k: [x[1] for x in v] for k, v in
-                              groupby(up_neighbs, lambda x: x[0])}
-        neighb[gene]['Down'] = {k: [x[1] for x in v] for k, v in
-                                groupby(down_neighbs, lambda x: x[0])}
+    # sorts downstream interactions according to upstream mutated gene
+    # and interaction type
+    down_data = sif_data.loc[sif_data['UpGene'].isin(mut_genes), :]
+    for (gn, tp), dt in down_data.groupby(['UpGene', 'Type']):
+        neighb[gn]['Down'][tp] = set(dt['DownGene'])
 
     return neighb
