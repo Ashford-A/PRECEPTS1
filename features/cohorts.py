@@ -7,6 +7,7 @@ data so that the former can be used to predict the latter using machine
 learning pipelines.
 
 Author: Michal Grzadkowski <grzadkow@ohsu.edu>
+        Hannah Manning <manningh@ohsu.edu>
 
 """
 
@@ -18,14 +19,14 @@ from .annot import get_gencode
 from .drugs import get_expr_ioria, get_drug_ioria, get_drug_bmeg
 
 import numpy as np
-import pandas as pd
-
 from scipy.stats import fisher_exact
 import random
+
 from functools import reduce
+from abc import abstractmethod
 
 
-class Cohort(object):
+class OmicCohort(object):
     """A matched pair of expression and feature datasets for use in learning.
 
     Attributes:
@@ -34,41 +35,92 @@ class Cohort(object):
 
     """
 
-    def __init__(self, cohort, cv_seed):
+    def __init__(self, omic_mat, train_samps, test_samps, cohort, cv_seed):
+
+        if set(train_samps) & set(test_samps):
+            raise ValueError("Training sample set and testing sample set must"
+                             "be disjoint!")
+
+        self.samples = train_samps | test_samps
+        self.train_samps = frozenset(train_samps)
+        self.test_samps = frozenset(test_samps)
+
+        self.omic_mat = omic_mat.loc[self.samples, :]
+        self.genes = frozenset(self.omic_mat.columns)
+
         self.cohort = cohort
         self.cv_seed = cv_seed
 
-    def _validate_dims(self,
-                       mtype=None, include_samps=None, exclude_samps=None,
-                       gene_list=None, use_test=False):
-        if include_samps is not None and exclude_samps is not None:
-            raise ValueError("Cannot specify samples to be included and"
-                             "samples to be excluded at the same time!")
+    def omic_dims(self,
+                  include_samps=None, exclude_samps=None,
+                  include_genes=None, exclude_genes=None,
+                  use_test=False):
+        """Gets the dimensions of the -omics dataset of the cohort.
+
+        """
 
         # get samples and genes from the specified cohort as specified
         if use_test:
-            samps = self.test_samps_.copy()
-            genes = set(self.test_expr_.columns)
+            samps = self.test_samps.copy()
         else:
-            samps = self.train_samps_.copy()
-            genes = set(self.train_expr_.columns)
+            samps = self.train_samps.copy()
+        genes = self.genes.copy()
 
         # remove samples and/or genes as necessary
         if include_samps is not None:
             samps &= set(include_samps)
-        elif exclude_samps is not None:
+        if exclude_samps is not None:
             samps -= set(exclude_samps)
-        if gene_list is not None:
-            genes &= set(gene_list)
 
-        # if a mutation type is specified include samples with that mutation
-        if mtype is not None:
-            samps |= mtype.get_samples(self.train_mut_)
+        if include_genes is not None:
+            genes &= set(include_genes)
+        if exclude_genes is not None:
+            genes -= set(exclude_genes)
 
         return samps, genes
 
+    def train_omics(self,
+                    include_samps=None, exclude_samps=None,
+                    include_genes=None, exclude_genes=None):
+        samps, genes = self.omic_dims(include_samps, exclude_samps,
+                                      include_genes, exclude_genes,
+                                      use_test=False)
 
-class VariantCohort(Cohort):
+        return self.omic_mat.loc[samps, genes]
+
+    def test_omics(self,
+                   include_samps=None, exclude_samps=None,
+                   include_genes=None, exclude_genes=None):
+        samps, genes = self.omic_dims(include_samps, exclude_samps,
+                                      include_genes, exclude_genes,
+                                      use_test=True)
+
+        return self.omic_mat.loc[samps, genes]
+
+    @abstractmethod
+    def train_pheno(self, pheno):
+        """Returns the training values of a phenotype."""
+
+    @abstractmethod
+    def test_pheno(self, pheno):
+        """Returns the testing values of a phenotype."""
+
+
+class LabelCohort(OmicCohort):
+    """A matched pair of omics and discrete phenotypic data."""
+
+    def __init__(self, omic_mat, train_samps, test_samps, cohort, cv_seed):
+        super().__init__(omic_mat, train_samps, test_samps, cohort, cv_seed)
+
+
+class ValueCohort(OmicCohort):
+    """A matched pair of omics and continuous phenotypic data."""
+
+    def __init__(self, omic_mat, train_samps, test_samps, cohort, cv_seed):
+        super().__init__(omic_mat, train_samps, test_samps, cohort, cv_seed)
+
+
+class VariantCohort(LabelCohort):
     """An expression dataset used to predict genes' variant mutations.
 
     Args:
@@ -123,8 +175,7 @@ class VariantCohort(Cohort):
 
         # gets set of samples shared across expression and mutation datasets,
         # subsets these datasets to use only these samples
-        self.samples = frozenset(variants['Sample']) & frozenset(expr.index)
-        expr = expr.loc[self.samples, :]
+        use_samples = set(variants['Sample']) & set(expr.index)
         variants = variants.loc[variants['Gene'].isin(mut_genes), :]
 
         # gets annotation data for the genes whose mutations
@@ -140,34 +191,36 @@ class VariantCohort(Cohort):
         # and variant datasets accordingly into training/testing cohorts
         random.seed(a=cv_seed)
         if cv_prop < 1:
-            self.train_samps_ = frozenset(
-                random.sample(population=self.samples,
-                              k=int(round(len(self.samples) * cv_prop)))
+            train_samps = set(
+                random.sample(population=use_samples,
+                              k=int(round(len(use_samples) * cv_prop)))
                 )
-            self.test_samps_ = self.samples - self.train_samps_
+            test_samps = use_samples - train_samps
 
-            self.test_expr_ = expr.loc[self.test_samps_, :]
-            self.test_mut_ = MuTree(
-                muts=variants.loc[
-                     variants['Sample'].isin(self.test_samps_), :],
-                levels=mut_levels)
+            self.test_mut = MuTree(
+                muts=variants.loc[variants['Sample'].isin(test_samps), :],
+                levels=mut_levels
+                )
 
         else:
-            self.train_samps_ = self.samples
-            self.test_samps_ = None
+            train_samps = use_samples
+            test_samps = None
 
-        self.train_expr_ = expr.loc[self.train_samps_, :]
-        self.train_mut_ = MuTree(
-            muts=variants.loc[variants['Sample'].isin(self.train_samps_), :],
+        self.train_mut = MuTree(
+            muts=variants.loc[variants['Sample'].isin(train_samps), :],
             levels=mut_levels)
 
-        super(VariantCohort, self).__init__(cohort, cv_seed)
+        super().__init__(expr, train_samps, test_samps, cohort, cv_seed)
 
-    def train_status(self, mtype):
-        return self.train_mut_.status(self.train_expr_.index, mtype)
+    def train_pheno(self, mtype, samps=None):
+        if samps is None:
+            samps = self.train_samps
+        return self.train_mut.status(samps, mtype)
 
-    def test_status(self, mtype):
-        return self.test_mut_.status(self.test_expr_.index, mtype)
+    def test_pheno(self, mtype, samps=None):
+        if samps is None:
+            samps = self.test_samps
+        return self.test_mut.status(samps, mtype)
 
     def mutex_test(self, mtype1, mtype2):
         """Tests the mutual exclusivity of two mutation types.
@@ -188,18 +241,17 @@ class VariantCohort(Cohort):
             >>>                        }}))
 
         """
-        samps1 = mtype1.get_samples(self.train_mut_)
-        samps2 = mtype2.get_samples(self.train_mut_)
+        samps1 = mtype1.get_samples(self.train_mut)
+        samps2 = mtype2.get_samples(self.train_mut)
 
         if not samps1 or not samps2:
             pval = 1
 
         else:
-            all_samps = set(self.train_expr_.index)
             both_samps = samps1 & samps2
 
             _, pval = fisher_exact(
-                np.array([[len(all_samps - (samps1 | samps2)),
+                np.array([[len(self.samples - (samps1 | samps2)),
                            len(samps1 - both_samps)],
                           [len(samps2 - both_samps),
                            len(both_samps)]]),
@@ -314,7 +366,7 @@ class MutCohort(VariantCohort):
                     del(self.test_mut_[gn]._child[val_lbl])
 
 
-class DrugCohort(Cohort):
+class DrugCohort(ValueCohort):
     """An expression dataset used to predict clinical drug response.
 
         Args:
@@ -333,50 +385,63 @@ class DrugCohort(Cohort):
 
         """
 
-    def __init__(self, cohort, drug_list, cv_seed=None, cv_prop=2.0/3):
+    def __init__(self, cohort, drug_names, cv_seed=None, cv_prop=2.0 / 3):
         if cv_prop <= 0 or cv_prop > 1:
             raise ValueError("Improper cross-validation ratio that is "
                              "not > 0 and <= 1.0")
-        self.drug_list = drug_list
+        self.drug_names = drug_names
         self.cv_prop = cv_prop
 
         cell_expr = get_expr_ioria()
 
         # TODO: choose a non-AUC measure of drug response
-        drug_resp = get_drug_ioria(drug_list)
+        drug_resp = get_drug_ioria(drug_names)
 
-        # drops cell lines (rows) w/ no expression data & genes (cols) with any missing values
-        cell_expr = cell_expr.dropna(axis=0, how='all').dropna(axis=1, how='any')
+        # drops cell lines (rows) w/ no expression data & genes (cols)
+        # with any missing values
+        cell_expr = cell_expr.dropna(axis=0, how='all')\
+            .dropna(axis=1, how='any')
 
         # drops cell lines (rows) w/ no expression data
         drug_resp = drug_resp.dropna(axis=0, how='all')
 
-        # gets set of cell lines ("samples") shared between drug_resp and cell_expr datasets
-        self.samples = set(cell_expr.index) & set(drug_resp.index)
+        # gets set of cell lines ("samples") shared between drug_resp and
+        # cell_expr datasets
+        use_samples = set(cell_expr.index) & set(drug_resp.index)
 
         # discards data for cell lines which are not in samples set
-        cell_expr = cell_expr.loc[self.samples,:]
-        drug_resp = drug_resp.loc[self.samples,:]
+        cell_expr = cell_expr.loc[use_samples, :]
+        drug_resp = drug_resp.loc[use_samples, :]
 
-        # TODO: query bmeg for annotation data on each drug (def in drugs.py), set as attribute
+        # TODO: query bmeg for annotation data on each drug (def in drugs.py),
+        # set as attribute
 
         random.seed(a=cv_seed)
         if cv_prop < 1:
 
             # separate samples (cell line names) into train and test frozensets.
-            self.train_samps_ = frozenset(
-                random.sample(population=self.samples, k=int(round(len(self.samples) * cv_prop))))
-            self.test_samps_ = self.samples - self.train_samps_
+            train_samps = set(
+                random.sample(population=use_samples,
+                              k=int(round(len(use_samples) * cv_prop))))
+            test_samps = use_samples - train_samps
 
-            # bifurcate cell_expr and drug_resp based on those sets.
-            self.train_expr_ = cell_expr.loc[self.train_samps_, :]
-            self.test_expr_ = cell_expr.loc[self.test_samps_, :]
-
-            self.train_resp_ = drug_resp.loc[self.train_samps_, :]
-            self.test_resp_ = drug_resp.loc[self.test_samps_, :]
+            self.train_resp = drug_resp.loc[train_samps, :]
+            self.test_resp = drug_resp.loc[test_samps, :]
 
         else:
-            self.train_samps = self.samples
-            self.test_samps_ = None
+            train_samps = use_samples
+            test_samps = None
 
-        super(DrugCohort, self).__init__(cohort, cv_seed)
+        super().__init__(cell_expr, train_samps, test_samps, cohort, cv_seed)
+
+    def train_pheno(self, drug, samps=None):
+        if samps is None:
+            samps = self.train_samps
+
+        return self.train_resp.loc[samps, drug]
+
+    def test_pheno(self, drug, samps=None):
+        if samps is None:
+            samps = self.test_samps
+
+        return self.test_resp.loc[samps, drug]
