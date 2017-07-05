@@ -14,7 +14,7 @@ Author: Michal Grzadkowski <grzadkow@ohsu.edu>
 """
 
 from .cross_validation import (
-    MutRandomizedCV, cross_val_predict_mut, MutShuffleSplit)
+    MutRandomizedCV, cross_val_predict_mut, MutShuffleSplit, DrugShuffleSplit)
 
 from abc import abstractmethod
 import numpy as np
@@ -27,11 +27,11 @@ from operator import mul
 from sklearn.pipeline import Pipeline
 from sklearn.model_selection import RandomizedSearchCV
 from sklearn.metrics import roc_auc_score
-from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import cross_val_score, StratifiedShuffleSplit
 
 
-class CohortPipe(Pipeline):
-    """Extracting phenotypic prediction from an -omics dataset.
+class OmicPipe(Pipeline):
+    """Extracting phenotypic predictions from an -omics dataset.
 
     Args:
         steps (list): A series of transformations and classifiers.
@@ -41,20 +41,15 @@ class CohortPipe(Pipeline):
 
     """
 
+    # the parameters that are to be tuned, with either statistical
+    # distributions or iterables to be sampled from as values
+    tune_priors = {}
+
     def __init__(self, steps):
-        super(CohortPipe, self).__init__(steps)
+        super().__init__(steps)
+        self.genes = None
+        self.cur_tuning = {}
 
-        # rename self.expr_genes to be more flexible
-        # (i.e. so it could also be proteomic data)
-        self.expr_genes = None
-
-    def __repr__(self):
-        """Prints the classifier name and the feature selection path key."""
-        return '{}_{}'.format(
-            type(self).__name__, str(self.get_params()['path_keys']))
-
-    # does this need to be in this class? can i move this into DiscretePipe
-    # and ContinuousPipe since that's where tune_priors is now defined?
     def __str__(self):
         """Prints the tuned parameters of the pipeline."""
         param_str = type(self).__name__ + ' with '
@@ -72,6 +67,195 @@ class CohortPipe(Pipeline):
             param_str += 'no tuned parameters.'
 
         return param_str
+
+    def predict_train(self,
+                      cohort,
+                      include_samps=None, exclude_samps=None,
+                      include_genes=None, exclude_genes=None):
+        return self.predict_omic(
+            cohort.train_omics(include_samps, exclude_samps,
+                               include_genes, exclude_genes)
+            )
+
+    def predict_test(self,
+                     cohort,
+                     include_samps=None, exclude_samps=None,
+                     include_genes=None, exclude_genes=None):
+        return self.predict_omic(
+            cohort.test_omics(include_samps, exclude_samps,
+                              include_genes, exclude_genes)
+            )
+
+    def predict_base(self, omic_data):
+        return self.predict(omic_data)
+
+    @classmethod
+    def parse_preds(cls, preds):
+        return preds
+
+    def predict_omic(self, omic_data):
+        """Gets a vector of phenotype predictions for an -omic dataset."""
+        return self.parse_preds(self.predict_base(omic_data))
+
+    def score_base(self, X, y):
+        return self.score(X, y)
+
+    def score(self, X, y=None):
+        return self.score_base(X, y)
+
+    cvSplitMethod = StratifiedShuffleSplit
+
+    @classmethod
+    def extra_fit_params(cls, cohort):
+        return {}
+
+    def tune_coh(self,
+                 cohort, pheno,
+                 tune_splits=2, test_count=16,
+                 include_samples=None, exclude_samples=None,
+                 include_genes=None, exclude_genes=None,
+                 verbose=False):
+        """Tunes the pipeline by sampling over the tuning parameters."""
+
+        omics = cohort.train_omics(include_samples, exclude_samples,
+                                   include_genes, exclude_genes)
+        pheno_types = cohort.train_pheno(omics.index, pheno)
+
+        # get internal cross-validation splits in the training set and use
+        # them to tune the classifier
+        tune_cvs = self.cvSplitMethod(
+            n_splits=tune_splits, test_size=0.2,
+            random_state=(cohort.cv_seed ** 2) % 42949672
+            )
+
+        # checks if the classifier has parameters to be tuned
+        if self.tune_priors:
+            prior_counts = [len(x) if hasattr(x, '__len__') else float('Inf')
+                            for x in self.cur_tuning.values()]
+            max_tests = reduce(mul, prior_counts, 1)
+            test_count = min(test_count, max_tests)
+
+            # samples parameter combinations and tests each one
+            grid_test = RandomizedSearchCV(
+                estimator=self, param_distributions=self.cur_tuning,
+                fit_params=self.extra_fit_params(cohort),
+                n_iter=test_count, cv=tune_cvs, n_jobs=-1, refit=False
+                )
+            grid_test.fit(omics, pheno_types)
+
+            # finds the best parameter combination and updates the classifier
+            tune_scores = (grid_test.cv_results_['mean_test_score']
+                           - grid_test.cv_results_['std_test_score'])
+            self.set_params(
+                **grid_test.cv_results_['params'][tune_scores.argmax()])
+
+            if verbose:
+                print(self)
+
+        return self
+
+    def fit_coh(self,
+                cohort, pheno,
+                include_samples=None, exclude_samples=None,
+                include_genes=None, exclude_genes=None):
+        """Fits a classifier."""
+        omics = cohort.train_omics(include_samples, exclude_samples,
+                                   include_genes, exclude_genes)
+        pheno_types = cohort.train_pheno(omics.index, pheno)
+
+        return self.fit(X=omics, y=pheno_types,
+                        fit_params=self.extra_fit_params(cohort))
+
+    def score_coh(self,
+                  cohort, pheno,
+                  score_splits=16,
+                  include_samples=None, exclude_samples=None,
+                  include_genes=None, exclude_genes=None):
+        """Test a classifier using tuning and cross-validation
+           within the training samples of this dataset.
+
+        Parameters
+        ----------
+        clf : UniClassifier
+            An instance of the classifier to test.
+
+        mtype : MuType, optional
+            The mutation sub-type to test the classifier on.
+            Default is to use all of the mutations available.
+
+        verbose : boolean
+            Whether or not the classifier should print information about the
+            optimal hyper-parameters found during tuning.
+
+        Returns
+        -------
+        P : float
+            The 1st quartile of tuned classifier performance across the
+            cross-validation samples. Used instead of the mean of performance
+            to take into account performance variation for "hard" samples.
+
+            Performance is measured using the area under the receiver operator
+            curve metric.
+
+        """
+        omics = cohort.train_omics(include_samples, exclude_samples,
+                                   include_genes, exclude_genes)
+        pheno_types = cohort.train_pheno(omics.index, pheno)
+
+        score_cvs = self.cvSplitMethod(
+            n_splits=score_splits, test_size=0.2,
+            random_state=cohort.intern_cv_)
+
+        return np.percentile(
+            cross_val_score(estimator=self,
+                            X=cohort.train_omics, y=pheno_types,
+                            fit_params=self.extra_fit_params(cohort),
+                            cv=score_cvs, n_jobs=-1),
+            25
+            )
+
+    def eval_coh(self,
+                 cohort, pheno,
+                 include_samples=None, exclude_samples=None,
+                 include_genes=None, exclude_genes=None):
+        """Evaluate the performance of a classifier."""
+        omics = cohort.test_omics(include_samples, exclude_samples,
+                                   include_genes, exclude_genes)
+        pheno_types = cohort.test_pheno(omics.index, pheno)
+
+        return self.score(omics, pheno_types)
+
+    def infer_coh(self,
+                  cohort, pheno,
+                  infer_splits=16,
+                  include_samples=None, exclude_samples=None,
+                  include_genes=None, exclude_genes=None):
+        omics = cohort.test_omics(include_samples, exclude_samples,
+                                   include_genes, exclude_genes)
+        pheno_types = cohort.test_pheno(omics.index, pheno)
+
+        return cross_val_predict_mut(
+            estimator=self,
+            X=omics, y=pheno_types,
+            cv_fold=5, cv_count=infer_splits,
+            fit_params=self.extra_fit_params(cohort),
+            random_state=int(cohort.intern_cv_ ** 1.5) % 42949672, n_jobs=-1
+            )
+
+    # is the 0 just a placeholder here? how does this work with the
+    # abstract method with the same name?
+    # is this complete?
+    def get_coef(self):
+        """Get the fitted coefficient for each gene in the -omic dataset."""
+
+        if self.genes is None:
+            return ValueError("Gene coefficients only available once the"
+                              "pipeline has been fit!")
+        else:
+            return {gn: 0 for gn in self.genes}
+
+
+class UniPipe(OmicPipe):
 
     def _fit(self, X, y=None, **fit_params):
         self._validate_steps()
@@ -105,7 +289,7 @@ class CohortPipe(Pipeline):
 
             else:
                 Xt = transform.fit(Xt, y, **fit_params_steps[name]) \
-                              .transform(Xt)
+                    .transform(Xt)
 
         if self._final_estimator is None:
             final_params = {}
@@ -119,145 +303,69 @@ class CohortPipe(Pipeline):
 
         Xt, final_params = self._fit(
             X, y, **{**fit_params, **{'expr_genes': X.columns}})
-        self.expr_genes = X.columns[
+        self.genes = X.columns[
             self.named_steps['feat']._get_support_mask()]
 
-        if 'expr_genes' in final_params:
-            final_params['expr_genes'] = self.expr_genes
+        if 'genes' in final_params:
+            final_params['genes'] = self.genes
         if self._final_estimator is not None:
             self._final_estimator.fit(Xt, y, **final_params)
 
         return self
 
 
-    @abstractmethod
-    def get_coef(self):
-        """Gets the coefficients of the pipeline if it has been fit."""
+class MultiPipe(OmicPipe):
 
-class DiscretePipe(CohortPipe):
+    def predict_omic(self, omic_data):
+        return [self.parse_preds(preds)
+                for preds in self.predict_base(omic_data)]
+
+    @classmethod
+    def parse_scores(cls, scores):
+        """Summarizes the scores across the predicted variates."""
+        return np.min(scores)
+
+    def score(self, X, y=None):
+        return self.parse_scores(self.score_base(X, y))
+
+
+class LabelPipe(OmicPipe):
     """A class corresponding to pipelines which use continuous data to
        predict discrete outcomes.
     """
 
-    # the parameters that are to be tuned, with either statistical
-    # distributions or iterables to be sampled from as values
-    tune_priors = {}
-
     def __init__(self, steps):
-        super(CohortPipe, self).__init__(steps)
-        self.cur_tuning = dict(self.tune_priors)
-
-    @abstractmethod
-    def predict_mut(self, expr):
-        """Get the vector of probabilities that each sample in the given
-           dataset has the phenotype we are trying to predict."""
-
-    @abstractmethod
-    def score_mut(cls, estimator, expr, mut):
-        """Score the accuracy of the pipeline in predicting the given
-           phenotype. Used eg. to ensure compatibility with cross-validation
-           methods implemented in sklearn."""
-
-
-class ContinuousPipe(CohortPipe):
-    """A class corresponding to pipelines which use continuous data to
-       predict continuous outcomes.
-    """
-    # the parameters that are to be tuned, with either statistical
-    # distributions or iterables to be sampled from as values
-    tune_priors = ()
-
-    def __init__(self, steps):
-        super(CohortPipe, self).__init__(steps)
-        self.cur_tuning = dict(self.tune_priors)
-
-    @abstractmethod
-    def predict_resp(self, expr):
-        """Get the vector of predicted drug responses (in AUC) for each sample
-           for the drug of interest
-        """
-
-    @abstractmethod
-    def score_resp(cls, estimator, expr, drug_list):
-        """Score the accuracy of the pipeline in predicting the drug response.
-           Used eg. to ensure compatibility with cross-validation methods
-           implemented in sklearn.
-        """
-
-
-class VariantPipe(DiscretePipe):
-    """A class corresponding to pipelines for predicting discrete gene
-       mutation states such as SNPs, indels, and frameshifts.
-    """
-
-    def __init__(self, steps, path_keys=None):
         if not hasattr(steps[-1][-1], 'predict_proba'):
             raise ValueError(
                 "Variant pipelines must have a classification estimator"
                 "with a 'predict_proba' method as their final step!")
-        super(VariantPipe, self).__init__(steps)
-        self.path_keys = path_keys
 
+        super().__init__(steps)
 
-    # is the 0 just a placeholder here? how does this work with the
-    # abstract method with the same name?
-    # is this complete?
-    def get_coef(self):
-        return {gene: 0 for gene in self.expr_genes}
-
-    def predict_coh(self,
-                    cohort, use_test=False,
-                    gene_list=None, exclude_samps=None):
-        """Predicts mutation status using a classifier."""
-        samps, genes = cohort._validate_dims(exclude_samps=exclude_samps,
-                                             gene_list=gene_list,
-                                             use_test=use_test)
-
-        if use_test:
-            muts = self.predict_mut(expr=cohort.test_expr_.loc[samps, genes])
-        else:
-            muts = self.predict_mut(expr=cohort.train_expr_.loc[samps, genes])
-
-        return muts
-
-    def labels_coh(self, cohort):
-        Xt = cohort.test_expr_
-        for name, transform in self.steps[:-1]:
-            if transform is not None:
-                Xt = transform.transform(Xt)
-
-        return self.steps[-1][-1].predict_labels(Xt)
-
-
-class UniVariantPipe(DiscretePipe):
-    """A class corresponding to pipelines for predicting
-       discrete gene mutation states individually.
-    """
-
-    def predict_mut(self, expr):
-        """Returns the probability of mutation presence calculated by the
-           classifier based on the given expression matrix.
-        """
-        mut_probs = self.predict_proba(expr)
-
+    def parse_preds(self, preds):
         if hasattr(self, 'classes_'):
             true_indx = [i for i, x in enumerate(self.classes_) if x]
-            mut_probs = [scrs[true_indx] for scrs in mut_probs]
+            parse_preds = [scrs[true_indx] for scrs in preds]
 
-        return mut_probs
+        else:
+            parse_preds = preds
 
-    @classmethod
-    def score_mut(cls, estimator, expr, mut):
-        """Computes the AUC score using the classifier on a expr-mut pair.
+        return parse_preds
+
+    def predict_base(self, omic_data):
+        return self.predict_proba(omic_data)
+
+    def score_base(self, X, y):
+        """Score the accuracy of the pipeline in predicting the given
+           phenotype. Used eg. to ensure compatibility with cross-validation
+           methods implemented in sklearn.
 
         Parameters
         ----------
-        expr : array-like, shape (n_samples,n_features)
+        X : array-like, shape (n_samples,n_features)
             An expression dataset.
-            
-        estimator : 
 
-        mut : array-like, shape (n_samples,)
+        y : array-like, shape (n_samples,)
             A boolean vector corresponding to the presence of a particular
             type of mutation in the same set of samples as the given
             expression dataset.
@@ -266,140 +374,47 @@ class UniVariantPipe(DiscretePipe):
         -------
         S : float
             The AUC score corresponding to mutation classification accuracy.
+
         """
-        mut_scores = estimator.predict_mut(expr)
-        return roc_auc_score(mut, mut_scores)
-
-    def tune_coh(self,
-                 cohort, mtype, gene_list=None, exclude_samps=None,
-                 tune_splits=2, test_count=16, verbose=False):
-        """Tunes the pipeline by sampling over the tuning parameters."""
-
-        samps, genes = cohort._validate_dims(exclude_samps=exclude_samps,
-                                             gene_list=gene_list)
-        expr = cohort.train_expr_.loc[samps, genes]
-        muts = cohort.train_mut_.status(samps, mtype)
-
-        # get internal cross-validation splits in the training set and use
-        # them to tune the classifier
-        tune_cvs = MutShuffleSplit(
-            n_splits=tune_splits, test_size=0.2,
-            random_state=(cohort.cv_seed ** 2) % 42949672
-            )
-
-        # checks if the classifier has parameters to be tuned
-        if self.tune_priors:
-            prior_counts = [len(x) if hasattr(x, '__len__') else float('Inf')
-                            for x in self.cur_tuning.values()]
-            max_tests = reduce(mul, prior_counts, 1)
-            test_count = min(test_count, max_tests)
-
-            # samples parameter combinations and tests each one
-            grid_test = RandomizedSearchCV(
-                estimator=self, param_distributions=self.cur_tuning,
-                fit_params={'mut_genes': cohort.mut_genes,
-                            'path_obj': cohort.path},
-                n_iter=test_count, scoring=self.score_mut,
-                cv=tune_cvs, n_jobs=-1, refit=False
-                )
-            grid_test.fit(expr, muts)
-
-            # finds the best parameter combination and updates the classifier
-            tune_scores = (grid_test.cv_results_['mean_test_score']
-                           - grid_test.cv_results_['std_test_score'])
-            self.set_params(
-                **grid_test.cv_results_['params'][tune_scores.argmax()])
-            if verbose:
-                print(self)
-
-        return self
-
-    def fit_coh(self, cohort, mtype, gene_list=None, exclude_samps=None):
-        """Fits a classifier."""
-        samps, genes = cohort._validate_dims(exclude_samps=exclude_samps,
-                                             gene_list=gene_list)
-        muts = cohort.train_mut_.status(samps, mtype)
-
-        return self.fit(X=cohort.train_expr_.loc[samps, genes],
-                        y=muts,
-                        **{'mut_genes': cohort.mut_genes,
-                           'path_obj': cohort.path})
-
-    def score_coh(self,
-                  cohort, mtype, score_splits=16,
-                  gene_list=None, exclude_samps=None):
-        """Test a classifier using tuning and cross-validation
-           within the training samples of this dataset.
-
-        Parameters
-        ----------
-        clf : UniClassifier
-            An instance of the classifier to test.
-
-        mtype : MuType, optional
-            The mutation sub-type to test the classifier on.
-            Default is to use all of the mutations available.
-
-        verbose : boolean
-            Whether or not the classifier should print information about the
-            optimal hyper-parameters found during tuning.
-
-        Returns
-        -------
-        P : float
-            The 1st quartile of tuned classifier performance across the
-            cross-validation samples. Used instead of the mean of performance
-            to take into account performance variation for "hard" samples.
-
-            Performance is measured using the area under the receiver operator
-            curve metric.
-        """
-        samps, genes = cohort._validate_dims(mtype=mtype,
-                                             exclude_samps=exclude_samps,
-                                             gene_list=gene_list)
-
-        score_cvs = MutShuffleSplit(
-            n_splits=score_splits, test_size=0.2,
-            random_state=cohort.intern_cv_)
-
-        return np.percentile(cross_val_score(
-            estimator=self,
-            X=cohort.train_expr_.loc[samps, genes],
-            y=cohort.train_mut_.status(samps, mtype),
-            fit_params={'mut_genes': cohort.mut_genes,
-                        'path_obj': cohort.path},
-            scoring=self.score_mut, cv=score_cvs, n_jobs=-1
-            ), 25)
-
-    def eval_coh(self,
-                 cohort, mtype, gene_list=None, exclude_samps=None):
-        """Evaluate the performance of a classifier."""
-        samps, genes = cohort._validate_dims(
-            exclude_samps=exclude_samps, gene_list=gene_list, use_test=True)
-
-        return self.score_mut(self,
-                              cohort.test_expr_.loc[samps, genes],
-                              cohort.test_mut_.status(samps, mtype))
-
-    def infer_coh(self,
-                  cohort, mtype, infer_splits=16,
-                  gene_list=None, exclude_samps=None):
-        samps, genes = cohort._validate_dims(gene_list=gene_list)
-
-        infer_scores = cross_val_predict_mut(
-            estimator=self,
-            X=cohort.train_expr_.loc[:, genes],
-            y=cohort.train_mut_.status(samps, mtype),
-            exclude_samps=exclude_samps, cv_fold=4, cv_count=infer_splits,
-            fit_params={'feat__mut_genes': cohort.mut_genes,
-                        'feat__path_obj': cohort.path},
-            random_state=int(cohort.intern_cv_ ** 1.5) % 42949672, n_jobs=-1
-            )
-
-        return infer_scores
+        return roc_auc_score(y, self.predict_omic(X))
 
 
-class MultiVariantPipe(DiscretePipe):
+class ValuePipe(OmicPipe):
+    """A class corresponding to pipelines which use continuous data to
+       predict continuous outcomes.
+    """
+    pass
+
+
+class VariantPipe(LabelPipe):
+    """A class corresponding to pipelines for predicting discrete gene
+       mutation states such as SNPs, indels, and frameshifts.
+    """
+
+    def __init__(self, steps, path_keys=None):
+        super().__init__(steps)
+        self.path_keys = path_keys
+
+    def __repr__(self):
+        """Prints the classifier name and the feature selection path key."""
+        return '{}_{}'.format(
+            type(self).__name__, str(self.get_params()['path_keys']))
+
+
+class MutPipe(UniPipe, VariantPipe):
+    """A class corresponding to pipelines for predicting
+       discrete gene mutation states individually.
+    """
+
+    cvSplitMethod = MutShuffleSplit
+
+    @classmethod
+    def extra_fit_params(cls, cohort):
+        return {'mut_genes': cohort.mut_genes,
+                'path_obj': cohort.path}
+
+
+class MultiVariantPipe(MultiPipe, VariantPipe):
     """A class corresponding to pipelines for predicting a collection of
        discrete gene mutation states simultaenously.
     """
@@ -449,9 +464,11 @@ class MultiVariantPipe(DiscretePipe):
         return np.min(cls.get_scores(estimator, expr, mut_list))
 
     def tune_coh(self,
-                 cohort, mtypes, path_keys,
-                 gene_list=None, exclude_samps=None,
-                 tune_splits=2, test_count=16, verbose=False):
+                 cohort, pheno,
+                 tune_splits=2, test_count=16,
+                 include_samples=None, exclude_samples=None,
+                 include_genes=None, exclude_genes=None,
+                 verbose=False):
         """Tunes the pipeline by sampling over the tuning parameters."""
 
         samps, genes = cohort._validate_dims(exclude_samps=exclude_samps,
@@ -495,8 +512,9 @@ class MultiVariantPipe(DiscretePipe):
         return self
 
     def fit_coh(self,
-                cohort, mtypes, path_keys, verbose=False,
-                gene_list=None, exclude_samps=None):
+                cohort, pheno,
+                include_samples=None, exclude_samples=None,
+                include_genes=None, exclude_genes=None):
         """Fits a classifier."""
         samps, genes = cohort._validate_dims(exclude_samps=exclude_samps,
                                              gene_list=gene_list)
@@ -512,8 +530,10 @@ class MultiVariantPipe(DiscretePipe):
             )
 
     def score_coh(self,
-                  cohort, mtype, score_splits=16,
-                  gene_list=None, exclude_samps=None):
+                  cohort, pheno,
+                  score_splits=16,
+                  include_samples=None, exclude_samples=None,
+                  include_genes=None, exclude_genes=None):
         """Test a classifier using tuning and cross-validation
            within the training samples of this dataset.
 
@@ -560,7 +580,9 @@ class MultiVariantPipe(DiscretePipe):
             ), 25)
 
     def eval_coh(self,
-                 cohort, mtypes, gene_list=None, exclude_samps=None):
+                 cohort, pheno,
+                 include_samples=None, exclude_samples=None,
+                 include_genes=None, exclude_genes=None):
         """Evaluate the performance of a classifier."""
         samps, genes = cohort._validate_dims(
             exclude_samps=exclude_samps, gene_list=gene_list, use_test=True)
@@ -572,8 +594,10 @@ class MultiVariantPipe(DiscretePipe):
             )
 
     def infer_coh(self,
-                  cohort, mtype, infer_splits=16,
-                  gene_list=None, exclude_samps=None):
+                  cohort, pheno,
+                  infer_splits=16,
+                  include_samples=None, exclude_samples=None,
+                  include_genes=None, exclude_genes=None):
         samps, genes = cohort._validate_dims(gene_list=gene_list)
 
         infer_scores = cross_val_predict_mut(
@@ -591,142 +615,9 @@ class MultiVariantPipe(DiscretePipe):
         return infer_scores
 
 
-# TODO: determine whether this should fall into VariantPipe
-class ProteoPipe(DiscretePipe):
-    """A class corresponding to pipelines for predicting mutation status
-       from proteomic data.
-    """
-
-
-# TODO: Employ drug_list in relevant methods...
-class DrugPipe(ContinuousPipe):
+class DrugPipe(UniPipe, ValuePipe):
     """A class corresponding to pipelines for predicting drug sensitivity
        using expression data.
     """
 
-    def __init__(self, steps):
-        super(DrugPipe, self).__init__(steps)
-
-    # TODO: Compare this fit vs. other fits (and _fits) (what are my **fit_params)?
-    def fit_coh(self, cohort, exclude_samps=None, gene_list=None, drug_list=None):
-        """Fits a classifier."""
-
-        # is the following sufficient?
-        samps, genes = cohort._validate_dims(exclude_samps=exclude_samps,
-                                             gene_list=gene_list,
-                                             )
-
-        return self.fit(X=cohort.train_expr_.loc[samps,genes],
-                        y=cohort.train_resp_.loc[samps,drug_list]
-                        )
-
-    def tune_coh(self,
-             expr, drug_list, cv_samples, test_count=16):
-        """Tunes the pipeline by sampling over the tuning parameters."""
-
-        for drug in drug_list:
-            # checks if the classifier has parameters to be tuned
-            if self.tune_priors:
-                prior_counts = [len(x) if hasattr(x, '__len__') else float('Inf')
-                                for x in self.cur_tuning.values()]
-                max_tests = reduce(mul, prior_counts, 1)
-                test_count = min(test_count, max_tests)
-
-                # samples parameter combinations and tests each one
-                grid_test = RandomizedSearchCV(
-                    estimator=self, param_distributions=self.cur_tuning,
-                    n_iter=test_count, cv=cv_samples, n_jobs=-1, refit=False
-                )
-                grid_test.fit(expr, drug)
-
-                # finds the best parameter combination and updates the classifier
-                tune_scores = (grid_test.cv_results_['mean_test_score']
-                               - grid_test.cv_results_['std_test_score'])
-
-                # TODO: how to store this for each drug instead of (probably) writing over each time?
-                self.set_params(
-                    **grid_test.cv_results_['params'][tune_scores.argmax()])
-
-        return self
-
-
-    def score_coh(self, cohort, score_splits=16, drug_list=None, gene_list=None, exclude_samps=None):
-        """
-        Test a classifier using tuning and cross-validation
-           within the training samples of this dataset.
-
-        Parameters
-        ----------
-        clf : UniClassifier
-            An instance of the classifier to test.
-
-        verbose : boolean
-            Whether or not the classifier should print information about the
-            optimal hyper-parameters found during tuning.
-
-        Returns
-        -------
-        P : float
-            The 1st quartile of tuned classifier performance across the
-            cross-validation samples. Used instead of the mean of performance
-            to take into account performance variation for "hard" samples.
-
-            Performance is measured using the area under the receiver operator
-            curve metric.
-        """
-
-        samps, genes = cohort._validate_dims(exclude_samps=exclude_samps, gene_list=gene_list)
-
-        score_cvs = DrugShuffleSplit(
-            n_splits=score_splits, test_size=0.2
-            random_state=cohort.intern_cv_)
-
-        return np.percentile(cross_val_score(
-            estimator=self,
-            X=cohort.train_expr_,
-            y=cohort.train_resp_,
-            # fit_params={?,?,?},
-            scoring=self.score_resp,
-            cv = score_cvs, n_jobs=-1),25)
-
-
-    def eval_coh(self,
-                 cohort, drug_list=None, gene_list=None, exclude_samps=None):
-        """Evaluate the performance of a classifier."""
-        samps, genes = samps, genes = cohort._validate_dims(
-            exclude_samps=exclude_samps,
-            gene_list=gene_list,
-            use_test=True
-        )
-
-        # return self.score_resp(
-        #   self,
-        #   cohort.test_expr_,
-        #   cohort.test_resp_
-        #   )
-        pass
-
-
-    def infer_coh(self,
-                  cohort, infer_splits=16,
-                  drug_list=None, gene_list=None, exclude_samps=None):
-
-        samps, genes = cohort._validate_dims(exclude_samps=exclude_samps, gene_list=gene_list)
-
-        infer_scores = cross_val_predict_drug*(
-
-        )
-
-        infer_scores = cross_val_predict_mut(
-            estimator=self,
-            X=cohort.train_expr_,
-            y=cohort.train_resp
-            exclude_samps=exclude_samps, cv_fold=4, cv_count=infer_splits,
-            # fit_params={'feat__mut_genes': cohort.mut_genes,
-            #            'feat__path_obj': cohort.path,
-            #            'fit__mut_genes': cohort.mut_genes,
-            #            'fit__path_obj': cohort.path},
-            # random_state=int(cohort.intern_cv_ ** 1.5) % 42949672, n_jobs=-1
-        )
-
-        return infer_scores
+    cvSplitMethod = DrugShuffleSplit
