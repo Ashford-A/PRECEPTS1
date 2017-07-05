@@ -34,7 +34,7 @@ def get_expr_ioria():
 
     cell_expr = cell_expr.ix[~pd.isnull(cell_expr['GENE_SYMBOLS']), :]
     cell_expr.index = cell_expr['GENE_SYMBOLS']
-    cell_expr = cell_expr.ix[:, 2:].tranpose()
+    cell_expr = cell_expr.ix[:, 2:].transpose()
 
     return cell_expr
 

@@ -23,9 +23,10 @@ from scipy.stats import fisher_exact
 import random
 
 from functools import reduce
+from abc import abstractmethod
 
 
-class OmicsCohort(object):
+class OmicCohort(object):
     """A matched pair of expression and feature datasets for use in learning.
 
     Attributes:
@@ -96,15 +97,23 @@ class OmicsCohort(object):
 
         return self.omic_mat.loc[samps, genes]
 
+    @abstractmethod
+    def train_pheno(self, pheno):
+        """Returns the training values of a phenotype."""
 
-class LabelCohort(OmicsCohort):
+    @abstractmethod
+    def test_pheno(self, pheno):
+        """Returns the testing values of a phenotype."""
+
+
+class LabelCohort(OmicCohort):
     """A matched pair of omics and discrete phenotypic data."""
 
     def __init__(self, omic_mat, train_samps, test_samps, cohort, cv_seed):
         super().__init__(omic_mat, train_samps, test_samps, cohort, cv_seed)
 
 
-class ValueCohort(OmicsCohort):
+class ValueCohort(OmicCohort):
     """A matched pair of omics and continuous phenotypic data."""
 
     def __init__(self, omic_mat, train_samps, test_samps, cohort, cv_seed):
@@ -203,11 +212,15 @@ class VariantCohort(LabelCohort):
 
         super().__init__(expr, train_samps, test_samps, cohort, cv_seed)
 
-    def train_status(self, mtype):
-        return self.train_mut.status(list(self.train_samps), mtype)
+    def train_pheno(self, mtype, samps=None):
+        if samps is None:
+            samps = self.train_samps
+        return self.train_mut.status(samps, mtype)
 
-    def test_status(self, mtype):
-        return self.test_mut.status(list(self.test_samps), mtype)
+    def test_pheno(self, mtype, samps=None):
+        if samps is None:
+            samps = self.test_samps
+        return self.test_mut.status(samps, mtype)
 
     def mutex_test(self, mtype1, mtype2):
         """Tests the mutual exclusivity of two mutation types.
@@ -381,8 +394,8 @@ class DrugCohort(ValueCohort):
         use_samples = set(cell_expr.index) & set(drug_resp.index)
 
         # discards data for cell lines which are not in samples set
-        cell_expr = cell_expr.loc[self.samples,:]
-        drug_resp = drug_resp.loc[self.samples,:]
+        cell_expr = cell_expr.loc[use_samples,:]
+        drug_resp = drug_resp.loc[use_samples,:]
 
         # TODO: query bmeg for annotation data on each drug (def in drugs.py),
         # set as attribute
@@ -392,8 +405,8 @@ class DrugCohort(ValueCohort):
 
             # separate samples (cell line names) into train and test frozensets.
             train_samps = set(
-                random.sample(population=self.samples,
-                              k=int(round(len(self.samples) * cv_prop))))
+                random.sample(population=use_samples,
+                              k=int(round(len(use_samples) * cv_prop))))
             test_samps = use_samples - train_samps
 
             self.train_resp = drug_resp.loc[train_samps, :]
@@ -404,3 +417,15 @@ class DrugCohort(ValueCohort):
             test_samps = None
 
         super().__init__(cell_expr, train_samps, test_samps, cohort, cv_seed)
+
+    def train_pheno(self, drug, samps=None):
+        if samps is None:
+            samps = self.train_samps
+
+        return self.train_resp.loc[samps, drug]
+
+    def test_pheno(self, drug, samps=None):
+        if samps is None:
+            samps = self.test_samps
+
+        return self.test_resp.loc[samps, drug]

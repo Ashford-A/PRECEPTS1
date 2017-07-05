@@ -48,7 +48,7 @@ class OmicPipe(Pipeline):
     def __init__(self, steps):
         super().__init__(steps)
         self.genes = None
-        self.cur_tuning = {}
+        self.cur_tuning = dict(self.tune_priors)
 
     def __str__(self):
         """Prints the tuned parameters of the pipeline."""
@@ -97,12 +97,6 @@ class OmicPipe(Pipeline):
         """Gets a vector of phenotype predictions for an -omic dataset."""
         return self.parse_preds(self.predict_base(omic_data))
 
-    def score_base(self, X, y):
-        return self.score(X, y)
-
-    def score(self, X, y=None):
-        return self.score_base(X, y)
-
     cvSplitMethod = StratifiedShuffleSplit
 
     @classmethod
@@ -119,7 +113,7 @@ class OmicPipe(Pipeline):
 
         omics = cohort.train_omics(include_samples, exclude_samples,
                                    include_genes, exclude_genes)
-        pheno_types = cohort.train_pheno(omics.index, pheno)
+        pheno_types = cohort.train_pheno(pheno, omics.index)
 
         # get internal cross-validation splits in the training set and use
         # them to tune the classifier
@@ -161,7 +155,7 @@ class OmicPipe(Pipeline):
         """Fits a classifier."""
         omics = cohort.train_omics(include_samples, exclude_samples,
                                    include_genes, exclude_genes)
-        pheno_types = cohort.train_pheno(omics.index, pheno)
+        pheno_types = cohort.train_pheno(pheno, omics.index)
 
         return self.fit(X=omics, y=pheno_types,
                         fit_params=self.extra_fit_params(cohort))
@@ -200,7 +194,7 @@ class OmicPipe(Pipeline):
         """
         omics = cohort.train_omics(include_samples, exclude_samples,
                                    include_genes, exclude_genes)
-        pheno_types = cohort.train_pheno(omics.index, pheno)
+        pheno_types = cohort.train_pheno(pheno, omics.index)
 
         score_cvs = self.cvSplitMethod(
             n_splits=score_splits, test_size=0.2,
@@ -220,8 +214,8 @@ class OmicPipe(Pipeline):
                  include_genes=None, exclude_genes=None):
         """Evaluate the performance of a classifier."""
         omics = cohort.test_omics(include_samples, exclude_samples,
-                                   include_genes, exclude_genes)
-        pheno_types = cohort.test_pheno(omics.index, pheno)
+                                  include_genes, exclude_genes)
+        pheno_types = cohort.test_pheno(pheno, omics.index)
 
         return self.score(omics, pheno_types)
 
@@ -230,9 +224,9 @@ class OmicPipe(Pipeline):
                   infer_splits=16,
                   include_samples=None, exclude_samples=None,
                   include_genes=None, exclude_genes=None):
-        omics = cohort.test_omics(include_samples, exclude_samples,
+        omics = cohort.train_omics(include_samples, exclude_samples,
                                    include_genes, exclude_genes)
-        pheno_types = cohort.test_pheno(omics.index, pheno)
+        pheno_types = cohort.train_pheno(pheno, omics.index)
 
         return cross_val_predict_mut(
             estimator=self,
@@ -303,8 +297,12 @@ class UniPipe(OmicPipe):
 
         Xt, final_params = self._fit(
             X, y, **{**fit_params, **{'expr_genes': X.columns}})
-        self.genes = X.columns[
-            self.named_steps['feat']._get_support_mask()]
+
+        if 'feat' in self.named_steps:
+            self.genes = X.columns[
+                self.named_steps['feat']._get_support_mask()]
+        else:
+            self.genes = X.columns
 
         if 'genes' in final_params:
             final_params['genes'] = self.genes
@@ -325,8 +323,12 @@ class MultiPipe(OmicPipe):
         """Summarizes the scores across the predicted variates."""
         return np.min(scores)
 
+    @abstractmethod
+    def score_each(self, X, y=None):
+        """Scores each of the given phenotypes separately."""
+
     def score(self, X, y=None):
-        return self.parse_scores(self.score_base(X, y))
+        return self.parse_scores(self.score_each(X, y))
 
 
 class LabelPipe(OmicPipe):
@@ -355,7 +357,7 @@ class LabelPipe(OmicPipe):
     def predict_base(self, omic_data):
         return self.predict_proba(omic_data)
 
-    def score_base(self, X, y):
+    def score(self, X, y=None):
         """Score the accuracy of the pipeline in predicting the given
            phenotype. Used eg. to ensure compatibility with cross-validation
            methods implemented in sklearn.
