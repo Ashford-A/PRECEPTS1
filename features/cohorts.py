@@ -121,7 +121,7 @@ class ValueCohort(OmicCohort):
 
 
 class VariantCohort(LabelCohort):
-    """An expression dataset used to predict genes' variant mutations.
+    """An expression dataset used to predict genes' mutations (variants).
 
     Args:
         syn (synapseclient.Synapse): A logged-into Synapse instance.

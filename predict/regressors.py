@@ -20,6 +20,9 @@ class ElasticNet(DrugPipe):
         ('fit__l1_ratio', (0.05, 0.25, 0.5, 0.75, 0.95))
         )
 
+    # TODO: consider how to do feature selection for drug pipelines
+    # i.e. for variantpipe there is a pathway feature selection method
+    # based on the neighborhoods of the genes with alterations
     def __init__(self):
         norm_step = StandardScaler()
         fit_step = ENet(normalize=False, max_iter=5000)
