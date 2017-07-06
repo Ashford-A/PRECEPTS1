@@ -47,11 +47,12 @@ def main(argv):
     # (cv_prop = cross validation proportion)(train on all here)
     # cross val seed is provided as last arg in an HTCondor submit script, and
     # cohort name is the first (should match cohort names as they appear in BMEG)
-    # TODO: think about how to handle mut_genes and include_genes
     tcga_var_coh = VariantCohort(syn, cohort=argv[0], mut_genes=pnt_genes,
                    mut_levels=['Gene', 'Form', 'Protein'],
                    cv_seed=int(argv[-1])+1, cv_prop=1)
-    tcga_coh_expr = deepcopy(tcga_var_coh.train_omics())
+    # returns the expression dataset without any filtering (genes have already
+    # been filtered above with mut_genes=pnt_genes)
+    tcga_coh_expr = tcga_var_coh.train_omics()
 
     # TODO: recall why frameshifts aren't considered below
     # get list of point mutation types and drugs associated with at least one
@@ -61,7 +62,8 @@ def main(argv):
               ) for gn in pnt_genes]
     pnt_muts = {(gn + '_mut'):mtype for gn,mtype
                 in zip(pnt_genes, pnt_mtypes)
-                if len(mtype.get_samples(tcga_var_coh.train_mut_)) >= 3}
+                # TODO: the get_samples argument should be a MuTree...right?
+                if len(mtype.get_samples(tcga_coh_expr)) >= 3}
     pnt_drugs = list(set(
         drug_mut_assoc['DRUG'][pnt_indx][drug_mut_assoc['FEAT'][pnt_indx].
                                     isin(pnt_muts.keys())]))
@@ -85,8 +87,8 @@ def main(argv):
     tcga_auc = pd.DataFrame(float('nan'),
                             index=pnt_drugs, columns=pnt_muts.keys())
 
-    # loads organoid RNAseq data
-    pred_data = pd.read_csv(
+    # loads patient (or patient-derived model (PDM)) RNAseq data
+    patient_expr = pd.read_csv(
         '/home/users/grzadkow/compbio/input-data/rnaseq_4315.csv',
         header=0)
 
@@ -94,45 +96,41 @@ def main(argv):
         print("Testing drug " + drug + " ....")
         drug_clf = eval(argv[1])()
 
-        # TODO: find the union of genes between drug cohort and variant cohort
-        #       instead of the tcga_var_coh stuff.
         # loads cell line drug response and array expression data
-        coh = DrugCohort(drug, source='ioria', random_state=int(argv[-1]))
-        tcga_var_coh.train_expr_ = deepcopy(tcga_coh_expr)
-        use_genes = (set(tcga_var_coh.train_expr_.columns)
-                     & set(coh.drug_expr.columns))
+        cell_line_drug_coh = DrugCohort(drug, source='ioria', random_state=int(argv[-1]))
+        cell_line_coh_expr = cell_line_drug_coh.train_omics()
+        # TODO: verify that ".columns" not necessary at end of each expr obj
+        # get the union of genes in the datasets
+        use_genes = (set(tcga_coh_expr) & set(cell_line_coh_expr))
 
-        # pred_data = patient expression data (change to patient_expr or something)
-        # pred_samp = subset of pred_data with genes that we want
-        #   (i.e. just genes we want)
-        # processes organoid RNAseq data to match TCGA and drug response data
-        pred_samp = pred_data.ix[pred_data['Symbol'].isin(use_genes), :]
+        # filter patient (or PDM) RNAseq data to include only genes which are present in both
+        # the cell line drug response cohort and TCGA cohort
+        patient_expr_filtered = patient_expr.ix[patient_expr['Symbol'].isin(use_genes), :]
         # TODO: add a normalization step
-        pred_samp.loc[:, 'RPKM'] = (
-            pred_samp.loc[:, 'RPKM']
-            + min(pred_samp.loc[:, 'RPKM'][pred_samp.loc[:,'RPKM'] > 0]) / 2)
-        pred_samp = pred_samp.groupby(['Symbol'])['RPKM'].mean()
-        pred_samp = pd.DataFrame(pred_samp).transpose()
+        patient_expr_filtered.loc[:, 'RPKM'] = (
+            patient_expr_filtered.loc[:, 'RPKM']
+            + min(patient_expr_filtered.loc[:, 'RPKM'][patient_expr_filtered.loc[:,'RPKM'] > 0]) / 2)
+        patient_expr_filtered = patient_expr_filtered.groupby(['Symbol'])['RPKM'].mean()
+        patient_expr_filtered = pd.DataFrame(patient_expr_filtered).transpose()
 
-        # just use genes in all: drug_coh, variant_coh, patient_expr/pred_data
-        use_genes &= set(pred_samp.columns)
-        pred_samp = pred_samp.loc[:, use_genes]
+        # just use genes in all: drug_coh, variant_coh, patient_expr/patient_expr
+        use_genes &= set(patient_expr_filtered.columns)
+        patient_expr_filtered = patient_expr_filtered.loc[:, use_genes]
 
         # TODO: pass include/exclude genes args to tune, fit, etc. as in the first here...
         # tunes and fits the classifier on the CCLE data, and evaluates its
         # performance on the held-out samples
-        drug_clf.tune_coh(coh, include_genes=use_genes)
-        coh.tune_clf(drug_clf)
-        coh.fit_clf(drug_clf)
-        clf_perf[drug] = coh.eval_clf(drug_clf)
+        drug_clf.tune_coh(cell_line_drug_coh, include_genes=use_genes)
+        cell_line_drug_coh.tune_clf(drug_clf)
+        cell_line_drug_coh.fit_clf(drug_clf)
+        clf_perf[drug] = cell_line_drug_coh.eval_clf(drug_clf)
 
         # predicts drug response for the organoid, stores classifier
         # for later use
         # TODO: do include_genes=use_genes for similar examples
-        # TODO: tcga_var_coh should be tcga_coh, coh should be cellline_coh or something
-        ccle_response[drug] = pd.Series(drug_clf.predict_train(coh, include_genes=use_genes))
+        ccle_response[drug] = pd.Series(drug_clf.predict_train(cell_line_drug_coh, include_genes=use_genes))
         tcga_response[drug] = pd.Series(drug_clf.predict_train(tcga_var_coh, include_genes=use_genes))
-        patient_response[drug] = drug_clf.predict(pred_samp)[0]
+        patient_response[drug] = drug_clf.predict(patient_expr_filtered)[0]
 
         for gn, mtype in pnt_muts.items():
             # for each mutated gene, get the vector of mutation status
