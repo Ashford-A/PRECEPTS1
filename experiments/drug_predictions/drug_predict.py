@@ -15,7 +15,6 @@ import pandas as pd
 from math import log10
 from scipy.stats import ttest_ind
 from sklearn.metrics import roc_auc_score
-from copy import deepcopy
 
 base_dir = ('/home/users/grzadkow/compbio/scripts/HetMan/'
             'experiments/drug_predictions')
@@ -51,9 +50,6 @@ def main(argv):
     tcga_var_coh = VariantCohort(syn, cohort=argv[0], mut_genes=pnt_genes,
                    mut_levels=['Gene', 'Form', 'Protein'],
                    cv_seed=int(argv[-1])+1, cv_prop=1)
-    # returns the expression dataset without any filtering (genes have already
-    # been filtered above with mut_genes=pnt_genes)
-    tcga_coh_expr = tcga_var_coh.train_omics()
 
     # TODO: recall why frameshifts aren't considered below
     # get list of point mutation types and drugs associated with at least one
@@ -64,7 +60,7 @@ def main(argv):
     pnt_muts = {(gn + '_mut'):mtype for gn,mtype
                 in zip(pnt_genes, pnt_mtypes)
                 # TODO: the get_samples argument should be a MuTree...right?
-                if len(mtype.get_samples(tcga_coh_expr)) >= 3}
+                if len(mtype.get_samples(tcga_var_coh.train_omics())) >= 3}
     pnt_drugs = list(set(
         drug_mut_assoc['DRUG'][pnt_indx][drug_mut_assoc['FEAT'][pnt_indx].
                                     isin(pnt_muts.keys())]))
@@ -97,48 +93,27 @@ def main(argv):
         print("Testing drug " + drug + " ....")
         drug_clf = eval(argv[1])()
 
+        # TODO: check on unexpected args
         # loads cell line drug response and array expression data
         cell_line_drug_coh = DrugCohort(drug, source='ioria', random_state=int(argv[-1]))
-        cell_line_coh_expr = cell_line_drug_coh.train_omics()
-        # TODO: verify that ".columns" not necessary at end of each expr obj
-        # get the union of genes in the datasets
 
-        # MG: note that OmicsCohorts have a "gene" attribute you can use here
-        # instead of extracting the entire expression matrix
-        use_genes = (set(tcga_coh_expr) & set(cell_line_coh_expr))
 
-        # filter patient (or PDM) RNAseq data to include only genes which are present in both
-        # the cell line drug response cohort and TCGA cohort
-        patient_expr_filtered = patient_expr.ix[patient_expr['Symbol'].isin(use_genes), :]
-        # TODO: add a normalization step
-        patient_expr_filtered.loc[:, 'RPKM'] = (
-            patient_expr_filtered.loc[:, 'RPKM']
-            + min(patient_expr_filtered.loc[:, 'RPKM'][patient_expr_filtered.loc[:,'RPKM'] > 0]) / 2)
-        patient_expr_filtered = patient_expr_filtered.groupby(['Symbol'])['RPKM'].mean()
-        patient_expr_filtered = pd.DataFrame(patient_expr_filtered).transpose()
+        # TODO: Do the normalization of the patient RPKMs HERE using all genes available in patient expression data
+        patient_expr.loc[:, 'RPKM'] = (patient_expr.loc[:, 'RPKM']
+                                       + min(patient_expr.loc[:, 'RPKM'][patient_expr.loc[:,'RPKM'] > 0]) / 2)
+        patient_expr = patient_expr.groupby(['Symbol'])['RPKM'].mean()
+        patient_expr = pd.DataFrame(patient_expr)
 
-        # TODO: see below
-        # just use genes in all: drug_coh, variant_coh, patient_expr...
-        # why wasn't the original use_genes just equal to the union of
-        # tcga_coh_expr, cell_line_coh_expr, and patient_expr.ix['Symbol']?
+        # get the union of genes in all 3 datasets (tcga, ccle, patient/PDM RNAseq
+        use_genes = (set(tcga_var_coh.genes) & set(cell_line_drug_coh.genes) & set(patient_expr.ix['Symbol']))
 
-        # MG: I wanted to do normalization of the patient RPKMs using all the genes available
-        # in the patient expression data - so really the above block should be altered to do the
-        # normalization first, then subsetting using the use_genes (defined using the tri-union
-        # you describe)
-        use_genes &= set(patient_expr_filtered.columns)
-        patient_expr_filtered = patient_expr_filtered.loc[:, use_genes]
-
-        """
-        # get the union of genes in the datasets
-        use_genes = (set(tcga_coh_expr) & set(cell_line_coh_expr & set(patient_expr['Symbol']))
-        # filter patient (or PDM) RNAseq data to include only genes which are present in both
-        # the cell line drug response cohort and TCGA cohort
+        # filter patient (or PDM) RNAseq data to include only use_genes
         patient_expr_filtered = patient_expr.ix[patient_expr['Symbol'].isin(use_genes),:]
-        # then you normalize?
-        # ...in the original code it looks like patient data is filtered, normalized, and filtered again. why?
-        MG: ohhhh that last filtering step is indeed redundant, see also above MG comment
-        """
+        # or should i do something like the following? figure out what patient_expr_filtered actually looks like...
+        # patient_expr_filtered = patient_expr_filtered.loc[:, use_genes]
+
+        # TODO: verify that transposition needs to happen here (and not earlier)
+        patient_expr_filtered = patient_expr_filtered.transpose()
 
         # tunes and fits the classifier on the CCLE data, and evaluates its
         # performance on the held-out samples
