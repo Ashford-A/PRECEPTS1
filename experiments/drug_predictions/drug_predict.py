@@ -113,32 +113,47 @@ def main(argv):
         patient_expr_filtered = patient_expr_filtered.groupby(['Symbol'])['RPKM'].mean()
         patient_expr_filtered = pd.DataFrame(patient_expr_filtered).transpose()
 
-        # just use genes in all: drug_coh, variant_coh, patient_expr/patient_expr
+        # TODO: see below
+        # just use genes in all: drug_coh, variant_coh, patient_expr...
+        # why wasn't the original use_genes just equal to the union of
+        # tcga_coh_expr, cell_line_coh_expr, and patient_expr.ix['Symbol']?
         use_genes &= set(patient_expr_filtered.columns)
         patient_expr_filtered = patient_expr_filtered.loc[:, use_genes]
 
-        # TODO: pass include/exclude genes args to tune, fit, etc. as in the first here...
+        """
+        # get the union of genes in the datasets
+        use_genes = (set(tcga_coh_expr) & set(cell_line_coh_expr & set(patient_expr['Symbol']))
+        # filter patient (or PDM) RNAseq data to include only genes which are present in both
+        # the cell line drug response cohort and TCGA cohort
+        patient_expr_filtered = patient_expr.ix[patient_expr['Symbol'].isin(use_genes),:]
+        # then you normalize?
+        # ...in the original code it looks like patient data is filtered, normalized, and filtered again. why?
+        """
+
         # tunes and fits the classifier on the CCLE data, and evaluates its
         # performance on the held-out samples
         drug_clf.tune_coh(cell_line_drug_coh, include_genes=use_genes)
-        cell_line_drug_coh.tune_clf(drug_clf)
-        cell_line_drug_coh.fit_clf(drug_clf)
-        clf_perf[drug] = cell_line_drug_coh.eval_clf(drug_clf)
+        drug_clf.fit_coh(cell_line_drug_coh, include_genes=use_genes)
+        clf_perf[drug] = drug_clf.eval_coh(cell_line_drug_coh, include_genes=use_genes)
 
-        # predicts drug response for the organoid, stores classifier
+        # predicts drug response for the patient or PDM, stores classifier
         # for later use
-        # TODO: do include_genes=use_genes for similar examples
         ccle_response[drug] = pd.Series(drug_clf.predict_train(cell_line_drug_coh, include_genes=use_genes))
         tcga_response[drug] = pd.Series(drug_clf.predict_train(tcga_var_coh, include_genes=use_genes))
         patient_response[drug] = drug_clf.predict(patient_expr_filtered)[0]
+
 
         for gn, mtype in pnt_muts.items():
             # for each mutated gene, get the vector of mutation status
             # for the TCGA samples
             mut_stat = np.array(
-                tcga_var_coh.train_mut_.status(tcga_var_coh.train_expr_.index,
-                                        mtype=mtype)
+                # TODO: make sure the following is doing what it's supposed to do...
+                tcga_var_coh.train_pheno(mtype=mtype)
+                # was:
+                # cdata.train_mut_.status(cdata.train_expr_.index,
+                #                       mtype=mtype)
                 )
+
 
             # gets the classifier's predictions of drug response for the
             # TCGA cohort, and evaluate its concordance with mutation status
