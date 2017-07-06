@@ -6,6 +6,7 @@ sys.path += ['/home/users/grzadkow/compbio/scripts']
 from HetMan.predict.cross_validation import *
 from HetMan.features.cohorts import *
 from HetMan.predict.pipelines import *
+# MG: should be from HetMan.features.variants import MuType
 from HetMan.mutation import MuType # ?
 
 import numpy as np
@@ -101,6 +102,9 @@ def main(argv):
         cell_line_coh_expr = cell_line_drug_coh.train_omics()
         # TODO: verify that ".columns" not necessary at end of each expr obj
         # get the union of genes in the datasets
+
+        # MG: note that OmicsCohorts have a "gene" attribute you can use here
+        # instead of extracting the entire expression matrix
         use_genes = (set(tcga_coh_expr) & set(cell_line_coh_expr))
 
         # filter patient (or PDM) RNAseq data to include only genes which are present in both
@@ -117,6 +121,11 @@ def main(argv):
         # just use genes in all: drug_coh, variant_coh, patient_expr...
         # why wasn't the original use_genes just equal to the union of
         # tcga_coh_expr, cell_line_coh_expr, and patient_expr.ix['Symbol']?
+
+        # MG: I wanted to do normalization of the patient RPKMs using all the genes available
+        # in the patient expression data - so really the above block should be altered to do the
+        # normalization first, then subsetting using the use_genes (defined using the tri-union
+        # you describe)
         use_genes &= set(patient_expr_filtered.columns)
         patient_expr_filtered = patient_expr_filtered.loc[:, use_genes]
 
@@ -128,6 +137,7 @@ def main(argv):
         patient_expr_filtered = patient_expr.ix[patient_expr['Symbol'].isin(use_genes),:]
         # then you normalize?
         # ...in the original code it looks like patient data is filtered, normalized, and filtered again. why?
+        MG: ohhhh that last filtering step is indeed redundant, see also above MG comment
         """
 
         # tunes and fits the classifier on the CCLE data, and evaluates its
@@ -148,6 +158,7 @@ def main(argv):
             # for the TCGA samples
             mut_stat = np.array(
                 # TODO: make sure the following is doing what it's supposed to do...
+                # MG: unless I fucked up the Independence Day Refactoring it should work
                 tcga_var_coh.train_pheno(mtype=mtype)
                 # was:
                 # cdata.train_mut_.status(cdata.train_expr_.index,
