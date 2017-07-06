@@ -6,8 +6,7 @@ sys.path += ['/home/users/grzadkow/compbio/scripts']
 from HetMan.predict.cross_validation import *
 from HetMan.features.cohorts import *
 from HetMan.predict.pipelines import *
-# MG: should be from HetMan.features.variants import MuType
-from HetMan.mutation import MuType # ?
+from HetMan.features.variants import MuType
 
 import numpy as np
 import pandas as pd
@@ -16,9 +15,11 @@ from math import log10
 from scipy.stats import ttest_ind
 from sklearn.metrics import roc_auc_score
 
-base_dir = ('/home/users/grzadkow/compbio/scripts/HetMan/'
-            'experiments/drug_predictions')
+# base_dir = ('/home/users/grzadkow/compbio/scripts/HetMan/'
+#            'experiments/drug_predictions')
 
+base_dir = ('/Users/manningh/PycharmProjects/bergamot/HetMan/'
+            'experiments/drug_predictions')
 
 def main(argv):
     """Runs the experiment."""
@@ -86,8 +87,11 @@ def main(argv):
 
     # loads patient (or patient-derived model (PDM)) RNAseq data
     patient_expr = pd.read_csv(
-        '/home/users/grzadkow/compbio/input-data/rnaseq_4315.csv',
+        '/home/users/grzadkow/compbio/input-data/rnaseq_4409.csv',
         header=0)
+
+    # get rid of the unnecessary info in gene_id
+    patient_expr['gene_id'] = [i.split('^')[1] for i in patient_expr['gene_id']]
 
     for drug in pnt_drugs:
         print("Testing drug " + drug + " ....")
@@ -98,22 +102,23 @@ def main(argv):
         cell_line_drug_coh = DrugCohort(drug, source='ioria', random_state=int(argv[-1]))
 
 
-        # TODO: Do the normalization of the patient RPKMs HERE using all genes available in patient expression data
-        patient_expr.loc[:, 'RPKM'] = (patient_expr.loc[:, 'RPKM']
-                                       + min(patient_expr.loc[:, 'RPKM'][patient_expr.loc[:,'RPKM'] > 0]) / 2)
-        patient_expr = patient_expr.groupby(['Symbol'])['RPKM'].mean()
+        # TODO: 'Symbol' --> gene_id
+        # get the union of genes in all 3 datasets (tcga, ccle, patient/PDM RNAseq
+        use_genes = (set(tcga_var_coh.genes) & set(cell_line_drug_coh.genes) & set(patient_expr.ix['gene_id']))
+
+        # ensure that there are no zeros in preparation for log normalization
+        patient_expr.loc[:, 'FPKM'] = (patient_expr.loc[:, 'FPKM']
+                                       + min(patient_expr.loc[:, 'FPKM'][patient_expr.loc[:,'FPKM'] > 0]) / 2)
+        # log normalize the FPKM values
+        patient_expr.loc[:, 'FPKM'] = np.log2(patient_expr.loc[:,'FPKM'])
+
+        # combine multiple entries of same gene symbol (use their mean)
+        patient_expr = patient_expr.groupby(['Symbol'])['FPKM'].mean()
         patient_expr = pd.DataFrame(patient_expr)
 
-        # get the union of genes in all 3 datasets (tcga, ccle, patient/PDM RNAseq
-        use_genes = (set(tcga_var_coh.genes) & set(cell_line_drug_coh.genes) & set(patient_expr.ix['Symbol']))
-
         # filter patient (or PDM) RNAseq data to include only use_genes
-        patient_expr_filtered = patient_expr.ix[patient_expr['Symbol'].isin(use_genes),:]
-        # or should i do something like the following? figure out what patient_expr_filtered actually looks like...
-        # patient_expr_filtered = patient_expr_filtered.loc[:, use_genes]
-
-        # TODO: verify that transposition needs to happen here (and not earlier)
-        patient_expr_filtered = patient_expr_filtered.transpose()
+        patient_expr_filtered = patient_expr[patient_expr.index.isin(use_genes),:]
+        # TODO: does patient_expr_filtered need to be transposed?
 
         # tunes and fits the classifier on the CCLE data, and evaluates its
         # performance on the held-out samples
