@@ -113,7 +113,7 @@ def main(argv):
         patient_expr.loc[:, 'FPKM'] = np.log2(patient_expr.loc[:,'FPKM'])
 
         # combine multiple entries of same gene symbol (use their mean)
-        patient_expr = patient_expr.groupby(['Symbol'])['FPKM'].mean()
+        patient_expr = patient_expr.groupby(['gene_id'])['FPKM'].mean()
         patient_expr = pd.DataFrame(patient_expr)
 
         # filter patient (or PDM) RNAseq data to include only use_genes
