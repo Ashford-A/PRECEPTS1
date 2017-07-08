@@ -37,13 +37,19 @@ class OmicCohort(object):
 
     def __init__(self, omic_mat, train_samps, test_samps, cohort, cv_seed):
 
-        if set(train_samps) & set(test_samps):
+        if test_samps is not None and set(train_samps) & set(test_samps):
             raise ValueError("Training sample set and testing sample set must"
                              "be disjoint!")
 
-        self.samples = train_samps | test_samps
-        self.train_samps = frozenset(train_samps)
-        self.test_samps = frozenset(test_samps)
+        if test_samps is not None:
+            self.samples = train_samps | test_samps
+            self.train_samps = frozenset(train_samps)
+            self.test_samps = frozenset(test_samps)
+
+        else:
+            self.samples = train_samps.copy()
+            self.train_samps = frozenset(train_samps)
+
 
         self.omic_mat = omic_mat.loc[self.samples, :]
         self.genes = frozenset(self.omic_mat.columns)
@@ -203,8 +209,8 @@ class VariantCohort(LabelCohort):
                 )
 
         else:
-            train_samps = use_samples
-            test_samps = None
+            train_samps = use_samples.copy()
+            test_samps = set()
 
         self.train_mut = MuTree(
             muts=variants.loc[variants['Sample'].isin(train_samps), :],
@@ -430,7 +436,7 @@ class DrugCohort(ValueCohort):
 
         else:
             train_samps = use_samples
-            test_samps = None
+            test_samps = set()
 
         super().__init__(cell_expr, train_samps, test_samps, cohort, cv_seed)
 

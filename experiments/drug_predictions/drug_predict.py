@@ -1,11 +1,11 @@
 
 import sys
 import pickle
-sys.path += ['/home/users/grzadkow/compbio/scripts']
+sys.path += ['/home/users/grzadkow/compbio/bergamot']
 
 from HetMan.predict.cross_validation import *
 from HetMan.features.cohorts import *
-from HetMan.predict.pipelines import *
+from HetMan.predict.regressors import *
 from HetMan.features.variants import MuType
 
 import numpy as np
@@ -15,11 +15,13 @@ from math import log10
 from scipy.stats import ttest_ind
 from sklearn.metrics import roc_auc_score
 
-# base_dir = ('/home/users/grzadkow/compbio/scripts/HetMan/'
-#            'experiments/drug_predictions')
+import synapseclient
 
-base_dir = ('/Users/manningh/PycharmProjects/bergamot/HetMan/'
+base_dir = ('/home/users/grzadkow/compbio/scripts/HetMan/'
             'experiments/drug_predictions')
+
+#base_dir = ('/Users/manningh/PycharmProjects/bergamot/HetMan/'
+#            'experiments/drug_predictions')
 
 def main(argv):
     """Runs the experiment."""
@@ -42,6 +44,7 @@ def main(argv):
     # with corresponding set of mutations
     pnt_genes = list(set(
         x[0] for x in drug_mut_assoc['FEAT'][pnt_indx].str.split('_')))
+    print(len(pnt_genes))
 
     # create a VariantCohort with expression only for genes which have
     # point mutations in the drug_mut_assoc dataframe
@@ -50,7 +53,7 @@ def main(argv):
     # cohort name is the first (should match cohort names as they appear in BMEG)
     tcga_var_coh = VariantCohort(syn, cohort=argv[0], mut_genes=pnt_genes,
                    mut_levels=['Gene', 'Form', 'Protein'],
-                   cv_seed=int(argv[-1])+1, cv_prop=1)
+                   cv_seed=int(argv[-1])+1, cv_prop=0.95)
 
     # TODO: recall why frameshifts aren't considered below
     # get list of point mutation types and drugs associated with at least one
@@ -61,10 +64,11 @@ def main(argv):
     pnt_muts = {(gn + '_mut'):mtype for gn,mtype
                 in zip(pnt_genes, pnt_mtypes)
                 # TODO: the get_samples argument should be a MuTree...right?
-                if len(mtype.get_samples(tcga_var_coh.train_omics())) >= 3}
+                if len(mtype.get_samples(tcga_var_coh.train_mut)) >= 3}
     pnt_drugs = list(set(
         drug_mut_assoc['DRUG'][pnt_indx][drug_mut_assoc['FEAT'][pnt_indx].
                                     isin(pnt_muts.keys())]))
+    print(len(pnt_drugs))
 
     # ... stores predicted drug responses for cell lines and tcga samples
     ccle_response = {}
@@ -87,11 +91,14 @@ def main(argv):
 
     # loads patient (or patient-derived model (PDM)) RNAseq data
     patient_expr = pd.read_csv(
-        '/home/users/grzadkow/compbio/input-data/rnaseq_4409.csv',
-        header=0)
+        "/home/exacloud/lustre1/PTTB/Patients/OPTR4409/OPTR4409T_RNA/"
+        "results/rsem/rsemOut.genes.results",
+        header=0, sep='\t')
 
     # get rid of the unnecessary info in gene_id
     patient_expr['gene_id'] = [i.split('^')[1] for i in patient_expr['gene_id']]
+    cell_line_drug_coh = DrugCohort(cohort='ioria', drug_names=pnt_drugs,
+                                    cv_seed=int(argv[-1]))
 
     for drug in pnt_drugs:
         print("Testing drug " + drug + " ....")
@@ -99,12 +106,11 @@ def main(argv):
 
         # TODO: check on unexpected args
         # loads cell line drug response and array expression data
-        cell_line_drug_coh = DrugCohort(drug, source='ioria', random_state=int(argv[-1]))
 
 
         # TODO: 'Symbol' --> gene_id
         # get the union of genes in all 3 datasets (tcga, ccle, patient/PDM RNAseq
-        use_genes = (set(tcga_var_coh.genes) & set(cell_line_drug_coh.genes) & set(patient_expr.ix['gene_id']))
+        use_genes = (set(tcga_var_coh.genes) & set(cell_line_drug_coh.genes) & set(patient_expr['gene_id']))
 
         # ensure that there are no zeros in preparation for log normalization
         patient_expr.loc[:, 'FPKM'] = (patient_expr.loc[:, 'FPKM']
@@ -117,14 +123,17 @@ def main(argv):
         patient_expr = pd.DataFrame(patient_expr)
 
         # filter patient (or PDM) RNAseq data to include only use_genes
-        patient_expr_filtered = patient_expr[patient_expr.index.isin(use_genes),:]
+        patient_expr_filtered = patient_expr.loc[patient_expr.index.isin(use_genes),:]
         # TODO: does patient_expr_filtered need to be transposed?
 
         # tunes and fits the classifier on the CCLE data, and evaluates its
         # performance on the held-out samples
-        drug_clf.tune_coh(cell_line_drug_coh, include_genes=use_genes)
-        drug_clf.fit_coh(cell_line_drug_coh, include_genes=use_genes)
-        clf_perf[drug] = drug_clf.eval_coh(cell_line_drug_coh, include_genes=use_genes)
+        drug_clf.tune_coh(cell_line_drug_coh, pheno=drug,
+                          include_genes=use_genes)
+        drug_clf.fit_coh(cell_line_drug_coh, pheno=drug,
+                         include_genes=use_genes)
+        clf_perf[drug] = drug_clf.eval_coh(cell_line_drug_coh, pheno=drug,
+                                           include_genes=use_genes)
 
         # predicts drug response for the patient or PDM, stores classifier
         # for later use
@@ -134,6 +143,7 @@ def main(argv):
 
 
         for gn, mtype in pnt_muts.items():
+            print("Gene: {}, Drug: {}".format(gn, drug))
             # for each mutated gene, get the vector of mutation status
             # for the TCGA samples
             mut_stat = np.array(
@@ -160,7 +170,7 @@ def main(argv):
     out_data = {'Performance': clf_perf, 'CCLE_Response': ccle_response,
                 'TCGA_Response': tcga_response, 'Patient_Response': patient_response,
                 'TCGA_ttest': tcga_ttest, 'TCGA_AUC': tcga_auc}
-    out_file = ('/home/users/grzadkow/compbio/scripts/HetMan/experiments/'
+    out_file = ('/home/users/grzadkow/compbio/bergamot/HetMan/experiments/'
                 'drug_predictions/output/mat_' + argv[0] + '_' + argv[1]
                 + '__run' + argv[-1] + '.p')
     pickle.dump(out_data, open(out_file, 'wb'))
