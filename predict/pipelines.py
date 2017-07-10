@@ -106,12 +106,12 @@ class OmicPipe(Pipeline):
     def tune_coh(self,
                  cohort, pheno,
                  tune_splits=2, test_count=16,
-                 include_samples=None, exclude_samples=None,
+                 include_samps=None, exclude_samps=None,
                  include_genes=None, exclude_genes=None,
                  verbose=False):
         """Tunes the pipeline by sampling over the tuning parameters."""
 
-        omics = cohort.train_omics(include_samples, exclude_samples,
+        omics = cohort.train_omics(include_samps, exclude_samps,
                                    include_genes, exclude_genes)
         pheno_types = cohort.train_pheno(pheno, omics.index)
 
@@ -150,20 +150,20 @@ class OmicPipe(Pipeline):
 
     def fit_coh(self,
                 cohort, pheno,
-                include_samples=None, exclude_samples=None,
+                include_samps=None, exclude_samps=None,
                 include_genes=None, exclude_genes=None):
         """Fits a classifier."""
-        omics = cohort.train_omics(include_samples, exclude_samples,
+        omics = cohort.train_omics(include_samps, exclude_samps,
                                    include_genes, exclude_genes)
         pheno_types = cohort.train_pheno(pheno, omics.index)
 
         return self.fit(X=omics, y=pheno_types,
-                        fit_params=self.extra_fit_params(cohort))
+                        **self.extra_fit_params(cohort))
 
     def score_coh(self,
                   cohort, pheno,
                   score_splits=16,
-                  include_samples=None, exclude_samples=None,
+                  include_samps=None, exclude_samps=None,
                   include_genes=None, exclude_genes=None):
         """Test a classifier using tuning and cross-validation
            within the training samples of this dataset.
@@ -192,7 +192,7 @@ class OmicPipe(Pipeline):
             curve metric.
 
         """
-        omics = cohort.train_omics(include_samples, exclude_samples,
+        omics = cohort.train_omics(include_samps, exclude_samps,
                                    include_genes, exclude_genes)
         pheno_types = cohort.train_pheno(pheno, omics.index)
 
@@ -210,10 +210,10 @@ class OmicPipe(Pipeline):
 
     def eval_coh(self,
                  cohort, pheno,
-                 include_samples=None, exclude_samples=None,
+                 include_samps=None, exclude_samps=None,
                  include_genes=None, exclude_genes=None):
         """Evaluate the performance of a classifier."""
-        omics = cohort.test_omics(include_samples, exclude_samples,
+        omics = cohort.test_omics(include_samps, exclude_samps,
                                   include_genes, exclude_genes)
         pheno_types = cohort.test_pheno(pheno, omics.index)
 
@@ -222,9 +222,9 @@ class OmicPipe(Pipeline):
     def infer_coh(self,
                   cohort, pheno,
                   infer_splits=16,
-                  include_samples=None, exclude_samples=None,
+                  include_samps=None, exclude_samps=None,
                   include_genes=None, exclude_genes=None):
-        omics = cohort.train_omics(include_samples, exclude_samples,
+        omics = cohort.train_omics(include_samps, exclude_samps,
                                    include_genes, exclude_genes)
         pheno_types = cohort.train_pheno(pheno, omics.index)
 
@@ -468,7 +468,7 @@ class MultiVariantPipe(MultiPipe, VariantPipe):
     def tune_coh(self,
                  cohort, pheno,
                  tune_splits=2, test_count=16,
-                 include_samples=None, exclude_samples=None,
+                 include_samps=None, exclude_samps=None,
                  include_genes=None, exclude_genes=None,
                  verbose=False):
         """Tunes the pipeline by sampling over the tuning parameters."""

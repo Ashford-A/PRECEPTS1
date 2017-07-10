@@ -7,7 +7,7 @@ This file contains the algorithms used to predict discrete mutation states.
 
 # Author: Michal Grzadkowski <grzadkow@ohsu.edu>
 
-from .pipelines import MutPipe
+from .pipelines import MutPipe, MultiVariantPipe
 from .selection import PathwaySelect
 from .bayesian_transfer.single_domain import MultiVariant, MultiVariantAsym
 
@@ -78,7 +78,7 @@ class Lasso(MutPipe):
 
     def get_coef(self):
         return {gene: coef for gene, coef in
-                zip(self.expr_genes, self.named_steps['fit'].coef_[0])}
+                zip(self.genes, self.named_steps['fit'].coef_[0])}
 
 
 class LogReg(MutPipe):

@@ -51,13 +51,14 @@ def get_expr_bmeg(cohort):
 
     Examples:
         >>> expr_data = get_expr_bmeg('TCGA-BRCA')
+        >>> expr_data = get_expr_bmeg('TCGA-PCPG')
 
     """
     oph = Ophion("http://bmeg.io")
     expr_list = {}
 
     # TODO: filter on gene chromosome when BMEG is updated
-    expr_query = ('oph.query().has("gid", "individualCohort:" + cohort)'
+    expr_query = ('oph.query().has("gid", "project:" + cohort)'
                   '.outgoing("hasMember").incoming("biosampleOfIndividual")'
                   '.mark("sample").incoming("expressionForSample")'
                   '.mark("expression").select(["sample", "expression"])')

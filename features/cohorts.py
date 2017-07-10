@@ -1,10 +1,10 @@
 
-"""Consolidating -omics datasets.
+"""Consolidating -omic datasets.
 
-This module contains classes for grouping expression datasets with other
--omic features such as variants, copy number alterations, and drug response
-data so that the former can be used to predict the latter using machine
-learning pipelines.
+This module contains classes for grouping continuous -omic datasets such as
+expression or proteomic measurements with -omic phenotypic features such as
+variants, copy number alterations, or drug response data so that the former
+can be used to predict the latter using machine learning pipelines.
 
 Author: Michal Grzadkowski <grzadkow@ohsu.edu>
         Hannah Manning <manningh@ohsu.edu>
@@ -27,11 +27,25 @@ from abc import abstractmethod
 
 
 class OmicCohort(object):
-    """A matched pair of expression and feature datasets for use in learning.
+    """Base class for cohorts consisting of the features used to learn on.
+
+    This class consists of a matrix of -omic measurements for a set of samples
+    on a set of genetic features that will be used to predict phenotypes
+    defined by the classes listed below. These measurements are stored in the
+    omic_mat attribute, which is partitioned into a training cohort of samples
+    and a testing cohort.
+
+    Note that abstract :func:`train_pheno` and :func:`test_pheno` methods are
+    defined here as well, which correspond to retrieval of phenotypic data as
+    defined in downstream classes.
 
     Attributes:
+        omic_mat (pandas DataFrame), shape (n_samples, n_features)
+        train_samps (set): Samples to be used for machine learning training.
+        test_samps (set): Samples to be used for machine learning testing.
+        genes (set): Genetic features defined in the -omic dataset.
         cohort (str): The source of the datasets.
-        cv_seed (int): A seed used for random sampling from the datasets.
+        cv_seed (int): A random seed used for sampling from the datasets.
 
     """
 
@@ -55,23 +69,47 @@ class OmicCohort(object):
                   include_samps=None, exclude_samps=None,
                   include_genes=None, exclude_genes=None,
                   use_test=False):
-        """Gets the dimensions of the -omics dataset of the cohort.
+        """Gets a subset of dimensions of the cohort's -omic dataset.
+
+        This is a utility function whereby a list of samples and/or genes to
+        be included and/or excluded in a given analysis can be specified.
+        These lists are then checked against the samples and genetic features
+        actually available in the training or testing cohort, and the
+        cohort dimensions that are both available and match the inclusion/
+        exclusion criteria are returned.
+
+        Note that exclusion takes precedence over inclusion, that is, if a
+        sample or gene is asked to be both included and excluded it will be
+        excluded.
+
+        Arguments:
+            include_samps (list, optional)
+            exclude_samps (list, optional)
+            include_genes (list, optional)
+            exclude_genes (list, optional)
+            use_test (bool, optional) Whether to use testing cohort of
+                samples, default is to use the training cohort.
+
+        Returns:
+            samps (list): The samples to be used.
+            genes (list): The genetic features to be used.
 
         """
 
-        # get samples and genes from the specified cohort as specified
+        # get samples and genes available in the given cohort
         if use_test:
             samps = self.test_samps.copy()
         else:
             samps = self.train_samps.copy()
         genes = self.genes.copy()
 
-        # remove samples and/or genes as necessary
+        # remove samples samples as necessary
         if include_samps is not None:
             samps &= set(include_samps)
         if exclude_samps is not None:
             samps -= set(exclude_samps)
 
+        # remove genetic features as necessary
         if include_genes is not None:
             genes &= set(include_genes)
         if exclude_genes is not None:
@@ -82,6 +120,8 @@ class OmicCohort(object):
     def train_omics(self,
                     include_samps=None, exclude_samps=None,
                     include_genes=None, exclude_genes=None):
+        """Retrieval of the training cohort from the -omic dataset."""
+
         samps, genes = self.omic_dims(include_samps, exclude_samps,
                                       include_genes, exclude_genes,
                                       use_test=False)
@@ -91,6 +131,8 @@ class OmicCohort(object):
     def test_omics(self,
                    include_samps=None, exclude_samps=None,
                    include_genes=None, exclude_genes=None):
+        """Retrieval of the testing cohort from the -omic dataset."""
+
         samps, genes = self.omic_dims(include_samps, exclude_samps,
                                       include_genes, exclude_genes,
                                       use_test=True)
@@ -130,13 +172,13 @@ class VariantCohort(LabelCohort):
         cv_prop (float): Proportion of samples to use for cross-validation.
 
     Attributes:
-        train_expr (pandas DataFrame of floats)
-        test_expr (pandas DataFrame of floats)
-        train_mut (MuTree)
-        test_mut (MuTree)
-        path (dict)
+        mut_genes (list): The genes whose mutations are being considered.
+        path (dict): Pathway Commons neighbourhood for the mutation genes.
+        train_mut (.variants.MuTree): Training cohort mutations.
+        test_mut (.variants.MuTree): Testing cohort mutations.
 
     Examples:
+        >>> import synapseclient
         >>> syn = synapseclient.Synapse()
         >>> syn.login()
         >>> cdata = VariantCohort(
@@ -244,14 +286,18 @@ class VariantCohort(LabelCohort):
         samps1 = mtype1.get_samples(self.train_mut)
         samps2 = mtype2.get_samples(self.train_mut)
 
+        # if either mutation type has no samples associated with it, there
+        # can be no mutual exclusivity
         if not samps1 or not samps2:
             pval = 1
 
+        # otherwise, get the confusion matrix and run a one-sided
+        # Fisher's exact test
         else:
             both_samps = samps1 & samps2
 
             _, pval = fisher_exact(
-                np.array([[len(self.samples - (samps1 | samps2)),
+                np.array([[len(self.train_samps - (samps1 | samps2)),
                            len(samps1 - both_samps)],
                           [len(samps2 - both_samps),
                            len(both_samps)]]),
