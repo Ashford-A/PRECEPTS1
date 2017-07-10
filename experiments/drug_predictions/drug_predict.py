@@ -3,10 +3,12 @@ import sys
 import pickle
 sys.path += ['/home/users/grzadkow/compbio/bergamot']
 
-from HetMan.predict.cross_validation import *
+from HetMan.features.annot import get_gencode
 from HetMan.features.cohorts import *
-from HetMan.predict.regressors import *
 from HetMan.features.variants import MuType
+
+from HetMan.predict.cross_validation import *
+from HetMan.predict.regressors import *
 
 import numpy as np
 import pandas as pd
@@ -17,11 +19,10 @@ from sklearn.metrics import roc_auc_score
 
 import synapseclient
 
+
 base_dir = ('/home/users/grzadkow/compbio/scripts/HetMan/'
             'experiments/drug_predictions')
 
-#base_dir = ('/Users/manningh/PycharmProjects/bergamot/HetMan/'
-#            'experiments/drug_predictions')
 
 def main(argv):
     """Runs the experiment."""
@@ -95,8 +96,12 @@ def main(argv):
         "results/rsem/rsemOut.genes.results",
         header=0, sep='\t')
 
-    # get rid of the unnecessary info in gene_id
+    # get rid of the unnecessary info in gene_id, get Hugo symbols
     patient_expr['gene_id'] = [i.split('^')[1] for i in patient_expr['gene_id']]
+    annot_data = get_gencode()
+    patient_expr['Symbol'] = [annot_data[gn]['gene_name'] if gn in annot_data
+                              else 'no_gene'
+                              for gn in patient_expr['gene_id']]
 
     for drug in pnt_drugs:
         drug_clf = eval(argv[1])()
@@ -111,20 +116,24 @@ def main(argv):
 
         # TODO: 'Symbol' --> gene_id
         # get the union of genes in all 3 datasets (tcga, ccle, patient/PDM RNAseq
-        use_genes = (set(tcga_var_coh.genes) & set(cell_line_drug_coh.genes) & set(patient_expr['gene_id']))
+        use_genes = (set(tcga_var_coh.genes)
+                     & set(cell_line_drug_coh.genes)
+                     & set(patient_expr['Symbol']))
 
         # ensure that there are no zeros in preparation for log normalization
-        patient_expr.loc[:, 'FPKM'] = (patient_expr.loc[:, 'FPKM']
-                                       + min(patient_expr.loc[:, 'FPKM'][patient_expr.loc[:,'FPKM'] > 0]) / 2)
+        patient_expr.loc[:, 'FPKM'] = (
+            patient_expr.loc[:, 'FPKM']
+            + min(patient_expr.loc[:, 'FPKM'][patient_expr.loc[:,'FPKM'] > 0]) / 2
+            )
         # log normalize the FPKM values
         patient_expr.loc[:, 'FPKM'] = np.log2(patient_expr.loc[:,'FPKM'])
 
         # combine multiple entries of same gene symbol (use their mean)
-        patient_expr = patient_expr.groupby(['gene_id'])['FPKM'].mean()
+        patient_expr = patient_expr.groupby(['Symbol'])['FPKM'].mean()
         patient_expr = pd.DataFrame(patient_expr)
 
         # filter patient (or PDM) RNAseq data to include only use_genes
-        patient_expr_filtered = patient_expr.loc[patient_expr.index.isin(use_genes),:]
+        patient_expr_filt = patient_expr.loc[patient_expr.index.isin(use_genes), :]
         # TODO: does patient_expr_filtered need to be transposed?
 
         # tunes and fits the classifier on the CCLE data, and evaluates its
@@ -140,7 +149,7 @@ def main(argv):
         # for later use
         ccle_response[drug] = pd.Series(drug_clf.predict_train(cell_line_drug_coh, include_genes=use_genes))
         tcga_response[drug] = pd.Series(drug_clf.predict_train(tcga_var_coh, include_genes=use_genes))
-        patient_response[drug] = drug_clf.predict(patient_expr_filtered)[0]
+        patient_response[drug] = drug_clf.predict(patient_expr_filt)[0]
 
 
         for gn, mtype in pnt_muts.items():

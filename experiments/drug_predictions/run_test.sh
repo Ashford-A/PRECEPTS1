@@ -26,5 +26,7 @@ echo $TEMPDIR
 rm -rf $TEMPDIR
 mkdir -p $TEMPDIR/slurm
 
+export OMP_NUM_THREADS=1
+
 python HetMan/experiments/drug_predictions/drug_predict.py $cohort ElasticNet 55
 
