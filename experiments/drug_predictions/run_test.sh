@@ -2,11 +2,14 @@
 
 #SBATCH --job-name=drug-pred
 #SBATCH --partition=exacloud
-#SBATCH --mem=16000
-#SBATCH --time=400
+#SBATCH --time=500
 
-#SBATCH --output=/home/exacloud/lustre1/CompBio/mgrzad/tmp/dp_out-%j.txt
-#SBATCH --error=/home/exacloud/lustre1/CompBio/mgrzad/tmp/dp_err-%j.err
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=16
+#SBATCH --mem-per-cpu=6000
+
+#SBATCH --output=/home/exacloud/lustre1/CompBio/mgrzad/tmp/drugs_%j_out.txt
+#SBATCH --error=/home/exacloud/lustre1/CompBio/mgrzad/tmp/drugs_%j_err.txt
 #SBATCH --verbose
 
 cd ~/compbio/bergamot
@@ -23,5 +26,5 @@ echo $TEMPDIR
 rm -rf $TEMPDIR
 mkdir -p $TEMPDIR/slurm
 
-python HetMan/experiments/drug_predictions/drug_predict.py $cohort 55
+python HetMan/experiments/drug_predictions/drug_predict.py $cohort ElasticNet 55
 

@@ -97,12 +97,13 @@ def main(argv):
 
     # get rid of the unnecessary info in gene_id
     patient_expr['gene_id'] = [i.split('^')[1] for i in patient_expr['gene_id']]
-    cell_line_drug_coh = DrugCohort(cohort='ioria', drug_names=pnt_drugs,
-                                    cv_seed=int(argv[-1]))
 
     for drug in pnt_drugs:
-        print("Testing drug " + drug + " ....")
         drug_clf = eval(argv[1])()
+        cell_line_drug_coh = DrugCohort(cohort='ioria', drug_names=[drug],
+                                        cv_seed=int(argv[-1]))
+        drug_lbl = cell_line_drug_coh.train_resp.columns[0]
+        print("Testing drug {} with alias {} ...".format(drug, drug_lbl))
 
         # TODO: check on unexpected args
         # loads cell line drug response and array expression data
@@ -128,11 +129,11 @@ def main(argv):
 
         # tunes and fits the classifier on the CCLE data, and evaluates its
         # performance on the held-out samples
-        drug_clf.tune_coh(cell_line_drug_coh, pheno=drug,
+        drug_clf.tune_coh(cell_line_drug_coh, pheno=drug_lbl,
                           include_genes=use_genes)
-        drug_clf.fit_coh(cell_line_drug_coh, pheno=drug,
+        drug_clf.fit_coh(cell_line_drug_coh, pheno=drug_lbl,
                          include_genes=use_genes)
-        clf_perf[drug] = drug_clf.eval_coh(cell_line_drug_coh, pheno=drug,
+        clf_perf[drug] = drug_clf.eval_coh(cell_line_drug_coh, pheno=drug_lbl,
                                            include_genes=use_genes)
 
         # predicts drug response for the patient or PDM, stores classifier

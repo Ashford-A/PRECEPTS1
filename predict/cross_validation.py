@@ -850,3 +850,4 @@ class DrugShuffleSplit(StratifiedShuffleSplit):
 
         expr, drug, groups = indexable(expr, drug, groups)
         return self._iter_indices(expr, drug, groups)
+

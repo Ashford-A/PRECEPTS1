@@ -65,15 +65,20 @@ def get_drug_ioria(drug_list):
 
     # gets closest matching drug names available, retrieves corresponding drug
     # IDs used in the dataset
-    drug_match = [process.extractOne(drug, drug_annot['Name'])
+    drug_match = [(process.extractOne(drug, drug_annot['Name']),
+                   process.extractOne(drug, drug_annot['Synonyms']))
                   for drug in drug_list]
-    drug_lbl = ['X' + str(drug_annot['Identifier'][dm[-1]])
-                for dm in drug_match]
+    match_indx = [mtch[0] if mtch[0][1] > mtch[1][1] else mtch[1]
+                  for mtch in drug_match]
+    drug_lbl = ['X' + str(drug_annot['Identifier'][mtch[2]])
+                for mtch in match_indx]
 
     # filter out drugs we don't need and replace approximate
     # names with matches
     drug_resp = drug_resp.loc[:, drug_lbl]
-    drug_resp.columns = [dm[0] for dm in drug_match]
+    drug_resp.columns = [mtch[0] if mtch[1] == 100
+                         else drg + '__' + mtch[0]
+                         for drg, mtch in zip(drug_list, match_indx)]
 
     return drug_resp
 
