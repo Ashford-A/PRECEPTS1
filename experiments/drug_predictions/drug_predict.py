@@ -103,6 +103,18 @@ def main(argv):
                               else 'no_gene'
                               for gn in patient_expr['gene_id']]
 
+    # ensure that there are no zeros in preparation for log normalization
+    patient_expr.loc[:, 'FPKM'] = (
+        patient_expr.loc[:, 'FPKM']
+        + min(patient_expr.loc[:, 'FPKM'][patient_expr.loc[:,'FPKM'] > 0]) / 2
+        )
+    # log normalize the FPKM values
+    patient_expr.loc[:, 'FPKM'] = np.log2(patient_expr.loc[:,'FPKM'])
+
+    # combine multiple entries of same gene symbol (use their mean)
+    patient_expr = patient_expr.groupby(['Symbol'])['FPKM'].mean()
+    patient_expr = pd.DataFrame(patient_expr)
+
     for drug in pnt_drugs:
         drug_clf = eval(argv[1])()
         cell_line_drug_coh = DrugCohort(cohort='ioria', drug_names=[drug],
@@ -118,22 +130,11 @@ def main(argv):
         # get the union of genes in all 3 datasets (tcga, ccle, patient/PDM RNAseq
         use_genes = (set(tcga_var_coh.genes)
                      & set(cell_line_drug_coh.genes)
-                     & set(patient_expr['Symbol']))
-
-        # ensure that there are no zeros in preparation for log normalization
-        patient_expr.loc[:, 'FPKM'] = (
-            patient_expr.loc[:, 'FPKM']
-            + min(patient_expr.loc[:, 'FPKM'][patient_expr.loc[:,'FPKM'] > 0]) / 2
-            )
-        # log normalize the FPKM values
-        patient_expr.loc[:, 'FPKM'] = np.log2(patient_expr.loc[:,'FPKM'])
-
-        # combine multiple entries of same gene symbol (use their mean)
-        patient_expr = patient_expr.groupby(['Symbol'])['FPKM'].mean()
-        patient_expr = pd.DataFrame(patient_expr)
+                     & set(patient_expr.index))
 
         # filter patient (or PDM) RNAseq data to include only use_genes
-        patient_expr_filt = patient_expr.loc[patient_expr.index.isin(use_genes), :]
+        patient_expr_filt = patient_expr.loc[use_genes, :]
+
         # TODO: does patient_expr_filtered need to be transposed?
 
         # tunes and fits the classifier on the CCLE data, and evaluates its
@@ -147,9 +148,15 @@ def main(argv):
 
         # predicts drug response for the patient or PDM, stores classifier
         # for later use
-        ccle_response[drug] = pd.Series(drug_clf.predict_train(cell_line_drug_coh, include_genes=use_genes))
-        tcga_response[drug] = pd.Series(drug_clf.predict_train(tcga_var_coh, include_genes=use_genes))
-        patient_response[drug] = drug_clf.predict(patient_expr_filt)[0]
+        ccle_response[drug] = pd.Series(
+            drug_clf.predict_train(cell_line_drug_coh,
+                                   include_genes=use_genes)
+            )
+        tcga_response[drug] = pd.Series(
+            drug_clf.predict_train(tcga_var_coh,
+                                   include_genes=use_genes)
+            )
+        patient_response[drug] = drug_clf.predict(patient_expr_filt.transpose())[0]
 
 
         for gn, mtype in pnt_muts.items():

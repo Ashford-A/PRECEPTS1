@@ -51,7 +51,7 @@ class OmicCohort(object):
             self.train_samps = frozenset(train_samps)
 
 
-        self.omic_mat = omic_mat.loc[self.samples, :]
+        self.omic_mat = omic_mat.loc[self.samples, ~omic_mat.columns.duplicated()]
         self.genes = frozenset(self.omic_mat.columns)
 
         self.cohort = cohort
