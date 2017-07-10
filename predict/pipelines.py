@@ -95,7 +95,6 @@ class OmicPipe(Pipeline):
 
     def predict_omic(self, omic_data):
         """Gets a vector of phenotype predictions for an -omic dataset."""
-        print(omic_data.shape)
         return self.parse_preds(self.predict_base(omic_data))
 
     cvSplitMethod = StratifiedShuffleSplit
@@ -157,7 +156,6 @@ class OmicPipe(Pipeline):
         omics = cohort.train_omics(include_samples, exclude_samples,
                                    include_genes, exclude_genes)
         pheno_types = cohort.train_pheno(pheno, omics.index)
-        print(omics.shape)
 
         return self.fit(X=omics, y=pheno_types,
                         fit_params=self.extra_fit_params(cohort))
