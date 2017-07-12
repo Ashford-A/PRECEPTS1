@@ -71,7 +71,7 @@ class Lasso(MutPipe):
         fit_step = LogisticRegression(penalty='l1', tol=1e-2,
                                       class_weight='balanced')
 
-        super(Lasso, self).__init__(
+        super().__init__(
             [('feat', feat_step), ('norm', norm_step),('fit', fit_step)],
             path_keys=path_keys
             )
@@ -156,18 +156,17 @@ class SVCrbf(MutPipe):
     tune_priors = (
         ('fit__C', stats.lognorm(scale=exp(-1), s=exp(2))),
         ('fit__gamma', stats.lognorm(scale=1e-4, s=exp(2)))
-    )
+        )
 
     def __init__(self, path_keys=None):
         feat_step = PathwaySelect(path_keys=path_keys)
         norm_step = StandardScaler()
-        fit_step = SVC(
-            kernel='rbf', probability=True,
-            cache_size=500, class_weight='balanced')
-        MutPipe.__init__(
-            self,
-            [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],
-            path_keys
+        fit_step = SVC(kernel='rbf', probability=True,
+                       cache_size=500, class_weight='balanced')
+
+        super().__init__(
+            [('feat', feat_step), ('norm', norm_step),('fit', fit_step)],
+            path_keys=path_keys
             )
 
 

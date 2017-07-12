@@ -55,7 +55,7 @@ class OmicCohort(object):
             raise ValueError("Training sample set and testing sample set must"
                              "be disjoint!")
 
-        self.samples = train_samps | test_samps
+        self.samples = set(train_samps) | set(test_samps)
         self.train_samps = frozenset(train_samps)
         self.test_samps = frozenset(test_samps)
 
@@ -167,12 +167,13 @@ class VariantCohort(LabelCohort):
 
     Args:
         syn (synapseclient.Synapse): A logged-into Synapse instance.
-        mut_genes (list of str): Which genes' variants to include.
-        mut_levels (list of str): What variant annotation level to consider.
+        mut_genes (:obj:`list` of :obj:`str`):
+            Which genes' variants to include.
+        mut_levels (:obj:`list` of :obj:`str`):
+            What variant annotation level to consider.
         cv_prop (float): Proportion of samples to use for cross-validation.
 
     Attributes:
-        mut_genes (list): The genes whose mutations are being considered.
         path (dict): Pathway Commons neighbourhood for the mutation genes.
         train_mut (.variants.MuTree): Training cohort mutations.
         test_mut (.variants.MuTree): Testing cohort mutations.
@@ -217,7 +218,8 @@ class VariantCohort(LabelCohort):
 
         # gets set of samples shared across expression and mutation datasets,
         # subsets these datasets to use only these samples
-        use_samples = set(variants['Sample']) & set(expr.index)
+        use_samples = list(set(variants['Sample']) & set(expr.index))
+        use_samples.sort()
         variants = variants.loc[variants['Gene'].isin(mut_genes), :]
 
         # gets annotation data for the genes whose mutations
@@ -237,7 +239,7 @@ class VariantCohort(LabelCohort):
                 random.sample(population=use_samples,
                               k=int(round(len(use_samples) * cv_prop)))
                 )
-            test_samps = use_samples - train_samps
+            test_samps = set(use_samples) - train_samps
 
             self.test_mut = MuTree(
                 muts=variants.loc[variants['Sample'].isin(test_samps), :],
@@ -245,12 +247,13 @@ class VariantCohort(LabelCohort):
                 )
 
         else:
-            train_samps = use_samples
+            train_samps = set(use_samples)
             test_samps = None
 
         self.train_mut = MuTree(
             muts=variants.loc[variants['Sample'].isin(train_samps), :],
-            levels=mut_levels)
+            levels=mut_levels
+            )
 
         super().__init__(expr, train_samps, test_samps, cohort, cv_seed)
 
@@ -337,8 +340,7 @@ class MutCohort(VariantCohort):
                              "first mutation level and 'Form' as the second!")
 
         # initiates a cohort with expression and variant mutation data
-        super(MutCohort, self).__init__(syn, cohort, mut_genes, mut_levels,
-                                        cv_seed, cv_prop)
+        super().__init__(syn, cohort, mut_genes, mut_levels, cv_seed, cv_prop)
 
         # loads copy number data, gets list of samples with CNA info
         copy_data = get_copies_firehose(cohort.split('-')[-1], mut_genes)
@@ -350,16 +352,14 @@ class MutCohort(VariantCohort):
 
         # removes samples that don't have CNA info
         self.samples = self.samples & copy_samps
-        self.train_samps_ = self.train_samps_ & copy_samps
-        self.test_samps_ = self.test_samps_ & copy_samps
+        self.train_samps = self.train_samps & copy_samps
+        self.test_samps = self.test_samps & copy_samps
 
-        # removes expression data for samples with no CNA info
-        self.train_expr_ = self.train_expr_.loc[self.train_samps_, :]
-        self.test_expr_ = self.test_expr_.loc[self.test_samps_, :]
-
-        # removes variant data for samples with no CNA info
-        self.train_mut_ = self.train_mut_.subtree(self.train_samps_)
-        self.test_mut_ = self.test_mut_.subtree(self.test_samps_)
+        # removes expression data for samples with no CNA info, removes
+        # variant data for samples with no CNA info
+        self.omic_mat = self.omic_mat.loc[self.samples, :]
+        self.train_mut = self.train_mut.subtree(self.train_samps)
+        self.test_mut = self.test_mut.subtree(self.test_samps)
 
         # adds copy number alteration data to the mutation trees
         for gn in mut_genes:
@@ -367,16 +367,16 @@ class MutCohort(VariantCohort):
             copy_vals.remove(0)
             val_labels = ['CNA_{}'.format(val) for val in copy_vals]
 
-            if gn not in self.train_mut_._child:
-                self.train_mut_._child[gn] = MuTree(
+            if gn not in self.train_mut._child:
+                self.train_mut._child[gn] = MuTree(
                     muts=pd.DataFrame(
                         {'Form': val_labels,
                          'Sample': [None for _ in val_labels]}
                         ),
                     levels=['Form'])
 
-            if gn not in self.test_mut_._child:
-                self.test_mut_._child[gn] = MuTree(
+            if gn not in self.test_mut._child:
+                self.test_mut._child[gn] = MuTree(
                     muts=pd.DataFrame(
                         {'Form': val_labels,
                          'Sample': [None for _ in val_labels]}
@@ -384,40 +384,40 @@ class MutCohort(VariantCohort):
                     levels=['Form'])
 
             for val_lbl in val_labels:
-                self.train_mut_[gn]._child[val_lbl] = set()
-                self.test_mut_[gn]._child[val_lbl] = set()
+                self.train_mut[gn]._child[val_lbl] = set()
+                self.test_mut[gn]._child[val_lbl] = set()
 
             for samp, val in copy_data[gn].items():
                 if val != 0:
                     lbl_indx = copy_vals.index(val)
 
-                    if samp in self.train_samps_:
-                        self.train_mut_[gn]._child[val_labels[lbl_indx]].\
+                    if samp in self.train_samps:
+                        self.train_mut[gn]._child[val_labels[lbl_indx]].\
                             update({samp})
                     else:
-                        self.test_mut_[gn]._child[val_labels[lbl_indx]].\
+                        self.test_mut[gn]._child[val_labels[lbl_indx]].\
                             update({samp})
 
             for val_lbl in val_labels:
-                if self.train_mut_[gn]._child[val_lbl]:
-                    self.train_mut_[gn]._child[val_lbl] = frozenset(
-                        self.train_mut_[gn]._child[val_lbl])
+                if self.train_mut[gn]._child[val_lbl]:
+                    self.train_mut[gn]._child[val_lbl] = frozenset(
+                        self.train_mut[gn]._child[val_lbl])
                 else:
-                    del(self.train_mut_[gn]._child[val_lbl])
+                    del(self.train_mut[gn]._child[val_lbl])
 
-                if self.test_mut_[gn]._child[val_lbl]:
-                    self.test_mut_[gn]._child[val_lbl] = frozenset(
-                        self.test_mut_[gn]._child[val_lbl])
+                if self.test_mut[gn]._child[val_lbl]:
+                    self.test_mut[gn]._child[val_lbl] = frozenset(
+                        self.test_mut[gn]._child[val_lbl])
                 else:
-                    del(self.test_mut_[gn]._child[val_lbl])
+                    del(self.test_mut[gn]._child[val_lbl])
 
 
 class DrugCohort(ValueCohort):
     """An expression dataset used to predict clinical drug response.
 
         Args:
-            drug_list (list of str): Which drugs to include
-            cv_prop (float): Proportion of samples to use for cross-validation
+            drug_names (:obj:`list` of :obj:`str`):
+                Which drugs to include as phenotypes.
 
         Attributes:
             train_samps_(frozenset of str)

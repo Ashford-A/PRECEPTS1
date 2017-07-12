@@ -45,6 +45,11 @@ class OmicPipe(Pipeline):
     # distributions or iterables to be sampled from as values
     tune_priors = {}
 
+    # the method to use for randomly splitting the training cohort during
+    # cross-validation, the default is to ensure that each split preserves
+    # the distribution of class labels of the training cohort as a whole
+    cvSplitMethod = StratifiedShuffleSplit
+
     def __init__(self, steps):
         super().__init__(steps)
         self.genes = None
@@ -97,8 +102,6 @@ class OmicPipe(Pipeline):
         """Gets a vector of phenotype predictions for an -omic dataset."""
         return self.parse_preds(self.predict_base(omic_data))
 
-    cvSplitMethod = StratifiedShuffleSplit
-
     @classmethod
     def extra_fit_params(cls, cohort):
         return {}
@@ -122,7 +125,8 @@ class OmicPipe(Pipeline):
             random_state=(cohort.cv_seed ** 2) % 42949672
             )
 
-        # checks if the classifier has parameters to be tuned
+        # checks if the classifier has parameters to be tuned, and how many
+        # parameter combinations are possible
         if self.tune_priors:
             prior_counts = [len(x) if hasattr(x, '__len__') else float('Inf')
                             for x in self.cur_tuning.values()]
@@ -133,7 +137,7 @@ class OmicPipe(Pipeline):
             grid_test = RandomizedSearchCV(
                 estimator=self, param_distributions=self.cur_tuning,
                 fit_params=self.extra_fit_params(cohort),
-                n_iter=test_count, cv=tune_cvs, n_jobs=-1, refit=False
+                n_iter=test_count, cv=tune_cvs, n_jobs=1, refit=False
                 )
             grid_test.fit(omics, pheno_types)
 

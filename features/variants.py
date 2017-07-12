@@ -818,6 +818,7 @@ class MuType(object):
     def __eq__(self, other):
         """Two MuTypes are equal if and only if they have the same set
            of children MuTypes for the same subsets."""
+
         if isinstance(self, MuType) ^ isinstance(other, MuType):
             eq = False
         elif self.cur_level != other.cur_level:
