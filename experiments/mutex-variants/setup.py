@@ -16,7 +16,7 @@ def main(argv):
     """Runs the experiment."""
 
     print(argv)
-    out_path = os.path.join(os.path.dirname(__file__), 'output', argv[0])
+    out_path = os.path.join(os.path.dirname(__file__), 'output_new', argv[0])
     coh_lbl = 'TCGA-{}'.format(argv[0])
 
     syn = synapseclient.Synapse()
@@ -48,7 +48,7 @@ def main(argv):
         stat1 = cdata.test_pheno(mtype1)
         stat2 = cdata.test_pheno(mtype2)
         
-        if np.sum(stat1 & ~stat2) >= 3 and np.sum(~stat1 & stat2) >= 3:
+        if np.sum(stat1 & ~stat2) >= 5 and np.sum(~stat1 & stat2) >= 5:
             mutex_val = cdata.mutex_test(mtype1, mtype2)
                                             
             if mutex_val < mutex_cutoff:

@@ -3,8 +3,8 @@
 #SBATCH --job-name=vm-fit
 #SBATCH --partition=exacloud
 
-#SBATCH --array=1-20
-#SBATCH --time=300
+#SBATCH --array=1-50
+#SBATCH --time=600
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem-per-cpu=6000
@@ -14,7 +14,7 @@
 #SBATCH --verbose
 
 cd ~/compbio/bergamot
-TEMPDIR=HetMan/experiments/mutex-variants/output/$cohort
+TEMPDIR=HetMan/experiments/mutex-variants/output_new/$cohort
 export OMP_NUM_THREADS=1
 echo $cohort
 

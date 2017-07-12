@@ -10,12 +10,18 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as pltcol
 from math import log10
 
+from pylab import rcParams
+rcParams['figure.figsize'] = 20, 10
+
 
 def main(argv):
 
-    out_files = glob.glob("HetMan/experiments/mutex-variants/tmp/ex*") 
-    out_list = [pickle.load(open(fl, 'rb'))
-                for fl in glob.glob("HetMan/experiments/mutex-variants/tmp/ex*")]
+    print("... loading experiment data ...")
+    out_list = [
+        pickle.load(open(fl, 'rb')) for fl in
+        glob.glob("HetMan/experiments/mutex-variants/output/BRCA/ex*")
+        ]
+    print("... data has been loaded ...")
 
     out_acc = dict(chain(*map(dict.items, [x['Acc'] for x in out_list])))
     out_stat = dict(chain(*map(dict.items, [x['Stat'] for x in out_list])))
@@ -23,7 +29,7 @@ def main(argv):
     out_coef = dict(chain(*map(dict.items, [x['Coef'] for x in out_list])))
 
     mutex_dict = pickle.load(open(
-        'HetMan/experiments/mutex-variants/tmp/mutex_dict.p',
+        'HetMan/experiments/mutex-variants/output/BRCA/mutex_dict.p',
         'rb'
         ))
 
@@ -39,7 +45,9 @@ def main(argv):
     for mtype1, mtype2 in out_acc.keys():
         acc = min(out_acc[(mtype1, mtype2)])
 
-        if acc > 0.6:
+        if acc > 0.70:
+            print('{}  +  {}'.format(mtype1, mtype2))
+
             sim1 = ((out_stat[(mtype1, mtype2)][0][1]
                      - out_stat[(mtype1, mtype2)][0][0])
                     / (out_stat[(mtype1, mtype2)][0][2]
@@ -56,9 +64,10 @@ def main(argv):
             #plt.annotate(str(mtype1) + str(mtype2), plt_x + 0.02, plt_y + 0.02)
 
     plt.scatter(plt_x, plt_y,
-                alpha=0.5, s=100, c=plt_col, cmap=cmap, vmin=-0.5,
+                alpha=0.5, s=40, c=plt_col, cmap=cmap, vmin=-0.5,
                 vmax=0.5)
-    plt.savefig('~/test.png', dpi=600, bbox_inches='tight')
+    plt.xlim([-2.0,2.0])
+    plt.savefig('test.png', dpi=2000, bbox_inches='tight')
 
 
 if __name__ == '__main__':

@@ -18,7 +18,7 @@ then
 	export cohort="BRCA"
 fi
 
-TEMPDIR=HetMan/experiments/mutex-variants/output/$cohort
+TEMPDIR=HetMan/experiments/mutex-variants/output_new/$cohort
 echo $TEMPDIR
 rm -rf $TEMPDIR
 mkdir -p $TEMPDIR/slurm
