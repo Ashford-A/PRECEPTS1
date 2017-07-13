@@ -14,7 +14,7 @@
 #SBATCH --verbose
 
 cd ~/compbio/bergamot
-TEMPDIR=HetMan/experiments/mutex-variants/output_new/$cohort
+TEMPDIR=HetMan/experiments/mutex-variants/output/$cohort
 export OMP_NUM_THREADS=1
 echo $cohort
 

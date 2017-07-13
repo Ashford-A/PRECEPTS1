@@ -8,7 +8,7 @@ from HetMan.features.cohorts import VariantCohort
 
 import numpy as np
 import synapseclient
-import dill as pickle
+import pickle
 from itertools import combinations as combn
 
 
@@ -16,7 +16,7 @@ def main(argv):
     """Runs the experiment."""
 
     print(argv)
-    out_path = os.path.join(os.path.dirname(__file__), 'output_new', argv[0])
+    out_path = os.path.join(os.path.dirname(__file__), 'output', argv[0])
     coh_lbl = 'TCGA-{}'.format(argv[0])
 
     syn = synapseclient.Synapse()
@@ -42,7 +42,6 @@ def main(argv):
 
     mutex_cutoff = 1 / 3.0
     mutex_dict = {}
-    stat_dict = {}
 
     for mtype1, mtype2 in combn(sub_mtypes, 2):
         stat1 = cdata.test_pheno(mtype1)
@@ -53,11 +52,9 @@ def main(argv):
                                             
             if mutex_val < mutex_cutoff:
                 mutex_dict[(mtype1, mtype2)] = cdata.mutex_test(mtype1, mtype2)
-                stat_dict[(mtype1, mtype2)] = [stat1, stat2]
 
     print(len(mutex_dict))
-    pickle.dump(mutex_dict, open(out_path + '/mutex_dict.p', 'wb'))
-    pickle.dump(stat_dict, open(out_path + '/stat_dict.p', 'wb'))
+    pickle.dump(list(mutex_dict.items()), open(out_path + '/mutex_dict.p', 'wb'))
 
 
 if __name__ == "__main__":

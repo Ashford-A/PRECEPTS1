@@ -3,11 +3,11 @@ import sys, os
 sys.path.extend(['/home/exacloud/lustre1/CompBio/mgrzad/bergamot/'])
 
 import numpy as np
-import dill as pickle
+import pickle
 from functools import reduce
 
 from HetMan.features.cohorts import VariantCohort
-from HetMan.predict.classifiers import SVCrbf
+from HetMan.predict.classifiers import Lasso
 from sklearn.metrics.pairwise import cosine_similarity
 import synapseclient
 
@@ -16,16 +16,14 @@ def main(argv):
     """Runs the experiment."""
 
     print(argv)
-    out_path = os.path.join(os.path.dirname(__file__), 'output_new', argv[0])
+    out_path = os.path.join(os.path.dirname(__file__), 'output', argv[0])
     coh_lbl = 'TCGA-{}'.format(argv[0])
-
     mutex_dict = pickle.load(open(out_path + '/mutex_dict.p', 'rb'))
-    stat_dict = pickle.load(open(out_path + '/stat_dict.p', 'rb'))
 
     common_genes = reduce(lambda x,y: x | y,
                           [set([[k for k,v in mtype1][0]])
                            | set([[k for k,v in mtype2][0]])
-                           for mtype1, mtype2 in mutex_dict])
+                           for (mtype1, mtype2), _ in mutex_dict])
 
     print('loading mutations for {} genes...'.format(len(common_genes)))
     syn = synapseclient.Synapse()
@@ -35,24 +33,28 @@ def main(argv):
                           cv_seed=99)
     print('TCGA-Z7-A8R6-01A' in cdata.test_samps)
 
-    out_acc = {mtypes: [0,0] for mtypes in mutex_dict}
-    out_stat = {mtypes: [[0,0,0,0], [0,0,0,0]] for mtypes in mutex_dict}
-    out_dist = {mtypes: 0 for mtypes in mutex_dict}
-    out_coef = {mtypes: [None, None] for mtypes in mutex_dict}
+    out_acc = {mtypes: [0,0] for mtypes, _ in mutex_dict}
+    out_stat = {mtypes: [[0,0,0,0], [0,0,0,0]] for mtypes, _ in mutex_dict}
+    out_dist = {mtypes: 0 for mtypes, _ in mutex_dict}
+    out_coef = {mtypes: [None, None] for mtypes, _ in mutex_dict}
 
-    for i, ((mtype1, mtype2), mutex) in enumerate(mutex_dict.items()):
+    for i, ((mtype1, mtype2), mutex) in enumerate(mutex_dict):
         if i % 50 == (int(argv[-1]) - 1):
-
             print('{}  +  {}'.format(mtype1, mtype2))
+
             gn1 = [k for k,v in mtype1][0]
             gn2 = [k for k,v in mtype2][0]
-
             ex_samps1 = mtype2.get_samples(cdata.train_mut)
             ex_samps2 = mtype1.get_samples(cdata.train_mut)
-            stat1 = stat_dict[(mtype1, mtype2)][0]
-            stat2 = stat_dict[(mtype1, mtype2)][1]
 
-            clf1 = SVCrbf()
+            stat1 = cdata.test_pheno(mtype1)
+            stat2 = cdata.test_pheno(mtype2)
+            print('{} --- {} --- {}'.format(
+                np.sum(stat1 & ~stat2), np.sum(~stat1 & stat2),
+                np.sum(stat1 & stat2)
+                ))
+
+            clf1 = Lasso()
             clf1.tune_coh(cdata, mtype1, tune_splits=2, test_count=16,
                           exclude_genes=[gn1, gn2], exclude_samps=ex_samps1)
             clf1.fit_coh(cdata, mtype1,
@@ -72,7 +74,7 @@ def main(argv):
             out_stat[(mtype1, mtype2)][0][2] = np.mean(test1[stat1 & ~stat2])
             out_stat[(mtype1, mtype2)][0][3] = np.mean(test1[stat1 & stat2])
 
-            clf2 = SVCrbf()
+            clf2 = Lasso()
             clf2.tune_coh(cdata, mtype2, tune_splits=2, test_count=16,
                           exclude_genes=[gn1, gn2], exclude_samps=ex_samps2)
             clf2.fit_coh(cdata, mtype2,
