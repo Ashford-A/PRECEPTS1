@@ -20,10 +20,13 @@ class ElasticNet(DrugPipe):
         ('fit__l1_ratio', (0.05, 0.25, 0.5, 0.75, 0.95))
         )
 
+    # TODO: consider how to do feature selection for drug pipelines
+    # i.e. for variantpipe there is a pathway feature selection method
+    # based on the neighborhoods of the genes with alterations
     def __init__(self):
         norm_step = StandardScaler()
         fit_step = ENet(normalize=False, max_iter=5000)
-        DrugPipe.__init__(self, [('norm', norm_step), ('fit', fit_step)])
+        super().__init__([('norm', norm_step), ('fit', fit_step)])
 
 
 class SVRrbf(DrugPipe):
@@ -39,7 +42,7 @@ class SVRrbf(DrugPipe):
     def __init__(self):
         norm_step = StandardScaler()
         fit_step = SVR(kernel='rbf', cache_size=500)
-        DrugPipe.__init__(self, [('norm', norm_step), ('fit', fit_step)])
+        super().__init__([('norm', norm_step), ('fit', fit_step)])
 
 
 class rForest(DrugPipe):
@@ -55,4 +58,5 @@ class rForest(DrugPipe):
     def __init__(self):
         norm_step = StandardScaler()
         fit_step = RandomForestRegressor(n_estimators=1000)
-        DrugPipe.__init__(self, [('norm', norm_step), ('fit', fit_step)])
+        super().__init__([('norm', norm_step), ('fit', fit_step)])
+

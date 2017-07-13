@@ -51,15 +51,25 @@ class OmicCohort(object):
 
     def __init__(self, omic_mat, train_samps, test_samps, cohort, cv_seed):
 
-        if set(train_samps) & set(test_samps):
+        if test_samps is not None and set(train_samps) & set(test_samps):
             raise ValueError("Training sample set and testing sample set must"
                              "be disjoint!")
 
-        self.samples = set(train_samps) | set(test_samps)
-        self.train_samps = frozenset(train_samps)
-        self.test_samps = frozenset(test_samps)
+        # when we have a training cohort and a testing cohort
+        if test_samps is not None:
+            self.samples = set(train_samps) | set(test_samps)
+            self.train_samps = frozenset(train_samps)
+            self.test_samps = frozenset(test_samps)
 
-        self.omic_mat = omic_mat.loc[self.samples, :]
+        # when we don't have a testing cohort, use entire the entire
+        # dataset as the training cohort
+        else:
+            self.samples = train_samps.copy()
+            self.train_samps = frozenset(train_samps)
+
+        # remove duplicate features from the dataset and get
+        # list of genomic features
+        self.omic_mat = omic_mat.loc[self.samples, ~omic_mat.columns.duplicated()]
         self.genes = frozenset(self.omic_mat.columns)
 
         self.cohort = cohort
@@ -163,7 +173,7 @@ class ValueCohort(OmicCohort):
 
 
 class VariantCohort(LabelCohort):
-    """An expression dataset used to predict genes' variant mutations.
+    """An expression dataset used to predict genes' mutations (variants).
 
     Args:
         syn (synapseclient.Synapse): A logged-into Synapse instance.
@@ -476,7 +486,7 @@ class DrugCohort(ValueCohort):
 
         else:
             train_samps = use_samples
-            test_samps = None
+            test_samps = set()
 
         super().__init__(cell_expr, train_samps, test_samps, cohort, cv_seed)
 
