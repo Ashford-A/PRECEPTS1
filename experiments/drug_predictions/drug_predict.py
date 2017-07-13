@@ -31,8 +31,8 @@ patient_files = {
                   "results/rsem/rsemOut.genes.results"),
     }
 
-patient_cohs = {'SMRT_02299': "TCGA-PAAD",
-                'PTTB_4409': "TCGA-PRAD"}
+patient_cohs = {'SMRT_02299': "TCGA-PRAD",
+                'PTTB_4409': "TCGA-PAAD"}
 tcga_backcohs = {'TCGA-BRCA', 'TCGA-OV', 'TCGA-GBM', 'TCGA-SKCM'}
 
 
