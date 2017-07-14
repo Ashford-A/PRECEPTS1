@@ -1,18 +1,16 @@
 
 """
-Continuation of drug prediction pipeline. Assesses quality of classifier
-performance.
-
-1. Plots performance of drug classifiers
-2. Proceeds with high quality classifiers (determined by R^2 val)
-3.
-
+Continuation of drug prediction pipeline. Generates histograms of classifier
+performance. Will allow user to specify performance cut_off for each classifier
+(this feature is currently hardcoded). Generates boxplots of these well-behaved
+classifiers.
 
 example bash command:
-    python HetMan/experiments/drug_prdictions/quality_assessment.py -f \
-    mat_SMRT_02299_ElasticNet__run55.p \
-    mat_SMRT_02299_rForest__run55.p \
-    mat_SMRT_02299_SVRrbf__run55.p
+    python HetMan/experiments/drug_predictions/quality_assessment.py -f \
+    mat_SMRT_1234_ElasticNet__run55.p \
+    mat_SMRT_1234_rForest__run55.p \
+    mat_SMRT_1234_SVRrbf__run55.p \
+    -p SMRT_1234
 """
 
 import pickle
@@ -24,6 +22,7 @@ import argparse
 
 basedir = '/Users/manningh/PycharmProjects/bergamot/' \
               'HetMan/experiments/drug_predictions/'
+
 
 def generate_performance_hists(output_of_1_run, clf_type):
     # (performance is given in R^2
@@ -41,7 +40,7 @@ def generate_performance_hists(output_of_1_run, clf_type):
     plt.ylabel('Number of Classifiers')
     plt.xlabel('Classifier Performance')
     plt.title(clf_type + 'with bin-size of ' + str(binsize))
-    plt.savefig(basedir + 'output/' + clf_type + '/performance_hist.png')
+    plt.savefig(basedir + 'plots/' + prefix + clf_type + 'performance_hist.png')
     plt.close()
 
 def choose_cutoff(clf_type):
@@ -56,7 +55,7 @@ def choose_cutoff(clf_type):
     Returns:
         min_clf_perf (float): minimum classifier performance (R^2)
     """
-    print("Performance histogram is saved at " + clf_type + "/performance_hist.png")
+    print('Performance histogram is saved at ' + clf_type + '/' + prefix + '/performance_hist.png')
     min_clf_perf = float(input("Please specify the minimum classifier performance \n"
                          "allowed (i.e. 0.20) >>>"))
     return min_clf_perf
@@ -126,7 +125,7 @@ def generate_drug_mut_assoc_boxplots(auc_df, anova_df, clf_type):
     ax = fig.add_subplot(111)
     ax.grid(False)
     axes = plt.gca()
-    plt.title(clf_type + "classifier performance")
+    plt.title(clf_type + "classifier behavior")
     plt.ylabel("AUC")
     plt.xlabel("Drug Classifier")
     colcount = 0
@@ -156,7 +155,7 @@ def generate_drug_mut_assoc_boxplots(auc_df, anova_df, clf_type):
     # plt.show(block=False)
     # plt.waitforbuttonpress(0)
     # print("Press any button to close the plots and proceed.")
-    plt.savefig(basedir + 'output/' + clf_type + '/clf_perf_boxplots.png')
+    plt.savefig(basedir + 'plots/' + prefix + clf_type + 'behavior_boxplots.png')
     plt.close(fig)
 
 def generate_response_boxplot(tcga_response, patient_response):
@@ -207,9 +206,9 @@ def main():
     parser.add_argument('-p', '--prefix')
     args = parser.parse_args()
 
+    prefix = args.prefix
     clf_output_files = args.files
 
-    # TODO: if any of these not provided: pass
     # TODO: if none provided, throw error
     elast_data = None
     rfor_data = None
