@@ -11,6 +11,10 @@ example bash command:
     mat_SMRT_1234_rForest__run55.p \
     mat_SMRT_1234_SVRrbf__run55.p \
     -p SMRT_1234
+
+-f = input files
+-p = a prefix for plot file names
+
 """
 
 import pickle
@@ -24,7 +28,7 @@ basedir = '/Users/manningh/PycharmProjects/bergamot/' \
               'HetMan/experiments/drug_predictions/'
 
 
-def generate_performance_hists(output_of_1_run, clf_type):
+def generate_performance_hists(output_of_1_run, clf_type, prefix):
     # (performance is given in R^2
 
     perf = output_of_1_run['Performance']
@@ -91,7 +95,7 @@ def get_min_and_max_aucs(auc_df):
 def calc_pearson_correlation(auc_df, anova_df):
     pass
 
-def generate_drug_mut_assoc_boxplots(auc_df, anova_df, clf_type):
+def generate_drug_mut_assoc_boxplots(auc_df, anova_df, clf_type, prefix):
     """
     Generates a figure with 1 boxplot per high-quality classifier.
     Data points for each boxplot are drug-mutation associations from auc_df.
@@ -162,10 +166,10 @@ def generate_response_boxplot(tcga_response, patient_response):
     pass
 
 
-def pre_main(clf_data, iorio_assoc):
+def pre_main(clf_data, iorio_assoc, prefix):
     clf_method = clf_data['clf_method']
 
-    generate_performance_hists(clf_data, clf_method)
+    generate_performance_hists(clf_data, clf_method, prefix)
 
     # decide R^2 cutoff
     min_clf_perf = 0.20  # choose_cutoff(clf_type)
@@ -190,7 +194,7 @@ def pre_main(clf_data, iorio_assoc):
     our_assoc = our_assoc[shared_drugs].loc[shared_muts]
 
     # generate boxplots of high performance classifiers
-    generate_drug_mut_assoc_boxplots(our_assoc, iorio_assoc, clf_method)
+    generate_drug_mut_assoc_boxplots(our_assoc, iorio_assoc, clf_method, prefix)
 
     # TODO: generate boxplots of low performance classifiers
 
@@ -236,11 +240,11 @@ def main():
     iorio_assoc = iorio_assoc.pivot(index='FEAT', columns='DRUG', values='PANCAN')
 
     if elast_data is not None:
-        pre_main(elast_data, iorio_assoc)
+        pre_main(elast_data, iorio_assoc, prefix)
     if rfor_data is not None:
-        pre_main(rfor_data, iorio_assoc)
+        pre_main(rfor_data, iorio_assoc, prefix)
     if svr_data is not None:
-        pre_main(svr_data, iorio_assoc)
+        pre_main(svr_data, iorio_assoc, prefix)
 
 if __name__ == "__main__":
     main()
