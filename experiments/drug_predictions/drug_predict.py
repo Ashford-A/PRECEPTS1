@@ -20,19 +20,31 @@ from sklearn.metrics import roc_auc_score
 import synapseclient
 
 
-base_dir = ('/home/users/grzadkow/compbio/scripts/HetMan/'
-            'experiments/drug_predictions')
+input_dir = ('/home/users/grzadkow/compbio/scripts/HetMan/'
+             'experiments/drug_predictions')
+
+patient_basedir = "/home/exacloud/lustre1/"
+patient_files = {
+    'SMRT_02299': (patient_basedir + "SMMARTData/Patients/DNA-16-02299/"
+                 "results/rsem/rsemOut.genes.results"),
+    'PTTB_4409': (patient_basedir + "PTTB/Patients/OPTR4409/OPTR4409T_RNA/"
+                  "results/rsem/rsemOut.genes.results"),
+    }
+
+patient_cohs = {'SMRT_02299': "TCGA-PRAD",
+                'PTTB_4409': "TCGA-PAAD"}
+tcga_backcohs = {'TCGA-BRCA', 'TCGA-OV', 'TCGA-GBM', 'TCGA-SKCM'}
 
 
 def main(argv):
     """Runs the experiment."""
     syn = synapseclient.Synapse()
-    syn.login('grzadkow', 'W0w6g1i8A')
+    syn.login()
 
     # load drug-mutation association data,
     # filter for pan-cancer associations
-    drug_mut_assoc = pd.read_csv(base_dir + '/input/drug_data.txt',
-                            sep='\t', comment='#')
+    drug_mut_assoc = pd.read_csv(input_dir + '/input/drug_data.txt',
+                                 sep='\t', comment='#')
     drug_mut_assoc = drug_mut_assoc.ix[drug_mut_assoc['PANCAN'] != 0, :]
 
     # categorize associations by mutation type
@@ -52,17 +64,25 @@ def main(argv):
     # (cv_prop = cross validation proportion)(train on all here)
     # cross val seed is provided as last arg in an HTCondor submit script, and
     # cohort name is the first (should match cohort names as they appear in BMEG)
-    tcga_var_coh = VariantCohort(syn, cohort=argv[0], mut_genes=pnt_genes,
-                   mut_levels=['Gene', 'Form', 'Protein'],
-                   cv_seed=int(argv[-1])+1, cv_prop=0.95)
+    tcga_var_coh = VariantCohort(
+        syn, cohort=patient_cohs[argv[0]],
+        mut_genes=pnt_genes, mut_levels=['Gene', 'Type'],
+        cv_seed=int(argv[-1])+1, cv_prop=1
+        )
+
+    tcga_back_cohs = {
+        coh: VariantCohort(syn, cohort=coh, mut_genes=pnt_genes,
+                           mut_levels=['Gene', 'Type'],
+                           cv_seed=int(argv[-1])+1, cv_prop=1)
+        for coh in tcga_backcohs
+        }
 
     # TODO: recall why frameshifts aren't considered below
     # get list of point mutation types and drugs associated with at least one
-    pnt_mtypes = [
-        MuType({('Gene', gn):
-                {('Form', ('Nonsense_Mutation', 'Missense_Mutation')): None}}
-              ) for gn in pnt_genes]
-    pnt_muts = {(gn + '_mut'):mtype for gn,mtype
+    pnt_mtypes = [MuType({('Gene', gn): {
+                            ('Type', ('Frame', 'Point')): None}})
+                  for gn in pnt_genes]
+    pnt_muts = {(gn + '_mut'): mtype for gn, mtype
                 in zip(pnt_genes, pnt_mtypes)
                 # TODO: the get_samples argument should be a MuTree...right?
                 if len(mtype.get_samples(tcga_var_coh.train_mut)) >= 3}
@@ -74,6 +94,7 @@ def main(argv):
     # ... stores predicted drug responses for cell lines and tcga samples
     ccle_response = {}
     tcga_response = {}
+    back_tcga_resp = {coh: {} for coh in tcga_backcohs}
 
     # ... stores predicted drug response for organoid sample
     patient_response = pd.Series(float('nan'), index=pnt_drugs)
@@ -91,10 +112,7 @@ def main(argv):
                             index=pnt_drugs, columns=pnt_muts.keys())
 
     # loads patient (or patient-derived model (PDM)) RNAseq data
-    patient_expr = pd.read_csv(
-        "/home/exacloud/lustre1/PTTB/Patients/OPTR4409/OPTR4409T_RNA/"
-        "results/rsem/rsemOut.genes.results",
-        header=0, sep='\t')
+    patient_expr = pd.read_csv(patient_files[argv[0]], header=0, sep='\t')
 
     # get rid of the unnecessary info in gene_id, get Hugo symbols
     patient_expr['gene_id'] = [i.split('^')[1] for i in patient_expr['gene_id']]
@@ -122,15 +140,14 @@ def main(argv):
         drug_lbl = cell_line_drug_coh.train_resp.columns[0]
         print("Testing drug {} with alias {} ...".format(drug, drug_lbl))
 
-        # TODO: check on unexpected args
-        # loads cell line drug response and array expression data
-
-
         # TODO: 'Symbol' --> gene_id
         # get the union of genes in all 3 datasets (tcga, ccle, patient/PDM RNAseq
-        use_genes = (set(tcga_var_coh.genes)
-                     & set(cell_line_drug_coh.genes)
-                     & set(patient_expr.index))
+        use_genes = (
+            set(tcga_var_coh.genes) & set(cell_line_drug_coh.genes)
+            & set(patient_expr.index)
+            & reduce(lambda x, y: x & y,
+                     [coh.genes for coh in tcga_back_cohs.values()])
+            )
 
         # filter patient (or PDM) RNAseq data to include only use_genes
         patient_expr_filt = patient_expr.loc[use_genes, :]
@@ -156,22 +173,21 @@ def main(argv):
             drug_clf.predict_train(tcga_var_coh,
                                    include_genes=use_genes)
             )
-        patient_response[drug] = drug_clf.predict(patient_expr_filt.transpose())[0]
 
+        for coh in tcga_backcohs:
+            print('{}: {}'.format(coh, len(tcga_back_cohs[coh].genes & use_genes)))
+            back_tcga_resp[coh][drug] = pd.Series(
+                drug_clf.predict_train(tcga_back_cohs[coh],
+                                       include_genes=use_genes)
+                )
+
+        patient_response[drug] = drug_clf.predict(patient_expr_filt.transpose())[0]
 
         for gn, mtype in pnt_muts.items():
             print("Gene: {}, Drug: {}".format(gn, drug))
             # for each mutated gene, get the vector of mutation status
             # for the TCGA samples
-            mut_stat = np.array(
-                # TODO: make sure the following is doing what it's supposed to do...
-                # MG: unless I fucked up the Independence Day Refactoring it should work
-                tcga_var_coh.train_pheno(mtype=mtype)
-                # was:
-                # cdata.train_mut_.status(cdata.train_expr_.index,
-                #                       mtype=mtype)
-                )
-
+            mut_stat = np.array(tcga_var_coh.train_pheno(mtype=mtype))
 
             # gets the classifier's predictions of drug response for the
             # TCGA cohort, and evaluate its concordance with mutation status
@@ -185,7 +201,9 @@ def main(argv):
 
     # save everything to file
     out_data = {'Performance': clf_perf, 'CCLE_Response': ccle_response,
-                'TCGA_Response': tcga_response, 'Patient_Response': patient_response,
+                'TCGA_Response': tcga_response,
+                'back_TCGA_Response': back_tcga_resp,
+                'Patient_Response': patient_response,
                 'TCGA_ttest': tcga_ttest, 'TCGA_AUC': tcga_auc}
     out_file = ('/home/users/grzadkow/compbio/bergamot/HetMan/experiments/'
                 'drug_predictions/output/mat_' + argv[0] + '_' + argv[1]
@@ -195,5 +213,4 @@ def main(argv):
 
 if __name__ == "__main__":
         main(sys.argv[1:])
-
 
