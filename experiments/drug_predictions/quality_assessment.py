@@ -201,9 +201,10 @@ def pre_main(clf_data, iorio_assoc):
 def main():
 
     # take user-specified names of files (located in basedir + output/)
-    # python quality_assessment.py -f 123_ElasticNetrbf__run55.p 123_SVRrbf__run55.p
     parser = argparse.ArgumentParser()
     parser.add_argument('-f', '--files', nargs='+')
+    # prefix could be patient number
+    parser.add_argument('-p', '--prefix')
     args = parser.parse_args()
 
     clf_output_files = args.files
