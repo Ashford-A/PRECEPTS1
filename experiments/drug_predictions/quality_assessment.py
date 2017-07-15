@@ -17,12 +17,16 @@ example bash command:
 
 """
 
+import sys
+sys.path += ['/Users/manningh/PycharmProjects/bergamot']
+
 import pickle
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
 import itertools
 import argparse
+from HetMan.features.drugs import *
 
 basedir = '/Users/manningh/PycharmProjects/bergamot/' \
               'HetMan/experiments/drug_predictions/'
@@ -44,7 +48,7 @@ def generate_performance_hists(output_of_1_run, clf_type, prefix):
     plt.ylabel('Number of Classifiers')
     plt.xlabel('Classifier Performance')
     plt.title(clf_type + 'with bin-size of ' + str(binsize))
-    plt.savefig(basedir + 'plots/' + prefix + clf_type + 'performance_hist.png')
+    plt.savefig(basedir + 'plots/' + prefix + '_' + clf_type + '_performance_hist.png')
     plt.close()
 
 def choose_cutoff(clf_type):
@@ -59,7 +63,7 @@ def choose_cutoff(clf_type):
     Returns:
         min_clf_perf (float): minimum classifier performance (R^2)
     """
-    print('Performance histogram is saved at ' + clf_type + '/' + prefix + '/performance_hist.png')
+    print('Performance histogram is saved at plots/' + prefix + '_' + clf_type + '_performance_hist.png')
     min_clf_perf = float(input("Please specify the minimum classifier performance \n"
                          "allowed (i.e. 0.20) >>>"))
     return min_clf_perf
@@ -95,7 +99,7 @@ def get_min_and_max_aucs(auc_df):
 def calc_pearson_correlation(auc_df, anova_df):
     pass
 
-def generate_drug_mut_assoc_boxplots(auc_df, anova_df, clf_type, prefix):
+def generate_drug_mut_assoc_bp(auc_df, anova_df, clf_type, prefix):
     """
     Generates a figure with 1 boxplot per high-quality classifier.
     Data points for each boxplot are drug-mutation associations from auc_df.
@@ -111,7 +115,6 @@ def generate_drug_mut_assoc_boxplots(auc_df, anova_df, clf_type, prefix):
     # get the sign ("direction") of the ANOVA score in iorio_assoc
     # this will be used to determine the color of datapoints in boxplots
     assoc_directions = {drug: {'pos_anova': [], 'neg_anova': []} for drug in anova_df.columns}
-
     for drug in anova_df.columns:
         row_indexer = 0
         for anova_score in anova_df[drug]:
@@ -135,23 +138,28 @@ def generate_drug_mut_assoc_boxplots(auc_df, anova_df, clf_type, prefix):
     colcount = 0
     for drug in auc_df.columns:
         colcount += 1
+
         # lists muts
         pos_anova_muts = assoc_directions[drug]['pos_anova']  # color these blue
         neg_anova_muts = assoc_directions[drug]['neg_anova']  # color these red
         zero_anova_muts = auc_df[drug].index.drop(pos_anova_muts).drop(neg_anova_muts)
+
         # get the drug column (type is pd.Series)
         aucs = auc_df[drug]
+
         # generate series for different data colors (auc values)
         blue_points = aucs[pos_anova_muts]
         red_points = aucs[neg_anova_muts]
         black_points = aucs[zero_anova_muts]
         colors = itertools.cycle(["r.", "k.", "b."])
         point_size = itertools.cycle([9.0, 3.0, 9.0])
+
         for colorgroup in [red_points, black_points, blue_points]:
             # prepare to add jitter
             x = np.random.normal(colcount, 0.08, len(colorgroup))
             plt.plot(x, colorgroup, next(colors), alpha=0.6, markersize=next(point_size))
         plt.xticks(rotation='45')
+
     plt.axhline(y=0.50, c="0.75")
     axes.set_ylim([0.0, 1.0])
     axes.set_yticks(np.arange(0, 1.1, 0.1))
@@ -159,11 +167,67 @@ def generate_drug_mut_assoc_boxplots(auc_df, anova_df, clf_type, prefix):
     # plt.show(block=False)
     # plt.waitforbuttonpress(0)
     # print("Press any button to close the plots and proceed.")
-    plt.savefig(basedir + 'plots/' + prefix + clf_type + 'behavior_boxplots.png')
+    plt.savefig(basedir + 'plots/' + prefix + '_' + clf_type + '_behavior_boxplots.png')
     plt.close(fig)
 
-def generate_response_boxplot(tcga_response, patient_response):
-    pass
+def generate_ccle_resp_bp(pred_ccle_resp, patient_resp, clf_type, prefix):
+    """
+    Generates boxplots of (1) predicted and (2) actual cell line responses
+    to each drug. Draws a line representative of the predicted patient/sample
+    response for comparison.
+
+    pred_ccle_resp (dict):
+        key (str): drug name (only those for well behaved classifiers)
+        value (pd.Series): vector of cell line predicted responses to drug-key
+
+    patient_resp (pd.Series):
+        key (str): drug name
+        value (float): predicted patient response to drug-key
+
+    clf_type (str):
+        i.e. 'ElasticNet', 'rForest', or 'SVRrbf'
+
+    prefix (str):
+        user-specified prefix for output plot file names
+
+    """
+
+    # load CCLE response data relevant to the well-behaving drug classifiers
+    actual_ccle_resp = get_drug_ioria(pred_ccle_resp.keys())
+
+    # for each drug make a separate boxplot
+    for drug in pred_ccle_resp.keys():
+
+        # TODO: make a line for patient response
+
+        # make a little pandas dataframe
+        # TODO: refactor this. i rushed and i'm sure there's a better way.
+        single_drug_df = pd.DataFrame({'Measured': actual_ccle_resp[drug].values})
+        single_drug_df['Predicted'] = pd.Series(pred_ccle_resp[drug].values)
+
+        fig = plt.figure(figsize=(8, 8))
+        bp = single_drug_df.boxplot(showfliers=False, vert=False)
+        ax = fig.add_subplot(111)
+        ax.grid(False)
+        axes = plt.gca()
+        plt.title(drug + " responses: actual and predicted by the " + clf_type + " classifier")
+        plt.xlabel("AUC")
+
+        # add the points with jitter
+        colcount = 0
+        for colname in single_drug_df:
+            colcount += 1
+            y = np.random.normal(colcount, 0.08, single_drug_df.shape[0])
+            plt.plot(single_drug_df[colname], y, "c.", alpha=0.2)
+
+        plt.axvline(x=0.50, c="0.75")
+        axes.set_xlim([0.0, 1.1])
+        axes.set_xticks(np.arange(0, 1.1, 0.1))
+        plt.tight_layout()
+
+        plt.savefig(basedir +
+                    'plots/' + prefix + '_' + clf_type + '_' + drug + '_ccle_response_bp.png')
+        plt.close(fig)
 
 
 def pre_main(clf_data, iorio_assoc, prefix):
@@ -174,9 +238,17 @@ def pre_main(clf_data, iorio_assoc, prefix):
     # decide R^2 cutoff
     min_clf_perf = 0.20  # choose_cutoff(clf_type)
 
-    # remove poorly behaving drug classifiers from data
+    # get list of drugs whose classifiers behave well
     hi_qual_perf = clf_data['Performance'][clf_data['Performance'] > min_clf_perf]
+
+    # remove poorly behaved classifiers from tcga auc data
     hi_qual_tcga_auc = clf_data['TCGA_AUC'].loc[hi_qual_perf.index]
+
+    # remove poorly behaved classifiers from ccle predicted response data
+    hi_qual_ccle_resp = {drug: clf_data['CCLE_Response'][drug] for drug in hi_qual_perf.index}
+
+    # remove poorly behaved classifiers from patient response data
+    hi_qual_patient_resp = clf_data['Patient_Response'].loc[hi_qual_perf.index]
 
     # consider sanity check: generate_mean_AUC_hists(hi_qual_tcga_auc)
 
@@ -194,10 +266,13 @@ def pre_main(clf_data, iorio_assoc, prefix):
     our_assoc = our_assoc[shared_drugs].loc[shared_muts]
 
     # generate boxplots of high performance classifiers
-    generate_drug_mut_assoc_boxplots(our_assoc, iorio_assoc, clf_method, prefix)
+    generate_drug_mut_assoc_bp(our_assoc, iorio_assoc, clf_method, prefix)
 
     # TODO: generate boxplots of low performance classifiers
 
+    # TODO: get the actual patient response
+    # TODO: generate boxplots of ccle predicted and actual response
+    generate_ccle_resp_bp(hi_qual_ccle_resp, hi_qual_patient_resp, clf_method, prefix)
     # just in case/couldn't hurt:
     plt.close("all")
 
@@ -221,13 +296,13 @@ def main():
     for filename in clf_output_files:
         if 'ElasticNet' in filename:
             elast_data = pickle.load(open(basedir + 'output/' + filename, 'rb'))
-            elast_data['clf_method'] = "elast"
+            elast_data['clf_method'] = "ElasticNet"
         if 'rForest' in filename:
             rfor_data = pickle.load(open(basedir + 'output/' + filename, 'rb'))
-            rfor_data['clf_method'] = "rfor"
+            rfor_data['clf_method'] = "rForest"
         if 'SVRrbf' in filename:
             svr_data = pickle.load(open(basedir + 'output/' + filename, 'rb'))
-            svr_data['clf_method'] = "svr"
+            svr_data['clf_method'] = "SVRrbf"
 
     # read in Iorio et al's drug-mutation associations (AUC)
     iorio_assoc = pd.read_csv(basedir + "input/drug_data.txt",
