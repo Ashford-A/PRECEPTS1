@@ -1,7 +1,9 @@
 
 import sys
-import pickle
 sys.path += ['/home/users/grzadkow/compbio/bergamot']
+
+import os
+base_dir = os.path.dirname(os.path.realpath(__file__))
 
 from HetMan.features.annot import get_gencode
 from HetMan.features.cohorts import *
@@ -18,10 +20,9 @@ from scipy.stats import ttest_ind
 from sklearn.metrics import roc_auc_score
 
 import synapseclient
+import cProfile, pstats, io
+import pickle
 
-
-input_dir = ('/home/users/grzadkow/compbio/scripts/HetMan/'
-             'experiments/drug_predictions')
 
 patient_basedir = "/home/exacloud/lustre1/"
 patient_files = {
@@ -29,10 +30,13 @@ patient_files = {
                  "results/rsem/rsemOut.genes.results"),
     'PTTB_4409': (patient_basedir + "PTTB/Patients/OPTR4409/OPTR4409T_RNA/"
                   "results/rsem/rsemOut.genes.results"),
+    'PTTB_4315': (patient_basedir + "PTTB/Patients/OPTR4315/4315-T-ORG-RNA/"
+                  "results/rsem/rsemOut.genes.results"),
     }
 
 patient_cohs = {'SMRT_02299': "TCGA-PRAD",
-                'PTTB_4409': "TCGA-PAAD"}
+                'PTTB_4409': "TCGA-PAAD",
+                'PTTB_4315': "TCGA-PAAD"}
 tcga_backcohs = {'TCGA-BRCA', 'TCGA-OV', 'TCGA-GBM', 'TCGA-SKCM'}
 
 
@@ -43,8 +47,10 @@ def main(argv):
 
     # load drug-mutation association data,
     # filter for pan-cancer associations
-    drug_mut_assoc = pd.read_csv(input_dir + '/input/drug_data.txt',
-                                 sep='\t', comment='#')
+    drug_mut_assoc = pd.read_csv(
+        base_dir + '/../../data/drugs/ioria/drug_anova.txt.gz',
+        sep='\t', comment='#'
+        )
     drug_mut_assoc = drug_mut_assoc.ix[drug_mut_assoc['PANCAN'] != 0, :]
 
     # categorize associations by mutation type
@@ -89,6 +95,7 @@ def main(argv):
     pnt_drugs = list(set(
         drug_mut_assoc['DRUG'][pnt_indx][drug_mut_assoc['FEAT'][pnt_indx].
                                     isin(pnt_muts.keys())]))
+    pnt_drugs.sort()
     print(len(pnt_drugs))
 
     # ... stores predicted drug responses for cell lines and tcga samples
@@ -156,10 +163,20 @@ def main(argv):
 
         # tunes and fits the classifier on the CCLE data, and evaluates its
         # performance on the held-out samples
+        pr = cProfile.Profile()
+        pr.enable()
         drug_clf.tune_coh(cell_line_drug_coh, pheno=drug_lbl,
+                          tune_splits=4, test_count=16,
                           include_genes=use_genes)
         drug_clf.fit_coh(cell_line_drug_coh, pheno=drug_lbl,
                          include_genes=use_genes)
+        pr.disable()
+        s = io.StringIO()
+        sortby = 'cumulative'
+        ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+        ps.print_stats()
+        print(s.getvalue())
+        print(drug_clf)
         clf_perf[drug] = drug_clf.eval_coh(cell_line_drug_coh, pheno=drug_lbl,
                                            include_genes=use_genes)
 
@@ -175,7 +192,6 @@ def main(argv):
             )
 
         for coh in tcga_backcohs:
-            print('{}: {}'.format(coh, len(tcga_back_cohs[coh].genes & use_genes)))
             back_tcga_resp[coh][drug] = pd.Series(
                 drug_clf.predict_train(tcga_back_cohs[coh],
                                        include_genes=use_genes)

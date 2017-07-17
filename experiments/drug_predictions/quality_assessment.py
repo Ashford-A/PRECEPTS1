@@ -17,19 +17,22 @@ example bash command:
 
 """
 
+import os
+base_dir = os.path.dirname(os.path.realpath(__file__))
+
 import sys
-sys.path += ['/Users/manningh/PycharmProjects/bergamot']
+sys.path += [base_dir + '/../../../../bergamot']
 
 import pickle
 import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.use('Agg')
+
 from matplotlib import pyplot as plt
 import itertools
 import argparse
 from HetMan.features.drugs import *
-
-basedir = '/Users/manningh/PycharmProjects/bergamot/' \
-              'HetMan/experiments/drug_predictions/'
 
 
 def generate_performance_hists(output_of_1_run, clf_type, prefix):
@@ -48,7 +51,7 @@ def generate_performance_hists(output_of_1_run, clf_type, prefix):
     plt.ylabel('Number of Classifiers')
     plt.xlabel('Classifier Performance')
     plt.title(clf_type + 'with bin-size of ' + str(binsize))
-    plt.savefig(basedir + 'plots/' + prefix + '_' + clf_type + '_performance_hist.png')
+    plt.savefig(base_dir + '/plots/' + prefix + '_' + clf_type + '_performance_hist.png')
     plt.close()
 
 def choose_cutoff(clf_type):
@@ -167,7 +170,7 @@ def generate_drug_mut_assoc_bp(auc_df, anova_df, clf_type, prefix):
     # plt.show(block=False)
     # plt.waitforbuttonpress(0)
     # print("Press any button to close the plots and proceed.")
-    plt.savefig(basedir + 'plots/' + prefix + '_' + clf_type + '_behavior_boxplots.png')
+    plt.savefig(base_dir + '/plots/' + prefix + '_' + clf_type + '_behavior_boxplots.png')
     plt.close(fig)
 
 def generate_ccle_resp_bp(pred_ccle_resp, patient_resp, clf_type, prefix):
@@ -197,7 +200,6 @@ def generate_ccle_resp_bp(pred_ccle_resp, patient_resp, clf_type, prefix):
 
     # for each drug make a separate boxplot
     for drug in pred_ccle_resp.keys():
-
         # TODO: make a line for patient response
 
         # make a little pandas dataframe
@@ -225,8 +227,11 @@ def generate_ccle_resp_bp(pred_ccle_resp, patient_resp, clf_type, prefix):
         axes.set_xticks(np.arange(0, 1.1, 0.1))
         plt.tight_layout()
 
-        plt.savefig(basedir +
-                    'plots/' + prefix + '_' + clf_type + '_' + drug + '_ccle_response_bp.png')
+        plt.savefig(
+            base_dir + '/plots/'
+            + prefix + '_' + clf_type + '_' + drug.replace('/', '__')
+            + '_ccle_response_bp.png'
+            )
         plt.close(fig)
 
 
@@ -278,7 +283,7 @@ def pre_main(clf_data, iorio_assoc, prefix):
 
 def main():
 
-    # take user-specified names of files (located in basedir + output/)
+    # take user-specified names of files (located in base_dir + output/)
     parser = argparse.ArgumentParser()
     parser.add_argument('-f', '--files', nargs='+')
     # prefix could be patient number
@@ -295,21 +300,21 @@ def main():
 
     for filename in clf_output_files:
         if 'ElasticNet' in filename:
-            elast_data = pickle.load(open(basedir + 'output/' + filename, 'rb'))
+            elast_data = pickle.load(open(base_dir + '/output/' + filename, 'rb'))
             elast_data['clf_method'] = "ElasticNet"
         if 'rForest' in filename:
-            rfor_data = pickle.load(open(basedir + 'output/' + filename, 'rb'))
+            rfor_data = pickle.load(open(base_dir + '/output/' + filename, 'rb'))
             rfor_data['clf_method'] = "rForest"
         if 'SVRrbf' in filename:
-            svr_data = pickle.load(open(basedir + 'output/' + filename, 'rb'))
+            svr_data = pickle.load(open(base_dir + '/output/' + filename, 'rb'))
             svr_data['clf_method'] = "SVRrbf"
 
     # read in Iorio et al's drug-mutation associations (AUC)
-    iorio_assoc = pd.read_csv(basedir + "input/drug_data.txt",
-                                       delimiter='\t',
-                                       comment='#',
-                                       usecols=['FEAT', 'DRUG', 'PANCAN']
-                                       )
+    iorio_assoc = pd.read_csv(
+        base_dir + "/../../data/drugs/ioria/drug_anova.txt.gz",
+        delimiter='\t', comment='#', usecols=['FEAT', 'DRUG', 'PANCAN']
+        )
+
     # keep only the point mutations in iorio association dataset
     iorio_assoc = iorio_assoc[iorio_assoc['FEAT'].str.contains('_mut')]
     iorio_assoc = iorio_assoc.pivot(index='FEAT', columns='DRUG', values='PANCAN')

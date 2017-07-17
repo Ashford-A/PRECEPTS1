@@ -133,7 +133,8 @@ class OmicPipe(Pipeline):
             grid_test = RandomizedSearchCV(
                 estimator=self, param_distributions=self.cur_tuning,
                 fit_params=self.extra_fit_params(cohort),
-                n_iter=test_count, cv=tune_cvs, n_jobs=-1, refit=False
+                n_iter=test_count, cv=tune_cvs, n_jobs=16, refit=False,
+                pre_dispatch=16
                 )
             grid_test.fit(omics, pheno_types)
 
