@@ -21,7 +21,10 @@ fi
 TEMPDIR=HetMan/experiments/mutex-variants/output/$cohort
 echo $TEMPDIR
 rm -rf $TEMPDIR
+
 mkdir -p $TEMPDIR/slurm
+mkdir -p $TEMPDIR/tmp
+mkdir -p $TEMPDIR/results
 
 srun -p=exacloud --ntasks=1 --cpus-per-task=1 --output=$TEMPDIR/slurm/setup.txt --error=$TEMPDIR/slurm/setup.err \
 	python HetMan/experiments/mutex-variants/setup.py $cohort

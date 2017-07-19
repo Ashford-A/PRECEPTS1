@@ -32,7 +32,7 @@ def main(argv):
     print(len(common_genes))
 
     cdata = VariantCohort(syn, cohort=coh_lbl, mut_genes=common_genes,
-                          mut_levels=['Gene', 'Type', 'Location'],
+                          mut_levels=['Gene', 'Form', 'Location'],
                           cv_seed=99)
 
     sub_mtypes = cdata.train_mut.subtypes(
@@ -51,10 +51,11 @@ def main(argv):
             mutex_val = cdata.mutex_test(mtype1, mtype2)
                                             
             if mutex_val < mutex_cutoff:
-                mutex_dict[(mtype1, mtype2)] = cdata.mutex_test(mtype1, mtype2)
+                mutex_dict[mtype1, mtype2] = cdata.mutex_test(mtype1, mtype2)
 
     print(len(mutex_dict))
-    pickle.dump(list(mutex_dict.items()), open(out_path + '/mutex_dict.p', 'wb'))
+    pickle.dump(list(mutex_dict.items()),
+                open(out_path + '/tmp/mutex_dict.p', 'wb'))
 
 
 if __name__ == "__main__":

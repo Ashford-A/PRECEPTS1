@@ -3,11 +3,11 @@
 #SBATCH --job-name=vm-fit
 #SBATCH --partition=exacloud
 
-#SBATCH --array=1-50
+#SBATCH --array=1-20
 #SBATCH --time=600
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16
-#SBATCH --mem-per-cpu=6000
+#SBATCH --cpus-per-task=8
+#SBATCH --mem-per-cpu=4000
 
 #SBATCH --output=/home/exacloud/lustre1/CompBio/mgrzad/tmp/ex-fit_out-%A.txt
 #SBATCH --error=/home/exacloud/lustre1/CompBio/mgrzad/tmp/ex-fit_err-%A.txt

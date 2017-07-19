@@ -5,20 +5,25 @@ base_dir = os.path.dirname(os.path.realpath(__file__))
 import sys
 sys.path.extend([os.path.join(base_dir, '../../../..')])
 
-from itertools import chain
+import numpy as np
+import pandas as pd
+from math import log10
+
 import glob
 import argparse
 import pickle
+from itertools import chain
+
+import matplotlib as mpl
+mpl.use('Agg')
+import matplotlib.cm as cm
+import seaborn as sns
 
 import matplotlib.pyplot as plt
 import matplotlib.colors as pltcol
 from pylab import rcParams
 
-import numpy as np
-from math import log10
-
-import matplotlib as mpl
-import matplotlib.cm as cm
+from HetMan.features.variants import MuType
 
 
 def load_output(cohort):
@@ -128,9 +133,70 @@ def plot_predicted_means(cohort, mutex_dict, clr_scheme='Dist'):
     plt.close()
 
 
+def plot_predictions(args, out_data, mutex_dict, mtypes):
+
+    rcParams['figure.figsize'] = 5, 5
+
+    cur_stat = out_data['Stat'][mtypes]
+
+    plt.scatter(cur_stat[0], cur_stat[1],
+                s=150, marker='x')
+
+    plt.annotate('Neither Mutation',
+                 (cur_stat[0][0], cur_stat[1][0]),
+                 (cur_stat[0][0]+0.03, cur_stat[1][0]+0.03))
+    plt.annotate('Only Other Mutation Present',
+                 (cur_stat[0][1], cur_stat[1][1]),
+                 (cur_stat[0][1]+0.03, cur_stat[1][1]+0.03))
+    plt.annotate('Only Current Mutation Present',
+                 (cur_stat[0][2], cur_stat[1][2]),
+                 (cur_stat[0][2]+0.03, cur_stat[1][2]+0.03))
+    plt.annotate('Both Mutations',
+                 (cur_stat[0][3], cur_stat[1][3]),
+                 (cur_stat[0][3]+0.03, cur_stat[1][3]+0.03))
+
+    plt.xlabel(str(mtypes[0]) + ' Predictions',
+               fontsize=15, weight=550, stretch=340)
+    plt.ylabel(str(mtypes[1]) + ' Predictions',
+               fontsize=15, weight=550, stretch=340)
+
+    plt.xticks(fontsize=12, weight=510)
+    plt.yticks(fontsize=12, weight=510)
+
+    plt.xlim(0,1)
+    plt.ylim(0,1)
+    plt.plot([0,1], linewidth=3, color = 'black', ls='--', alpha=0.5)
+
+    plt.savefig(
+        os.path.join(base_dir, 'plots',
+                     args.cohort + '_mutex-preds.png'),
+        dpi=500, bbox_inches='tight')
+
+    plt.close()
+
+def plot_coefs(args, out_data, mutex_dict, mtypes):
+
+    coef_df = pd.DataFrame(out_data['Coef'][mtypes])
+    coef_df = coef_df.loc[:, coef_df.apply(lambda x: any(x != 0))]
+    coef_df.index = [str(mtypes[0]), str(mtypes[1])]
+
+    g = sns.clustermap(data=coef_df,
+                       row_cluster=False, col_cluster=True,
+                       #metric='cosine', method='single',
+                       figsize=(30,2), center=0, robust=True,
+                       cmap=sns.color_palette("coolwarm"))
+
+    g.savefig(
+        os.path.join(base_dir, 'plots',
+                     args.cohort + '_'
+                     + str(mtypes[0]) + '-' + str(mtypes[1]),
+                     '_mutex-coefs.png'),
+        dpi=500, bbox_inches='tight')
+
+    g.close()
+
 def plot_mutex_signatures(args, out_data, mutex_dict, clr_scheme='Dist'):
     rcParams['figure.figsize'] = 20, 10
-
 
     plt_x = []
     plt_y = []
@@ -199,6 +265,14 @@ def plot_mutex_signatures(args, out_data, mutex_dict, clr_scheme='Dist'):
                          (x, y), (x-0.5, y + 0.06),
                          size="small", stretch="condensed")
 
+    plt.xlabel('Mutual Exclusivity -log10(p-val)',
+               fontsize=23, weight=550, stretch=340)
+    plt.ylabel('Relative Predicted Score',
+               fontsize=23, weight=550, stretch=340)
+
+    plt.xticks(fontsize=15, weight=510)
+    plt.yticks(fontsize=15, weight=510)
+
     plt.axhline(y=0, xmin=0, xmax=100,
                 linewidth=3, color = 'black', ls='--', alpha=0.5)
     plt.axhline(y=1, xmin=0, xmax=100,
@@ -226,6 +300,15 @@ def main():
         ))
 
     plot_mutex_signatures(args, out_data, mutex_dict)
+    plot_predictions(args, out_data, mutex_dict,
+                     mtypes=(MuType({('Gene', 'CDH1'): None}),
+                             MuType({('Gene', 'TP53'): None})))
+    plot_predictions(args, out_data, mutex_dict,
+                     mtypes=(MuType({('Gene', 'TP53'): {
+                         ('Form', 'Nonsense_Mutation'): None}}),
+                             MuType({('Gene', 'TP53'): {
+                         ('Form', 'Missense_Mutation'): None}})))
+    #plot_coefs(args, out_data, mutex_dict)
 
 
 if __name__ == '__main__':

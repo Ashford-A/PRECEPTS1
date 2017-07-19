@@ -352,7 +352,7 @@ class TestCaseBasicMuType:
 
 class TestCaseMuTypeBinary:
     """Tests the binary operators defined for MuTypes."""
-
+    #TODO: implement tests for sorting MuTypes via __lt__
     @pytest.mark.parametrize('mtype_tester', ['_all'],
                              indirect=True, scope="function")
     def test_invariants(self, mtype_tester):

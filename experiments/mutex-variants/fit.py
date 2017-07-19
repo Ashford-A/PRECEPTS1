@@ -1,6 +1,9 @@
 
-import sys, os
+import sys
 sys.path.extend(['/home/exacloud/lustre1/CompBio/mgrzad/bergamot/'])
+
+import os
+base_dir = os.path.dirname(__file__)
 
 import numpy as np
 import pickle
@@ -9,6 +12,7 @@ from functools import reduce
 from HetMan.features.cohorts import VariantCohort
 from HetMan.predict.classifiers import Lasso
 from sklearn.metrics.pairwise import cosine_similarity
+
 import synapseclient
 
 
@@ -16,9 +20,10 @@ def main(argv):
     """Runs the experiment."""
 
     print(argv)
-    out_path = os.path.join(os.path.dirname(__file__), 'output', argv[0])
+    out_dir = os.path.join(base_dir, 'output', argv[0])
     coh_lbl = 'TCGA-{}'.format(argv[0])
-    mutex_dict = pickle.load(open(out_path + '/mutex_dict.p', 'rb'))
+    mutex_dict = pickle.load(
+        open(os.path.join(out_dir, 'tmp', 'mutex_dict.p'), 'rb'))
 
     common_genes = reduce(lambda x,y: x | y,
                           [set([[k for k,v in mtype1][0]])
@@ -29,7 +34,7 @@ def main(argv):
     syn = synapseclient.Synapse()
     syn.login()
     cdata = VariantCohort(syn, cohort=coh_lbl, mut_genes=common_genes,
-                          mut_levels=['Gene', 'Type', 'Location'],
+                          mut_levels=['Gene', 'Form', 'Location'],
                           cv_seed=99)
     print('TCGA-Z7-A8R6-01A' in cdata.test_samps)
 
@@ -39,7 +44,7 @@ def main(argv):
     out_coef = {mtypes: [None, None] for mtypes, _ in mutex_dict}
 
     for i, ((mtype1, mtype2), mutex) in enumerate(mutex_dict):
-        if i % 50 == (int(argv[-1]) - 1):
+        if i % 20 == (int(argv[-1]) - 1):
             print('{}  +  {}'.format(mtype1, mtype2))
 
             gn1 = [k for k,v in mtype1][0]
@@ -55,7 +60,8 @@ def main(argv):
                 ))
 
             clf1 = Lasso()
-            clf1.tune_coh(cdata, mtype1, tune_splits=2, test_count=16,
+            clf1.tune_coh(cdata, mtype1, tune_splits=4,
+                          test_count=16, parallel_jobs=8,
                           exclude_genes=[gn1, gn2], exclude_samps=ex_samps1)
             clf1.fit_coh(cdata, mtype1,
                          exclude_genes=[gn1, gn2], exclude_samps=ex_samps1)
@@ -72,10 +78,10 @@ def main(argv):
             out_stat[(mtype1, mtype2)][0][0] = np.mean(test1[~stat1 & ~stat2])
             out_stat[(mtype1, mtype2)][0][1] = np.mean(test1[~stat1 & stat2])
             out_stat[(mtype1, mtype2)][0][2] = np.mean(test1[stat1 & ~stat2])
-            out_stat[(mtype1, mtype2)][0][3] = np.mean(test1[stat1 & stat2])
 
             clf2 = Lasso()
-            clf2.tune_coh(cdata, mtype2, tune_splits=2, test_count=16,
+            clf2.tune_coh(cdata, mtype2, tune_splits=4,
+                          test_count=16, parallel_jobs=8,
                           exclude_genes=[gn1, gn2], exclude_samps=ex_samps2)
             clf2.fit_coh(cdata, mtype2,
                          exclude_genes=[gn1, gn2], exclude_samps=ex_samps2)
@@ -92,7 +98,10 @@ def main(argv):
             out_stat[(mtype1, mtype2)][1][0] = np.mean(test2[~stat1 & ~stat2])
             out_stat[(mtype1, mtype2)][1][1] = np.mean(test2[stat1 & ~stat2])
             out_stat[(mtype1, mtype2)][1][2] = np.mean(test2[~stat1 & stat2])
-            out_stat[(mtype1, mtype2)][1][3] = np.mean(test2[stat1 & stat2])
+
+            if np.sum(stat1 & stat2) > 0:
+                out_stat[(mtype1, mtype2)][0][3] = np.mean(test1[stat1 & stat2])
+                out_stat[(mtype1, mtype2)][1][3] = np.mean(test2[stat1 & stat2])
 
             coef1 = clf1.get_coef()
             coef2 = clf2.get_coef()
@@ -117,7 +126,7 @@ def main(argv):
             del(out_coef[(mtype1, mtype2)])
 
     # saves classifier results to file
-    out_file = out_path + '/ex___run' + argv[-1] + '.p'
+    out_file = os.path.join(out_dir, 'results', 'ex___run' + argv[-1] + '.p')
     pickle.dump({'Acc': out_acc, 'Stat': out_stat,
                  'Dist': out_dist, 'Coef': out_coef},
                 open(out_file, 'wb'))

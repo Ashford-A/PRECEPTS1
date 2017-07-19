@@ -925,6 +925,36 @@ class MuType(object):
 
         return MuType(new_key)
 
+    def __lt__(self, other):
+        """Defines a sort order for MuTypes."""
+        if other is None:
+            return False
+        elif not isinstance(other, MuType):
+            return NotImplemented
+
+        self_dict = dict(self)
+        other_dict = dict(other)
+
+        if len(self_dict) == len(other_dict):
+            if list(self_dict.keys()) == list(other_dict.keys()):
+
+                for (_,v), (_,w) in zip(self, other):
+                    if v != w:
+                        if v is None:
+                            return True
+                        else:
+                            return v < w
+
+                return False
+
+            else:
+                comp_val = list(self_dict.keys()) < list(other_dict.keys())
+
+        else:
+            comp_val = len(self_dict) < len(other_dict)
+
+        return comp_val
+
     def __ge__(self, other):
         """Checks if one MuType is a subset of the other."""
         if not isinstance(other, MuType):

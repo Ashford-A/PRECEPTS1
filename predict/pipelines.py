@@ -108,7 +108,7 @@ class OmicPipe(Pipeline):
 
     def tune_coh(self,
                  cohort, pheno,
-                 tune_splits=2, test_count=16,
+                 tune_splits=2, test_count=16, parallel_jobs=16,
                  include_samps=None, exclude_samps=None,
                  include_genes=None, exclude_genes=None,
                  verbose=False):
@@ -137,7 +137,8 @@ class OmicPipe(Pipeline):
             grid_test = RandomizedSearchCV(
                 estimator=self, param_distributions=self.cur_tuning,
                 fit_params=self.extra_fit_params(cohort),
-                n_iter=test_count, cv=tune_cvs, n_jobs=1, refit=False
+                n_iter=test_count, cv=tune_cvs, refit=False,
+                n_jobs=parallel_jobs, pre_dispatch='n_jobs'
                 )
             grid_test.fit(omics, pheno_types)
 
