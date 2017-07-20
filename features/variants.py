@@ -210,12 +210,25 @@ class MuTree(object):
 
         return split_muts
 
-    # .. functions for defining custom mutation levels ..
+    """Functions for defining custom mutation levels.
+
+    Args:
+        muts (pandas DataFrame), shape = [n_muts, ]
+            Mutations to be split according to the given level.
+            Must contain a 'Sample' field as well as the fields defined in
+            MuTree.mut_fields for each custom level.
+
+    Returns:
+        new_muts (dict of pandas DataFrame):
+
+    """
+
     @staticmethod
     def muts_type(muts):
         """Parses mutations according to Type, which can be 'CNV' (Gain or
            Loss), 'Point' (missense and silent mutations), or 'Frame' (indels,
            frameshifts, nonsense mutations).
+
         """
         new_muts = {}
 
@@ -252,13 +265,26 @@ class MuTree(object):
 
         return new_muts
 
-    # .. functions for custom parsing of mutation levels ..
+    """Functions for custom parsing of mutation levels.
+
+    Args:
+        muts (pandas DataFrame), shape = [n_muts, ]
+            Mutations whose properties are to be parsed.
+
+    Returns:
+        new_muts (pandas DataFrame), shape = [n_muts, ]
+            The same mutations but with the corresponding mutation fields
+            altered or added according to the parse rule.
+
+    """
+
     @staticmethod
     def parse_base(muts, parse_lvl):
         """Removes trailing _Del and _Ins, merging insertions and deletions
            of the same type together.
         """
         new_lvl = parse_lvl + '_base'
+
         new_muts = muts.assign(**{new_lvl: muts.loc[:, parse_lvl]})
         new_muts = new_muts.replace(to_replace={new_lvl: {'_(Del|Ins)$': ''}},
                                     regex=True, inplace=False)
@@ -270,17 +296,14 @@ class MuTree(object):
         """Clusters continuous mutation scores into discrete levels."""
         mshift = MeanShift(bandwidth=exp(-3))
         mshift.fit(pd.DataFrame(muts[parse_lvl]))
+
         clust_vec = [(parse_lvl + '_'
                       + str(round(mshift.cluster_centers_[x, 0], 2)))
                      for x in mshift.labels_]
-        new_muts = muts
+        new_muts = muts.copy()
         new_muts[parse_lvl + '_clust'] = clust_vec
 
         return new_muts
-
-    @staticmethod
-    def parse_scores(muts, parse_lvl):
-        return tuple(zip(muts['Sample'], pd.to_numeric(muts[parse_lvl])))
 
     def __new__(cls, muts, levels=('Gene', 'Form'), **kwargs):
         """Given a list of mutations and a set of mutation levels, determines
@@ -698,6 +721,10 @@ class MuTree(object):
         return comb_mtypes
 
     def treetypes(self, mtype=None, sub_levels=None, min_size=1):
+        """Get all MuTypes that combine any number of sub-branches
+           of a mutation level.
+
+        """
         tree_mtypes = set()
 
         if mtype is None:
@@ -705,43 +732,51 @@ class MuTree(object):
         if sub_levels is None:
             sub_levels = self.get_levels()
 
-        if ((len(self._child) > 1 and self.mut_level in sub_levels)
-                or (len(self._child) == 1
-                    and self.mut_level == sub_levels[0])):
+        if self.mut_level in sub_levels:
+            if len(self._child) > 1 or (len(self._child) == 1
+                                        and self.mut_level == sub_levels[0]):
 
-            tree_mtypes |= self.combtypes(
-                mtype=mtype, sub_levels=[self.mut_level],
-                comb_sizes=range(1, max(2, len(self._child))),
-                min_size=min_size
-                )
-
-        for (nm, branch), (_, btype) in filter(lambda x: (x[0][0] == x[1][0]
-                                               and len(x[0][1]) >= min_size),
-                                               product(self, mtype)):
-
-            if (isinstance(branch, MuTree)
-                    and set(sub_levels) & set(branch.get_levels())):
-                tree_mtypes |= set(
-                    MuType({(self.mut_level, nm): tree_mtype})
-                    for tree_mtype in branch.treetypes(
-                        btype, sub_levels, min_size)
+                tree_mtypes |= self.combtypes(
+                    mtype=mtype, sub_levels=[self.mut_level],
+                    comb_sizes=range(1, max(2, len(self._child))),
+                    min_size=min_size
                     )
+
+            for (nm, branch), (_, btype) in filter(lambda x: (x[0][0] == x[1][0]
+                                                   and len(x[0][1]) > min_size),
+                                                   product(self, mtype)):
+
+                if (isinstance(branch, MuTree)
+                        and set(sub_levels) & set(branch.get_levels())):
+                    tree_mtypes |= set(
+                        MuType({(self.mut_level, nm): tree_mtype})
+                        for tree_mtype in branch.treetypes(
+                            btype, sub_levels, min_size)
+                        )
+
+        else:
+            tree_mtypes |= reduce(
+                lambda x,y: x | y,
+                [branch.treetypes(btype, sub_levels, min_size)
+                 for (nm, branch), (lbl, btype) in product(self, mtype)
+                 if (isinstance(branch, MuTree)
+                     and nm == lbl and len(branch) > min_size
+                     and set(sub_levels) & set(branch.get_levels()))],
+                set()
+                )
 
         return tree_mtypes
 
     def status(self, samples, mtype=None):
-        """For a given set of samples and a MuType, finds if each sample
-           has a mutation in the MuType in this tree.
+        """Finds if each sample has a mutation of this type in the tree.
 
-        Parameters
-        ----------
-        samples : list
-            A list of samples whose mutation status is to be retrieved.
+        Args:
+            samples (list): Which samples' mutation status is to be retrieved.
 
-        mtype : MuType, optional
-            A set of mutations whose membership we want to test.
-            The default is to check against any mutation
-            contained in the tree.
+            mtype (MuType), optional:
+                A set of mutations whose membership we want to test.
+                The default is to check against any mutation
+                contained in the tree.
 
         Returns
         -------
@@ -844,21 +879,21 @@ class MuType(object):
                           for ch in uniq_ch)
 
         # adds the children nodes of this MuTree
-        self.child = {}
+        self._child = {}
         for val, ch in uniq_vals:
 
-            if val in self.child:
-                if ch is None or self.child[val] is None:
-                    self.child[val] = None
+            if val in self._child:
+                if ch is None or self._child[val] is None:
+                    self._child[val] = None
                 else:
-                    self.child[val] |= ch
+                    self._child[val] |= ch
 
             else:
-                self.child[val] = ch
+                self._child[val] = ch
 
     def __iter__(self):
         """Returns an expanded representation of the set structure."""
-        return iter((l, v) for k, v in self.child.items() for l in k)
+        return iter((l, v) for k, v in self._child.items() for l in k)
 
     def __eq__(self, other):
         """Two MuTypes are equal if and only if they have the same set
@@ -869,7 +904,7 @@ class MuType(object):
         elif self.cur_level != other.cur_level:
             eq = False
         else:
-            eq = (self.child == other.child)
+            eq = (self._child == other.child)
 
         return eq
 
@@ -906,9 +941,9 @@ class MuType(object):
 
     def raw_key(self):
         "Returns the expanded key of a MuType."
-        rmembs = reduce(lambda x,y: x|y, list(self.child.keys()))
+        rmembs = reduce(lambda x,y: x|y, list(self._child.keys()))
         return {memb:reduce(lambda x,y: x|y,
-                            [v for k,v in list(self.child.items())
+                            [v for k,v in list(self._child.items())
                              if memb in k])
                 for memb in rmembs}
 
@@ -1085,10 +1120,10 @@ class MuType(object):
            tuples, see for instance http://effbot.org/zone/python-hash.htm"""
         value = 0x163125
 
-        for k,v in list(self.child.items()):
+        for k,v in list(self._child.items()):
             value += eval(hex((int(value) * 1000007) & 0xFFFFFFFF)[:-1])
             value ^= hash(k) ^ hash(v)
-            value ^= len(self.child)
+            value ^= len(self._child)
 
         if value == -1:
             value = -2
@@ -1168,7 +1203,7 @@ class MuType(object):
            exactly one of the leaf properties."""
         mkeys = []
 
-        for k, v in list(self.child.items()):
+        for k, v in list(self._child.items()):
             if v is None:
                 mkeys += [{(self.cur_level, i): None} for i in k]
             else:
