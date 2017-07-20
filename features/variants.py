@@ -20,7 +20,6 @@ from re import sub as gsub
 from math import exp
 from ophion import Ophion
 
-from copy import deepcopy
 from functools import reduce
 from itertools import combinations as combn
 from itertools import product
@@ -115,10 +114,10 @@ class MuTree(object):
     KRAS mutations on the 4th exon, KRAS mutations on the 5th exon, and TP53
     mutations on the 7th exon respectively.
 
-    Levels can either be fields in the 'muts' DataFrame, in which case
-    the tree will have a branch for each unique value in the field, or
-    one of the keys of the MuTree.mut_fields object, in which case they
-    will be defined by the corresponding MuType.muts_<level> method.
+    Levels can either be fields in the 'muts' DataFrame, in which case the
+    tree will have a branch for each unique value in the field, or one of the
+    keys of the MuTree.mut_fields object, in which case they will be defined
+    by the corresponding MuType.muts_<level> method.
 
     Attributes:
         depth (int): How many mutation levels are above the tree
@@ -162,36 +161,6 @@ class MuTree(object):
         'Type': ('Gene', 'Form', 'Protein'),
         'Location': ('Protein', ),
         }
-
-    # .. functions for finding available branches of mutation levels ..
-    @classmethod
-    def check_muts(cls, muts, levels):
-        """Checks that at least one of the given levels can be found in the
-           given list of mutations.
-        """
-        muts_left = False
-        lvls_left = list(levels)
-
-        while lvls_left and not muts_left:
-            cur_lvl = lvls_left.pop(0).split('_')[0]
-            if cur_lvl in muts:
-                muts_left = not np.all(pd.isnull(muts[cur_lvl]))
-
-            elif cur_lvl in cls.mut_fields:
-                if not np.all([x in muts for x in cls.mut_fields[cur_lvl]]):
-                    raise ValueError("For mutation level " + cur_lvl + ", "
-                                     + str(cls.mut_fields[cur_lvl])
-                                     + " need to be provided as fields.")
-                else:
-                    muts_left = not np.all(pd.isnull(
-                        muts.loc[:, cls.mut_fields[cur_lvl]]))
-
-            else:
-                raise ValueError("Unknown mutation level " + cur_lvl
-                                 + " which is not in the given mutation data"
-                                 + " frame and not a custom-defined level!")
-
-        return muts_left
 
     @classmethod
     def split_muts(cls, muts, lvl_name):
@@ -314,48 +283,92 @@ class MuTree(object):
         return tuple(zip(muts['Sample'], pd.to_numeric(muts[parse_lvl])))
 
     def __new__(cls, muts, levels=('Gene', 'Form'), **kwargs):
-        new_muts = cls.check_muts(muts, levels)
-        if new_muts:
+        """Given a list of mutations and a set of mutation levels, determines
+           whether a mutation tree should be built, or a frozenset returned,
+           presumably as a branch of another MuTree.
+
+        """
+        if 'Sample' not in muts:
+            raise ValueError("Mutation table must have a 'Sample' field!")
+
+        # initializes branch search variables
+        muts_left = False
+        lvls_left = list(levels)
+
+        # look for a level at which MuTree branches can be sprouted until we
+        # are either out of levels or we have found such a level
+        while lvls_left and not muts_left:
+            cur_lvl = lvls_left.pop(0).split('_')[0]
+
+            # if the level is a field in the mutation DataFrame, check if any
+            # mutations have non-null values...
+            if cur_lvl in muts:
+                muts_left = not np.all(pd.isnull(muts[cur_lvl]))
+
+            # ...otherwise, check if the fields corresponding to the custom
+            # level have any non-null values...
+            elif cur_lvl in cls.mut_fields:
+                if not np.all([x in muts for x in cls.mut_fields[cur_lvl]]):
+                    raise ValueError("For mutation level " + cur_lvl + ", "
+                                     + str(cls.mut_fields[cur_lvl])
+                                     + " need to be provided as fields.")
+
+                else:
+                    muts_left = not np.all(pd.isnull(
+                        muts.loc[:, cls.mut_fields[cur_lvl]]))
+
+            else:
+                raise ValueError("Unknown mutation level " + cur_lvl
+                                 + " which is not in the given mutation data"
+                                 + " frame and not a custom-defined level!")
+
+        # if we have found a level at which branches can be built,
+        # continue with instantiating the MuTree...
+        if muts_left:
             return super(MuTree, cls).__new__(cls)
+
+        # ...otherwise, return a set of samples as a leaf node
         else:
             return frozenset(muts['Sample'])
 
     def __init__(self, muts, levels=('Gene', 'Form'), **kwargs):
-        """
-
-        :param muts (pandas DataFrame):
-        :param levels (tuple):
-        :param kwargs:
-        """
-
-        if 'Sample' not in muts:
-            raise ValueError("Mutation table must have a 'Sample' field!")
-
         if 'depth' in kwargs:
             self.depth = kwargs['depth']
         else:
             self.depth = 0
 
-        # recursively builds the mutation hierarchy
+        # intializes mutation hierarchy construction variables
         lvls_left = list(levels)
         self._child = {}
         rel_depth = 0
 
+        # look for a mutation level at which we can create branches until we
+        # have found such a level, note that we know such a level exists
+        # because of the check performed in the __new__ method
         while lvls_left and not self._child:
+
+            # get the split of the mutations given the current level
             cur_lvl = lvls_left.pop(0)
             splat_muts = self.split_muts(muts, cur_lvl)
 
+            # if the mutations can be split, set the current mutation
+            # level of the tree...
             if splat_muts:
                 self.mut_level = levels[rel_depth]
 
+                # ...and also set up the children nodes of the tree, which can
+                # either all be frozensets corresponding to leaf nodes...
                 if isinstance(splat_muts, tuple):
                     self._child = dict(splat_muts)
 
+                # ...or a mixture of further MuTrees and leaf nodes
                 else:
                     self._child = {nm: MuTree(mut, lvls_left,
                                               depth=self.depth+1)
                                    for nm, mut in splat_muts.items()}
 
+            # if the mutations cannot be split at this level, move on to the
+            # next level and keep track of how many levels we have skipped
             else:
                 rel_depth += 1
 
@@ -420,11 +433,11 @@ class MuTree(object):
 
     def get_levels(self):
         """Gets all the levels present in this tree and its children."""
-        levels = {self.mut_level}
+        levels = [self.mut_level]
 
         for _, mut in self:
             if isinstance(mut, MuTree):
-                levels |= set(mut.get_levels())
+                levels += list(set(mut.get_levels()))
 
         return levels
 
@@ -631,7 +644,7 @@ class MuTree(object):
             # ...otherwise, recurses into the children of the current
             # branch that have at least one of the given levels
             if (isinstance(branch, MuTree)
-                    and set(sub_levels) & branch.get_levels()):
+                    and set(sub_levels) & set(branch.get_levels())):
                 sub_mtypes |= set(
                     MuType({(self.mut_level, nm): sub_mtype})
                     for sub_mtype in branch.subtypes(
@@ -665,11 +678,11 @@ class MuTree(object):
         Examples:
             >>> # get all possible MuTypes that combine three branches
             >>> mtree = MuTree(...)
-            >>> mtree.subtypes(comb_sizes=(3,))
+            >>> mtree.combtypes(comb_sizes=(3,))
             >>>
             >>> # get all possible MuTypes that combine two 'Type' branches
             >>> # that have at least twenty samples in this tree
-            >>> mtree.subtypes(min_size=20, sub_levels=['Type'])
+            >>> mtree.combtypes(min_size=20, sub_levels=['Type'])
 
         """
         comb_mtypes = set()
@@ -683,6 +696,38 @@ class MuTree(object):
                     comb_mtypes |= {new_set}
 
         return comb_mtypes
+
+    def treetypes(self, mtype=None, sub_levels=None, min_size=1):
+        tree_mtypes = set()
+
+        if mtype is None:
+            mtype = MuType(self.allkey())
+        if sub_levels is None:
+            sub_levels = self.get_levels()
+
+        if ((len(self._child) > 1 and self.mut_level in sub_levels)
+                or (len(self._child) == 1
+                    and self.mut_level == sub_levels[0])):
+
+            tree_mtypes |= self.combtypes(
+                mtype=mtype, sub_levels=[self.mut_level],
+                comb_sizes=range(1, max(2, len(self._child))),
+                min_size=min_size
+                )
+
+        for (nm, branch), (_, btype) in filter(lambda x: (x[0][0] == x[1][0]
+                                               and len(x[0][1]) >= min_size),
+                                               product(self, mtype)):
+
+            if (isinstance(branch, MuTree)
+                    and set(sub_levels) & set(branch.get_levels())):
+                tree_mtypes |= set(
+                    MuType({(self.mut_level, nm): tree_mtype})
+                    for tree_mtype in branch.treetypes(
+                        btype, sub_levels, min_size)
+                    )
+
+        return tree_mtypes
 
     def status(self, samples, mtype=None):
         """For a given set of samples and a MuType, finds if each sample
@@ -938,7 +983,7 @@ class MuType(object):
         if len(self_dict) == len(other_dict):
             if list(self_dict.keys()) == list(other_dict.keys()):
 
-                for (_,v), (_,w) in zip(self, other):
+                for (_, v), (_, w) in zip(self, other):
                     if v != w:
                         if v is None:
                             return True
