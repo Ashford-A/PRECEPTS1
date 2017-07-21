@@ -1,39 +1,71 @@
 
+"""Finding the downstream expression effect of gene sub-variants.
+
+This script tries to identify the expression signature of a list of
+sub-variants. A sub-variant can be any subset of the given gene's mutations,
+but is here limited to groups of mutations defined by common form (i.e.
+splice site mutations, missense mutations, frameshift mutations) or location
+(i.e. 5th exon, 123rd protein).
+
+To allow for parallelization, we split the list of sub-variants into equally
+sized tasks that are each tested in a separate cluster array job. The split
+is done by taking the modulus of each sub-variant's position in the master
+list of sub-variants, which has been created by the setup.py script. We
+repeat this process for multiple splits of the TCGA cohort into training/
+testing cohorts, as defined by the cross-validation ID.
+
+Args:
+    fit.py <cohort> <gene> <cv_id> <task_id>
+
+Examples:
+    fit.py BRCA TP53 2 4
+    fit.py UCEC PTEN 0 2
+    fit.py SKCM TTN 3 1
+
+"""
+
 import os
 base_dir = os.path.dirname(__file__)
 
 import sys
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
-import numpy as np
-import pickle
-
-from itertools import product
-from itertools import combinations as combn
-
 from HetMan.features.variants import MuType
 from HetMan.features.cohorts import VariantCohort
 from HetMan.predict.classifiers import Lasso
-from sklearn.metrics.pairwise import cosine_similarity
 
+import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
+from itertools import product
+from itertools import combinations as combn
+
+import pickle
 import synapseclient
 
 
 def main(argv):
     """Runs the experiment."""
 
+    # gets the directory where output will be saved and the name of the TCGA
+    # cohort under consideration, loads the list of gene sub-variants 
     print(argv)
     out_dir = os.path.join(base_dir, 'output', argv[0], argv[1])
     coh_lbl = 'TCGA-{}'.format(argv[0])
     mtype_list = pickle.load(
         open(os.path.join(out_dir, 'tmp', 'mtype_list.p'), 'rb'))
 
+    # loads the expression data and gene mutation data for the given TCGA
+    # cohort, with the training/testing cohort split defined by the
+    # cross-validation id for this task
     syn = synapseclient.Synapse()
     syn.login()
     cdata = VariantCohort(syn, cohort=coh_lbl, mut_genes=[argv[1]],
                           mut_levels=['Gene', 'Form', 'Exon', 'Location'],
-                          cv_seed=99)
+                          cv_seed=(int(argv[2]) + 3) * 19)
 
+    # gets the mutation type representing all of the mutations for the given
+    # gene, finds which samples have these mutations in the training and
+    # testing cohorts
     base_mtype = MuType({('Gene', argv[1]): None})
     tp53_train_samps = base_mtype.get_samples(cdata.train_mut)
     tp53_test_samps = base_mtype.get_samples(cdata.test_mut)
@@ -48,8 +80,10 @@ def main(argv):
     out_mutex = {tuple(sorted(mtypes)): None
                  for mtypes in combn(mtype_list, 2)}
 
+    # for each of the gene's sub-variants, check if it has been assigned to
+    # this task
     for i, mtype in enumerate(mtype_list):
-        if i % 10 == (int(argv[-1]) - 1):
+        if i % 4 == int(argv[3]):
             print(mtype)
 
             ex_train = tp53_train_samps - mtype.get_samples(cdata.train_mut)
@@ -116,7 +150,8 @@ def main(argv):
                     del(out_mutex[mtypes])
 
     # saves classifier results to file
-    out_file = os.path.join(out_dir, 'results', 'ex___run' + argv[-1] + '.p')
+    out_file = os.path.join(out_dir, 'results',
+                            'out__cv-{}_task-{}.p'.format(argv[2], argv[3]))
     pickle.dump({'Stat': out_stat, 'Coef': out_coef, 'Mutex': out_mutex,
                  'Acc': out_acc, 'Pred': out_pred, 'Cross': out_cross},
                 open(out_file, 'wb'))

@@ -904,8 +904,10 @@ class MuType(object):
 
     def __iter__(self):
         """Returns an expanded representation of the set structure."""
-        return iter((l, v) for k, v in
-                    sorted(self._child.items()) for l in k)
+        return iter(sorted(
+            [(l, v) for k, v in self._child.items() for l in k],
+            key=lambda x: x[0]
+            ))
 
     def __eq__(self, other):
         """Two MuTypes are equal if and only if they have the same set
@@ -1037,10 +1039,11 @@ class MuType(object):
             other_dict = dict(other)
        
             # if they both have the same number of entries, we compare the
-            # entries themselves, sorting them first to ensure invariance
+            # entries themselves, which are sorted in __iter__ so that
+            # pairwise invariance is ensured
             if len(self_dict) == len(other_dict):
-                self_keys = sorted(list(self_dict.keys()))
-                other_keys = sorted(list(other_dict.keys()))
+                self_keys = self_dict.keys()
+                other_keys = other_dict.keys()
 
                 # if they have the same entries, we compare each pair of
                 # entries' mutation sub-types

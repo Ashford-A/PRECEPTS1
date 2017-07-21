@@ -9,31 +9,40 @@
 #SBATCH --error=/home/exacloud/lustre1/CompBio/mgrzad/tmp/gene-vars_%j.err
 #SBATCH --verbose
 
+
 cd ~/compbio/bergamot
 source activate HetMan
 
+# finds the name of the TCGA cohort to use
 if [ -z ${cohort+x} ]
 then
 	echo "no cohort defined, defaulting to BRCA"
 	export cohort="BRCA"
 fi
 
+# finds the name of the gene whose sub-variants are to be considered
 if [ -z ${gene+x} ]
 then
 	echo "no gene defined, defaulting to TP53"
 	export gene="TP53"
 fi
 
+# gets the output directory where results will be saved,
+# removing it if it already exists
 TEMPDIR=HetMan/experiments/gene-variants/output/$cohort/$gene
 echo $TEMPDIR
 rm -rf $TEMPDIR
 
+# creates the output directory and sub-directories
 mkdir -p $TEMPDIR/slurm
 mkdir -p $TEMPDIR/tmp
 mkdir -p $TEMPDIR/results
 
-srun -p=exacloud --ntasks=1 --cpus-per-task=1 --output=$TEMPDIR/slurm/setup.txt --error=$TEMPDIR/slurm/setup.err \
+# submits the script that enumerates the gene sub-variants to be considered
+srun -p=exacloud --ntasks=1 --cpus-per-task=1 \
+	--output=$TEMPDIR/slurm/setup.txt --error=$TEMPDIR/slurm/setup.err \
 	python HetMan/experiments/gene-variants/setup.py $cohort $gene
 
+# submits the array script that finds these sub-variants' expression effects
 sbatch HetMan/experiments/gene-variants/fit.sh
 
