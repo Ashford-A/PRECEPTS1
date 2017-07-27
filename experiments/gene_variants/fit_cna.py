@@ -129,7 +129,7 @@ def main(argv):
 
         # saves classifier results to file
         out_file = os.path.join(out_dir, 'results',
-                                'out__cv-{}_task-4.p'.format(cv_id))
+                                'out__cv-{}_task-cna.p'.format(cv_id))
         pickle.dump({'Stat': out_stat, 'Coef': out_coef, 'Mutex': out_mutex,
                      'Acc': out_acc, 'Pred': out_pred, 'Cross': out_cross},
                     open(out_file, 'wb'))

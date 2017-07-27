@@ -25,21 +25,31 @@ from sklearn.decomposition import PCA
 
 
 def load_output(cohort, gene):
-    out_list = [
+
+    mut_list = [
         [pickle.load(open(fl, 'rb')) for fl in
          glob.glob(os.path.join(
              base_dir, "output", cohort, gene,
-             "results/out__cv-{}_task-*").format(cv_id))]
+             "results/out__cv-{}_task-*").format(cv_id))
+         if 'cna.p' not in fl]
         for cv_id in range(5)
         ]
 
-    out_data = [
-        {fld: dict(chain(*map(dict.items, [x[fld] for x in out_list[cv_id]])))
-         for fld in out_list[cv_id][0].keys()}
+    mut_data = [
+        {fld: dict(chain(*map(dict.items,
+                              [x[fld] for x in mut_list[cv_id]])))
+         for fld in mut_list[cv_id][0].keys()}
         for cv_id in range(5)
         ]
 
-    return out_data
+    cna_data = [
+        pickle.load(open(os.path.join(
+            base_dir, "output", cohort, gene,
+            "results/out__cv-{}_task-cna.p".format(cv_id)), 'rb'))
+        for cv_id in range(5)
+        ]
+
+    return mut_data, cna_data
 
 
 def get_median_coefs(out_data):
@@ -108,44 +118,41 @@ def choose_point_scheme(pnt_scheme, **scheme_args):
             plt_mark = '*'
 
         elif scheme_args['mtype'] == MuType(
-                {('Gene', gn): {('Form', 'Missense_Mutation'): None}}):
+                {('Gene', gn): {('Form_base', 'Missense_Mutation'): None}}):
             plt_clr = '#31224A'
             plt_size = 190
             plt_alpha = 0.8
             plt_mark = '*'
 
         elif scheme_args['mtype'] == MuType(
-                {('Gene', gn): {('Form', 'Nonsense_Mutation'): None}}):
+                {('Gene', gn): {('Form_base', 'Nonsense_Mutation'): None}}):
             plt_clr = '#466228'
             plt_size = 190
             plt_alpha = 0.8
             plt_mark = '*'
 
         elif scheme_args['mtype'] == MuType(
-                {('Gene', gn): {
-                    ('Form', ('Frame_Shift_Del',
-                              'Frame_Shift_Ins')): None}}):
+                {('Gene', gn): {('Form_base', 'Frame_Shift'): None}}):
             plt_clr = '#6C4E2C'
             plt_size = 190
             plt_alpha = 0.8
             plt_mark = '*'
 
-        elif MuType({('Gene', gn): {('Form', 'Missense_Mutation'): None}})\
+        elif MuType({('Gene', gn): {('Form_base', 'Missense_Mutation'): None}})\
                 .is_supertype(scheme_args['mtype']):
             plt_clr = '#31224A'
             plt_size = 25
             plt_alpha = 0.4
             plt_mark = 'o'
 
-        elif MuType({('Gene', gn): {('Form', 'Nonsense_Mutation'): None}})\
+        elif MuType({('Gene', gn): {('Form_base', 'Nonsense_Mutation'): None}})\
                 .is_supertype(scheme_args['mtype']):
             plt_clr = '#466228'
             plt_size = 25
             plt_alpha = 0.4
             plt_mark = 'o'
 
-        elif MuType({('Gene', gn): {
-                ('Form', ('Frame_Shift_Del', 'Frame_Shift_Ins')): None}})\
+        elif MuType({('Gene', gn): {('Form_base', 'Frame_Shift'): None}})\
                 .is_supertype(scheme_args['mtype']):
             plt_clr = '#6C4E2C'
             plt_size = 25
@@ -189,29 +196,26 @@ def get_legend_label(pnt_scheme, **scheme_args):
             plt_lbl = str(scheme_args['mtype'])
 
         elif scheme_args['mtype'] == MuType(
-                {('Gene', gn): {('Form', 'Missense_Mutation'): None}}):
+                {('Gene', gn): {('Form_base', 'Missense_Mutation'): None}}):
             plt_lbl = str(scheme_args['mtype'])
 
         elif scheme_args['mtype'] == MuType(
-                {('Gene', gn): {('Form', 'Nonsense_Mutation'): None}}):
+                {('Gene', gn): {('Form_base', 'Nonsense_Mutation'): None}}):
             plt_lbl = str(scheme_args['mtype'])
 
         elif scheme_args['mtype'] == MuType(
-                {('Gene', gn): {
-                    ('Form', ('Frame_Shift_Del',
-                              'Frame_Shift_Ins')): None}}):
+                {('Gene', gn): {('Form_base', 'Frame_Shift'): None}}):
             plt_lbl = str(scheme_args['mtype'])
 
-        elif MuType({('Gene', gn): {('Form', 'Missense_Mutation'): None}})\
+        elif MuType({('Gene', gn): {('Form_base', 'Missense_Mutation'): None}})\
                 .is_supertype(scheme_args['mtype']):
             plt_lbl = "Sub-types of Missense Mutations"
 
-        elif MuType({('Gene', gn): {('Form', 'Nonsense_Mutation'): None}})\
+        elif MuType({('Gene', gn): {('Form_base', 'Nonsense_Mutation'): None}})\
                 .is_supertype(scheme_args['mtype']):
             plt_lbl = "Sub-types of Nonsense Mutations"
 
-        elif MuType({('Gene', gn): {
-                ('Form', ('Frame_Shift_Del', 'Frame_Shift_Ins')): None}})\
+        elif MuType({('Gene', gn): {('Form_base', 'Frame_Shift'): None}})\
                 .is_supertype(scheme_args['mtype']):
             plt_lbl = "Sub-types of Frameshift Mutations"
 

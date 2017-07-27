@@ -8,7 +8,7 @@ Author: Michal Grzadkowski <grzadkow@ohsu.edu>
 from ophion import Ophion
 
 
-def choose_bmeg_server():
+def choose_bmeg_server(verbose=False):
     """Chooses a BMEG server to use based on availability."""
 
     # list of BMEG servers to try
@@ -30,6 +30,9 @@ def choose_bmeg_server():
             # ...if so, check if the query returns a proper value
             if int(proj_count) > 0:
                 server_found = True
+
+                if verbose:
+                    print("Choosing BMEG server {}".format(bmeg_server))
 
         except:
             pass

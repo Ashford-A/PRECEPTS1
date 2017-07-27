@@ -202,7 +202,6 @@ class VariantCohort(LabelCohort):
     def __init__(self,
                  syn, cohort, mut_genes, mut_levels=('Gene', 'Form'),
                  cv_seed=None, cv_prop=2.0/3):
-        # TODO: double-check how Python handles random seeds
         if cv_prop <= 0 or cv_prop > 1:
             raise ValueError("Improper cross-validation ratio that is "
                              "not > 0 and <= 1.0")
@@ -343,7 +342,7 @@ class MutCohort(VariantCohort):
     """
 
     def __init__(self,
-                 syn, cohort, mut_genes, mut_levels=('Gene', 'Type'),
+                 syn, cohort, mut_genes, mut_levels=('Gene', 'Form'),
                  cv_seed=None, cv_prop=2.0 / 3):
         if mut_levels[0] != 'Gene' or mut_levels[1] != 'Form':
             raise ValueError("A cohort with CNA info must use 'Gene' as the"
@@ -363,13 +362,15 @@ class MutCohort(VariantCohort):
         # removes samples that don't have CNA info
         self.samples = self.samples & copy_samps
         self.train_samps = self.train_samps & copy_samps
-        self.test_samps = self.test_samps & copy_samps
+        if cv_prop < 1.0:
+            self.test_samps = self.test_samps & copy_samps
 
         # removes expression data for samples with no CNA info, removes
         # variant data for samples with no CNA info
         self.omic_mat = self.omic_mat.loc[self.samples, :]
         self.train_mut = self.train_mut.subtree(self.train_samps)
-        self.test_mut = self.test_mut.subtree(self.test_samps)
+        if cv_prop < 1.0:
+            self.test_mut = self.test_mut.subtree(self.test_samps)
 
         # adds copy number alteration data to the mutation trees
         for gn in mut_genes:
@@ -385,7 +386,7 @@ class MutCohort(VariantCohort):
                         ),
                     levels=['Form'])
 
-            if gn not in self.test_mut._child:
+            if cv_prop < 1.0 and gn not in self.test_mut._child:
                 self.test_mut._child[gn] = MuTree(
                     muts=pd.DataFrame(
                         {'Form': val_labels,
@@ -395,7 +396,8 @@ class MutCohort(VariantCohort):
 
             for val_lbl in val_labels:
                 self.train_mut[gn]._child[val_lbl] = set()
-                self.test_mut[gn]._child[val_lbl] = set()
+                if cv_prop < 1.0:
+                    self.test_mut[gn]._child[val_lbl] = set()
 
             for samp, val in copy_data[gn].items():
                 if val != 0:
@@ -404,7 +406,7 @@ class MutCohort(VariantCohort):
                     if samp in self.train_samps:
                         self.train_mut[gn]._child[val_labels[lbl_indx]].\
                             update({samp})
-                    else:
+                    elif cv_prop < 1.0:
                         self.test_mut[gn]._child[val_labels[lbl_indx]].\
                             update({samp})
 
@@ -415,11 +417,12 @@ class MutCohort(VariantCohort):
                 else:
                     del(self.train_mut[gn]._child[val_lbl])
 
-                if self.test_mut[gn]._child[val_lbl]:
-                    self.test_mut[gn]._child[val_lbl] = frozenset(
-                        self.test_mut[gn]._child[val_lbl])
-                else:
-                    del(self.test_mut[gn]._child[val_lbl])
+                if cv_prop < 1.0:
+                    if self.test_mut[gn]._child[val_lbl]:
+                        self.test_mut[gn]._child[val_lbl] = frozenset(
+                            self.test_mut[gn]._child[val_lbl])
+                    else:
+                        del(self.test_mut[gn]._child[val_lbl])
 
 
 class DrugCohort(ValueCohort):

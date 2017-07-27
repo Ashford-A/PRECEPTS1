@@ -60,19 +60,36 @@ def main(argv):
         for mtypes in chain(combn(sub_mtypes, 2), combn(sub_mtypes, 3))
         )
     sub_mtypes |= cdata.train_mut.treetypes(
-        min_size=20, sub_levels=['Gene', 'Form_base'])
+        min_size=freq_cutoff, sub_levels=['Gene', 'Form_base'])
 
     exon_mtypes = cdata.train_mut.subtypes(
-        min_size=10, sub_levels=['Gene', 'Exon'])
+        min_size=freq_cutoff, sub_levels=['Gene', 'Exon'])
     sub_mtypes |= exon_mtypes
+
+    exon_mtypes = cdata.train_mut.subtypes(
+        min_size=freq_cutoff / 2, sub_levels=['Gene', 'Exon'])
     sub_mtypes |= set(
         reduce(lambda x, y: x | y, mtypes)
         for mtypes in chain(combn(exon_mtypes, 2), combn(exon_mtypes, 3))
         )
 
+    exon_mtypes = cdata.train_mut.subtypes(
+        min_size=freq_cutoff, sub_levels=['Gene', 'Form_base', 'Exon'])
+    sub_mtypes |= exon_mtypes
+
+    exon_mtypes = cdata.train_mut.subtypes(
+        min_size=freq_cutoff / 2, sub_levels=['Gene', 'Form_base', 'Exon'])
+    sub_mtypes |= set(
+        reduce(lambda x, y: x | y, mtypes)
+        for mtypes in combn(exon_mtypes, 2)
+        )
+
     loc_mtypes = cdata.train_mut.subtypes(
-        min_size=10, sub_levels=['Gene', 'Location'])
+        min_size=freq_cutoff, sub_levels=['Gene', 'Location'])
     sub_mtypes |= loc_mtypes
+
+    loc_mtypes = cdata.train_mut.subtypes(
+        min_size=freq_cutoff / 2, sub_levels=['Gene', 'Location'])
     sub_mtypes |= set(reduce(lambda x, y: x | y, mtypes)
                       for mtypes in combn(loc_mtypes, 2))
 

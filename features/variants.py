@@ -202,8 +202,8 @@ class MuTree(object):
                 split_muts = {}
             else:
                 split_muts = muts
-        elif lvl_info[0] in muts:
-            split_muts = dict(tuple(muts.groupby(lvl_info[0])))
+        elif lvl_name in muts:
+            split_muts = dict(tuple(muts.groupby(lvl_name)))
 
         # if the specified level is not a column in the mutation table,
         # we assume it's a custom mutation level
@@ -295,8 +295,8 @@ class MuTree(object):
         new_lvl = parse_lvl + '_base'
 
         new_muts = muts.assign(**{new_lvl: muts.loc[:, parse_lvl]})
-        new_muts = new_muts.replace(to_replace={new_lvl: {'_(Del|Ins)$': ''}},
-                                    regex=True, inplace=False)
+        new_muts.replace(to_replace={new_lvl: {'_(Del|Ins)$': ''}},
+                         regex=True, inplace=True)
 
         return new_muts
 
@@ -465,11 +465,11 @@ class MuTree(object):
 
     def get_levels(self):
         """Gets all the levels present in this tree and its children."""
-        levels = [self.mut_level]
+        levels = {self.mut_level}
 
         for _, mut in self:
             if isinstance(mut, MuTree):
-                levels += list(set(mut.get_levels()))
+                levels |= mut.get_levels()
 
         return levels
 
@@ -663,26 +663,38 @@ class MuTree(object):
 
         # finds the branches at the current mutation level that are a subset
         # of the given mutation type and have the minimum number of samples
-        for (nm, branch), (_, btype) in filter(
-                lambda x: x[0][0] == x[1][0] and len(x[0][1]) >= min_size,
-                product(self, mtype)
-                ):
+        if self.mut_level in sub_levels:
+            for (nm, branch), (_, btype) in filter(
+                    lambda x: x[0][0] == x[1][0] and len(x[0][1]) >= min_size,
+                    product(self, mtype)):
 
-            # returns the current branch if we are at one of the given
-            # mutation levels or at a leaf branch...
-            if self.mut_level in sub_levels or branch is None:
-                sub_mtypes.update(
-                    {MuType({(self.mut_level, nm): None})})
+                # returns the current branch if we are at one of the given
+                # mutation levels
+                sub_mtypes.update({MuType({(self.mut_level, nm): None})})
 
-            # ...otherwise, recurses into the children of the current
-            # branch that have at least one of the given levels
-            if (isinstance(branch, MuTree)
-                    and set(sub_levels) & set(branch.get_levels())):
-                sub_mtypes |= set(
-                    MuType({(self.mut_level, nm): sub_mtype})
-                    for sub_mtype in branch.subtypes(
-                        btype, sub_levels, min_size)
-                    )
+                # ...otherwise, recurses into the children of the current
+                # branch that have at least one of the given levels
+                if (isinstance(branch, MuTree)
+                        and set(sub_levels) & set(branch.get_levels())):
+                
+                    sub_mtypes |= set(
+                        MuType({(self.mut_level, nm): rec_mtype})
+                        for rec_mtype in branch.subtypes(
+                            btype, sub_levels, min_size)
+                        )
+
+        else:
+            recurse_mtypes = reduce(
+                lambda x, y: x | y,
+                [branch.subtypes(btype, sub_levels, min_size=1)
+                 for (nm, branch), (_, btype) in filter(
+                     lambda x: x[0][0] == x[1][0], product(self, mtype))]
+                )
+
+            sub_mtypes |= set(filter(
+                lambda x: len(x.get_samples(self)) >= min_size,
+                recurse_mtypes
+                ))
 
         return sub_mtypes
 
@@ -1079,7 +1091,7 @@ class MuType(object):
         else:
             return self.cur_level < other.cur_level
 
-    def __contains__(self, other):
+    def is_supertype(self, other):
         """Checks if one MuType is a subset of the other."""
         if not isinstance(other, MuType):
             return NotImplemented
@@ -1095,9 +1107,9 @@ class MuType(object):
 
                         if other_dict[k] is None:
                             return False
-                        elif not (self_dict[k] >= other_dict[k]):
+                        elif not self_dict[k].is_supertype(other_dict[k]):
                             return False
-                                
+
             else:
                 return False
 
@@ -1200,7 +1212,8 @@ class MuType(object):
 
         else:
             for _, mut in mtree:
-                if isinstance(mut, MuTree):
+                if (isinstance(mut, MuTree)
+                        and mut.get_levels() & self.get_levels()):
                     samps |= self.get_samples(mut)
 
         return samps
