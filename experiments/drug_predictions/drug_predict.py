@@ -28,13 +28,16 @@ patient_basedir = "/home/exacloud/lustre1/"
 patient_files = {
     'SMRT_02299': (patient_basedir + "SMMARTData/Patients/DNA-16-02299/"
                  "results/rsem/rsemOut.genes.results"),
+    'SMRT_16113': (patient_basedir + "SMMARTData/Patients/SMMART16113-101/"
+                 "results/rsem/rsemOut.genes.results"),
     'PTTB_4409': (patient_basedir + "PTTB/Patients/OPTR4409/OPTR4409T_RNA/"
                   "results/rsem/rsemOut.genes.results"),
     'PTTB_4315': (patient_basedir + "PTTB/Patients/OPTR4315/4315-T-ORG-RNA/"
                   "results/rsem/rsemOut.genes.results"),
     }
 
-patient_cohs = {'SMRT_02299': "TCGA-PRAD",
+patient_cohs = {'SMRT_16113': "TCGA-PRAD",
+                'SMRT_02299': "TCGA-PRAD",
                 'PTTB_4409': "TCGA-PAAD",
                 'PTTB_4315': "TCGA-PAAD"}
 tcga_backcohs = {'TCGA-BRCA', 'TCGA-OV', 'TCGA-GBM', 'TCGA-SKCM'}
