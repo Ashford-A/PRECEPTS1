@@ -20,12 +20,15 @@ base_dir = os.path.dirname(__file__)
 import sys
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
-from HetMan.features.cohorts import VariantCohort
+from HetMan.features.cohorts import VariantCohort, MutCohort
 
 import numpy as np
-from itertools import combinations as combn
 import synapseclient
 import pickle
+
+from itertools import combinations as combn
+from itertools import chain
+from functools import reduce
 
 # how many samples must contain a mutation for us to consider it?
 freq_cutoff = 20
@@ -44,15 +47,34 @@ def main(argv):
     # for the given cohort
     syn = synapseclient.Synapse()
     syn.login()
-    cdata = VariantCohort(syn, cohort=coh_lbl, mut_genes=[argv[1]],
-                          mut_levels=['Gene', 'Form', 'Exon', 'Location'],
-                          cv_prop=1.0)
+    cdata = VariantCohort(
+        syn, cohort=coh_lbl, mut_genes=[argv[1]],
+        mut_levels=['Gene', 'Form_base', 'Exon', 'Location'],
+        cv_prop=1.0
+        )
 
     # finds the sub-types satisfying the sample frequency criterion
-    sub_mtypes = cdata.train_mut.treetypes(
-        sub_levels=['Gene', 'Form', 'Exon'], min_size=freq_cutoff)
-    sub_mtypes |= cdata.train_mut.subtypes(
-        sub_levels=['Location'], min_size=freq_cutoff)
+    sub_mtypes = cdata.train_mut.subtypes(min_size=freq_cutoff)
+    sub_mtypes |= set(
+        reduce(lambda x, y: x | y, mtypes)
+        for mtypes in chain(combn(sub_mtypes, 2), combn(sub_mtypes, 3))
+        )
+    sub_mtypes |= cdata.train_mut.treetypes(
+        min_size=20, sub_levels=['Gene', 'Form_base'])
+
+    exon_mtypes = cdata.train_mut.subtypes(
+        min_size=10, sub_levels=['Gene', 'Exon'])
+    sub_mtypes |= exon_mtypes
+    sub_mtypes |= set(
+        reduce(lambda x, y: x | y, mtypes)
+        for mtypes in chain(combn(exon_mtypes, 2), combn(exon_mtypes, 3))
+        )
+
+    loc_mtypes = cdata.train_mut.subtypes(
+        min_size=10, sub_levels=['Gene', 'Location'])
+    sub_mtypes |= loc_mtypes
+    sub_mtypes |= set(reduce(lambda x, y: x | y, mtypes)
+                      for mtypes in combn(loc_mtypes, 2))
 
     # save the list of sub-types to file
     print(len(sub_mtypes))

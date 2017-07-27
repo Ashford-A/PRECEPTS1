@@ -59,9 +59,11 @@ def main(argv):
     # cross-validation id for this task
     syn = synapseclient.Synapse()
     syn.login()
-    cdata = VariantCohort(syn, cohort=coh_lbl, mut_genes=[argv[1]],
-                          mut_levels=['Gene', 'Form', 'Exon', 'Location'],
-                          cv_seed=(int(argv[2]) + 3) * 19)
+    cdata = VariantCohort(
+        syn, cohort=coh_lbl, mut_genes=[argv[1]],
+        mut_levels=['Gene', 'Form_base', 'Exon', 'Location'],
+        cv_seed=(int(argv[2]) + 3) * 19
+        )
 
     # gets the mutation type representing all of the mutations for the given
     # gene, finds which samples have these mutations in the training and
