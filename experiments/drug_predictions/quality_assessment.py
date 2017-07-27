@@ -5,15 +5,13 @@ performance. Will allow user to specify performance cut_off for each classifier
 (this feature is currently hardcoded). Generates boxplots of these well-behaved
 classifiers.
 
-example bash command:
-    python HetMan/experiments/drug_predictions/quality_assessment.py -f \
-    mat_SMRT_1234_ElasticNet__run55.p \
-    mat_SMRT_1234_rForest__run55.p \
-    mat_SMRT_1234_SVRrbf__run55.p \
-    -p SMRT_1234
+Classifier output filenames should follow this template:
+    output/SMMART/01234_ElasticNet__run55.p
+    output/SMMART/01234_rForest__run55.p
+    output/SMMART/01234_SVRrbf__run55.p
 
--f = input files
--p = a prefix for plot file names
+Example bash command:
+    python quality_assessment.py -t SMMART -s 01234 -r run55
 
 """
 
@@ -22,6 +20,8 @@ base_dir = os.path.dirname(os.path.realpath(__file__))
 
 import sys
 sys.path += [base_dir + '/../../../../bergamot']
+
+from pathlib import Path
 
 import pickle
 import numpy as np
@@ -35,7 +35,7 @@ import argparse
 from HetMan.features.drugs import *
 
 
-def generate_performance_hists(output_of_1_run, clf_type, prefix):
+def generate_performance_hists(output_of_1_run, clf_type, plots_dir, id, run):
     # (performance is given in R^2
 
     perf = output_of_1_run['Performance']
@@ -51,10 +51,17 @@ def generate_performance_hists(output_of_1_run, clf_type, prefix):
     plt.ylabel('Number of Classifiers')
     plt.xlabel('Classifier Performance')
     plt.title(clf_type + 'with bin-size of ' + str(binsize))
-    plt.savefig(base_dir + '/plots/' + prefix + '_' + clf_type + '_performance_hist.png')
+    # i.e. saves to ...plots/01234/01234_ElasticNet_run55_performance_hist.png
+    # doesn't take run number into account
+    plt.savefig(plots_dir + clf_type + '/' + run + '/'
+                + id + '_' + clf_type + '_' + run + '_performance_hist.png')
     plt.close()
 
-def choose_cutoff(clf_type):
+
+# Not yet functional
+# TODO: make it rely on a command line arg
+# (i.e. choose=False defaults to 0.20, choose=True lets you pick
+def choose_cutoff(clf_type, trial, id, run):
     """
     Describes location of the performance histogram for a given classifier run.
     Returns user-specified minimum classifier performance (in R^2).
@@ -66,12 +73,15 @@ def choose_cutoff(clf_type):
     Returns:
         min_clf_perf (float): minimum classifier performance (R^2)
     """
-    print('Performance histogram is saved at plots/' + prefix + '_' + clf_type + '_performance_hist.png')
+    print('Performance histogram is saved at plots/' + trial + '/' + id + '/'
+          + id + '_' + clf_type + '_' + run + '_performance_hist.png')
     min_clf_perf = float(input("Please specify the minimum classifier performance \n"
                          "allowed (i.e. 0.20) >>>"))
     return min_clf_perf
 
+
 # sanity checks
+# not used
 def generate_mean_AUC_hists(auc_df):
     # get/plot mean auc for each mutation across all drug clfs
     plt.figure()
@@ -93,16 +103,17 @@ def generate_mean_AUC_hists(auc_df):
     print("Press any button to close the plots and proceed.")
     plt.close("all")
 
-
+# not used
 def get_min_and_max_aucs(auc_df):
     minval = auc_df.min().min()
     maxval = auc_df.max().max()
 
-
+# not yet functional
 def calc_pearson_correlation(auc_df, anova_df):
     pass
 
-def generate_drug_mut_assoc_bp(auc_df, anova_df, clf_type, prefix):
+
+def generate_drug_mut_assoc_bp(auc_df, anova_df, clf_type, plots_dir, id, run):
     """
     Generates a figure with 1 boxplot per high-quality classifier.
     Data points for each boxplot are drug-mutation associations from auc_df.
@@ -170,10 +181,12 @@ def generate_drug_mut_assoc_bp(auc_df, anova_df, clf_type, prefix):
     # plt.show(block=False)
     # plt.waitforbuttonpress(0)
     # print("Press any button to close the plots and proceed.")
-    plt.savefig(base_dir + '/plots/' + prefix + '_' + clf_type + '_behavior_boxplots.png')
+    plt.savefig(plots_dir + clf_type + '/' + run + '/'
+                + id + '_' + clf_type + '_' + run + '_behavior_boxplots.png')
     plt.close(fig)
 
-def generate_ccle_resp_bp(pred_ccle_resp, patient_resp, clf_type, prefix):
+
+def generate_ccle_resp_bp(pred_ccle_resp, patient_resp, clf_type, plots_dir, id, run):
     """
     Generates boxplots of (1) predicted and (2) actual cell line responses
     to each drug. Draws a line representative of the predicted patient/sample
@@ -227,21 +240,20 @@ def generate_ccle_resp_bp(pred_ccle_resp, patient_resp, clf_type, prefix):
         axes.set_xticks(np.arange(0, 1.1, 0.1))
         plt.tight_layout()
 
-        plt.savefig(
-            base_dir + '/plots/'
-            + prefix + '_' + clf_type + '_' + drug.replace('/', '__')
-            + '_ccle_response_bp.png'
+        plt.savefig(plots_dir + clf_type + '/' + run + '/'
+            + id + '_' + clf_type + '_' + drug.replace('/', '__').replace(' ', '_')
+            + '_' + run + '_ccle_response_bp.png'
             )
         plt.close(fig)
 
 
-def pre_main(clf_data, iorio_assoc, prefix):
+def pre_main(clf_data, iorio_assoc, plots_dir, id, run):
     clf_method = clf_data['clf_method']
 
-    generate_performance_hists(clf_data, clf_method, prefix)
+    generate_performance_hists(clf_data, clf_method, plots_dir, id, run)
 
     # decide R^2 cutoff
-    min_clf_perf = 0.20  # choose_cutoff(clf_type)
+    min_clf_perf = 0.20  # or choose_cutoff(clf_type)
 
     # get list of drugs whose classifiers behave well
     hi_qual_perf = clf_data['Performance'][clf_data['Performance'] > min_clf_perf]
@@ -271,43 +283,79 @@ def pre_main(clf_data, iorio_assoc, prefix):
     our_assoc = our_assoc[shared_drugs].loc[shared_muts]
 
     # generate boxplots of high performance classifiers
-    generate_drug_mut_assoc_bp(our_assoc, iorio_assoc, clf_method, prefix)
+    generate_drug_mut_assoc_bp(our_assoc, iorio_assoc, clf_method, plots_dir, id, run)
 
     # TODO: generate boxplots of low performance classifiers
 
     # TODO: get the actual patient response
     # TODO: generate boxplots of ccle predicted and actual response
-    generate_ccle_resp_bp(hi_qual_ccle_resp, hi_qual_patient_resp, clf_method, prefix)
+    generate_ccle_resp_bp(hi_qual_ccle_resp, hi_qual_patient_resp, clf_method, plots_dir, id, run)
     # just in case/couldn't hurt:
     plt.close("all")
+
 
 def main():
 
     # take user-specified names of files (located in base_dir + output/)
     parser = argparse.ArgumentParser()
-    parser.add_argument('-f', '--files', nargs='+')
-    # prefix could be patient number
-    parser.add_argument('-p', '--prefix')
-    args = parser.parse_args()
 
-    prefix = args.prefix
-    clf_output_files = args.files
+    parser.add_argument('-t', '--trial_dir',
+                        # nargs='1',
+                        type=str,
+                        help='trial directory where output is stored (i.e. SMMART)',
+                        )
+    parser.add_argument('-s', '--sample_id',
+                        # nargs='+',
+                        type=str,
+                        help='sample identifier (in filename) (i.e. 01234)'
+                        )
+    parser.add_argument('-r', '--run',
+                        # nargs='1',
+                        type=str,
+                        help='classifier run number (in filename) (i.e. run55)'
+                        )
 
     # TODO: if none provided, throw error
+    args = parser.parse_args()
+
+    id = args.sample_id
+    trial = args.trial_dir
+    run = args.run
+
+    # take output/SMMART/01234_ElasticNet__run55_output.p
+    # prefix = args.prefix
+    # clf_output_files = args.files
+    output_dir = base_dir + '/output/' + trial + '/'
+    plots_dir = base_dir + '/plots/' + trial + '/' + id + '/'
+    clf_output_files = [filename for filename in os.listdir(output_dir)
+                        if id and run in filename]
+
+    # generate
+    newdirs = [plots_dir + 'ElasticNet/' + run + '/',
+               plots_dir + 'SVRrbf/' + run + '/',
+               plots_dir + 'rForest/' + run + '/'
+               ]
+
+    for i in newdirs:
+        if not os.path.exists(i):
+            path = Path(i)
+            path.mkdir(parents=True)
+
     elast_data = None
     rfor_data = None
     svr_data = None
 
     for filename in clf_output_files:
         if 'ElasticNet' in filename:
-            elast_data = pickle.load(open(base_dir + '/output/' + filename, 'rb'))
+            elast_data = pickle.load(open(output_dir + filename, 'rb'))
             elast_data['clf_method'] = "ElasticNet"
         if 'rForest' in filename:
-            rfor_data = pickle.load(open(base_dir + '/output/' + filename, 'rb'))
+            rfor_data = pickle.load(open(output_dir + filename, 'rb'))
             rfor_data['clf_method'] = "rForest"
         if 'SVRrbf' in filename:
-            svr_data = pickle.load(open(base_dir + '/output/' + filename, 'rb'))
+            svr_data = pickle.load(open(output_dir + filename, 'rb'))
             svr_data['clf_method'] = "SVRrbf"
+        # TODO: throw error if none of these 3 are in file name
 
     # read in Iorio et al's drug-mutation associations (AUC)
     iorio_assoc = pd.read_csv(
@@ -320,11 +368,15 @@ def main():
     iorio_assoc = iorio_assoc.pivot(index='FEAT', columns='DRUG', values='PANCAN')
 
     if elast_data is not None:
-        pre_main(elast_data, iorio_assoc, prefix)
+        pre_main(elast_data, iorio_assoc, plots_dir, id, run)
     if rfor_data is not None:
-        pre_main(rfor_data, iorio_assoc, prefix)
+        pre_main(rfor_data, iorio_assoc, plots_dir, id, run)
     if svr_data is not None:
-        pre_main(svr_data, iorio_assoc, prefix)
+        pre_main(svr_data, iorio_assoc, plots_dir, id, run)
+
+    # again, just in case
+    plt.close('all')
+
 
 if __name__ == "__main__":
     main()
