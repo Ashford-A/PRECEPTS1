@@ -36,10 +36,10 @@ patient_files = {
                   "results/rsem/rsemOut.genes.results"),
     }
 
-patient_cohs = {'SMRT_16113': "TCGA-PRAD",
-                'SMRT_02299': "TCGA-PRAD",
-                'PTTB_4409': "TCGA-PAAD",
-                'PTTB_4315': "TCGA-PAAD"}
+patient_cohs = {'SMRT_16113': "BRCA",
+                'SMRT_02299': "PRAD",
+                'PTTB_4409': "PAAD",
+                'PTTB_4315': "PAAD"}
 tcga_backcohs = {'TCGA-BRCA', 'TCGA-OV', 'TCGA-GBM', 'TCGA-SKCM'}
 
 
@@ -54,7 +54,14 @@ def main(argv):
         base_dir + '/../../data/drugs/ioria/drug_anova.txt.gz',
         sep='\t', comment='#'
         )
-    drug_mut_assoc = drug_mut_assoc.ix[drug_mut_assoc['PANCAN'] != 0, :]
+
+    if patient_cohs[argv[0]] in drug_mut_assoc.columns:
+        drug_mut_assoc = drug_mut_assoc.ix[
+            drug_mut_assoc[patient_cohs[argv[0]]] != 0, :]
+
+    else:
+        drug_mut_assoc = drug_mut_assoc.ix[
+            drug_mut_assoc['PANCAN'] != 0, :]
 
     # categorize associations by mutation type
     pnt_indx = drug_mut_assoc['FEAT'].str.contains('_mut$')
@@ -74,7 +81,7 @@ def main(argv):
     # cross val seed is provided as last arg in an HTCondor submit script, and
     # cohort name is the first (should match cohort names as they appear in BMEG)
     tcga_var_coh = VariantCohort(
-        syn, cohort=patient_cohs[argv[0]],
+        syn, cohort="TCGA-{}".format(patient_cohs[argv[0]]),
         mut_genes=pnt_genes, mut_levels=['Gene', 'Type'],
         cv_seed=int(argv[-1])+1, cv_prop=1
         )
@@ -94,7 +101,7 @@ def main(argv):
     pnt_muts = {(gn + '_mut'): mtype for gn, mtype
                 in zip(pnt_genes, pnt_mtypes)
                 # TODO: the get_samples argument should be a MuTree...right?
-                if len(mtype.get_samples(tcga_var_coh.train_mut)) >= 3}
+                if len(mtype.get_samples(tcga_var_coh.train_mut)) >= 5}
     pnt_drugs = list(set(
         drug_mut_assoc['DRUG'][pnt_indx][drug_mut_assoc['FEAT'][pnt_indx].
                                     isin(pnt_muts.keys())]))

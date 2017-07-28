@@ -61,7 +61,7 @@ def get_drug_ioria(drug_list):
     drug_annot = pd.read_csv(DATA_PATH + 'drugs/ioria/drug_annot.txt.gz',
                              sep='\t', comment='#')
     drug_resp = pd.read_csv(DATA_PATH + 'drugs/ioria/drug-auc.txt.gz',
-                            sep='\t', comment='#')
+                            sep='\t', comment='#', index_col=0)
 
     # gets closest matching drug names available, retrieves corresponding drug
     # IDs used in the dataset
