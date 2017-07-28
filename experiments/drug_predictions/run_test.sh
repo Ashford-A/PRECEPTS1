@@ -6,7 +6,7 @@
 
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
-#SBATCH --mem-per-cpu=10000
+#SBATCH --mem-per-cpu=4000
 
 #SBATCH --output=/home/exacloud/lustre1/CompBio/mgrzad/tmp/drugs_%j.out
 #SBATCH --error=/home/exacloud/lustre1/CompBio/mgrzad/tmp/drugs_%j.err
