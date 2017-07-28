@@ -56,7 +56,7 @@ def get_expr_bmeg(cohort):
         >>> expr_data = get_expr_bmeg('TCGA-PCPG')
 
     """
-    oph = Ophion(choose_bmeg_server())
+    oph = Ophion(choose_bmeg_server(verbose=True))
     expr_list = {}
 
     # TODO: filter on gene chromosome when BMEG is updated

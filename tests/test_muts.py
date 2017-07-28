@@ -319,13 +319,42 @@ class TestCaseBasicMuTree:
 class TestCaseBasicMuType:
     """Tests for basic functionality of MuTypes."""
 
+    def apply_recursively(mtype):
+        for k, v in mtype:
+            assert isinstance(k, str)
+            assert v is None or isinstance(k, MuType)
+
+            if isinstance(v, MuType):
+                apply_recursively(v, func)
+
+    def test_iteration(self, mtype_tester):
+        """Can we iterate over the sub-types of a MuType?"""
+        for mtype in mtype_tester.get_types():
+            apply_recursively(mtype)
+
     def test_print(self, mtype_tester):
         """Can we print MuTypes?"""
+        for mtype in mtype_tester.get_types():
+            assert isinstance(print(mtype), str)
+            assert isinstance(repr(mtype), str)
+
+    def test_hash(self, mtype_tester):
+        """Can we get proper hash values of MuTypes?"""
         mtypes = mtype_tester.get_types()
 
-        for mtype in mtypes:
-            print(mtype)
+        for mtype1, mtype2 in product(mtypes, repeat=2):
+            assert (mtype1 == mtype2) == (hash(mtype1) == hash(mtype2))
 
+
+class TestCaseMuTypeBinary:
+    """Tests the binary operators defined for MuTypes."""
+
+    def test_empty(self):
+        """Are mutations correctly identified as being empty?"""
+        assert MuType({}).is_empty()
+
+    @pytest.mark.parametrize('mtype_tester', ['_all'],
+                             indirect=True, scope="function")
     def test_eq(self, mtype_tester):
         """Can we evaluate the equality of two MuTypes?"""
         mtypes = mtype_tester.get_types()
@@ -335,24 +364,6 @@ class TestCaseBasicMuType:
         for mtype1, mtype2 in combn(mtypes, 2):
             assert mtype1 != mtype2
 
-    def test_hash(self, mtype_tester):
-        """Can we get proper hash values of MuTypes?"""
-        mtypes = mtype_tester.get_types()
-
-        for mtype1, mtype2 in product(mtypes, repeat=2):
-            assert (mtype1 == mtype2) == (hash(mtype1) == hash(mtype2))
-
-    def test_rawkey(self, mtype_tester):
-        """Can we get the raw key of MuTypes?"""
-        mtypes = mtype_tester.get_types()
-
-        for mtype in mtypes:
-            mtype.raw_key()
-
-
-class TestCaseMuTypeBinary:
-    """Tests the binary operators defined for MuTypes."""
-    #TODO: implement tests for sorting MuTypes via __lt__
     @pytest.mark.parametrize('mtype_tester', ['_all'],
                              indirect=True, scope="function")
     def test_invariants(self, mtype_tester):
@@ -362,18 +373,18 @@ class TestCaseMuTypeBinary:
         for mtype in mtypes:
             assert mtype == (mtype & mtype)
             assert mtype == (mtype | mtype)
-            assert (mtype - mtype) is None
+            assert (mtype - mtype).is_empty()
 
         for mtype1, mtype2 in combn(mtypes, 2):
             if mtype1.get_levels() == mtype2.get_levels():
-                assert not (mtype1 | mtype2) < (mtype1 & mtype2)
+                assert (mtype1 & mtype2) in (mtype1 | mtype2)
 
             if mtype1.get_levels() <= mtype2.get_levels():
-                if mtype1 >= mtype2:
+                if mtype1 == mtype2 or mtype2 in mtype1:
                     assert mtype2 == (mtype1 & mtype2)
 
             if mtype1.get_levels() >= mtype2.get_levels():
-                if mtype1 <= mtype2:
+                if mtype1 == mtype2 or mtype1 in mtype2:
                     assert mtype2 == (mtype1 | mtype2)
 
     @pytest.mark.parametrize('mtype_tester', ['small'],
@@ -417,6 +428,21 @@ class TestCaseMuTypeBinary:
                     ('Exon', '10/363'): None
                     }}})
         assert (mtypes[1] & mtypes[2]) == and_mtype
+
+    @pytest.mark.parametrize('mtype_tester', ['_all'],
+                             indirect=True, scope="function")
+    def test_sort(self, mtype_tester):
+        """Can we correctly sort MuTypes?"""
+        mtypes = mtype_tester.get_types()
+
+        for mtype1, mtype2 in combn(mtypes, 2):
+            if mtype1 == mtype2:
+                assert not mtype1 < mtype2
+                assert not mtype2 < mtype1
+
+            assert sorted(mtypes) == sorted(list(reversed(mtypes)))
+            assert (sorted([mtypes[1], mtypes[5]])
+                    == sorted([mtypes[5], mtypes[1]))
 
     @pytest.mark.parametrize('mtype_tester', ['binary'],
                              indirect=True, scope="function")
