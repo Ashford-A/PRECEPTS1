@@ -238,7 +238,7 @@ def get_scheme_label(pnt_schemes):
     if pnt_schemes[1][0] == 'sub_mtype':
         clr_lbl += '_sub-{}'.format(str(pnt_schemes[1][1]))
 
-    return clr_lbl
+    return clr_lbl.replace("/", "_")
 
 
 def print_coefs(coef_dict, top_n=20):

@@ -28,7 +28,6 @@ import pickle
 
 from itertools import combinations as combn
 from itertools import chain
-from functools import reduce
 
 # how many samples must contain a mutation for us to consider it?
 freq_cutoff = 20
@@ -53,49 +52,76 @@ def main(argv):
         cv_prop=1.0
         )
 
-    # finds the sub-types satisfying the sample frequency criterion
-    sub_mtypes = cdata.train_mut.subtypes(min_size=freq_cutoff)
-    sub_mtypes |= set(
-        reduce(lambda x, y: x | y, mtypes)
-        for mtypes in chain(combn(sub_mtypes, 2), combn(sub_mtypes, 3))
-        )
-    sub_mtypes |= cdata.train_mut.treetypes(
-        min_size=freq_cutoff, sub_levels=['Gene', 'Form_base'])
+    # finds the sub-types satisfying the sample frequency criterion, starting
+    # with the ones that are combinations of individual branches
+    use_mtypes = set()
+    use_sampsets = set()
+    comb_size = 0
 
-    exon_mtypes = cdata.train_mut.subtypes(
-        min_size=freq_cutoff, sub_levels=['Gene', 'Exon'])
-    sub_mtypes |= exon_mtypes
+    while len(use_mtypes) < 1000 and comb_size <= 5:
+        comb_size += 1
 
-    exon_mtypes = cdata.train_mut.subtypes(
-        min_size=freq_cutoff / 2, sub_levels=['Gene', 'Exon'])
-    sub_mtypes |= set(
-        reduce(lambda x, y: x | y, mtypes)
-        for mtypes in chain(combn(exon_mtypes, 2), combn(exon_mtypes, 3))
-        )
+        sub_mtypes = cdata.train_mut.combtypes(
+            comb_sizes=(comb_size, ), min_type_size=freq_cutoff)
+        if len(sub_mtypes) < 800:
 
-    exon_mtypes = cdata.train_mut.subtypes(
-        min_size=freq_cutoff, sub_levels=['Gene', 'Form_base', 'Exon'])
-    sub_mtypes |= exon_mtypes
+            for mtype in sub_mtypes.copy():
+                mtype_sampset = frozenset(mtype.get_samples(cdata.train_mut))
 
-    exon_mtypes = cdata.train_mut.subtypes(
-        min_size=freq_cutoff / 2, sub_levels=['Gene', 'Form_base', 'Exon'])
-    sub_mtypes |= set(
-        reduce(lambda x, y: x | y, mtypes)
-        for mtypes in combn(exon_mtypes, 2)
-        )
+                if mtype_sampset in use_sampsets:
+                    print("Removing functionally duplicate MuType {}"
+                          .format(mtype))
+                    sub_mtypes.remove(mtype)
 
-    loc_mtypes = cdata.train_mut.subtypes(
-        min_size=freq_cutoff, sub_levels=['Gene', 'Location'])
-    sub_mtypes |= loc_mtypes
+                else:
+                    use_sampsets.update(mtype_sampset)
 
-    loc_mtypes = cdata.train_mut.subtypes(
-        min_size=freq_cutoff / 2, sub_levels=['Gene', 'Location'])
-    sub_mtypes |= set(reduce(lambda x, y: x | y, mtypes)
-                      for mtypes in combn(loc_mtypes, 2))
+            use_mtypes |= sub_mtypes
+        
+        else:
+            break
+
+        print("Found {} sub-types that are combinations of {} branch(es)."
+              .format(len(sub_mtypes), comb_size))
+
+    print("Using {} sub-types of branch combinations."
+          .format(len(use_mtypes)))
+
+    # adds the subtypes that are combinations of branches corresponding to
+    # particular locations shared between different mutation forms
+    comb_size = 0
+    while len(use_mtypes) < 1500 and comb_size <= 10:
+        comb_size += 1
+
+        sub_mtypes = cdata.train_mut.combtypes(
+            sub_levels=['Gene', 'Exon', 'Location'],
+            comb_sizes=(comb_size, ), min_type_size=freq_cutoff)
+        if len(sub_mtypes) < 400:
+
+            for mtype in sub_mtypes.copy():
+                mtype_sampset = frozenset(mtype.get_samples(cdata.train_mut))
+
+                if mtype_sampset in use_sampsets:
+                    print("Removing functionally duplicate MuType {}"
+                          .format(mtype))
+                    sub_mtypes.remove(mtype)
+
+                else:
+                    use_sampsets.update(mtype_sampset)
+
+            use_mtypes |= sub_mtypes
+
+        else:
+            break
+
+        print("Found {} sub-types that are combinations of {} exon/hotspot "
+              "branch(es).".format(len(sub_mtypes), comb_size))
+
+    print("Using {} total sub-types of branch and exon/hotspot combinations."
+          .format(len(use_mtypes)))
 
     # save the list of sub-types to file
-    print(len(sub_mtypes))
-    pickle.dump(list(sub_mtypes),
+    pickle.dump(list(use_mtypes),
                 open(os.path.join(out_path, 'tmp/mtype_list.p'), 'wb'))
 
 

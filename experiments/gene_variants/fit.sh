@@ -24,7 +24,7 @@ echo $cohort
 echo $gene
 
 # pause between starting array jobs to allow BMEG to take a nap-nap and recover
-sleep $(($SLURM_ARRAY_TASK_ID * 17));
+sleep $(($SLURM_ARRAY_TASK_ID * 23));
 
 # get the cross-validation ID and sub-variant sub-task ID defined by this
 # job's SLURM array ID

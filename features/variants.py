@@ -614,7 +614,7 @@ class MuTree(object):
 
         return new_key
 
-    def subtypes(self, mtype=None, sub_levels=None, min_size=1):
+    def branchtypes(self, mtype=None, sub_levels=None, min_size=1):
         """Gets all MuTypes corresponding to one branch of the MuTree.
 
         Args:
@@ -634,21 +634,21 @@ class MuTree(object):
         Examples:
             >>> # get all possible single-branch MuTypes
             >>> mtree = MuTree(...)
-            >>> mtree.subtypes()
+            >>> mtree.branchtypes()
             >>>
             >>> # get all possible MuTypes with at least five samples
-            >>> mtree.subtypes(min_size=5)
+            >>> mtree.branchtypes(min_size=5)
             >>>
             >>> # use different filters on the MuTypes returned for a given
             >>> # MuTree based on mutation type and mutation level
-            >>> mtree.subtypes(sub_levels=['Gene'])
+            >>> mtree.branchtypes(sub_levels=['Gene'])
                 {MuType({('Gene', 'TP53'): None}),
                  MuType({('Gene', 'TTN'): None})}
-            >>> mtree.subtypes(sub_levels=['Gene', 'Type'])
+            >>> mtree.branchtypes(sub_levels=['Gene', 'Type'])
                 {MuType({('Gene', 'TP53'): {('Type', 'Point'): None}}),
                  MuType({('Gene', 'TP53'): {('Type', 'Frame'): None}}),
                  MuType({('Gene', 'TTN'): {('Type', 'Point'): None}})}
-            >>> mtree.subtypes(mtype=MuType({('Gene', 'TTN'): None}),
+            >>> mtree.branchtypes(mtype=MuType({('Gene', 'TTN'): None}),
             >>>               sub_levels=['Gene', 'Type'])
                 {MuType({('Gene', 'TTN'): {('Type', 'Point'): None}})}
 
@@ -679,14 +679,14 @@ class MuTree(object):
                 
                     sub_mtypes |= set(
                         MuType({(self.mut_level, nm): rec_mtype})
-                        for rec_mtype in branch.subtypes(
+                        for rec_mtype in branch.branchtypes(
                             btype, sub_levels, min_size)
                         )
 
         else:
             recurse_mtypes = reduce(
                 lambda x, y: x | y,
-                [branch.subtypes(btype, sub_levels, min_size=1)
+                [branch.branchtypes(btype, sub_levels, min_size=1)
                  for (nm, branch), (_, btype) in filter(
                      lambda x: x[0][0] == x[1][0], product(self, mtype))]
                 )
@@ -699,8 +699,8 @@ class MuTree(object):
         return sub_mtypes
 
     def combtypes(self,
-                  mtype=None, sub_levels=None,
-                  min_size=1, comb_sizes=(1, 2)):
+                  mtype=None, sub_levels=None, comb_sizes=(1, 2),
+                  min_type_size=10, min_branch_size='auto'):
         """Gets all MuTypes that combine multiple branches of the tree.
 
         Args:
@@ -710,12 +710,12 @@ class MuTree(object):
             sub_levels (list of str), optional
                 The levels of the leaf nodes of the returned MuTypes. The
                 default is to use all levels of the MuTree.
-            min_size (int), optional
-                The minimum number of samples in each returned MuType. The
-                default is not to do filtering based on MuType sample count.
             comb_sizes (list of int), optional
                 The number of branches that each returned MyType can combine.
                 The default is to consider combinations of up to two branches.
+            min_type_size (int), optional
+                The minimum number of samples in each returned MuType. The
+                default is each returned MuType having at least ten samples.
 
         Returns:
             comb_mtypes (set of MuType)
@@ -731,13 +731,21 @@ class MuTree(object):
 
         """
         comb_mtypes = set()
-        all_subs = self.subtypes(mtype, sub_levels)
+
+        if not isinstance(min_branch_size, str):
+            branch_mtypes = self.branchtypes(
+                mtype, sub_levels, min_size=min_branch_size)
 
         for csize in comb_sizes:
-            for kc in combn(all_subs, csize):
+            if min_branch_size == 'auto':
+                branch_mtypes = self.branchtypes(
+                    mtype, sub_levels, min_size=(min_type_size / csize))
+
+            for kc in combn(branch_mtypes, csize):
                 new_set = reduce(lambda x, y: x | y, kc)
 
-                if len(new_set.get_samples(self)) >= min_size:
+                if (min_branch_size == 'auto'
+                    or len(new_set.get_samples(self)) >= min_type_size):
                     comb_mtypes |= {new_set}
 
         return comb_mtypes

@@ -34,36 +34,41 @@ def main(argv):
     # cross-validation id for this task
     syn = synapseclient.Synapse()
     syn.login()
+    cdata = MutCohort(
+        syn, cohort=coh_lbl, mut_genes=[argv[1]],
+        mut_levels=['Gene', 'Form'], cv_prop=1.0)
 
-    for cv_id in range(5):
-        cdata = MutCohort(syn, cohort=coh_lbl, mut_genes=[argv[1]],
-                          mut_levels=['Gene', 'Form'],
-                          cv_seed=(cv_id + 3) * 19)
-
-        cna_list = [cna_mtype for cna_mtype in
-                    [MuType({('Gene', argv[1]): {
-                        ('Form', 'CNA_{}'.format(cna)): None}})
-                        for cna in (-2,-1,1,2)]
-                    if len(cna_mtype.get_samples(cdata.train_mut)) >= 12]
-
-        if len(MuType({('Gene', argv[1]): {
-                ('Form', 'CNA_-2'): None
-                    }}).get_samples(cdata.train_mut)) > 0:
-            cna_list.extend([MuType(
+    cna_list = [cna_mtype for cna_mtype in
+                [MuType({('Gene', argv[1]): {
+                    ('Form', 'CNA_{}'.format(cna)): None}})
+                    for cna in (-2,-1,1,2)]
+                if len(cna_mtype.get_samples(cdata.train_mut)) >= 20]
+    
+    if len(MuType({('Gene', argv[1]): {
+            ('Form', 'CNA_-2'): None}}).get_samples(cdata.train_mut)) > 0:
+        cna_list.extend([MuType(
                 {('Gene', argv[1]): {
                     ('Form', ('CNA_-1', 'CNA_-2')): None}})])
+    
+    if len(MuType({('Gene', argv[1]): {
+            ('Form', 'CNA_2'): None}}).get_samples(cdata.train_mut)) > 0:
+        cna_list.extend([MuType(
+            {('Gene', argv[1]): {
+                ('Form', ('CNA_1', 'CNA_2')): None}})])
 
-        if len(MuType({('Gene', argv[1]): {
-                ('Form', 'CNA_2'): None
-                    }}).get_samples(cdata.train_mut)) > 0:
-            cna_list.extend([MuType(
-                {('Gene', argv[1]): {
-                    ('Form', ('CNA_1', 'CNA_2')): None}})])
+    base_mtype = MuType(
+        {('Gene', argv[1]): {
+            ('Form', ('CNA_-2', 'CNA_-1', 'CNA_1', 'CNA_2')): None}}
+        )
+
+    for cv_id in range(5):
+        cdata = MutCohort(
+            syn, cohort=coh_lbl, mut_genes=[argv[1]],
+            mut_levels=['Gene', 'Form'], cv_seed=(cv_id + 3) * 19)
 
         # gets the mutation type representing all of the mutations for the given
         # gene, finds which samples have these mutations in the training and
         # testing cohorts
-        base_mtype = MuType({('Gene', argv[1]): None})
         tp53_train_samps = base_mtype.get_samples(cdata.train_mut)
         tp53_test_samps = base_mtype.get_samples(cdata.test_mut)
 
@@ -71,11 +76,6 @@ def main(argv):
         out_coef = {mtype: None for mtype in cna_list}
         out_acc = {mtype: None for mtype in cna_list}
         out_pred = {mtype: None for mtype in cna_list}
-
-        out_cross = {mtypes: [None, None, None, None]
-                     for mtypes in product(cna_list, mtype_list)}
-        out_mutex = {tuple(sorted(mtypes)): None
-                     for mtypes in product(cna_list, mtype_list)}
 
         for mtype in cna_list:
             ex_train = tp53_train_samps - mtype.get_samples(cdata.train_mut)
@@ -101,37 +101,11 @@ def main(argv):
             out_pred[mtype] = np.array(
                 clf.predict_test(cdata, exclude_genes=[argv[1]]))
 
-            for other_mtype in mtype_list:
-                other_stat = cdata.test_pheno(other_mtype)
-
-                none_which = ~test_stat & ~other_stat
-                if np.sum(none_which) >= 5:
-                    out_cross[mtype, other_mtype][0] = np.mean(
-                        out_pred[mtype][none_which])
-
-                other_which = ~test_stat & other_stat
-                if np.sum(other_which) >= 5:
-                    out_cross[mtype, other_mtype][1] = np.mean(
-                        out_pred[mtype][other_which])
-
-                cur_which = test_stat & ~other_stat
-                if np.sum(cur_which) >= 5:
-                    out_cross[mtype, other_mtype][2] = np.mean(
-                        out_pred[mtype][cur_which])
-
-                both_which = test_stat & other_stat
-                if np.sum(both_which) >= 5:
-                    out_cross[mtype, other_mtype][3] = np.mean(
-                        out_pred[mtype][both_which])
-
-                out_mutex[mtype, other_mtype] = cdata.mutex_test(
-                    mtype, other_mtype)
-
         # saves classifier results to file
         out_file = os.path.join(out_dir, 'results',
                                 'out__cv-{}_task-cna.p'.format(cv_id))
-        pickle.dump({'Stat': out_stat, 'Coef': out_coef, 'Mutex': out_mutex,
-                     'Acc': out_acc, 'Pred': out_pred, 'Cross': out_cross},
+        pickle.dump({'Stat': out_stat, 'Coef': out_coef,
+                     'Acc': out_acc, 'Pred': out_pred},
                     open(out_file, 'wb'))
 
 
