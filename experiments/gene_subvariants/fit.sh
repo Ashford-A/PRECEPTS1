@@ -16,12 +16,13 @@
 
 # move to the working directory, find where to place output
 cd ~/compbio/bergamot
-TEMPDIR=HetMan/experiments/gene_subvariants/output/$cohort/$gene
+TEMPDIR=HetMan/experiments/gene_subvariants/output/$cohort/$gene/$classif
 
 # disable threading on each CPU, print info about this array job
 export OMP_NUM_THREADS=1
 echo $cohort
 echo $gene
+echo $classif
 
 # pause between starting array jobs to allow BMEG to take a nap-nap and recover
 sleep $(($SLURM_ARRAY_TASK_ID * 23));
@@ -36,5 +37,6 @@ task_id=$(($SLURM_ARRAY_TASK_ID % 8));
 srun -p=exacloud \
 	--output=$TEMPDIR/slurm/fit-${cv_id}_${task_id}.txt \
 	--error=$TEMPDIR/slurm/fit-${cv_id}_${task_id}.err \
-	python HetMan/experiments/gene_subvariants/fit.py $cohort $gene $cv_id $task_id
+	python HetMan/experiments/gene_subvariants/fit.py \
+	$cohort $gene $classif $cv_id $task_id
 

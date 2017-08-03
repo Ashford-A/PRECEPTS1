@@ -39,7 +39,7 @@ def main(argv):
     # get the directory where results will be saved and the name of the
     # TCGA cohort we will be using
     print(argv)
-    out_path = os.path.join(base_dir, 'output', argv[0], argv[1])
+    out_path = os.path.join(base_dir, 'output', argv[0], argv[1], argv[2])
     coh_lbl = 'TCGA-{}'.format(argv[0])
 
     # load the expression data and the gene's mutation data

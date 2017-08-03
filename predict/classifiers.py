@@ -56,7 +56,18 @@ class RobustNB(MutPipe):
             )
 
 
-class Lasso(MutPipe):
+class LinearMutPipe(MutPipe):
+    """A class corresponding to linear logistic regression classification
+       of mutation status. See below for classes implementing specific
+       regularization penalties.
+    """
+
+    def get_coef(self):
+        return {gene: coef for gene, coef in
+                zip(self.genes, self.named_steps['fit'].coef_[0])}
+
+
+class Lasso(LinearMutPipe):
     """A class corresponding to logistic regression classification
        of mutation status with the lasso regularization penalty.
     """
@@ -76,12 +87,8 @@ class Lasso(MutPipe):
             path_keys=path_keys
             )
 
-    def get_coef(self):
-        return {gene: coef for gene, coef in
-                zip(self.genes, self.named_steps['fit'].coef_[0])}
 
-
-class LogReg(MutPipe):
+class ElasticNet(LinearMutPipe):
     """A class corresponding to logistic regression classification
        of mutation status with the elastic net regularization penalty.
     """
@@ -94,17 +101,16 @@ class LogReg(MutPipe):
     def __init__(self, path_keys=None):
         feat_step = PathwaySelect(path_keys=path_keys)
         norm_step = StandardScaler()
-        fit_step = SGDClassifier(
-            loss='log', penalty='elasticnet',
-            n_iter=100, class_weight='balanced')
-        MutPipe.__init__(
-            self,
+        fit_step = SGDClassifier(loss='log', penalty='elasticnet',
+                                 n_iter=100, class_weight='balanced')
+
+        super().__init__(
             [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],
-            path_keys
+            path_keys=path_keys
             )
 
 
-class Ridge(MutPipe):
+class Ridge(LinearMutPipe):
     """A class corresponding to logistic regression classification
        of mutation status with the ridge regularization penalty.
     """
@@ -116,12 +122,12 @@ class Ridge(MutPipe):
     def __init__(self, path_keys=None):
         feat_step = PathwaySelect(path_keys=path_keys)
         norm_step = StandardScaler()
-        fit_step = LogisticRegression(
-            penalty='l1', tol=1e-2, class_weight='balanced')
-        MutPipe.__init__(
-            self,
+        fit_step = LogisticRegression(penalty='l2', tol=1e-2,
+                                      class_weight='balanced')
+
+        super().__init__(
             [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],
-            path_keys
+            path_keys=path_keys
             )
 
 

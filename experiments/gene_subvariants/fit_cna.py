@@ -7,7 +7,7 @@ sys.path.extend([os.path.join(base_dir, '../../..')])
 
 from HetMan.features.variants import MuType
 from HetMan.features.cohorts import MutCohort
-from HetMan.predict.classifiers import Lasso
+from HetMan.predict.classifiers import Lasso, ElasticNet, Ridge
 
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
@@ -24,10 +24,11 @@ def main(argv):
     # gets the directory where output will be saved and the name of the TCGA
     # cohort under consideration, loads the list of gene sub-variants 
     print(argv)
-    out_dir = os.path.join(base_dir, 'output', argv[0], argv[1])
+    out_dir = os.path.join(base_dir, 'output', argv[0], argv[1], argv[2])
     coh_lbl = 'TCGA-{}'.format(argv[0])
     mtype_list = pickle.load(
         open(os.path.join(out_dir, 'tmp', 'mtype_list.p'), 'rb'))
+    mut_clf = eval(argv[2])
 
     # loads the expression data and gene mutation data for the given TCGA
     # cohort, with the training/testing cohort split defined by the
@@ -87,7 +88,7 @@ def main(argv):
             out_stat[mtype] = np.where(cdata.test_pheno(mtype))[0].tolist()
             print(len(out_stat[mtype]))
 
-            clf = Lasso()
+            clf = mut_clf()
             clf.tune_coh(cdata, mtype, tune_splits=4,
                          test_count=16, parallel_jobs=8,
                          exclude_genes=chr_genes, exclude_samps=ex_train)

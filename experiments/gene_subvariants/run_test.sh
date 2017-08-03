@@ -29,9 +29,16 @@ then
 	export gene="TP53"
 fi
 
+# finds the name of classifier used to identify expression signatures
+if [ -z ${classif+x} ]
+then
+	echo "no classifier defined, defaulting to HetMan.predict.classifers.Lasso"
+	export classif="Lasso"
+fi
+
 # gets the output directory where results will be saved,
 # removing it if it already exists
-TEMPDIR=HetMan/experiments/gene_subvariants/output/$cohort/$gene
+TEMPDIR=HetMan/experiments/gene_subvariants/output/$cohort/$gene/$classif
 echo $TEMPDIR
 rm -rf $TEMPDIR
 
@@ -43,12 +50,12 @@ mkdir -p $TEMPDIR/results
 # submits the script that enumerates the gene sub-variants to be considered
 srun -p=exacloud --ntasks=1 --cpus-per-task=1 \
 	--output=$TEMPDIR/slurm/setup.txt --error=$TEMPDIR/slurm/setup.err \
-	python HetMan/experiments/gene_subvariants/setup.py $cohort $gene
+	python HetMan/experiments/gene_subvariants/setup.py $cohort $gene $classif
 
 # submits the array script that finds these sub-variants' expression effects
 sbatch HetMan/experiments/gene_subvariants/fit.sh
 
 srun -p=exacloud \
 	--output=$TEMPDIR/slurm/fit_cna.txt --error=$TEMPDIR/slurm/fit_cna.err \
-	python HetMan/experiments/gene_subvariants/fit_cna.py $cohort $gene
+	python HetMan/experiments/gene_subvariants/fit_cna.py $cohort $gene $classif
 

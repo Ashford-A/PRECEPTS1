@@ -15,12 +15,12 @@ repeat this process for multiple splits of the TCGA cohort into training/
 testing cohorts, as defined by the cross-validation ID.
 
 Args:
-    fit.py <cohort> <gene> <cv_id> <task_id>
+    fit.py <cohort> <gene> <classif> <cv_id> <task_id>
 
 Examples:
-    fit.py BRCA TP53 2 4
-    fit.py UCEC PTEN 0 2
-    fit.py SKCM TTN 3 1
+    fit.py BRCA TP53 Lasso 2 4
+    fit.py UCEC PTEN ElasticNet 0 2
+    fit.py SKCM TTN Ridge 3 1
 
 """
 
@@ -32,7 +32,7 @@ sys.path.extend([os.path.join(base_dir, '../../..')])
 
 from HetMan.features.variants import MuType
 from HetMan.features.cohorts import VariantCohort
-from HetMan.predict.classifiers import Lasso
+from HetMan.predict.classifiers import Lasso, ElasticNet, Ridge
 
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
@@ -49,10 +49,11 @@ def main(argv):
     # gets the directory where output will be saved and the name of the TCGA
     # cohort under consideration, loads the list of gene sub-variants 
     print(argv)
-    out_dir = os.path.join(base_dir, 'output', argv[0], argv[1])
+    out_dir = os.path.join(base_dir, 'output', argv[0], argv[1], argv[2])
     coh_lbl = 'TCGA-{}'.format(argv[0])
     mtype_list = pickle.load(
         open(os.path.join(out_dir, 'tmp', 'mtype_list.p'), 'rb'))
+    mut_clf = eval(argv[2])
 
     # loads the expression data and gene mutation data for the given TCGA
     # cohort, with the training/testing cohort split defined by the
@@ -62,7 +63,7 @@ def main(argv):
     cdata = VariantCohort(
         syn, cohort=coh_lbl, mut_genes=[argv[1]],
         mut_levels=['Gene', 'Form_base', 'Exon', 'Location'],
-        cv_seed=(int(argv[2]) + 3) * 19
+        cv_seed=(int(argv[3]) + 3) * 19
         )
 
     # gets the mutation type representing all of the mutations for the given
@@ -80,7 +81,7 @@ def main(argv):
     # for each of the gene's sub-variants, check if it has been assigned to
     # this task
     for i, mtype in enumerate(mtype_list):
-        if i % 8 == int(argv[3]):
+        if i % 8 == int(argv[4]):
             print(mtype)
 
             ex_train = tp53_train_samps - mtype.get_samples(cdata.train_mut)
@@ -89,7 +90,7 @@ def main(argv):
             out_stat[mtype] = np.where(cdata.test_pheno(mtype))[0].tolist()
             print(len(out_stat[mtype]))
 
-            clf = Lasso()
+            clf = mut_clf()
             clf.tune_coh(cdata, mtype, tune_splits=4,
                          test_count=16, parallel_jobs=8,
                          exclude_genes=[argv[1]], exclude_samps=ex_train)
@@ -112,7 +113,7 @@ def main(argv):
 
     # saves classifier results to file
     out_file = os.path.join(out_dir, 'results',
-                            'out__cv-{}_task-{}.p'.format(argv[2], argv[3]))
+                            'out__cv-{}_task-{}.p'.format(argv[3], argv[4]))
     pickle.dump({'Stat': out_stat, 'Coef': out_coef,
                  'Acc': out_acc, 'Pred': out_pred},
                 open(out_file, 'wb'))
