@@ -2,6 +2,9 @@
 import os
 base_dir = os.path.dirname(os.path.realpath(__file__))
 
+import sys
+sys.path.extend([os.path.join(base_dir, '../../..')])
+
 import numpy as np
 import pandas as pd
 
@@ -9,6 +12,7 @@ import glob
 import argparse
 import pickle
 import re
+import colorsys
 
 from itertools import chain, permutations
 
@@ -64,13 +68,24 @@ def get_median_coefs(out_data):
     return coef_df
 
 
+def get_overlap_stat(out_data, mtype1, mtype2):
+    stat1 = [set(dt['Stat'][mtype1]) for dt in out_data]
+    stat2 = [set(dt['Stat'][mtype2]) for dt in out_data]
+    stat_ov = [len(s1 & s2) for s1, s2 in zip(stat1, stat2)]
+
+    sub_indx = np.mean([ov / len(s1) for ov, s1 in zip(stat_ov, stat1)])
+    sup_indx = np.mean([ov / len(s2) for ov, s2 in zip(stat_ov, stat2)])
+
+    return sub_indx, sup_indx
+
+
 def choose_point_scheme(pnt_scheme, **scheme_args):
     """Choose the plotting characteristics of an individual point."""
 
     if pnt_scheme is None:
         plt_clr = 'black'
-        plt_size = 50
-        plt_alpha = 0.7
+        plt_size = 25
+        plt_alpha = 0.5
         plt_mark = 'o'
         plt_lbl = None
 
@@ -108,60 +123,82 @@ def choose_point_scheme(pnt_scheme, **scheme_args):
             plt_alpha = 0.2
             plt_mark = 'o'
 
+    elif pnt_scheme[0] == 'ovlp_mtype':
+        ovlp_mtype = pnt_scheme[1]
+
+
+        if ovlp_mtype == scheme_args['mtype']:
+            plt_size = 260
+            plt_mark = '*'
+            plt_clr = 'black'
+            plt_alpha = 0.7
+
+        else:
+            plt_mark = 'o'
+            sub_indx, sup_indx = get_overlap_stat(
+                scheme_args['out_data'], ovlp_mtype, scheme_args['mtype'])
+
+            plt_size = 7 + 15 * ((sub_indx + sup_indx) ** 2)
+            clr_h = 300 + (sup_indx - sub_indx) * 100
+            clr_s = abs(sub_indx - sup_indx) ** (1 - (sub_indx + sup_indx) / 2)
+            clr_v = 1 - ((sub_indx + sup_indx) / 2) ** 2
+            plt_alpha = (sub_indx + sup_indx) / 4 + 0.16
+            plt_clr = colorsys.hsv_to_rgb(clr_h / 360, clr_s, clr_v)
+
     elif pnt_scheme == 'main_subs':
         gn = [k for k,v in scheme_args['mtype']][0]
 
         if scheme_args['mtype'] == MuType({('Gene', gn): None}):
             plt_clr = 'black'
-            plt_size = 200
+            plt_size = 250
             plt_alpha = 0.8
             plt_mark = '*'
 
         elif scheme_args['mtype'] == MuType(
                 {('Gene', gn): {('Form_base', 'Missense_Mutation'): None}}):
-            plt_clr = '#31224A'
-            plt_size = 190
+            plt_clr = '#801515'
+            plt_size = 230
             plt_alpha = 0.8
             plt_mark = '*'
 
         elif scheme_args['mtype'] == MuType(
                 {('Gene', gn): {('Form_base', 'Nonsense_Mutation'): None}}):
             plt_clr = '#466228'
-            plt_size = 190
+            plt_size = 230
             plt_alpha = 0.8
             plt_mark = '*'
 
         elif scheme_args['mtype'] == MuType(
                 {('Gene', gn): {('Form_base', 'Frame_Shift'): None}}):
             plt_clr = '#6C4E2C'
-            plt_size = 190
+            plt_size = 230
             plt_alpha = 0.8
             plt_mark = '*'
 
-        elif MuType({('Gene', gn): {('Form_base', 'Missense_Mutation'): None}})\
-                .is_supertype(scheme_args['mtype']):
-            plt_clr = '#31224A'
-            plt_size = 25
-            plt_alpha = 0.4
-            plt_mark = 'o'
+#        elif MuType({('Gene', gn): {('Form_base', 'Missense_Mutation'): None}})\
+#                .is_supertype(scheme_args['mtype']):
+#            plt_clr = '#31224A'
+#            plt_size = 25
+#            plt_alpha = 0.4
+#            plt_mark = 'o'
 
-        elif MuType({('Gene', gn): {('Form_base', 'Nonsense_Mutation'): None}})\
-                .is_supertype(scheme_args['mtype']):
-            plt_clr = '#466228'
-            plt_size = 25
-            plt_alpha = 0.4
-            plt_mark = 'o'
+#        elif MuType({('Gene', gn): {('Form_base', 'Nonsense_Mutation'): None}})\
+#                .is_supertype(scheme_args['mtype']):
+#            plt_clr = '#466228'
+#            plt_size = 25
+#            plt_alpha = 0.4
+#            plt_mark = 'o'
 
-        elif MuType({('Gene', gn): {('Form_base', 'Frame_Shift'): None}})\
-                .is_supertype(scheme_args['mtype']):
-            plt_clr = '#6C4E2C'
-            plt_size = 25
-            plt_alpha = 0.4
-            plt_mark = 'o'
+#        elif MuType({('Gene', gn): {('Form_base', 'Frame_Shift'): None}})\
+#                .is_supertype(scheme_args['mtype']):
+#            plt_clr = '#6C4E2C'
+#            plt_size = 25
+#            plt_alpha = 0.4
+#            plt_mark = 'o'
 
         else:
             plt_clr = 'black'
-            plt_size = 9
+            plt_size = 12
             plt_alpha = 0.2
             plt_mark = 'o'
 
@@ -222,11 +259,18 @@ def get_legend_label(pnt_scheme, **scheme_args):
         else:
             plt_lbl = 'Other'
 
+    elif pnt_scheme[0] == 'ovlp_mtype':
+        if scheme_args['mtype'] == pnt_scheme[1]:
+            plt_lbl = str(scheme_args['mtype'])
+        else:
+            plt_lbl = None
+
     return plt_lbl
 
 
 def get_scheme_label(pnt_schemes):
-    if pnt_schemes is None:
+
+    if pnt_schemes[0] is None:
         clr_lbl = 'none'
 
     elif pnt_schemes[0][0] == 'sub_mtype':
@@ -235,8 +279,14 @@ def get_scheme_label(pnt_schemes):
     elif pnt_schemes[0] == 'main_subs':
         clr_lbl = 'main_subs'
 
+    elif pnt_schemes[0][0] == 'ovlp_mtype':
+        clr_lbl = 'ovlp-{}'.format(pnt_schemes[0][0])
+
     if pnt_schemes[1][0] == 'sub_mtype':
         clr_lbl += '_sub-{}'.format(str(pnt_schemes[1][1]))
+
+    elif pnt_schemes[1] == 'main_subs':
+        clr_lbl += '_main_subs'
 
     return clr_lbl.replace("/", "_")
 
@@ -274,12 +324,12 @@ def plot_signature_pca(args, out_data, pnt_schemes=None):
 
             if pc_a > pc_b:
                 plt_clr, plt_size, plt_alpha, plt_mark = choose_point_scheme(
-                    pnt_schemes[0], mtype=mtype)
+                    pnt_schemes[0], mtype=mtype, out_data=out_data)
                 plt_lbl = get_legend_label(pnt_schemes[0], mtype=mtype)
 
             else:
                 plt_clr, plt_size, plt_alpha, plt_mark = choose_point_scheme(
-                    pnt_schemes[1], mtype=mtype)
+                    pnt_schemes[1], mtype=mtype, out_data=out_data)
                 plt_lbl = get_legend_label(pnt_schemes[1], mtype=mtype)
 
             if plt_lbl in plt_lbls:
@@ -289,25 +339,28 @@ def plot_signature_pca(args, out_data, pnt_schemes=None):
 
             axarr[pc_a, pc_b].scatter(
                 plt_x[-1], plt_y[-1], alpha=plt_alpha, s=plt_size,
-                c=plt_clr, marker=plt_mark, label=plt_lbl
+                c=plt_clr, marker=plt_mark, label=plt_lbl, edgecolor='black'
                 )
 
         if abs(pc_a - pc_b) == 2:
             leg_adj = np.sign(pc_a - pc_b)
-            handles, labels = axarr[pc_a, pc_b].get_legend_handles_labels()
 
-            sort_hand, sort_lbl = zip(*sorted(
-                zip(handles, labels),
-                key=lambda x: x[0].get_sizes()
-                )[::-1])
+            leg_obj = axarr[pc_a, pc_b].get_legend_handles_labels()
+            if len(leg_obj[0]) > 0:
+                handles, labels = leg_obj
 
-            axarr[pc_a, pc_b].legend(
-                sort_hand, sort_lbl,
-                bbox_to_anchor=(0.5 - 0.5 * leg_adj,
-                                0.5 - 0.55 * leg_adj),
-                loc=(3 - leg_adj), borderaxespad=0., markerscale=1.8, ncol=3,
-                labelspacing=1.4, borderpad=1.2, fontsize=16
-                )
+                sort_hand, sort_lbl = zip(*sorted(
+                    zip(handles, labels),
+                    key=lambda x: x[0].get_sizes()
+                    )[::-1])
+
+                axarr[pc_a, pc_b].legend(
+                    sort_hand, sort_lbl,
+                    bbox_to_anchor=(0.5 - 0.5 * leg_adj,
+                                    0.5 - 0.55 * leg_adj),
+                    loc=(3 - leg_adj), borderaxespad=0., markerscale=1.8,
+                    ncol=3, labelspacing=1.4, borderpad=1.2, fontsize=16
+                    )
 
     for pc in range(3):
 
@@ -350,15 +403,23 @@ def main():
     parser.add_argument('-g', '--gene')
     args = parser.parse_args()
 
-    out_data = load_output(args.cohort)
+    mut_data, cna_data = load_output(args.cohort, args.gene)
     plot_signature_pca(
-        args, out_data,
+        args, mut_data,
         pnt_schemes=(('sub_mtype', MuType({('Gene', 'TP53'): {
-                         ('Form', 'Missense_Mutation'): None}})),
+                         ('Form_base', 'Missense_Mutation'): None}})),
                      ('sub_mtype', MuType({('Gene', 'TP53'): {
-                         ('Form', 'Nonsense_Mutation'): None}}))
+                         ('Form_base', 'Nonsense_Mutation'): None}}))
                     )
         )
+    plot_signature_pca(
+        args, mut_data,
+        pnt_schemes=('main_subs',
+                     ('sub_mtype', MuType({('Gene', 'TP53'): {
+                         ('Form_base', 'Frame_Shift'): None}}))
+                    )
+        )
+
 
 if __name__ == '__main__':
     main()

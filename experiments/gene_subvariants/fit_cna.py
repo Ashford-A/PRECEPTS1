@@ -72,6 +72,9 @@ def main(argv):
         tp53_train_samps = base_mtype.get_samples(cdata.train_mut)
         tp53_test_samps = base_mtype.get_samples(cdata.test_mut)
 
+        chr_genes = [gn_info['gene_name'] for gn_info in cdata.annot.values()
+                     if gn_info['chr'] == cdata.mut_annot[argv[1]]['Chr']]
+
         out_stat = {mtype: None for mtype in cna_list}
         out_coef = {mtype: None for mtype in cna_list}
         out_acc = {mtype: None for mtype in cna_list}
@@ -81,25 +84,23 @@ def main(argv):
             ex_train = tp53_train_samps - mtype.get_samples(cdata.train_mut)
             ex_test = tp53_test_samps - mtype.get_samples(cdata.test_mut)
 
-            test_stat = cdata.test_pheno(mtype)
-            out_stat[mtype] = np.where(test_stat)
-            print(np.sum(test_stat))
+            out_stat[mtype] = np.where(cdata.test_pheno(mtype))[0].tolist()
+            print(len(out_stat[mtype]))
 
             clf = Lasso()
             clf.tune_coh(cdata, mtype, tune_splits=4,
                          test_count=16, parallel_jobs=8,
-                         exclude_genes=[argv[1]], exclude_samps=ex_train)
+                         exclude_genes=chr_genes, exclude_samps=ex_train)
             print(clf)
 
             clf.fit_coh(cdata, mtype,
-                        exclude_genes=[argv[1]], exclude_samps=ex_train)
+                        exclude_genes=chr_genes, exclude_samps=ex_train)
             out_coef[mtype] = {gene: val for gene, val in
                                clf.get_coef().items() if val != 0}
 
             out_acc[mtype] = clf.eval_coh(
-                cdata, mtype, exclude_genes=[argv[1]], exclude_samps=ex_test)
-            out_pred[mtype] = np.array(
-                clf.predict_test(cdata, exclude_genes=[argv[1]]))
+                cdata, mtype, exclude_genes=chr_genes, exclude_samps=ex_test)
+            out_pred[mtype] = clf.predict_test(cdata, exclude_genes=chr_genes)
 
         # saves classifier results to file
         out_file = os.path.join(out_dir, 'results',

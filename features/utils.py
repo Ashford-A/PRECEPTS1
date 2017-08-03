@@ -12,7 +12,7 @@ def choose_bmeg_server(verbose=False):
     """Chooses a BMEG server to use based on availability."""
 
     # list of BMEG servers to try
-    server_list = ['http://bmeg.compbio.ohsu.edu', 'http://bmeg.io']
+    server_list = ['http://bmeg.compbio.ohsu.edu', 'http://bmeg.io'][::-1]
     
     # iterate over these servers until we find one or there aren't any left
     server_found = False

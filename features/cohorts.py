@@ -125,7 +125,7 @@ class OmicCohort(object):
         if exclude_genes is not None:
             genes -= set(exclude_genes)
 
-        return samps, genes
+        return sorted(samps), sorted(genes)
 
     def train_omics(self,
                     include_samps=None, exclude_samps=None,

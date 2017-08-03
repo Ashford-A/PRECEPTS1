@@ -77,23 +77,17 @@ def main(argv):
     out_acc = {mtype: None for mtype in mtype_list}
     out_pred = {mtype: None for mtype in mtype_list}
 
-    out_cross = {mtypes: [None, None, None, None]
-                 for mtypes in product(mtype_list, mtype_list)}
-    out_mutex = {tuple(sorted(mtypes)): None
-                 for mtypes in combn(mtype_list, 2)}
-
     # for each of the gene's sub-variants, check if it has been assigned to
     # this task
     for i, mtype in enumerate(mtype_list):
-        if i % 4 == int(argv[3]):
+        if i % 8 == int(argv[3]):
             print(mtype)
 
             ex_train = tp53_train_samps - mtype.get_samples(cdata.train_mut)
             ex_test = tp53_test_samps - mtype.get_samples(cdata.test_mut)
 
-            test_stat = cdata.test_pheno(mtype)
-            out_stat[mtype] = np.where(test_stat)
-            print(np.sum(test_stat))
+            out_stat[mtype] = np.where(cdata.test_pheno(mtype))[0].tolist()
+            print(len(out_stat[mtype]))
 
             clf = Lasso()
             clf.tune_coh(cdata, mtype, tune_splits=4,
@@ -108,35 +102,7 @@ def main(argv):
 
             out_acc[mtype] = clf.eval_coh(
                 cdata, mtype, exclude_genes=[argv[1]], exclude_samps=ex_test)
-            out_pred[mtype] = np.array(
-                clf.predict_test(cdata, exclude_genes=[argv[1]]))
-
-            for other_mtype in mtype_list:
-                other_stat = cdata.test_pheno(other_mtype)
-
-                none_which = ~test_stat & ~other_stat
-                if np.sum(none_which) >= 5:
-                    out_cross[mtype, other_mtype][0] = np.mean(
-                        out_pred[mtype][none_which])
-
-                other_which = ~test_stat & other_stat
-                if np.sum(other_which) >= 5:
-                    out_cross[mtype, other_mtype][1] = np.mean(
-                        out_pred[mtype][other_which])
-
-                cur_which = test_stat & ~other_stat
-                if np.sum(cur_which) >= 5:
-                    out_cross[mtype, other_mtype][2] = np.mean(
-                        out_pred[mtype][cur_which])
-
-                both_which = test_stat & other_stat
-                if np.sum(both_which) >= 5:
-                    out_cross[mtype, other_mtype][3] = np.mean(
-                        out_pred[mtype][both_which])
-
-            for mtypes in list(out_mutex.keys()):
-                if mtypes[0] == mtype:
-                    out_mutex[mtypes] = cdata.mutex_test(mtypes[0], mtypes[1])
+            out_pred[mtype] = clf.predict_test(cdata, exclude_genes=[argv[1]])
 
         else:
             del(out_stat[mtype])
@@ -144,18 +110,11 @@ def main(argv):
             del(out_acc[mtype])
             del(out_pred[mtype])
 
-            for other_mtype in mtype_list:
-                del(out_cross[mtype, other_mtype])
-            
-            for mtypes in list(out_mutex.keys()):
-                if mtypes[0] == mtype:
-                    del(out_mutex[mtypes])
-
     # saves classifier results to file
     out_file = os.path.join(out_dir, 'results',
                             'out__cv-{}_task-{}.p'.format(argv[2], argv[3]))
-    pickle.dump({'Stat': out_stat, 'Coef': out_coef, 'Mutex': out_mutex,
-                 'Acc': out_acc, 'Pred': out_pred, 'Cross': out_cross},
+    pickle.dump({'Stat': out_stat, 'Coef': out_coef,
+                 'Acc': out_acc, 'Pred': out_pred},
                 open(out_file, 'wb'))
 
 

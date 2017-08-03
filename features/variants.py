@@ -819,7 +819,7 @@ class MuTree(object):
             mtype = MuType(self.allkey())
         samp_list = mtype.get_samples(self)
 
-        return np.array([s in samp_list for s in samples])
+        return np.array([s in samp_list for s in sorted(samples)])
 
 
 class MuType(object):
