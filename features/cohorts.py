@@ -6,8 +6,8 @@ expression or proteomic measurements with -omic phenotypic features such as
 variants, copy number alterations, or drug response data so that the former
 can be used to predict the latter using machine learning pipelines.
 
-Author: Michal Grzadkowski <grzadkow@ohsu.edu>
-        Hannah Manning <manningh@ohsu.edu>
+Authors: Michal Grzadkowski <grzadkow@ohsu.edu>
+         Hannah Manning <manningh@ohsu.edu>
 
 """
 
@@ -16,7 +16,7 @@ from .variants import get_variants_mc3, MuTree
 from .copies import get_copies_firehose
 from .pathways import parse_sif
 from .annot import get_gencode
-from .drugs import get_expr_ioria, get_drug_ioria, get_drug_bmeg
+from .drugs import get_expr_ioria, get_drug_ioria
 
 import numpy as np
 from scipy.stats import fisher_exact
@@ -26,8 +26,12 @@ from functools import reduce
 from abc import abstractmethod
 
 
+class CohortError(Exception):
+    pass
+
+
 class OmicCohort(object):
-    """Base class for cohorts consisting of the features used to learn on.
+    """Base class for -omic datasets paired with a phenotype to predict.
 
     This class consists of a matrix of -omic measurements for a set of samples
     on a set of genetic features that will be used to predict phenotypes
@@ -40,10 +44,13 @@ class OmicCohort(object):
     defined in downstream classes.
 
     Attributes:
-        omic_mat (pandas DataFrame), shape (n_samples, n_features)
-        train_samps (set): Samples to be used for machine learning training.
-        test_samps (set): Samples to be used for machine learning testing.
-        genes (set): Genetic features defined in the -omic dataset.
+        omic_mat (pandas DataFrame), shape = [n_samples, n_genes]
+        train_samps (:obj:`frozenset` of :obj:`str`)
+            Samples to be used for machine learning training.
+        test_samps (:obj:`frozenset` of :obj:`str`)
+            Samples to be used for machine learning testing.
+        genes (:obj:`frozenset` of :obj:`str`)
+            Genetic features included in the -omic dataset.
         cohort (str): The source of the datasets.
         cv_seed (int): A random seed used for sampling from the datasets.
 
@@ -51,25 +58,39 @@ class OmicCohort(object):
 
     def __init__(self, omic_mat, train_samps, test_samps, cohort, cv_seed):
 
-        if test_samps is not None and set(train_samps) & set(test_samps):
-            raise ValueError("Training sample set and testing sample set must"
-                             "be disjoint!")
+        # check that the samples listed in the training and testing
+        # sub-cohorts are valid relative to each other and the -omic dataset
+        self.train_samps = frozenset(train_samps)
+        if not train_samps:
+            raise CohortError("There must be at least one training sample!")
 
-        # when we have a training cohort and a testing cohort
-        if test_samps is not None:
-            self.samples = set(train_samps) | set(test_samps)
-            self.train_samps = frozenset(train_samps)
-            self.test_samps = frozenset(test_samps)
+        if not (set(train_samps) & set(omic_mat.index)):
+            raise CohortError("At least one training sample must be in the"
+                              "-omic dataset!")
+
+        if (test_samps is not None
+                and not set(test_samps) & set(omic_mat.index)):
+            raise CohortError("At least one testing sample must be in the"
+                              "-omic dataset!")
+
+        if test_samps is not None and set(train_samps) & set(test_samps):
+            raise CohortError("Training sample set and testing sample"
+                              "set must be disjoint!")
 
         # when we don't have a testing cohort, use entire the entire
         # dataset as the training cohort
+        if test_samps is None:
+            self.samples = self.train_samps.copy()
+
+        # when we have a training cohort and a testing cohort
         else:
-            self.samples = train_samps.copy()
-            self.train_samps = frozenset(train_samps)
+            self.samples = frozenset(train_samps) | frozenset(test_samps)
+            self.test_samps = frozenset(test_samps)
 
         # remove duplicate features from the dataset and get
         # list of genomic features
-        self.omic_mat = omic_mat.loc[self.samples, ~omic_mat.columns.duplicated()]
+        self.omic_mat = omic_mat.loc[self.samples,
+                                     ~omic_mat.columns.duplicated()]
         self.genes = frozenset(self.omic_mat.columns)
 
         self.cohort = cohort
@@ -79,7 +100,7 @@ class OmicCohort(object):
                   include_samps=None, exclude_samps=None,
                   include_genes=None, exclude_genes=None,
                   use_test=False):
-        """Gets a subset of dimensions of the cohort's -omic dataset.
+        """Gets a subset of the dimensions in the cohort's -omic dataset.
 
         This is a utility function whereby a list of samples and/or genes to
         be included and/or excluded in a given analysis can be specified.
@@ -90,19 +111,20 @@ class OmicCohort(object):
 
         Note that exclusion takes precedence over inclusion, that is, if a
         sample or gene is asked to be both included and excluded it will be
-        excluded.
+        excluded. Returned dimensions are sorted to ensure that subsetted
+        datasets with the same features and/or samples will be identical.
 
         Arguments:
-            include_samps (list, optional)
-            exclude_samps (list, optional)
-            include_genes (list, optional)
-            exclude_genes (list, optional)
-            use_test (bool, optional) Whether to use testing cohort of
+            include_samps (:obj:`iterable` of :obj: `str`, optional)
+            exclude_samps (:obj:`iterable` of :obj: `str`, optional)
+            include_genes (:obj:`iterable` of :obj: `str`, optional)
+            exclude_genes (:obj:`iterable` of :obj: `str`, optional)
+            use_test (bool, optional): Whether to use testing cohort of
                 samples, default is to use the training cohort.
 
         Returns:
-            samps (list): The samples to be used.
-            genes (list): The genetic features to be used.
+            samps (:obj:`set` of :obj:`str`): The samples to be used.
+            genes (:obj:`set` of :obj:`str`): The genetic features to be used.
 
         """
 
@@ -113,13 +135,13 @@ class OmicCohort(object):
             samps = self.train_samps.copy()
         genes = self.genes.copy()
 
-        # remove samples samples as necessary
+        # decide which samples to use
         if include_samps is not None:
             samps &= set(include_samps)
         if exclude_samps is not None:
             samps -= set(exclude_samps)
 
-        # remove genetic features as necessary
+        # decide which genetic features to use
         if include_genes is not None:
             genes &= set(include_genes)
         if exclude_genes is not None:
@@ -151,36 +173,92 @@ class OmicCohort(object):
 
     @abstractmethod
     def train_pheno(self, pheno):
-        """Returns the training values of a phenotype."""
+        """Returns the values for a phenotype in the training sub-cohort."""
 
     @abstractmethod
     def test_pheno(self, pheno):
-        """Returns the testing values of a phenotype."""
+        """Returns the values for a phenotype in the testing sub-cohort."""
 
 
-class LabelCohort(OmicCohort):
-    """A matched pair of omics and discrete phenotypic data."""
+class PresenceCohort(OmicCohort):
+    """An -omic dataset used to predict the presence of binary phenotypes."""
 
-    def __init__(self, omic_mat, train_samps, test_samps, cohort, cv_seed):
-        super().__init__(omic_mat, train_samps, test_samps, cohort, cv_seed)
+    @abstractmethod
+    def train_pheno(self, pheno):
+        """Returns the binary labels corresponding to the presence of
+           a phenotype for each of the samples in the training sub-cohort.
+
+        Returns:
+            pheno_vec (:obj:`list` of :obj:`bool`)
+        """
+
+    @abstractmethod
+    def test_pheno(self, pheno):
+        """Returns the binary labels corresponding to the presence of
+           a phenotype for each of the samples in the testing sub-cohort.
+
+        Returns:
+            pheno_vec (:obj:`list` of :obj:`bool`)
+        """
+
+    def mutex_test(self, pheno1, pheno2):
+        """Tests the mutual exclusivity of two phenotypes.
+
+        Returns:
+            pval (float): The p-value given by a Fisher's one-sided exact test
+                          on the pair of phenotypes in the training cohort.
+
+        Examples:
+            >>> from HetMan.features.variants import MuType
+            >>>
+            >>> self.mutex_test(MuType({('Gene', 'TP53'): None}),
+            >>>                 MuType({('Gene', 'CDH1'): None}))
+            >>>
+            >>> self.mutex_test(MuType({('Gene', 'PIK3CA'): None}),
+            >>>                 MuType({('Gene', 'BRAF'): {
+            >>>                             ('Location', '600'): None
+            >>>                        }}))
+
+        """
+        pheno1_vec = self.train_pheno(pheno1)
+        pheno2_vec = self.train_pheno(pheno2)
+
+        return fisher_exact(table=[np.bincount(pheno1_vec),
+                                   np.bincount(pheno2_vec)],
+                            alternative='less')[1]
 
 
 class ValueCohort(OmicCohort):
-    """A matched pair of omics and continuous phenotypic data."""
+    """An -omic dataset used to predict continuous phenotypes."""
 
-    def __init__(self, omic_mat, train_samps, test_samps, cohort, cv_seed):
-        super().__init__(omic_mat, train_samps, test_samps, cohort, cv_seed)
+    @abstractmethod
+    def train_pheno(self, pheno):
+        """Returns the values of a phenotype for each of the samples
+           in the training sub-cohort.
+
+        Returns:
+            pheno_vec (:obj:`list` of :obj:`float`)
+        """
+
+    @abstractmethod
+    def test_pheno(self, pheno):
+        """Returns the values of a phenotype for each of the samples
+           in the testing sub-cohort.
+
+        Returns:
+            pheno_vec (:obj:`list` of :obj:`float`)
+        """
 
 
-class VariantCohort(LabelCohort):
+class VariantCohort(PresenceCohort):
     """An expression dataset used to predict genes' mutations (variants).
 
     Args:
         syn (synapseclient.Synapse): A logged-into Synapse instance.
-        mut_genes (:obj:`list` of :obj:`str`):
+        mut_genes (:obj:`list` of :obj:`str`)
             Which genes' variants to include.
-        mut_levels (:obj:`list` of :obj:`str`):
-            What variant annotation level to consider.
+        mut_levels (:obj:`list` of :obj:`str`)
+            What variant annotation levels to consider.
         cv_prop (float): Proportion of samples to use for cross-validation.
 
     Attributes:
@@ -202,9 +280,11 @@ class VariantCohort(LabelCohort):
     def __init__(self,
                  syn, cohort, mut_genes, mut_levels=('Gene', 'Form'),
                  cv_seed=None, cv_prop=2.0/3):
+
         if cv_prop <= 0 or cv_prop > 1:
             raise ValueError("Improper cross-validation ratio that is "
                              "not > 0 and <= 1.0")
+
         self.mut_genes = mut_genes
         self.cv_prop = cv_prop
 
@@ -269,53 +349,14 @@ class VariantCohort(LabelCohort):
     def train_pheno(self, mtype, samps=None):
         if samps is None:
             samps = self.train_samps
+
         return self.train_mut.status(samps, mtype)
 
     def test_pheno(self, mtype, samps=None):
         if samps is None:
             samps = self.test_samps
+
         return self.test_mut.status(samps, mtype)
-
-    def mutex_test(self, mtype1, mtype2):
-        """Tests the mutual exclusivity of two mutation types.
-
-        Args:
-            mtype1, mtype2 (MuType)
-
-        Returns:
-            pval (float): The p-value given by a Fisher's one-sided exact test
-                          using the training samples in the cohort.
-
-        Examples:
-            >>> self.mutex_test(MuType({('Gene', 'TP53'): None}),
-            >>>                 MuType({('Gene', 'CDH1'): None}))
-            >>> self.mutex_test(MuType({('Gene', 'PIK3CA'): None}),
-            >>>                 MuType({('Gene', 'BRAF'): {
-            >>>                             ('Location', '600'): None
-            >>>                        }}))
-
-        """
-        samps1 = mtype1.get_samples(self.train_mut)
-        samps2 = mtype2.get_samples(self.train_mut)
-
-        # if either mutation type has no samples associated with it, there
-        # can be no mutual exclusivity
-        if not samps1 or not samps2:
-            pval = 1
-
-        # otherwise, get the confusion matrix and run a one-sided
-        # Fisher's exact test
-        else:
-            both_samps = samps1 & samps2
-
-            _, pval = fisher_exact(
-                np.array([[len(self.train_samps - (samps1 | samps2)),
-                           len(samps1 - both_samps)],
-                          [len(samps2 - both_samps),
-                           len(both_samps)]]),
-                alternative='less')
-
-        return pval
 
 
 class MutCohort(VariantCohort):
