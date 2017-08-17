@@ -889,24 +889,26 @@ class MuTree(object):
         """Finds if each sample has a mutation of this type in the tree.
 
         Args:
-            samples (list): Which samples' mutation status is to be retrieved.
-
-            mtype (MuType), optional:
+            samples (:obj:`list` of :obj:`str`)
+                Which samples' mutation status is to be retrieved.
+            mtype (MuType, optional)
                 A set of mutations whose membership we want to test.
                 The default is to check against any mutation
                 contained in the tree.
 
-        Returns
-        -------
-        S : list of bools
-            For each input sample, whether or not it has a mutation in the
-            given set.
+        Returns:
+            stat_list (:obj:`list` of :obj:`bool`)
+                For each input sample, whether or not it has a mutation
+                in the given set.
+
         """
         if mtype is None:
             mtype = MuType(self.allkey())
-        samp_list = mtype.get_samples(self)
 
-        return np.array([s in samp_list for s in sorted(samples)])
+        samp_list = mtype.get_samples(self)
+        stat_list = [s in samp_list for s in sorted(samples)]
+
+        return stat_list
 
 
 class MuType(object):

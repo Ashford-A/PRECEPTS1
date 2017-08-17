@@ -14,11 +14,15 @@ Authors: Michal Grzadkowski <grzadkow@ohsu.edu>
 from .expression import get_expr_bmeg
 from .variants import get_variants_mc3, MuTree
 from .copies import get_copies_firehose
+from .drugs import get_expr_ioria, get_drug_ioria
+from .dream import get_dream_data
+
 from .pathways import parse_sif
 from .annot import get_gencode
-from .drugs import get_expr_ioria, get_drug_ioria
 
 import numpy as np
+import pandas as pd
+
 from scipy.stats import fisher_exact
 import random
 
@@ -55,6 +59,7 @@ class OmicCohort(object):
         cv_seed (int): A random seed used for sampling from the datasets.
 
     """
+
 
     def __init__(self, omic_mat, train_samps, test_samps, cohort, cv_seed):
 
@@ -95,6 +100,38 @@ class OmicCohort(object):
 
         self.cohort = cohort
         self.cv_seed = cv_seed
+
+    def split_samples(self, cv_seed, cv_prop, samps):
+        """Splits samples into training and testing sub-cohorts.
+
+        Args:
+            cv_seed (int)
+            cv_prop (float)
+            samps (:obj:`Iterable` of :obj:`str`)
+
+        Returns:
+            train_samps
+            test_samps
+
+        """
+        random.seed(a=cv_seed)
+
+        if cv_prop <= 0 or cv_prop > 1:
+            raise ValueError("Improper cross-validation ratio that is "
+                             "not > 0 and <= 1.0")
+
+        if cv_prop < 1:
+            train_samps = set(
+                random.sample(population=samps,
+                              k=int(round(len(samps) * cv_prop)))
+                )
+            test_samps = set(samps) - train_samps
+
+        else:
+            train_samps = samps.copy()
+            test_samps = set()
+
+        return train_samps, test_samps
 
     def omic_dims(self,
                   include_samps=None, exclude_samps=None,
@@ -149,34 +186,44 @@ class OmicCohort(object):
 
         return sorted(samps), sorted(genes)
 
-    def train_omics(self,
-                    include_samps=None, exclude_samps=None,
-                    include_genes=None, exclude_genes=None):
+    def train_data(self,
+                   pheno,
+                   include_samps=None, exclude_samps=None,
+                   include_genes=None, exclude_genes=None):
         """Retrieval of the training cohort from the -omic dataset."""
 
         samps, genes = self.omic_dims(include_samps, exclude_samps,
                                       include_genes, exclude_genes,
                                       use_test=False)
 
-        return self.omic_mat.loc[samps, genes]
+        pheno_vec = self.train_pheno(pheno, samps)
+        nan_stat = ~np.isnan(pheno_vec)
+        samps = np.array(samps)[nan_stat]
 
-    def test_omics(self,
-                   include_samps=None, exclude_samps=None,
-                   include_genes=None, exclude_genes=None):
+        return self.omic_mat.loc[samps, genes], np.array(pheno_vec)[nan_stat]
+
+    def test_data(self,
+                  pheno,
+                  include_samps=None, exclude_samps=None,
+                  include_genes=None, exclude_genes=None):
         """Retrieval of the testing cohort from the -omic dataset."""
 
         samps, genes = self.omic_dims(include_samps, exclude_samps,
                                       include_genes, exclude_genes,
                                       use_test=True)
 
-        return self.omic_mat.loc[samps, genes]
+        pheno_vec = self.test_pheno(pheno, samps)
+        nan_stat = ~np.isnan(pheno_vec)
+        samps = np.array(samps)[nan_stat]
+
+        return self.omic_mat.loc[samps, genes], np.array(pheno_vec)[nan_stat]
 
     @abstractmethod
-    def train_pheno(self, pheno):
+    def train_pheno(self, pheno, samps=None):
         """Returns the values for a phenotype in the training sub-cohort."""
 
     @abstractmethod
-    def test_pheno(self, pheno):
+    def test_pheno(self, pheno, samps=None):
         """Returns the values for a phenotype in the testing sub-cohort."""
 
 
@@ -204,6 +251,9 @@ class PresenceCohort(OmicCohort):
     def mutex_test(self, pheno1, pheno2):
         """Tests the mutual exclusivity of two phenotypes.
 
+        Args:
+            pheno1, pheno2: A pair of phenotypes stored in this cohort.
+
         Returns:
             pval (float): The p-value given by a Fisher's one-sided exact test
                           on the pair of phenotypes in the training cohort.
@@ -222,10 +272,12 @@ class PresenceCohort(OmicCohort):
         """
         pheno1_vec = self.train_pheno(pheno1)
         pheno2_vec = self.train_pheno(pheno2)
+        conting_df = pd.DataFrame({'ph1': pheno1_vec, 'ph2': pheno2_vec})
 
-        return fisher_exact(table=[np.bincount(pheno1_vec),
-                                   np.bincount(pheno2_vec)],
-                            alternative='less')[1]
+        return fisher_exact(
+            table=pd.crosstab(conting_df['ph1'], conting_df['ph2']),
+            alternative='less'
+            )[1]
 
 
 class ValueCohort(OmicCohort):
@@ -270,6 +322,7 @@ class VariantCohort(PresenceCohort):
         >>> import synapseclient
         >>> syn = synapseclient.Synapse()
         >>> syn.login()
+        >>>
         >>> cdata = VariantCohort(
         >>>     syn, cohort='TCGA-BRCA', mut_genes=['TP53', 'PIK3CA'],
         >>>     mut_levels=['Gene', 'Form', 'Exon']
@@ -281,13 +334,6 @@ class VariantCohort(PresenceCohort):
                  syn, cohort, mut_genes, mut_levels=('Gene', 'Form'),
                  cv_seed=None, cv_prop=2.0/3):
 
-        if cv_prop <= 0 or cv_prop > 1:
-            raise ValueError("Improper cross-validation ratio that is "
-                             "not > 0 and <= 1.0")
-
-        self.mut_genes = mut_genes
-        self.cv_prop = cv_prop
-
         # loads gene expression and mutation data
         expr = get_expr_bmeg(cohort)
         variants = get_variants_mc3(syn)
@@ -297,9 +343,14 @@ class VariantCohort(PresenceCohort):
         self.path = parse_sif(mut_genes)
         annot = get_gencode()
 
-        # filters out genes that don't have any variation across the samples
-        # or are not included in the annotation data
-        expr = expr.loc[:, expr.apply(lambda x: np.var(x) > 0.005)].dropna()
+        # filters out genes that have both low levels of expression
+        # and low variance of expression
+        expr_mean = np.mean(expr)
+        expr_var = np.var(expr)
+        expr = expr.loc[:, ((expr_mean > np.percentile(expr_mean, 5))
+                            | (expr_var > np.percentile(expr_var, 5)))]
+
+        # filters out genes that do not have annotation available
         annot = {g: a for g,a in annot.items()
                  if a['gene_name'] in expr.columns}
         annot_genes = [a['gene_name'] for g, a in annot.items()]
@@ -322,27 +373,25 @@ class VariantCohort(PresenceCohort):
 
         # gets subset of samples to use for training, and split the expression
         # and variant datasets accordingly into training/testing cohorts
-        random.seed(a=cv_seed)
-        if cv_prop < 1:
-            train_samps = set(
-                random.sample(population=use_samples,
-                              k=int(round(len(use_samples) * cv_prop)))
-                )
-            test_samps = set(use_samples) - train_samps
+        train_samps, test_samps = self.split_samples(
+            cv_seed, cv_prop, use_samples)
 
+        if test_samps:
             self.test_mut = MuTree(
                 muts=variants.loc[variants['Sample'].isin(test_samps), :],
                 levels=mut_levels
                 )
 
         else:
-            train_samps = set(use_samples)
             test_samps = None
 
         self.train_mut = MuTree(
             muts=variants.loc[variants['Sample'].isin(train_samps), :],
             levels=mut_levels
             )
+
+        self.mut_genes = mut_genes
+        self.cv_prop = cv_prop
 
         super().__init__(expr, train_samps, test_samps, cohort, cv_seed)
 
@@ -373,8 +422,10 @@ class MutCohort(VariantCohort):
     corresponding to variants.
 
     Examples:
+        >>> import synapseclient
         >>> syn = synapseclient.Synapse()
         >>> syn.login()
+        >>>
         >>> cdata = MutCohort(
         >>>     syn, cohort='TCGA-OV', mut_genes=['RB1', 'TTN'],
         >>>     mut_levels=['Gene', 'Form', 'Protein']
@@ -545,3 +596,46 @@ class DrugCohort(ValueCohort):
             samps = self.test_samps
 
         return self.test_resp.loc[samps, drug]
+
+
+class DreamCohort(ValueCohort):
+
+    def __init__(self,
+                 syn, cohort, omic_type='rna', cv_seed=0, cv_prop=0.8):
+
+        feat_mat = get_dream_data(syn, cohort, omic_type)
+        prot_mat = get_dream_data(syn, cohort, 'prot')
+
+        # filters out genes that have both low levels of expression
+        # and low variance of expression
+        feat_mean = np.mean(feat_mat)
+        feat_var = np.var(feat_mat)
+        feat_mat = feat_mat.loc[
+            :, ((feat_mean > np.percentile(feat_mean, 10))
+                | (feat_var > np.percentile(feat_var, 10)))
+            ]
+
+        use_samples = set(feat_mat.index) & set(prot_mat.index)
+        train_samps, test_samps = self.split_samples(
+            cv_seed, cv_prop, use_samples)
+
+        self.train_prot = prot_mat.loc[train_samps, :]
+        if test_samps:
+            self.test_prot = prot_mat.loc[test_samps, :]
+        else:
+            test_samps = None
+
+        super().__init__(feat_mat, train_samps, test_samps, cohort, cv_seed)
+
+    def train_pheno(self, prot_gene, samps=None):
+        if samps is None:
+            samps = self.train_samps
+
+        return self.train_prot.loc[samps, prot_gene]
+
+    def test_pheno(self, prot_gene, samps=None):
+        if samps is None:
+            samps = self.test_samps
+
+        return self.test_prot.loc[samps, prot_gene]
+
