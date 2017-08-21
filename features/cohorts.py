@@ -1,5 +1,5 @@
 
-"""Consolidating -omic datasets.
+"""Consolidating -omic datasets for prediction of phenotypes.
 
 This module contains classes for grouping continuous -omic datasets such as
 expression or proteomic measurements with -omic phenotypic features such as
@@ -60,7 +60,6 @@ class OmicCohort(object):
 
     """
 
-
     def __init__(self, omic_mat, train_samps, test_samps, cohort, cv_seed):
 
         # check that the samples listed in the training and testing
@@ -101,17 +100,20 @@ class OmicCohort(object):
         self.cohort = cohort
         self.cv_seed = cv_seed
 
-    def split_samples(self, cv_seed, cv_prop, samps):
-        """Splits samples into training and testing sub-cohorts.
+    @staticmethod
+    def split_samples(cv_seed, cv_prop, samps):
+        """Splits a list of samples into training and testing sub-cohorts.
 
         Args:
-            cv_seed (int)
-            cv_prop (float)
-            samps (:obj:`Iterable` of :obj:`str`)
+            cv_seed (int): A random seed used for sampling.
+            cv_prop (float): The proportion of samples to include in the
+                             training sub-cohort.
+            samps (:obj:`iterable` of :obj:`str`)
+                The samples to split into sub-cohorts.
 
         Returns:
-            train_samps
-            test_samps
+            train_samps (set): The samples in the training sub-cohort.
+            test_samps (set): The samples in the testing sub-cohort.
 
         """
         random.seed(a=cv_seed)
@@ -120,6 +122,8 @@ class OmicCohort(object):
             raise ValueError("Improper cross-validation ratio that is "
                              "not > 0 and <= 1.0")
 
+        # if not all samples are to be in the training sub-cohort, randomly
+        # choose samples for the testing cohort...
         if cv_prop < 1:
             train_samps = set(
                 random.sample(population=samps,
@@ -127,8 +131,9 @@ class OmicCohort(object):
                 )
             test_samps = set(samps) - train_samps
 
+        # ...otherwise, copy the sample list to create the training cohort
         else:
-            train_samps = samps.copy()
+            train_samps = set(samps)
             test_samps = set()
 
         return train_samps, test_samps
@@ -228,7 +233,13 @@ class OmicCohort(object):
 
 
 class PresenceCohort(OmicCohort):
-    """An -omic dataset used to predict the presence of binary phenotypes."""
+    """An -omic dataset used to predict the presence of binary phenotypes.
+    
+    This class is used to predict features such as the presence of a
+    particular type of variant or copy number alteration, the presence of a
+    binarized drug response, etc.
+
+    """
 
     @abstractmethod
     def train_pheno(self, pheno):
@@ -281,7 +292,13 @@ class PresenceCohort(OmicCohort):
 
 
 class ValueCohort(OmicCohort):
-    """An -omic dataset used to predict continuous phenotypes."""
+    """An -omic dataset used to predict the value of continuous phenotypes.
+   
+    This class is used to predict features such as the area under the curve
+    representing response to a particular drug, the abundance of a protein
+    or phosphoprotein, CNA GISTIC score, etc.
+    
+    """
 
     @abstractmethod
     def train_pheno(self, pheno):
@@ -599,11 +616,22 @@ class DrugCohort(ValueCohort):
 
 
 class DreamCohort(ValueCohort):
+    """A cohort for NCI-CPTAC DREAM Proteomics Sub-challenges 2 & 3.
+
+    Args:
+        omic_type (str): Which -omic datasets to use as prediction features.
+
+    See Also:
+        :module:`.dream`: The methods used to download the datasets used
+                          in these sub-challenges.
+
+    """
 
     def __init__(self,
                  syn, cohort, omic_type='rna', cv_seed=0, cv_prop=0.8):
 
-        feat_mat = get_dream_data(syn, cohort, omic_type)
+        # gets the prediction features and the abundances to predict
+        feat_mat = get_dream_data(syn, cohort, omic_type).fillna(0.0)
         prot_mat = get_dream_data(syn, cohort, 'prot')
 
         # filters out genes that have both low levels of expression
@@ -615,10 +643,13 @@ class DreamCohort(ValueCohort):
                 | (feat_var > np.percentile(feat_var, 10)))
             ]
 
+        # gets the samples that are common between the datasets, get the
+        # training/testing cohort split
         use_samples = set(feat_mat.index) & set(prot_mat.index)
         train_samps, test_samps = self.split_samples(
             cv_seed, cv_prop, use_samples)
 
+        # splits the protein abundances into training/testing sub-cohorts
         self.train_prot = prot_mat.loc[train_samps, :]
         if test_samps:
             self.test_prot = prot_mat.loc[test_samps, :]
@@ -638,4 +669,26 @@ class DreamCohort(ValueCohort):
             samps = self.test_samps
 
         return self.test_prot.loc[samps, prot_gene]
+
+    def train_data(self,
+                   pheno,
+                   include_samps=None, exclude_samps=None,
+                   include_genes=None, exclude_genes=None):
+        self.mut_genes = [pheno.split('__')[-1]]
+        self.path = parse_sif(self.mut_genes)
+
+        return super().train_data(pheno,
+                                  include_samps, exclude_samps,
+                                  include_genes, exclude_genes)
+
+    def test_data(self,
+                  pheno,
+                  include_samps=None, exclude_samps=None,
+                  include_genes=None, exclude_genes=None):
+        self.mut_genes = [pheno.split('__')[-1]]
+        self.path = parse_sif(self.mut_genes)
+
+        return super().test_data(pheno,
+                                 include_samps, exclude_samps,
+                                 include_genes, exclude_genes)
 
