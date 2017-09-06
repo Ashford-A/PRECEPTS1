@@ -15,11 +15,17 @@ from . import DATA_PATH
 path_file = DATA_PATH + '/PathwayCommons9.All.hgnc.sif.gz'
 
 
-def parse_sif(mut_genes):
+def load_sif():
+    return pd.read_csv(path_file,
+                       names=['UpGene', 'Type', 'DownGene'],
+                       sep='\t', header=None)
+
+
+def get_gene_neighbourhood(genes):
     """Parses a SIF dataset to get the pathway neighbours of a set of genes.
 
     Args:
-        mut_genes (list of str): Genes to get pathway neighbourhoods for.
+        genes (list of str): Genes to get pathway neighbourhoods for.
 
     Returns:
         neighb (dict): Neigbourhood info for each gene.
@@ -35,23 +41,42 @@ def parse_sif(mut_genes):
         >>> parse_sif(['PIK3CA', 'RB1', 'ACT1'])
 
     """
-    neighb = {gene: {'Up': {}, 'Down': {}} for gene in mut_genes}
-
-    # loads pathway interaction data
-    sif_data = pd.read_csv(path_file,
-                           names=['UpGene', 'Type', 'DownGene'],
-                           sep='\t', header=None)
+    neighb = {gene: {'Up': {}, 'Down': {}} for gene in genes}
+    sif_data = load_sif()
 
     # sorts upstream interactions according to downstream mutated gene
     # and interaction type
-    up_data = sif_data.loc[sif_data['DownGene'].isin(mut_genes), :]
+    up_data = sif_data.loc[sif_data['DownGene'].isin(genes), :]
     for (gn, tp), dt in up_data.groupby(['DownGene', 'Type']):
         neighb[gn]['Up'][tp] = set(dt['UpGene'])
 
     # sorts downstream interactions according to upstream mutated gene
     # and interaction type
-    down_data = sif_data.loc[sif_data['UpGene'].isin(mut_genes), :]
+    down_data = sif_data.loc[sif_data['UpGene'].isin(genes), :]
     for (gn, tp), dt in down_data.groupby(['UpGene', 'Type']):
         neighb[gn]['Down'][tp] = set(dt['DownGene'])
 
     return neighb
+
+
+def get_type_networks(intx_types=None, genes=None):
+    """Parses a SIF dataset to get the interactions of the given type(s).
+
+    """
+    intx_data = load_sif()
+
+    if intx_types is not None:
+        intx_data = intx_data.loc[intx_data['Type'].isin(intx_types), :]
+
+    if genes is not None:
+        intx_data = intx_data.loc[intx_data['UpGene'].isin(genes)
+                                  & intx_data['DownGene'].isin(genes), :]
+    
+    neighb = {
+        tp: set(tuple(x) for x in
+                dt.loc[:, ['UpGene', 'DownGene']].values.tolist())
+        for tp, dt in intx_data.groupby(['Type'])
+        }
+
+    return neighb
+

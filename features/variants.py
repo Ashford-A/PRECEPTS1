@@ -15,7 +15,13 @@ Author: Michal Grzadkowski <grzadkow@ohsu.edu>
 import numpy as np
 import pandas as pd
 
+import tarfile
+import os
+import glob
+
+from io import BytesIO
 import json
+
 from re import sub as gsub
 from math import exp
 from ophion import Ophion
@@ -62,6 +68,40 @@ def get_variants_mc3(syn):
                         if x != '.' else 0 for x in muts['PolyPhen']]
 
     return muts
+
+
+def get_variants_firehose(cohort, data_dir):
+    """Gets variant calls that have been downloaded from Firehose.
+
+    Args:
+        cohort (str): A TCGA cohort available in Broad Firehose.
+        data_dir (str): A local directory where the data has been downloaded.
+
+    Returns:
+
+    Examples:
+
+    """
+    mut_tar = tarfile.open(glob.glob(os.path.join(
+        data_dir, "stddata__2016_01_28", cohort, "20160128",
+        "*Mutation_Packager_Oncotated_Calls.Level_3*tar.gz"
+        ))[0])
+
+    mut_list = []
+    for mut_fl in mut_tar.getmembers():
+
+        try:
+            mut_tbl = pd.read_csv(
+                BytesIO(mut_tar.extractfile(mut_fl).read()),
+                sep='\t', skiprows=4, usecols=[0, 8, 15, 37, 41],
+                names=['Gene', 'Form', 'Sample', 'Exon', 'Protein']
+                )
+            mut_list += [mut_tbl]
+
+        except:
+            print("Skipping mutations for {}".format(mut_fl))
+        
+    return pd.concat(mut_list)
 
 
 def get_variants_bmeg(sample_list, gene_list, mut_fields=("term", )):

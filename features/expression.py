@@ -13,6 +13,12 @@ from .utils import choose_bmeg_server
 import numpy as np
 import pandas as pd
 
+import os
+import glob
+
+import tarfile
+from io import BytesIO
+
 import json
 from ophion import Ophion
 
@@ -90,6 +96,40 @@ def get_expr_bmeg(cohort):
     gene_set = expr_mat.columns
     expr_mat.index = [x[-1] for x in expr_mat.index.str.split(':')]
     expr_data = log_norm_expr(expr_mat.loc[:, gene_set])
+
+    return expr_data
+
+
+def get_expr_firehose(cohort, data_dir):
+    """Loads RNA-seq gene-level expression data downloaded from Firehose.
+
+    Args:
+        cohort (str): The name of a TCGA cohort available in Broad Firehose.
+        data_dir (str): The local directory where the Firehose data was
+                        downloaded.
+
+    Returns:
+        expr_data (pandas DataFrame of float), shape = [n_samps, n_feats]
+
+    Examples:
+        >>> expr_data = get_expr_bmeg(
+        >>>     'BRCA', '/home/users/grzadkow/compbio/input-data/firehose')
+        >>> expr_data = get_expr_bmeg('SKCM', '../firehose')
+
+    """
+    expr_tar = tarfile.open(glob.glob(os.path.join(
+        data_dir, "stddata__2016_01_28", cohort, "20160128",
+        "*Merge_rnaseqv2_*_RSEM_genes_normalized_*.Level_3*.tar.gz"
+        ))[0])
+
+    expr_fl = expr_tar.extractfile(expr_tar.getmembers()[0])
+    expr_data = pd.read_csv(BytesIO(expr_fl.read()),
+                            sep='\t', skiprows=[1], index_col=0,
+                            engine='python')
+
+    expr_data = log_norm_expr(expr_data.transpose().fillna(0.0))
+    expr_data.columns = [gn.split('|')[0] if isinstance(gn, str) else gn
+                         for gn in expr_data.columns]
 
     return expr_data
 
