@@ -126,10 +126,13 @@ def get_expr_firehose(cohort, data_dir):
     expr_data = pd.read_csv(BytesIO(expr_fl.read()),
                             sep='\t', skiprows=[1], index_col=0,
                             engine='python')
-
     expr_data = log_norm_expr(expr_data.transpose().fillna(0.0))
+
     expr_data.columns = [gn.split('|')[0] if isinstance(gn, str) else gn
                          for gn in expr_data.columns]
+    expr_data = expr_data.iloc[:, expr_data.columns != '?']
+    expr_data.index = ["-".join(x[:4])
+                       for x in expr_data.index.str.split('-')]
 
     return expr_data
 

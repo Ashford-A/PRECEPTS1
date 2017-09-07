@@ -101,7 +101,11 @@ def get_variants_firehose(cohort, data_dir):
         except:
             print("Skipping mutations for {}".format(mut_fl))
         
-    return pd.concat(mut_list)
+    mut_data = pd.concat(mut_list)
+    mut_data['Sample'] = ["-".join(x[:4])
+                          for x in mut_data['Sample'].str.split('-')]
+
+    return mut_data
 
 
 def get_variants_bmeg(sample_list, gene_list, mut_fields=("term", )):

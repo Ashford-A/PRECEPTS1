@@ -11,13 +11,13 @@ Authors: Michal Grzadkowski <grzadkow@ohsu.edu>
 
 """
 
-from .expression import get_expr_bmeg
-from .variants import get_variants_mc3, MuTree
+from .expression import *
+from .variants import *
 from .copies import get_copies_firehose
 from .drugs import get_expr_ioria, get_drug_ioria
 from .dream import get_dream_data
 
-from .pathways import parse_sif
+from .pathways import *
 from .annot import get_gencode
 
 import numpy as np
@@ -79,7 +79,11 @@ class Cohort(object):
         # set the remaining attributes inherent to all cohorts
         self.genes = genes
         self.cohort_lbl = cohort_lbl
-        self.cv_seed = cv_seed
+
+        if cv_seed is None:
+            self.cv_seed = cv_seed
+        else:
+            self.cv_seed = 0
 
     @staticmethod
     def split_samples(cv_seed, cv_prop, samps):
@@ -173,11 +177,14 @@ class Cohort(object):
                                   use_test=False)
         genes = self.subset_genes(include_genes, exclude_genes)
 
-        pheno_vec = self.train_pheno(pheno, samps)
-        nan_stat = ~np.isnan(pheno_vec)
+        pheno_vec = np.array(self.train_pheno(pheno, samps))
+        if pheno_vec.ndim == 1:
+            pheno_vec = pheno_vec.reshape(-1,1)
+
+        nan_stat = np.any(~np.isnan(pheno_vec), axis=1)
         samps = np.array(samps)[nan_stat]
 
-        return self.omic_loc(samps, genes), np.array(pheno_vec)[nan_stat]
+        return self.omic_loc(samps, genes), pheno_vec[nan_stat]
 
     def test_data(self,
                   pheno,
@@ -189,11 +196,14 @@ class Cohort(object):
                                   use_test=True)
         genes = self.subset_genes(include_genes, exclude_genes)
 
-        pheno_vec = self.test_pheno(pheno, samps)
-        nan_stat = ~np.isnan(pheno_vec)
+        pheno_vec = np.array(self.test_pheno(pheno, samps))
+        if pheno_vec.ndim == 1:
+            pheno_vec = pheno_vec.reshape(-1,1)
+
+        nan_stat = np.any(~np.isnan(pheno_vec), axis=1)
         samps = np.array(samps)[nan_stat]
 
-        return self.omic_loc(samps, genes), np.array(pheno_vec)[nan_stat]
+        return self.omic_loc(samps, genes), pheno_vec[nan_stat]
 
     @abstractmethod
     def omic_loc(self, samps=None, genes=None):
@@ -222,7 +232,7 @@ class UniCohort(Cohort):
         # check that the samples listed in the training and testing
         # sub-cohorts are valid relative to the -omic dataset
         if not (set(train_samps) & set(omic_mat.index)):
-            raise CohortError("At least one training sample must be in the"
+            raise CohortError("At least one training sample must be in the "
                               "-omic dataset!")
 
         if (test_samps is not None
@@ -231,7 +241,7 @@ class UniCohort(Cohort):
                               "-omic dataset!")
 
         Cohort.__init__(self,
-                        train_samps, test_samps, self.omic_mat.columns,
+                        train_samps, test_samps, omic_mat.columns,
                         cohort_lbl, cv_seed)
 
         # remove duplicate features from the dataset as well as samples
@@ -287,7 +297,7 @@ class UniCohort(Cohort):
         return self.omic_mat.loc[samps, genes]
 
 
-class MultiCohort(Cohort):
+class TransferCohort(Cohort):
     """Multiple -omic datasets paired with phenotypes to predict.
 
     Note that all datasets included in this class are to come from the same
@@ -296,22 +306,60 @@ class MultiCohort(Cohort):
     varying numbers of columns (genes) depending on the nature of the -omic
     measurement in question.
 
-    For example, a `MultiCohort` could consist of RNA sequencing and copy
+    For example, a `TransferCohort` could consist of RNA sequencing and copy
     number alteration measurements taken from the same cohort of TCGA
     samples.
 
+    Args:
+        omic_mats (:obj:`list` or :obj:`dict` of :obj:`pd.DataFrame`)
+
     Attributes:
-        omic_mat_list (:obj:`list` of :obj:`pd.DataFrame`)
+        omic_mats (:obj:`dict` of :obj:`pd.DataFrame`)
 
     """
     
     def __init__(self,
-                 omic_mat_list, train_samps, test_samps,
+                 omic_mats, train_samps, test_samps,
                  cohort_lbl, cv_seed):
+
+        if isinstance(omic_mats, dict):
+            Cohort.__init__(
+                self,
+                train_samps, test_samps,
+                {lbl: set(omic_mat.columns)
+                 for lbl, omic_mat in omic_mats.items()},
+                cohort_lbl, cv_seed
+                )
+
+            self.omic_mats = {
+                lbl: omic_mat.loc[self.samples,
+                                  ~omic_mat.columns.duplicated()]
+                for lbl, omic_mat in omic_mats.items()
+                }
+
+        elif hasattr(omic_mats, '__iter__'):
+            Cohort.__init__(
+                self,
+                train_samps, test_samps,
+                {'omic{}'.format(i): set(omic_mat.columns)
+                 for i, omic_mat in enumerate(omic_mats)},
+                cohort_lbl, cv_seed
+                )
+
+            self.omic_mats = {
+                'omic{}'.format(i):
+                omic_mat.loc[self.samples, ~omic_mat.columns.duplicated()]
+                for i, omic_mat in enumerate(omic_mats)
+                }
+
+        else:
+            raise TypeError("`omic_mats` must be a dictionary or an "
+                            "iterable, found {} instead!".format(
+                                type(omic_mats)))
 
         # check that the samples listed in the training and testing
         # sub-cohorts are valid relative to each of the -omic datasets
-        for omic_mat in omic_mat_list:
+        for omic_mat in self.omic_mats.values():
             if not (set(train_samps) & set(omic_mat.index)):
                 raise CohortError("At least one training sample must be "
                                   "in each -omic dataset!")
@@ -320,20 +368,7 @@ class MultiCohort(Cohort):
                     and not set(test_samps) & set(omic_mat.index)):
                 raise CohortError("At least one testing sample must be "
                                   "in each -omic dataset!")
-    
-        Cohort.__init__(
-            self,
-            train_samps, test_samps,
-            [set(omic_mat.columns) for omic_mat in omic_mat_list],
-            cohort_lbl, cv_seed
-            )
 
-        # removes duplicate genetic features from each of the datasets as
-        # well as samples not in either the training or testing sub-cohorts
-        self.omic_mat_list = [
-            omic_mat.loc[self.samples, ~omic_mat.columns.duplicated()]
-            for omic_mat in omic_mat_list
-            ]
 
     def subset_genes(self, include_genes=None, exclude_genes=None):
         """Gets a subset of the genes in the cohort's -omic datasets.
@@ -372,20 +407,22 @@ class MultiCohort(Cohort):
         # adds genes to the list of genes to retrieve
         if include_genes is not None:
             if isinstance(list(include_genes)[0], str):
-                genes = [gns & set(include_genes) for gns in self.genes]
+                genes = {lbl: gns & set(include_genes)
+                         for lbl, gns in self.genes.items()}
             else:
-                genes = [gns & set(in_gns)
-                         for gns, in_gns in zip(self.genes, include_genes)]
+                genes = {lbl: gns & set(in_gns) for (lbl, gns), in_gns in
+                         zip(self.genes.items(), include_genes)}
 
         # removes genes from the list of genes to retrieve
         if exclude_genes is not None:
             if isinstance(list(exclude_genes)[0], str):
-                genes = [gns - set(exclude_genes) for gns in genes]
+                genes = {lbl: gns - set(exclude_genes)
+                         for lbl, gns in self.genes.items()}
             else:
-                genes = [gns - set(ex_gns)
-                         for gns, ex_gns in zip(genes, exclude_genes)]
+                genes = {lbl: gns - set(ex_gns) for (lbl, gns), ex_gns in
+                         zip(self.genes.items(), exclude_genes)}
 
-        return [sorted(gns) for gns in genes]
+        return {lbl: sorted(gns) for lbl, gns in genes.items()}
 
     def omic_loc(self, samps=None, genes=None):
         """Retrieves a subset of each -omic dataset's
@@ -396,8 +433,8 @@ class MultiCohort(Cohort):
         if genes is None:
             genes = self.genes.copy()
 
-        return [omic_mat.loc[samps, gns]
-                for omic_mat, gns in zip(self.omic_mat_list, genes)]
+        return {lbl: self.omic_mats[lbl].loc[samps, genes[lbl]]
+                for lbl in self.omic_mats}
 
 
 class PresenceCohort(Cohort):
@@ -409,7 +446,7 @@ class PresenceCohort(Cohort):
     """
 
     @abstractmethod
-    def train_pheno(self, pheno):
+    def train_pheno(self, pheno, samps=None):
         """Returns the binary labels corresponding to the presence of
            a phenotype for each of the samples in the training sub-cohort.
 
@@ -418,7 +455,7 @@ class PresenceCohort(Cohort):
         """
 
     @abstractmethod
-    def test_pheno(self, pheno):
+    def test_pheno(self, pheno, samps=None):
         """Returns the binary labels corresponding to the presence of
            a phenotype for each of the samples in the testing sub-cohort.
 
@@ -426,7 +463,7 @@ class PresenceCohort(Cohort):
             pheno_vec (:obj:`list` of :obj:`bool`)
         """
 
-    #TODO: extend this to MultiCohorts?
+    #TODO: extend this to TransferCohorts?
     def mutex_test(self, pheno1, pheno2):
         """Tests the mutual exclusivity of two phenotypes.
 
@@ -469,7 +506,7 @@ class ValueCohort(Cohort):
     """
 
     @abstractmethod
-    def train_pheno(self, pheno):
+    def train_pheno(self, pheno, samps=None):
         """Returns the values of a phenotype for each of the samples
            in the training sub-cohort.
 
@@ -478,7 +515,7 @@ class ValueCohort(Cohort):
         """
 
     @abstractmethod
-    def test_pheno(self, pheno):
+    def test_pheno(self, pheno, samps=None):
         """Returns the values of a phenotype for each of the samples
            in the testing sub-cohort.
 
@@ -516,16 +553,29 @@ class VariantCohort(PresenceCohort, UniCohort):
     """
 
     def __init__(self,
-                 syn, cohort, mut_genes, mut_levels=('Gene', 'Form'),
-                 cv_seed=None, cv_prop=2.0/3):
+                 cohort, mut_genes, mut_levels=('Gene', 'Form'),
+                 expr_source='BMEG', var_source='mc3',
+                 cv_seed=None, cv_prop=2.0/3, **coh_args):
 
-        # loads gene expression and mutation data
-        expr = get_expr_bmeg(cohort)
-        variants = get_variants_mc3(syn)
+        # loads gene expression data
+        if expr_source == 'BMEG':
+            expr = get_expr_bmeg(cohort)
+        elif expr_source == 'Firehose':
+            expr = get_expr_firehose(cohort, coh_args['data_dir'])
+        else:
+            raise ValueError("Unrecognized source of expression data!")
+
+        # loads gene variant data
+        if var_source == 'mc3':
+            variants = get_variants_mc3(coh_args['syn'])
+        elif var_source == 'Firehose':
+            variants = get_variants_firehose(cohort, coh_args['data_dir'])
+        else:
+            raise ValueError("Unrecognized source of variant data!")
 
         # loads the pathway neighbourhood of the variant genes, as well as
         # annotation data for all genes
-        self.path = parse_sif(mut_genes)
+        self.path = get_gene_neighbourhood(mut_genes)
         annot = get_gencode()
 
         # filters out genes that have both low levels of expression
@@ -842,8 +892,11 @@ class DreamCohort(ValueCohort, UniCohort):
                    pheno,
                    include_samps=None, exclude_samps=None,
                    include_genes=None, exclude_genes=None):
-        self.mut_genes = [pheno.split('__')[-1]]
-        self.path = parse_sif(self.mut_genes)
+        if isinstance(pheno, str):
+            pheno = [pheno]
+
+        self.mut_genes = [ph.split('__')[-1] for ph in pheno]
+        self.path = get_gene_neighbourhood(self.mut_genes)
 
         return super().train_data(pheno,
                                   include_samps, exclude_samps,
@@ -853,20 +906,23 @@ class DreamCohort(ValueCohort, UniCohort):
                   pheno,
                   include_samps=None, exclude_samps=None,
                   include_genes=None, exclude_genes=None):
-        self.mut_genes = [pheno.split('__')[-1]]
-        self.path = parse_sif(self.mut_genes)
+        if isinstance(pheno, str):
+            pheno = [pheno]
+
+        self.mut_genes = [ph.split('__')[-1] for ph in pheno]
+        self.path = get_gene_neighbourhood(self.mut_genes)
 
         return super().test_data(pheno,
                                  include_samps, exclude_samps,
                                  include_genes, exclude_genes)
 
 
-class TransferDreamCohort(MultiCohort, DreamCohort):
+class TransferDreamCohort(TransferCohort):
     """A cohort for NCI-CPTAC DREAM Proteomics Sub-challenges 2 & 3.
     
     """
 
-    def __init__(self, syn, cohort, cv_seed=0, cv_prop=0.8):
+    def __init__(self, syn, cohort, intx_types=None, cv_seed=0, cv_prop=0.8):
 
         # gets the prediction features and the abundances to predict
         rna_mat = get_dream_data(syn, cohort, 'rna').fillna(0.0)
@@ -891,6 +947,11 @@ class TransferDreamCohort(MultiCohort, DreamCohort):
                 | (cna_var > np.percentile(cna_var, 10)))
             ]
 
+        rna_mat.columns = [col.split('__')[-1] for col in rna_mat.columns]
+        cna_mat.columns = [col.split('__')[-1] for col in cna_mat.columns]
+        prot_mat.columns = [col.split('__')[-1] for col in prot_mat.columns]
+        self.path = get_type_networks(intx_types, prot_mat.columns)
+
         # gets the samples that are common between the datasets, get the
         # training/testing cohort split
         use_samples = (set(rna_mat.index) & set(cna_mat.index)
@@ -905,7 +966,59 @@ class TransferDreamCohort(MultiCohort, DreamCohort):
         else:
             test_samps = None
 
-        MultiCohort.__init__(self,
-                             [rna_mat, cna_mat], train_samps, test_samps,
-                             cohort, cv_seed)
+        TransferCohort.__init__(self,
+                             {'rna': rna_mat, 'cna': cna_mat},
+                             train_samps, test_samps, cohort, cv_seed)
+
+    def train_data(self,
+                   pheno,
+                   include_samps=None, exclude_samps=None,
+                   include_genes=None, exclude_genes=None):
+        """Retrieval of the training cohort from the -omic dataset."""
+
+        samps = self.subset_samps(include_samps, exclude_samps,
+                                  use_test=False)
+        genes = self.subset_genes(include_genes, exclude_genes)
+
+        pheno_vec = self.train_pheno(pheno, samps)
+        nan_stat = np.any(~np.isnan(pheno_vec), axis=1)
+        samps = np.array(samps)[nan_stat]
+
+        return self.omic_loc(samps, genes), pheno_vec.loc[nan_stat, :]
+
+    def test_data(self,
+                  pheno,
+                  include_samps=None, exclude_samps=None,
+                  include_genes=None, exclude_genes=None):
+        """Retrieval of the testing cohort from the -omic dataset."""
+
+        samps = self.subset_samps(include_samps, exclude_samps,
+                                  use_test=True)
+        genes = self.subset_genes(include_genes, exclude_genes)
+
+        pheno_vec = self.test_pheno(pheno, samps)
+        nan_stat = np.any(~np.isnan(pheno_vec), axis=1)
+        samps = np.array(samps)[nan_stat]
+
+        return self.omic_loc(samps, genes), pheno_vec.loc[nan_stat, :]
+
+    def train_pheno(self, gene_list, samps=None):
+        if samps is None:
+            samps = self.train_samps
+
+        if gene_list == 'inter':
+            use_genes = (self.genes['rna'] & self.genes['cna']
+                         & set(self.train_prot.columns))
+
+        return self.train_prot.loc[samps, use_genes]
+
+    def test_pheno(self, gene_list, samps=None):
+        if samps is None:
+            samps = self.test_samps
+
+        if gene_list == 'inter':
+            use_genes = (self.genes['rna'] & self.genes['cna']
+                         & set(self.test_prot.columns))
+
+        return self.test_prot.loc[samps, use_genes]
 
