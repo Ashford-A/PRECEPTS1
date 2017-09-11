@@ -927,7 +927,7 @@ class TransferDreamCohort(TransferCohort):
         # gets the prediction features and the abundances to predict
         rna_mat = get_dream_data(syn, cohort, 'rna').fillna(0.0)
         cna_mat = get_dream_data(syn, cohort, 'cna').fillna(0.0)
-        prot_mat = get_dream_data(syn, cohort, 'prot')
+        prot_mat = get_dream_data(syn, cohort, 'prot').iloc[:, :1000]
 
         # filters out genes that have both low levels of expression
         # and low variance of expression
@@ -967,8 +967,8 @@ class TransferDreamCohort(TransferCohort):
             test_samps = None
 
         TransferCohort.__init__(self,
-                             {'rna': rna_mat, 'cna': cna_mat},
-                             train_samps, test_samps, cohort, cv_seed)
+                                {'rna': rna_mat, 'cna': cna_mat},
+                                train_samps, test_samps, cohort, cv_seed)
 
     def train_data(self,
                    pheno,

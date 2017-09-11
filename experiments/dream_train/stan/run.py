@@ -15,5 +15,10 @@ cdata = TransferDreamCohort(
 # `inter`section of the RNA genes, CNA genes, and proteome genes
 import HetMan.predict.bayesian_pathway.multi_protein as mpt
 clf = mpt.StanProteinPipe('controls-expression-of')
+
+# finds the best combination of model hyper-parameters, uses these
+# parameters to fit to the data
+clf.tune_coh(cdata, pheno='inter',
+             tune_splits=3, test_count=4, parallel_jobs=12)
 clf.fit_coh(cdata, pheno='inter') 
 

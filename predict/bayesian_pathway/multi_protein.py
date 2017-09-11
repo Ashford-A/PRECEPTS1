@@ -1,5 +1,5 @@
 
-from ..pipelines import MultiValuePipe
+from ..pipelines import MultiPipe, TransferPipe, ValuePipe
 from ..selection import IntxTypeSelect
 from .stan_models import model_code
 
@@ -19,7 +19,9 @@ class StanProteinPredict(BaseEstimator, RegressorMixin):
         self.use_genes = None
         self.use_path = None
 
-    def fit(self, X, y=None, path_obj=None, **fit_params):
+    def fit(self,
+            X, y=None,
+            path_obj=None, n_chains=8, parallel_jobs=8,**fit_params):
         if not isinstance(X, dict):
             raise TypeError("X must be a dictionary!")
 
@@ -51,11 +53,12 @@ class StanProteinPredict(BaseEstimator, RegressorMixin):
         path_wght = [0.99 for _ in both_genes] + [0.05 for _ in use_path]
 
         self.fit_obj = pystan.stan(
-            model_code=model_code, iter=10, chains=12, n_jobs=12,
+            model_code=model_code,
+            iter=20, chains=n_chains, n_jobs=parallel_jobs,
             data={'N': x_rna.shape[0], 'G': x_rna.shape[1],
                   'r': x_rna, 'c': x_cna, 'p': np.nan_to_num(y_use, 0.0),
                   'P': len(path_out), 'po': path_out, 'pi': path_in},
-            init=[{'wght': path_wght} for _ in range(12)],
+            init=[{'wght': path_wght} for _ in range(n_chains)],
             model_name="ProteinPredict"
             )
 
@@ -82,10 +85,10 @@ class StanProteinPredict(BaseEstimator, RegressorMixin):
         return pred_p
 
 
-class StanProteinPipe(MultiValuePipe):
+class StanProteinPipe(MultiPipe, TransferPipe, ValuePipe):
 
     tune_priors = (
-        ('fit__prec', (0.001, 0.005, 0.01, 0.05)),
+        ('fit__precision', (0.001, 0.005, 0.01, 0.05)),
         )
 
     def __init__(self, intx_type=None):
@@ -95,15 +98,37 @@ class StanProteinPipe(MultiValuePipe):
         super().__init__([('feat', feat_step), ('fit', fit_step)])
         self.intx_type = intx_type
 
+    @classmethod
+    def extra_fit_params(cls, cohort):
+        return {**super().extra_fit_params(cohort),
+                **{'n_chains': 12, 'parallel_jobs': 12}}
+
+    @classmethod
+    def extra_tune_params(cls, cohort):
+        return {**super().extra_tune_params(cohort),
+                **{'n_chains': 4, 'parallel_jobs': 1}}
+
+    def predict_omic(self, omic_data):
+        return self.predict_base(omic_data)
+
     @staticmethod
     def parse_scores(scores):
-        return np.mean(scores)
+        return np.mean(np.array(scores)[~np.isnan(scores)])
 
-    def score_each(self, omics, pheno):
-        nan_stat = np.isnan(pheno)
-        return r2_score(omics.loc[~nan_stat], pheno.loc[~nan_stat])
+    def score_each(self, y_true, y_pred):
+        nan_stat = np.isnan(y_true) | np.isnan(y_pred)
 
-    def score_function(self, X, y):
-        return self.parse_scores([self.score_each(X.iloc[:, j], y.iloc[:, j])
-                                  for j in range(X.shape[1])])
+        if np.sum(nan_stat) < len(y_true):
+            score_val = r2_score(y_true.loc[~nan_stat], y_pred.loc[~nan_stat])
+
+        else:
+            score_val = np.nan
+
+        return score_val
+
+    def score_pheno(self, y_true, y_pred):
+        return self.parse_scores(
+            [self.score_each(y_true.loc[:, j], y_pred.loc[:, j])
+             for j in set(y_true.columns) & set(y_pred.columns)]
+            )
 
