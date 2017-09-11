@@ -145,11 +145,20 @@ class OmicPipe(Pipeline):
 
     @classmethod
     def extra_fit_params(cls, cohort):
-        return {}
+        fit_params = {}
+
+        if hasattr(cohort, 'path'):
+            fit_params.update({'path_obj': cohort.path})
+
+        return fit_params
+
+    @classmethod
+    def extra_tune_params(cls, cohort):
+        return cls.extra_fit_params(cohort)
 
     @staticmethod
     @abstractmethod
-    def score_function(X, y):
+    def score_pheno(X, y):
         """The function used to calculate the accuracy of phenotype values
            predicted by the pipeline and the actual values themselves."""
 
@@ -169,11 +178,11 @@ class OmicPipe(Pipeline):
         Returns:
             S (float): A score corresponding to prediction accuracy.
                 The way this score is calculated is determined by the
-                pipeline's `score_function` method.
+                pipeline's `score_pheno` method.
 
         """
 
-        return self.score_function(y, self.predict_omic(X))
+        return self.score_pheno(y, self.predict_omic(X))
 
     def tune_coh(self,
                  cohort, pheno,
@@ -207,7 +216,7 @@ class OmicPipe(Pipeline):
             # samples parameter combinations and tests each one
             grid_test = OmicRandomizedCV(
                 estimator=self, param_distributions=self.cur_tuning,
-                fit_params=self.extra_fit_params(cohort),
+                fit_params=self.extra_tune_params(cohort),
                 n_iter=test_count, cv=tune_cvs, refit=False,
                 n_jobs=parallel_jobs, pre_dispatch='n_jobs'
                 )
@@ -408,12 +417,8 @@ class TransferPipe(OmicPipe):
 
         return self
 
-    @classmethod
-    def extra_fit_params(cls, cohort):
-        return {'path_obj': cohort.path}
 
-
-class MultiPipe(TransferPipe):
+class MultiPipe(OmicPipe):
     """A pipeline for predicting multiple phenotypes at once.
 
     """
@@ -431,9 +436,15 @@ class MultiPipe(TransferPipe):
     def score_each(self, omics, pheno):
         """Scores each of the given phenotypes separately."""
 
-    def score_function(self, X, y):
+    def score_pheno(self, X, y):
         return self.parse_scores([self.score_each(omics, pheno)
                                   for omics, pheno in zip(X, y)])
+
+
+class ParallelPipe(TransferPipe):
+    """A pipeline for predicting phenotypes in multiple cohorts at once.
+
+    """
 
     def tune_coh(self,
                  cohorts, pheno,
@@ -466,7 +477,7 @@ class MultiPipe(TransferPipe):
             # samples parameter combinations and tests each one
             grid_test = OmicRandomizedCV(
                 estimator=self, param_distributions=self.cur_tuning,
-                fit_params=self.extra_fit_params(cohort),
+                fit_params=self.extra_tune_params(cohort),
                 n_iter=test_count, cv=tune_cvs, refit=False,
                 n_jobs=parallel_jobs, pre_dispatch='n_jobs'
                 )
@@ -546,7 +557,7 @@ class PresencePipe(OmicPipe):
         return self.predict_proba(omic_data)
 
     @staticmethod
-    def score_function(X, y):
+    def score_pheno(X, y):
         return roc_auc_score(X, y)
 
 
@@ -556,7 +567,7 @@ class ValuePipe(OmicPipe):
     """
 
     @staticmethod
-    def score_function(X, y):
+    def score_pheno(X, y):
         return r2_score(X, y, multioutput='variance_weighted')
 
 
@@ -684,11 +695,4 @@ class MultiPresencePipe(MultiPipe, PresencePipe):
             )
 
         return infer_scores
-
-
-class MultiValuePipe(MultiPipe, ValuePipe):
-
-    @classmethod
-    def extra_fit_params(cls, cohort):
-        return {'path_obj': cohort.path}
 

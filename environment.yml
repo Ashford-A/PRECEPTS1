@@ -69,7 +69,7 @@ dependencies:
 - zlib=1.2.8=3
 - backports.csv=1.0.1=py35_0
 - grequests=0.3.0=py35_1
-- synapseclient=1.5=py35_0
+- synapseclient=1.7.1=py35_0
 - blas=1.1=openblas
 - cython=0.26=py35_0
 - entrypoints=0.2.2=py35_1
