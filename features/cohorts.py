@@ -922,35 +922,19 @@ class TransferDreamCohort(TransferCohort):
     
     """
 
-    def __init__(self, syn, cohort, intx_types=None, cv_seed=0, cv_prop=0.8):
+    def __init__(self,
+                 syn, cohort, intx_types=None, miss_cutoff=0.4,
+                 cv_seed=0, cv_prop=0.8):
 
         # gets the prediction features and the abundances to predict
-        rna_mat = get_dream_data(syn, cohort, 'rna').fillna(0.0)
-        cna_mat = get_dream_data(syn, cohort, 'cna').fillna(0.0)
-        prot_mat = get_dream_data(syn, cohort, 'prot').iloc[:, :1000]
+        rna_mat = get_dream_data(syn, cohort, 'rna')
+        cna_mat = get_dream_data(syn, cohort, 'cna')
+        prot_mat = get_dream_data(syn, cohort, 'prot')
 
-        # filters out genes that have both low levels of expression
-        # and low variance of expression
-        rna_mean = np.mean(rna_mat)
-        rna_var = np.var(rna_mat)
-        rna_mat = rna_mat.loc[
-            :, ((rna_mean > np.percentile(rna_mean, 10))
-                | (rna_var > np.percentile(rna_var, 10)))
-            ]
-
-        # filters out genes that have both low levels of expression
-        # and low variance of expression
-        cna_mean = np.mean(cna_mat)
-        cna_var = np.var(cna_mat)
-        cna_mat = cna_mat.loc[
-            :, ((cna_mean > np.percentile(cna_mean, 10))
-                | (cna_var > np.percentile(cna_var, 10)))
-            ]
-
+        # parses the column names of the -omic matrices to get gene names
         rna_mat.columns = [col.split('__')[-1] for col in rna_mat.columns]
         cna_mat.columns = [col.split('__')[-1] for col in cna_mat.columns]
         prot_mat.columns = [col.split('__')[-1] for col in prot_mat.columns]
-        self.path = get_type_networks(intx_types, prot_mat.columns)
 
         # gets the samples that are common between the datasets, get the
         # training/testing cohort split
@@ -958,6 +942,25 @@ class TransferDreamCohort(TransferCohort):
                        & set(prot_mat.index))
         train_samps, test_samps = self.split_samples(
             cv_seed, cv_prop, use_samples)
+
+        # gets the genomic features in the proteomic dataset that pass the
+        # missing value threshold
+        miss_count = np.sum(np.isnan(prot_mat.loc[use_samples, :]))
+        cutoff_stat = miss_count <= (len(use_samples) * miss_cutoff)
+        self.miss_cutoff = miss_cutoff
+
+        # subsets the proteomic dataset for genes that pass the missing value
+        # threshold and gets the pathway interactions for these genes
+        prot_mat = prot_mat.loc[use_samples, cutoff_stat]
+        self.path = get_type_networks(intx_types, prot_mat.columns)
+
+        for gn in set(prot_mat.columns) - set(rna_mat.columns):
+            rna_mat[gn] = 0
+        rna_mat = rna_mat.fillna(np.min(np.min(rna_mat)) - 1)
+
+        for gn in set(prot_mat.columns) - set(cna_mat.columns):
+            cna_mat[gn] = 0
+        cna_mat = cna_mat.fillna(0.0)
 
         # splits the protein abundances into training/testing sub-cohorts
         self.train_prot = prot_mat.loc[train_samps, :]
