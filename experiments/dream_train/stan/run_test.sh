@@ -3,7 +3,7 @@
 #SBATCH --job-name=dream-stan
 #SBATCH --partition=exacloud
 #SBATCH --mem=32000
-#SBATCH --time=1440
+#SBATCH --time=2100
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
 
