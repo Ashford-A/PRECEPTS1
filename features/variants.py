@@ -814,16 +814,38 @@ class MuTree(object):
                             btype, sub_levels, min_size)
                         )
 
+        elif mtype.cur_level == self.mut_level:
+            new_key = {}
+
+            for lbls, btype in mtype._child.items():
+                for nm, branch in self:
+
+                    if nm in lbls:
+                        rec_mtypes = branch.branchtypes(
+                            btype, sub_levels, min_size=1)
+
+                        for rec_mtype in rec_mtypes:
+                            if rec_mtype in new_key:
+                                new_key[rec_mtype] |= {nm}
+                            else:
+                                new_key[rec_mtype] = {nm}
+
+            for rec_mtype, nms in new_key.items():
+                if (len(rec_mtype.get_samples(self) & mtype.get_samples(self))
+                    >= min_size):
+                    sub_mtypes |= {
+                        MuType({(self.mut_level, tuple(nms)): rec_mtype})}
+
         else:
-            recurse_mtypes = reduce(
-                lambda x, y: x | y,
-                [branch.branchtypes(btype, sub_levels, min_size=1)
-                 for (nm, branch), (_, btype) in filter(
-                     lambda x: x[0][0] == x[1][0], product(self, mtype))]
-                )
+            recurse_mtypes = reduce(lambda x, y: x | y,
+                                    [branch.branchtypes(
+                                        mtype, sub_levels, min_size=1)
+                                     for _, branch in self],
+                                    set())
 
             sub_mtypes |= set(filter(
-                lambda x: len(x.get_samples(self)) >= min_size,
+                lambda x: (len(x.get_samples(self) & mtype.get_samples(self))
+                           >= min_size),
                 recurse_mtypes
                 ))
 
@@ -872,12 +894,13 @@ class MuTree(object):
                 branch_mtypes = self.branchtypes(
                     mtype, sub_levels, min_size=(min_type_size / csize))
 
-            for kc in combn(branch_mtypes, csize):
-                new_set = reduce(lambda x, y: x | y, kc)
+            if branch_mtypes:
+                for kc in combn(branch_mtypes, csize):
+                    new_set = reduce(lambda x, y: x | y, kc)
 
-                if (min_branch_size == 'auto'
-                    or len(new_set.get_samples(self)) >= min_type_size):
-                    comb_mtypes |= {new_set}
+                    if (min_branch_size == 'auto'
+                        or len(new_set.get_samples(self)) >= min_type_size):
+                        comb_mtypes |= {new_set}
 
         return comb_mtypes
 
@@ -1091,7 +1114,7 @@ class MuType(object):
            within the MuType."""
         new_str = ''
 
-        for k, v in self:
+        for k, v in self._child.items():
             if isinstance(k, str):
                 new_str += self.cur_level + ' IS ' + k
             else:
