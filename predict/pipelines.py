@@ -189,7 +189,6 @@ class OmicPipe(Pipeline):
         raise PipelineError("Class `OmicPipe` can't be used for prediction, "
                             "use its subclasses instead!")
 
-
     def tune_coh(self,
                  cohort, pheno,
                  tune_splits=2, test_count=8, parallel_jobs=16,
