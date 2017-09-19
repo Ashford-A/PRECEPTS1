@@ -177,14 +177,14 @@ class Cohort(object):
                                   use_test=False)
         genes = self.subset_genes(include_genes, exclude_genes)
 
-        pheno_vec = np.array(self.train_pheno(pheno, samps))
-        if pheno_vec.ndim == 1:
-            pheno_vec = pheno_vec.reshape(-1,1)
+        pheno_mat = np.array(self.train_pheno(pheno, samps))
+        if pheno_mat.ndim == 1:
+            pheno_mat = pheno_mat.reshape(-1,1)
 
-        nan_stat = np.any(~np.isnan(pheno_vec), axis=1)
+        nan_stat = np.any(~np.isnan(pheno_mat), axis=1)
         samps = np.array(samps)[nan_stat]
 
-        return self.omic_loc(samps, genes), pheno_vec[nan_stat]
+        return self.omic_loc(samps, genes), pheno_mat[nan_stat, :]
 
     def test_data(self,
                   pheno,
@@ -196,14 +196,14 @@ class Cohort(object):
                                   use_test=True)
         genes = self.subset_genes(include_genes, exclude_genes)
 
-        pheno_vec = np.array(self.test_pheno(pheno, samps))
-        if pheno_vec.ndim == 1:
-            pheno_vec = pheno_vec.reshape(-1,1)
+        pheno_mat = np.array(self.test_pheno(pheno, samps))
+        if pheno_mat.ndim == 1:
+            pheno_mat = pheno_mat.reshape(-1,1)
 
-        nan_stat = np.any(~np.isnan(pheno_vec), axis=1)
+        nan_stat = np.any(~np.isnan(pheno_mat), axis=1)
         samps = np.array(samps)[nan_stat]
 
-        return self.omic_loc(samps, genes), pheno_vec[nan_stat]
+        return self.omic_loc(samps, genes), pheno_mat[nan_stat, :]
 
     @abstractmethod
     def omic_loc(self, samps=None, genes=None):

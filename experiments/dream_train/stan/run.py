@@ -35,11 +35,11 @@ def main(argv):
 
     # finds the best combination of model hyper-parameters, uses these
     # parameters to fit to the data
-    clf.tune_coh(cdata, pheno='inter',
-                 tune_splits=4, test_count=4, parallel_jobs=16)
+    #clf.tune_coh(cdata, pheno='inter',
+    #             tune_splits=4, test_count=4, parallel_jobs=16)
     clf.fit_coh(cdata, pheno='inter') 
-
     clf.eval_coh(cdata, pheno='inter')
+
     pickle.dump(clf, open(out_file, 'wb'))
 
 
