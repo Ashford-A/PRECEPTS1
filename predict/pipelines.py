@@ -25,8 +25,10 @@ from functools import reduce
 from operator import mul
 
 from sklearn.pipeline import Pipeline
-from sklearn.metrics import roc_auc_score, r2_score
 from sklearn.model_selection import cross_val_score
+
+from sklearn.metrics import roc_auc_score, r2_score
+from scipy.stats import pearsonr
 
 
 class PipelineError(Exception):
@@ -48,10 +50,11 @@ class OmicPipe(Pipeline):
     # distributions or iterables to be sampled from as values
     tune_priors = {}
 
-    def __init__(self, steps):
+    def __init__(self, steps, path_keys=None):
         super().__init__(steps)
         self.genes = None
         self.cur_tuning = dict(self.tune_priors)
+        self.path_keys = path_keys
 
     def __str__(self):
         """Prints the tuned parameters of the pipeline."""
@@ -157,10 +160,11 @@ class OmicPipe(Pipeline):
         return cls.extra_fit_params(cohort)
 
     @staticmethod
-    @abstractmethod
     def score_pheno(X, y):
         """The function used to calculate the accuracy of phenotype values
            predicted by the pipeline and the actual values themselves."""
+        raise PipelineError("Class `OmicPipe` can't be used for prediction, "
+                            "use its subclasses instead!")
 
     def score(self, X, y=None):
         """Get the accuracy of the classifier in predicting phenotype values.
@@ -182,7 +186,8 @@ class OmicPipe(Pipeline):
 
         """
 
-        return self.score_pheno(y, self.predict_omic(X))
+        y_pred = self.predict_omic(X)
+        return self.score_pheno(y.reshape(y_pred.shape), y_pred)
 
     def tune_coh(self,
                  cohort, pheno,
@@ -534,14 +539,14 @@ class PresencePipe(OmicPipe):
        predict discrete outcomes.
     """
 
-    def __init__(self, steps):
+    def __init__(self, steps, path_keys=None):
         if not hasattr(steps[-1][-1], 'predict_proba'):
             raise PipelineError(
                 "Variant pipelines must have a classification estimator"
                 "with a 'predict_proba' method as their final step!"
                 )
 
-        super().__init__(steps)
+        super().__init__(steps, path_keys)
 
     def parse_preds(self, preds):
         if hasattr(self, 'classes_'):
@@ -558,13 +563,28 @@ class PresencePipe(OmicPipe):
 
     @staticmethod
     def score_pheno(X, y):
-        return roc_auc_score(X, y)
+        if len(np.unique(X)) == 1:
+            return 0.5
+        else:
+            return roc_auc_score(X, y)
 
 
 class ValuePipe(OmicPipe):
     """A class corresponding to pipelines which use continuous data to
        predict continuous outcomes.
     """
+    pass
+
+
+class ProteinPipe(ValuePipe):
+    """A class corresponding to pipelines for predicting proteomic levels."""
+    
+    @staticmethod
+    def score_pheno(X, y):
+        return pearsonr(X, y)[0]
+
+
+class DrugPipe(ValuePipe):
 
     @staticmethod
     def score_pheno(X, y):
@@ -575,10 +595,6 @@ class VariantPipe(PresencePipe):
     """A class corresponding to pipelines for predicting discrete gene
        mutation states such as SNPs, indels, and frameshifts.
     """
-
-    def __init__(self, steps, path_keys=None):
-        super().__init__(steps)
-        self.path_keys = path_keys
 
     def __repr__(self):
         """Prints the classifier name and the feature selection path key."""
@@ -597,17 +613,6 @@ class MutPipe(UniPipe, VariantPipe):
                 'path_obj': cohort.path}
 
 
-class ProteinPipe(UniPipe, ValuePipe):
-    """A class corresponding to pipelines for predicting proteomic levels."""
-
-    def __init__(self, steps, path_keys=None):
-        super().__init__(steps)
-        self.path_keys = path_keys
-
-    @classmethod
-    def extra_fit_params(cls, cohort):
-        return {'mut_genes': cohort.mut_genes,
-                'path_obj': cohort.path}
 
 
 class MultiPresencePipe(MultiPipe, PresencePipe):
