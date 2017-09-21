@@ -22,7 +22,10 @@ from HetMan.features.cohorts import VariantCohort
 from HetMan.predict.classifiers import Lasso, ElasticNet, Ridge
 
 import numpy as np
+from math import exp
 from sklearn.metrics.pairwise import cosine_similarity
+
+import random
 from itertools import product
 from itertools import combinations as combn
 
@@ -45,9 +48,9 @@ class PartitionOptim(object):
         self.base_test_samps = base_mtype.get_samples(cdata.test_mut)
 
         self.use_lvls = use_lvls
-        self.cur_lvl = use_lvls[0]
+        self.lvl_index = 0
 
-        self.mtype_scores = {base_mtype: {'All': 0, 'Null': 0}}
+        self.mtype_scores = {}
         self.cur_mtype = base_mtype
         self.next_mtypes = []
         self.back_mtypes = []
@@ -56,37 +59,48 @@ class PartitionOptim(object):
     def __str__(self):
         return ("Current mtype: {}\n"
                 "Current level: {}".format(
-                    self.cur_mtype, self.cur_lvl))
+                    self.cur_mtype, self.use_lvls[self.lvl_index]))
 
     def score_mtypes(self, mtypes, verbose=False):
         out_scores = {mtype: {'All': 0, 'Null': 0} for mtype in mtypes}
 
         for mtype in mtypes:
-            ex_train = (self.base_train_samps
-                        - mtype.get_samples(self.cdata.train_mut))
-            ex_test = (self.base_test_samps
-                       - mtype.get_samples(self.cdata.test_mut))
-
-            use_clf = self.clf()
-            use_clf.tune_coh(self.cdata, mtype, tune_splits=8,
-                             test_count=24, parallel_jobs=12)
-            use_clf.fit_coh(self.cdata, mtype)
-            out_scores[mtype]['All'] = use_clf.eval_coh(self.cdata, mtype)
-
-            if mtype != self.base_mtype:
-                use_clf = self.clf()
-                use_clf.tune_coh(self.cdata, mtype, tune_splits=8,
-                                 test_count=24, parallel_jobs=12,
-                                 exclude_genes=[self.gene], exclude_samps=ex_train)
-                use_clf.fit_coh(self.cdata, mtype,
-                                exclude_genes=[self.gene], exclude_samps=ex_train)
-                out_scores[mtype]['Null'] = use_clf.eval_coh(
-                    self.cdata, mtype,
-                    exclude_genes=[self.gene], exclude_samps=ex_test
-                    )
+            if mtype in self.mtype_scores:
+                out_scores[mtype]['All'] = self.mtype_scores[mtype]['All']
+                out_scores[mtype]['Null'] = self.mtype_scores[mtype]['Null']
 
             else:
-                out_scores[mtype]['Null'] = out_scores[mtype]['All']
+                ex_train = (self.base_train_samps
+                            - mtype.get_samples(self.cdata.train_mut))
+                ex_test = (self.base_test_samps
+                           - mtype.get_samples(self.cdata.test_mut))
+
+                use_clf = self.clf()
+                use_clf.tune_coh(self.cdata, mtype, tune_splits=4,
+                                 test_count=12, parallel_jobs=12)
+                use_clf.fit_coh(self.cdata, mtype)
+                out_scores[mtype]['All'] = use_clf.eval_coh(self.cdata, mtype)
+
+                if mtype != self.base_mtype:
+                    use_clf = self.clf()
+
+                    use_clf.tune_coh(
+                        self.cdata, mtype, tune_splits=8,
+                        test_count=24, parallel_jobs=12,
+                        exclude_genes=[self.gene], exclude_samps=ex_train
+                        )
+
+                    use_clf.fit_coh(self.cdata, mtype,
+                                    exclude_genes=[self.gene],
+                                    exclude_samps=ex_train)
+
+                    out_scores[mtype]['Null'] = use_clf.eval_coh(
+                        self.cdata, mtype,
+                        exclude_genes=[self.gene], exclude_samps=ex_test
+                        )
+
+                else:
+                    out_scores[mtype]['Null'] = out_scores[mtype]['All']
             
             if verbose:
                 print(mtype)
@@ -95,14 +109,45 @@ class PartitionOptim(object):
 
         return out_scores
 
+    def get_null_performance(self, draw_count=8):
+        mtype_samps = self.cur_mtype.get_samples(self.cdata.train_mut)
+        draw_perfs = []
+
+        samp_draws = [random.sample(mtype_samps,
+                                    random.randint(10, len(mtype_samps) - 1))
+                      for _ in range(draw_count)]
+
+        for samp_draw in samp_draws:
+            use_clf = self.clf()
+            ex_samps = mtype_samps - set(samp_draw)
+
+            use_clf.tune_coh(self.cdata, self.cur_mtype,
+                             tune_splits=8, test_count=24, parallel_jobs=12,
+                             exclude_genes=[self.gene],
+                             exclude_samps=ex_samps)
+            
+            use_clf.fit_coh(self.cdata, self.cur_mtype,
+                            exclude_genes=[self.gene],
+                            exclude_samps=ex_samps)
+
+            draw_perfs += [[
+                len(samp_draw),
+                use_clf.eval_coh(self.cdata, self.cur_mtype,
+                                 exclude_genes=[self.gene],
+                                 exclude_samps=ex_samps)
+                ]]
+
+        return draw_perfs
+
+
     def step(self, verbose=False):
         if self.cur_mtype == self.base_mtype:
             self.mtype_scores.update(self.score_mtypes(
                 [self.base_mtype], verbose))
 
         test_mtypes = self.cdata.train_mut.combtypes(
-            mtype=self.cur_mtype, sub_levels=[self.cur_lvl],
-            comb_sizes=(1, 2, 3), min_type_size=12
+            mtype=self.cur_mtype, sub_levels=[self.use_lvls[self.lvl_index]],
+            comb_sizes=(1, 2, 3), min_type_size=10
             )
 
         out_scores = self.score_mtypes(test_mtypes, verbose)
@@ -110,57 +155,99 @@ class PartitionOptim(object):
 
         return out_scores
 
-    def traverse_branch(self, back_mtypes=None, verbose=False):
+    def traverse_branch(self, verbose=False):
 
         if verbose:
             print(self)
 
+        if self.back_mtypes and not self.back_mtypes[-1][0]:
+            self.back_mtypes = self.back_mtypes[:-1]
+
+        null_scores = self.get_null_performance()
         new_scores = self.step(verbose)
+
+        # if we have found sub-types of the current mutation type...
         if new_scores:
 
+            mtype_sizes = [len(mtype.get_samples(self.cdata.train_mut))
+                           for mtype, _ in new_scores.items()]
+
+
+            null_wghts = [
+                [exp(-(((nl_sz - new_sz) ** 2) / new_sz ** 2)) ** 2
+                 for nl_sz, _ in null_scores]
+                for (_, acc), new_sz in zip(new_scores.items(), mtype_sizes)
+                ]
+
+            wght_sums = [sum(wghts) for wghts in null_wghts]
+            null_wghts = [[wght / wght_sum for wght in wghts]
+                          for wghts, wght_sum in zip(null_wghts, wght_sums)]
+
+            null_means = [sum(wght * perf
+                              for wght, (_, perf) in zip(wghts, null_scores))
+                          for wghts in null_wghts]
+
+            null_crcts = [sum(wght ** 2 for wght in wghts)
+                          for wghts in null_wghts]
+
+            null_sds = [
+                (sum(wght * (perf - nl_mn) ** 2
+                     for wght, (_, perf) in zip(wghts, null_scores))
+                 / (1 - null_crct)) ** 0.5
+                for wghts, nl_mn, null_crct in
+                zip(null_wghts, null_means, null_crcts)
+                ]
+
             next_mtypes = sorted(
-                [(mtype, acc['Null']) for mtype, acc in new_scores.items()
-                if acc['Null'] > self.mtype_scores[self.cur_mtype]['Null']],
+                [(mtype, (acc['Null'] - nl_mn) / nl_sd)
+                 for (mtype, acc), nl_mn, nl_sd in
+                 zip(new_scores.items(), null_means, null_sds)],
                 key=lambda x: x[1]
                 )
-            next_mtypes = [x[0] for x in next_mtypes]
 
+            next_mtypes = [x[0] for x in next_mtypes if x[1] > 2]
+            print(next_mtypes)
+
+            # ...and at least one of these sub-types are significantly
+            # better than the current type...
             if next_mtypes:
-                if self.cur_lvl == self.use_lvls[-1]:
+
+                # ...and if we have reached the bottom of the mutation
+                # annotation hierarchy, add these sub-types to the list of
+                # optimal sub-types...
+                if self.lvl_index == (len(self.use_lvls) - 1):
                     self.best_mtypes += next_mtypes
 
+                    # ...and then go back and interrogate previously found
+                    # sub-types that were better than their parent type
+                    if self.back_mtypes:
+                        self.cur_mtype = self.back_mtypes[-1][0].pop()
+                        return self.traverse_branch(verbose)
+
+                # ...if we can go deeper in the hierarchy, proceed to test
+                # the first of these better sub-types, saving the rest for
+                # later
                 else:
                     self.cur_mtype = next_mtypes.pop()
-                    self.cur_lvl = self.use_lvls[
-                        self.use_lvls.index(self.cur_lvl) + 1]
+                    self.back_mtypes += [[next_mtypes, self.lvl_index]]
+                    self.lvl_index += 1
 
-                    if back_mtypes is not None:
-                        self.back_mtypes += [[back_mtypes]]
+                    return self.traverse_branch(verbose)
 
-                    return self.traverse_branch(next_mtypes, verbose)
+        # ...otherwise check if we can skip this mutation annotation level
+        # and go one level deeper to find more sub-types
+        if self.lvl_index < (len(self.use_lvls) - 1):
+            self.lvl_index += 1
+            return self.traverse_branch(verbose)
 
-            elif back_mtypes:
-                self.cur_mtype = back_mtypes.pop()
-                self.cur_lvl = self.use_lvls[
-                    self.use_lvls.index(self.cur_lvl) - 1]
-                return self.traverse_branch(back_mtypes, verbose)
-
-            elif self.cur_lvl != self.use_lvls[-1]:
-                self.cur_lvl = self.use_lvls[
-                    self.use_lvls.index(self.cur_lvl) + 1]
-                return self.traverse_branch(verbose=verbose)
-
-        else:
+        # ...otherwise check to see if there are sub-types at the current
+        # mutation level we can go back to...
+        if self.back_mtypes:
             self.best_mtypes.append(self.cur_mtype)
+            self.cur_mtype = self.back_mtypes[-1][0].pop()
+            self.lvl_index = self.back_mtypes[-1][1]
 
-            if back_mtypes is not None and back_mtypes:
-                self.cur_mtype = back_mtypes.pop()
-                return self.traverse_branch(back_mtypes, verbose)
-
-            elif self.back_mtypes:
-                back_mtypes = self.back_mtypes.pop()
-                self.cur_mtype = back_mtypes.pop()
-                return self.traverse_branch(back_mtypes, verbose)
+            return self.traverse_branch(verbose)
 
 
 def main(argv):
@@ -181,19 +268,19 @@ def main(argv):
     syn.login()
 
     cdata = VariantCohort(cohort=coh_lbl, mut_genes=[argv[1]],
-                          mut_levels=('Gene', 'Form_base', 'Exon', 'Protein'),
+                          mut_levels=('Gene', 'Form', 'Exon', 'Protein'),
                           syn=syn, cv_seed=(int(argv[3]) + 3) * 19)
 
     base_mtype = MuType({('Gene', argv[1]): None})
     optim = PartitionOptim(cdata, base_mtype, argv[1], eval(argv[2]),
-                           ('Form_base', 'Exon', 'Protein'))
+                           ('Form', 'Exon', 'Protein'))
 
     optim.traverse_branch(verbose=True)
     print(optim.cur_mtype)
     print(optim.best_mtypes)
     print(optim.next_mtypes)
     print(optim.back_mtypes)
-    print(optim.cur_lvl)
+    print(optim.lvl_index)
     optim.traverse_branch(verbose=True)
 
     # saves classifier results to file
