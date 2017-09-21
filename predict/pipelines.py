@@ -7,7 +7,8 @@ phenotypic information from -omic datasets.
 
 See Also:
     :module:`../features/cohorts`: Storing -omic and phenotypic data.
-    :module:`.classifiers`: Specific machine learning algorithms.
+    :module:`.classifiers`: Specific algorithms for binary prediction.
+    :module:`.regressors`: Specific algorithms for continuous prediction.
 
 Author: Michal Grzadkowski <grzadkow@ohsu.edu>
 
@@ -36,7 +37,7 @@ class PipelineError(Exception):
 
 
 class OmicPipe(Pipeline):
-    """Extracting phenotypic predictions from an -omics dataset.
+    """Extracting phenotypic predictions from -omics dataset(s).
 
     Args:
         steps (list): A series of transformations and classifiers.
@@ -221,11 +222,11 @@ class OmicPipe(Pipeline):
             # samples parameter combinations and tests each one
             grid_test = OmicRandomizedCV(
                 estimator=self, param_distributions=self.cur_tuning,
-                fit_params=self.extra_tune_params(cohort),
                 n_iter=test_count, cv=tune_cvs, refit=False,
                 n_jobs=parallel_jobs, pre_dispatch='n_jobs'
                 )
-            grid_test.fit(train_omics, train_pheno)
+            grid_test.fit(X=train_omics, y=train_pheno,
+                          **self.extra_tune_params(cohort))
 
             # finds the best parameter combination and updates the classifier
             tune_scores = (grid_test.cv_results_['mean_test_score']
@@ -348,6 +349,9 @@ class OmicPipe(Pipeline):
 
 
 class UniPipe(OmicPipe):
+    """Predicting a single phenotype from -omics dataset(s).
+    
+    """
 
     def fit(self, X, y=None, **fit_params):
         """Fits the steps of the pipeline in turn."""
@@ -482,12 +486,12 @@ class ParallelPipe(TransferPipe):
             # samples parameter combinations and tests each one
             grid_test = OmicRandomizedCV(
                 estimator=self, param_distributions=self.cur_tuning,
-                fit_params=self.extra_tune_params(cohort),
                 n_iter=test_count, cv=tune_cvs, refit=False,
                 n_jobs=parallel_jobs, pre_dispatch='n_jobs'
                 )
-            grid_test.fit([omics for omics, _ in train_data],
-                          [pheno for _, pheno in train_data])
+            grid_test.fit(X=[omics for omics, _ in train_data],
+                          y=[pheno for _, pheno in train_data],
+                          **self.extra_tune_params(cohort))
 
             # finds the best parameter combination and updates the classifier
             tune_scores = (grid_test.cv_results_['mean_test_score']

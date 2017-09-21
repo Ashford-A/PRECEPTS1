@@ -10,19 +10,19 @@ on multi-domain and multi-task prediction tasks.
 
 import numpy as np
 import pandas as pd
-
-import scipy.sparse as sp
 import time
 
-from sklearn.utils.validation import check_array, _num_samples
-from sklearn.utils.fixes import bincount
+import scipy.sparse as sp
+from scipy.stats import rankdata
 
+from sklearn.utils.validation import check_array, _num_samples
 from sklearn.model_selection import (
     StratifiedShuffleSplit, StratifiedKFold)
 from sklearn.model_selection._split import (
     _validate_shuffle_split, _approximate_mode)
 from sklearn.model_selection._validation import _fit_and_predict, _score
 from sklearn.model_selection import RandomizedSearchCV
+from sklearn.externals.joblib import Parallel, delayed, logger
 
 from collections import Sized, defaultdict
 from functools import partial, reduce
@@ -31,10 +31,7 @@ from sklearn.base import is_classifier, clone
 from sklearn.model_selection._split import check_cv
 from sklearn.model_selection._validation import (
     _fit_and_score, _index_param_value)
-from sklearn.externals.joblib import Parallel, delayed, logger
 from sklearn.utils import check_random_state, indexable
-from sklearn.utils.fixes import rankdata
-from sklearn.utils.fixes import MaskedArray
 from sklearn.metrics.scorer import check_scoring
 
 
@@ -409,7 +406,7 @@ class OmicRandomizedCV(RandomizedSearchCV):
             pre_dispatch=pre_dispatch
         )(delayed(_omic_fit_and_score)(clone(base_estimator), X, y, self.scorer_,
                                       train, test, self.verbose, parameters,
-                                      fit_params=self.fit_params,
+                                      fit_params=fit_params,
                                       return_train_score=self.return_train_score,
                                       return_n_test_samples=True,
                                       return_times=True, return_parameters=True,
@@ -555,7 +552,7 @@ class OmicShuffleSplit(StratifiedShuffleSplit):
                 lambda x, y: x + y,
                 [y_ind * 2 ** i for i, (_, y_ind) in enumerate(class_info)]
                 )
-            merged_counts = bincount(merged_classes)
+            merged_counts = np.bincount(merged_classes)
             class_info = np.unique(merged_classes, return_inverse=True)
 
             new_counts = merged_counts.tolist()
@@ -630,7 +627,7 @@ class OmicShuffleSplit(StratifiedShuffleSplit):
                 for n_samps in n_samples]
             class_info = [np.unique(y, return_inverse=True) for y in omic]
             n_classes = [classes.shape[0] for classes, _ in class_info]
-            classes_counts = [bincount(y_indices)
+            classes_counts = [np.bincount(y_indices)
                               for _, y_indices in class_info]
 
             # ensure we have enough samples in each class for stratification

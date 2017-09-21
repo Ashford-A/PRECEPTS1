@@ -241,8 +241,8 @@ class UniCohort(Cohort):
                               "-omic dataset!")
 
         Cohort.__init__(self,
-                        train_samps, test_samps, omic_mat.columns,
-                        cohort_lbl, cv_seed)
+                        train_samps, test_samps,
+                        frozenset(omic_mat.columns), cohort_lbl, cv_seed)
 
         # remove duplicate features from the dataset as well as samples
         # not listed in either the training or testing sub-cohorts
