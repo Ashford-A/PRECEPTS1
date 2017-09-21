@@ -3,7 +3,7 @@ from ..pipelines import MultiPipe, TransferPipe, ValuePipe
 from ..selection import IntxTypeSelect
 from .stan_models import model_code
 
-from sklearn.metrics import roc_auc_score, r2_score
+from scipy.stats import pearsonr
 from sklearn.base import BaseEstimator, RegressorMixin
 
 import pystan
@@ -21,7 +21,7 @@ class StanProteinPredict(BaseEstimator, RegressorMixin):
 
     def fit(self,
             X, y=None,
-            path_obj=None, n_chains=8, parallel_jobs=8,**fit_params):
+            path_obj=None, n_chains=8, parallel_jobs=8, **fit_params):
         if not isinstance(X, dict):
             raise TypeError("X must be a dictionary!")
 
@@ -31,8 +31,10 @@ class StanProteinPredict(BaseEstimator, RegressorMixin):
         if 'cna' not in X:
             raise ValueError("X must have a `cna` entry!")
 
-        both_genes = (set(X['rna'].columns) & set(X['cna'].columns)
-                      & set(fit_params['prot_genes']))
+        both_genes = sorted(list(
+            set(X['rna'].columns) & set(X['cna'].columns)
+            & set(fit_params['prot_genes'])
+            ))
 
         use_path = [(up_gn, down_gn) for up_gn, down_gn in
                     path_obj[self.path_type]
@@ -54,7 +56,7 @@ class StanProteinPredict(BaseEstimator, RegressorMixin):
 
         self.fit_obj = pystan.stan(
             model_code=model_code,
-            iter=20, chains=n_chains, n_jobs=parallel_jobs,
+            iter=50, chains=n_chains, n_jobs=parallel_jobs,
             data={'N': x_rna.shape[0], 'G': x_rna.shape[1],
                   'r': x_rna, 'c': x_cna, 'p': np.nan_to_num(y_use, 0.0),
                   'P': len(path_out), 'po': path_out, 'pi': path_in},
@@ -101,7 +103,7 @@ class StanProteinPipe(MultiPipe, TransferPipe, ValuePipe):
     @classmethod
     def extra_fit_params(cls, cohort):
         return {**super().extra_fit_params(cohort),
-                **{'n_chains': 12, 'parallel_jobs': 12}}
+                **{'n_chains': 16, 'parallel_jobs': 16}}
 
     @classmethod
     def extra_tune_params(cls, cohort):
@@ -118,8 +120,9 @@ class StanProteinPipe(MultiPipe, TransferPipe, ValuePipe):
     def score_each(self, y_true, y_pred):
         nan_stat = np.isnan(y_true) | np.isnan(y_pred)
 
-        if np.sum(nan_stat) < len(y_true):
-            score_val = r2_score(y_true.loc[~nan_stat], y_pred.loc[~nan_stat])
+        if np.sum(nan_stat) < (len(y_true) - 2):
+            score_val = pearsonr(
+                y_true.loc[~nan_stat], y_pred.loc[~nan_stat])[0]
 
         else:
             score_val = np.nan
@@ -131,4 +134,28 @@ class StanProteinPipe(MultiPipe, TransferPipe, ValuePipe):
             [self.score_each(y_true.loc[:, j], y_pred.loc[:, j])
              for j in set(y_true.columns) & set(y_pred.columns)]
             )
+
+    def get_coef(self):
+        gn_coef = {gn: {'rna': {}, 'cna': {}}
+                   for gn in self.named_steps['fit'].use_genes}
+
+        comb_data = {gn: comb for gn, comb in
+                     zip(self.named_steps['fit'].use_genes,
+                         self.named_steps['fit'].fit_obj.summary(
+                             pars='comb')['summary'][:, 0])}
+
+        path_wghts = self.named_steps['fit'].fit_obj.summary(
+            pars='wght')['summary'][:, 0]
+
+        for i, gn in enumerate(self.use_genes):
+            gn_coef[gn]['rna'][gn] = comb_data[gn] * path_wghts[i]
+            gn_coef[gn]['cna'][gn] = (1 - comb_data[gn]) * path_wghts[i]
+
+        for (up_gn, down_gn), wght in zip(self.named_steps['fit'].use_path,
+                                          path_wghts[len(comb_data):]):
+
+            gn_coef[down_gn]['rna'][up_gn] = comb_data[up_gn] * wght
+            gn_coef[down_gn]['cna'][up_gn] = (1 - comb_data[up_gn]) * wght
+
+        return gn_coef
 
