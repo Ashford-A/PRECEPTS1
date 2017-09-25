@@ -56,7 +56,7 @@ class StanProteinPredict(BaseEstimator, RegressorMixin):
 
         self.fit_obj = pystan.stan(
             model_code=model_code,
-            iter=50, chains=n_chains, n_jobs=parallel_jobs,
+            iter=40, chains=n_chains, n_jobs=parallel_jobs,
             data={'N': x_rna.shape[0], 'G': x_rna.shape[1],
                   'r': x_rna, 'c': x_cna, 'p': np.nan_to_num(y_use, 0.0),
                   'P': len(path_out), 'po': path_out, 'pi': path_in},

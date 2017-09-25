@@ -115,7 +115,7 @@ class NeighbourSelect(PathwaySelect):
 
 class IntxTypeSelect(PathwaySelect):
 
-    def fit(self, X, y=None, path_obj=None, expr_genes=None,
+    def fit(self, X, y=None, path_obj=None, expr_genes=None, prot_genes=None,
             **fit_params):
         """Gets the list of genes selected based on pathway information.
 
@@ -127,7 +127,7 @@ class IntxTypeSelect(PathwaySelect):
                 select_genes |= reduce(lambda x, y: set(x) | set(y),
                                        path_obj[intx_type])
 
-            self.select_genes = select_genes
+            self.select_genes = select_genes | set(prot_genes)
 
         return super().fit(X, y, path_obj, expr_genes)
 

@@ -1,9 +1,9 @@
 #!/bin/bash
 
 #SBATCH --job-name=dream-stan
-#SBATCH --partition=exacloud
-#SBATCH --mem=32000
-#SBATCH --time=2100
+#SBATCH --partition=long_jobs
+#SBATCH --mem=48000
+#SBATCH --time=4100
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
 

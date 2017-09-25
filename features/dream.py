@@ -15,13 +15,13 @@ syn_ids = {
              'cna': '10139527',
              'prot': '10139538'},
     
-    'OV': {'rna': '10139533',
+    'OV': {'rna': '10535396',
            'cna': '10139531',
-           'prot': ['10290694', '10290695']}
+           'prot': {'JHU': '10514980', 'PNNL': '10514979'}}
     }
 
 
-def get_dream_data(syn, cohort, omic_type):
+def get_dream_data(syn, cohort, omic_type, source=None):
     """Retrieves a particular -omic dataset used in the challenge.
 
     Args:
@@ -55,9 +55,10 @@ def get_dream_data(syn, cohort, omic_type):
     else:
         dream_ids = syn_ids[cohort][omic_type]
         omic_type = [omic_type]
-        
-        if isinstance(dream_ids, str):
-            dream_ids = [dream_ids]
+        dream_ids = [dream_ids]
+
+    dream_ids = [dream_id if isinstance(dream_id, str) else dream_id[source]
+                 for dream_id in dream_ids]
 
     # read in the -omic dataset(s) and merge them according to sample ID
     dream_data = pd.concat(

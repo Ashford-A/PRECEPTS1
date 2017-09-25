@@ -407,7 +407,9 @@ class TransferPipe(OmicPipe):
                 'expr_genes': {
                     lbl: [xcol.split('__')[-1] for xcol in Xmat.columns]
                     for lbl, Xmat in X.items()
-                    }}}
+                    },
+                'prot_genes': self.prot_genes
+                }}
             )
 
         if 'feat' in self.named_steps:
@@ -438,6 +440,11 @@ class MultiPipe(OmicPipe):
     def predict_omic(self, omic_data):
         return [self.parse_preds(preds)
                 for preds in self.predict_base(omic_data)]
+
+
+    def score(self, X, y=None):
+        y_pred = np.array(self.predict_omic(X))
+        return self.score_pheno(np.array(y).reshape(y_pred.shape), y_pred)
 
     @staticmethod
     def parse_scores(scores):
@@ -618,93 +625,4 @@ class MutPipe(UniPipe, VariantPipe):
     def extra_fit_params(cls, cohort):
         return {'mut_genes': cohort.mut_genes,
                 'path_obj': cohort.path}
-
-
-
-
-class MultiPresencePipe(MultiPipe, PresencePipe):
-    """A class corresponding to pipelines for predicting a collection of
-       discrete gene mutation states simultaenously.
-    """
-
-    def predict_mut(self, expr):
-        """Returns the probability of mutation presence calculated by the
-           classifier based on the given expression matrix.
-        """
-        return self.predict_proba(expr)
-
-    def predict_labels(self, expr):
-        expr_t = self.transform(expr)
-        return self.predict_labels(expr_t)
-
-    def score_coh(self,
-                  cohort, pheno,
-                  score_splits=16,
-                  include_samples=None, exclude_samples=None,
-                  include_genes=None, exclude_genes=None):
-        """Test a classifier using tuning and cross-validation
-           within the training samples of this dataset.
-
-        Parameters
-        ----------
-        clf : UniClassifier
-            An instance of the classifier to test.
-
-        mtype : MuType, optional
-            The mutation sub-type to test the classifier on.
-            Default is to use all of the mutations available.
-
-        verbose : boolean
-            Whether or not the classifier should print information about the
-            optimal hyper-parameters found during tuning.
-
-        Returns
-        -------
-        P : float
-            The 1st quartile of tuned classifier performance across the
-            cross-validation samples. Used instead of the mean of performance
-            to take into account performance variation for "hard" samples.
-
-            Performance is measured using the area under the receiver operator
-            curve metric.
-        """
-        samps, genes = cohort._validate_dims(mtype=mtype,
-                                             exclude_samps=exclude_samps,
-                                             gene_list=gene_list)
-
-        score_cvs = OmicShuffleSplit(
-            n_splits=score_splits, test_size=0.2,
-            random_state=cohort.intern_cv_)
-
-        return np.percentile(cross_val_score(
-            estimator=self,
-            X=cohort.train_expr_.loc[samps, genes],
-            y=cohort.train_mut_.status(samps, mtype),
-            fit_params={'feat__mut_genes': cohort.mut_genes,
-                        'feat__path_obj': cohort.path,
-                        'fit__mut_genes': cohort.mut_genes,
-                        'fit__path_obj': cohort.path},
-            scoring=self.score_mut, cv=score_cvs, n_jobs=-1
-            ), 25)
-
-    def infer_coh(self,
-                  cohort, pheno,
-                  infer_splits=16,
-                  include_samples=None, exclude_samples=None,
-                  include_genes=None, exclude_genes=None):
-        samps, genes = cohort._validate_dims(gene_list=gene_list)
-
-        infer_scores = cross_val_predict_mut(
-            estimator=self,
-            X=cohort.train_expr_.loc[:, genes],
-            y=cohort.train_mut_.status(samps, mtype),
-            exclude_samps=exclude_samps, cv_fold=4, cv_count=infer_splits,
-            fit_params={'feat__mut_genes': cohort.mut_genes,
-                        'feat__path_obj': cohort.path,
-                        'fit__mut_genes': cohort.mut_genes,
-                        'fit__path_obj': cohort.path},
-            random_state=int(cohort.intern_cv_ ** 1.5) % 42949672, n_jobs=-1
-            )
-
-        return infer_scores
 
