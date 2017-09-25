@@ -21,10 +21,8 @@ def main(argv):
     syn.login()
 
     # loads the challenge data
-    cdata = TransferDreamCohort(
-        syn, argv[0], intx_types=[argv[1]],
-        cv_seed=171, cv_prop=0.8, miss_cutoff=0.1
-        )
+    cdata = TransferDreamCohort(syn, argv[0], intx_types=[argv[1]],
+                                cv_seed=171, cv_prop=0.8)
 
     out_dir = os.path.join(base_dir, 'output')
     out_file = os.path.join(out_dir, argv[0], argv[1], 'results', 'coefs.p')

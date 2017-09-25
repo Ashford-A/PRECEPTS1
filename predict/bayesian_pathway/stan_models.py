@@ -24,8 +24,8 @@ model_code = '''
         vector<lower=0, upper=1>[G] comb;   // RNA-CNA combinations
         vector<lower=0.01, upper=10>[2] comb_prior;
 
-        vector<lower=0>[G] prec;   // precision of activities
-        vector<lower=0.01, upper=20>[2] prec_prior;
+        vector<lower=0.1>[G] prec;   // precision of activities
+        // vector<lower=0.01, upper=20>[2] prec_prior;
 
         matrix[N, G] act;                   // inferred gene activities
     }
@@ -58,7 +58,8 @@ model_code = '''
         }
         
         for (g in 1:G) {
-            prec[g] ~ gamma(prec_prior[1], prec_prior[2]);
+            // prec[g] ~ gamma(prec_prior[1], prec_prior[2]);
+            prec[g] ~ gamma(1.5, 10);
         }
         
         for (g in 1:G) {
