@@ -139,8 +139,8 @@ class OmicPipe(Pipeline):
     def predict_base(self, omic_data):
         return self.predict(omic_data)
 
-    @classmethod
-    def parse_preds(cls, preds):
+    @staticmethod
+    def parse_preds(preds):
         return preds
 
     def predict_omic(self, omic_data):
@@ -186,9 +186,9 @@ class OmicPipe(Pipeline):
                 pipeline's `score_pheno` method.
 
         """
+        raise PipelineError("Class `OmicPipe` can't be used for prediction, "
+                            "use its subclasses instead!")
 
-        y_pred = self.predict_omic(X)
-        return self.score_pheno(y.reshape(y_pred.shape), y_pred)
 
     def tune_coh(self,
                  cohort, pheno,
@@ -375,6 +375,10 @@ class UniPipe(OmicPipe):
             self._final_estimator.fit(Xt, y.ravel(), **final_params)
 
         return self
+    
+    def score(self, X, y=None):
+        return self.score_pheno(np.array(y).flatten(),
+                                np.array(self.predict_omic(X)).flatten())
 
 
 class LinearPipe(UniPipe):

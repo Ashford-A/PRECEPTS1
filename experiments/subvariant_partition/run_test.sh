@@ -3,7 +3,7 @@
 #SBATCH --job-name=gn-part
 #SBATCH --partition=exacloud
 #SBATCH --mem-per-cpu=4000
-#SBATCH --time=600
+#SBATCH --time=2100
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=12
 

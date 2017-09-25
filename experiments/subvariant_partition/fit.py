@@ -22,8 +22,11 @@ from HetMan.features.cohorts import VariantCohort
 from HetMan.predict.classifiers import Lasso, ElasticNet, Ridge
 
 import numpy as np
+import pandas as pd
+
 from math import exp
 from sklearn.metrics.pairwise import cosine_similarity
+from scipy.stats import norm
 
 import random
 from itertools import product
@@ -42,7 +45,9 @@ class PartitionOptim(object):
         self.cdata = cdata
         self.base_mtype = base_mtype
         self.gene = gene
+
         self.clf = clf
+        self.pred_scores = pd.DataFrame(index=cdata.test_samps)
 
         self.base_train_samps = base_mtype.get_samples(cdata.train_mut)
         self.base_test_samps = base_mtype.get_samples(cdata.test_mut)
@@ -62,9 +67,11 @@ class PartitionOptim(object):
                     self.cur_mtype, self.use_lvls[self.lvl_index]))
 
     def score_mtypes(self, mtypes, verbose=False):
-        out_scores = {mtype: {'All': 0, 'Null': 0} for mtype in mtypes}
+        """Scores a list of mutation sub-types by classification accuracy."""
 
+        out_scores = {mtype: {'All': 0, 'Null': 0} for mtype in mtypes}
         for mtype in mtypes:
+
             if mtype in self.mtype_scores:
                 out_scores[mtype]['All'] = self.mtype_scores[mtype]['All']
                 out_scores[mtype]['Null'] = self.mtype_scores[mtype]['Null']
@@ -77,9 +84,12 @@ class PartitionOptim(object):
 
                 use_clf = self.clf()
                 use_clf.tune_coh(self.cdata, mtype, tune_splits=4,
-                                 test_count=12, parallel_jobs=12)
-                use_clf.fit_coh(self.cdata, mtype)
-                out_scores[mtype]['All'] = use_clf.eval_coh(self.cdata, mtype)
+                                 test_count=12, parallel_jobs=12,
+                                 exclude_genes=[self.gene])
+
+                use_clf.fit_coh(self.cdata, mtype, exclude_genes=[self.gene])
+                out_scores[mtype]['All'] = use_clf.eval_coh(
+                    self.cdata, mtype, exclude_genes=[self.gene])
 
                 if mtype != self.base_mtype:
                     use_clf = self.clf()
@@ -99,8 +109,19 @@ class PartitionOptim(object):
                         exclude_genes=[self.gene], exclude_samps=ex_test
                         )
 
+
                 else:
                     out_scores[mtype]['Null'] = out_scores[mtype]['All']
+                
+                self.pred_scores[mtype] = [
+                    x[0] for x in use_clf.predict_omic(
+                        self.cdata.omic_mat.loc[
+                            self.pred_scores.index,
+                            self.cdata.subset_genes(
+                                exclude_genes=[self.gene])
+                            ]
+                        )
+                    ]
             
             if verbose:
                 print(mtype)
@@ -109,7 +130,18 @@ class PartitionOptim(object):
 
         return out_scores
 
-    def get_null_performance(self, draw_count=8):
+    def get_null_performance(self, draw_count=50):
+        """Estimates the null score distribution for the current sub-type.
+
+        Args:
+            draw_count (int): How many random subsets of samples to test.
+
+        Examples:
+            >>> optim.get_null_performance(5)
+            >>> optim.get_null_performance(100)
+
+        """
+
         mtype_samps = self.cur_mtype.get_samples(self.cdata.train_mut)
         draw_perfs = []
 
@@ -139,6 +171,31 @@ class PartitionOptim(object):
 
         return draw_perfs
 
+    def get_clf_projection(self, mtypes):
+        cur_samps = self.cur_mtype.get_samples(self.cdata.test_mut)
+        mtype_proj = {mtype: -1 for mtype in mtypes}
+
+        for mtype in mtypes:
+            mtype_samps = mtype.get_samples(self.cdata.test_mut)
+
+            if mtype_samps != cur_samps:
+                left_scores = self.pred_scores.loc[
+                    cur_samps - mtype_samps, (mtype, )]
+                null_scores = self.pred_scores.loc[
+                    self.cdata.test_samps - self.base_test_samps, (mtype, )]
+                mtype_scores = self.pred_scores.loc[mtype_samps, (mtype, )]
+
+                null_param = norm.fit(null_scores)
+                mtype_param = norm.fit(mtype_scores)
+
+                left_null_likl = np.sum(
+                    norm.logpdf(left_scores, *null_param))
+                left_mtype_likl = np.sum(
+                    norm.logpdf(left_scores, *mtype_param))
+
+                mtype_proj[mtype] = left_mtype_likl - left_null_likl
+
+        return mtype_proj
 
     def step(self, verbose=False):
         if self.cur_mtype == self.base_mtype:
@@ -168,6 +225,10 @@ class PartitionOptim(object):
 
         # if we have found sub-types of the current mutation type...
         if new_scores:
+
+            mtype_proj = self.get_clf_projection(
+                [mtype for mtype, _ in new_scores.items()])
+            print(mtype_proj)
 
             mtype_sizes = [len(mtype.get_samples(self.cdata.train_mut))
                            for mtype, _ in new_scores.items()]
@@ -205,7 +266,8 @@ class PartitionOptim(object):
                 key=lambda x: x[1]
                 )
 
-            next_mtypes = [x[0] for x in next_mtypes if x[1] > 2]
+            next_mtypes = [x[0] for x in next_mtypes
+                           if x[1] > 2 and mtype_proj[x[0]] < 0]
             print(next_mtypes)
 
             # ...and at least one of these sub-types are significantly
