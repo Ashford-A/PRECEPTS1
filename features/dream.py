@@ -5,6 +5,7 @@ Author: Michal Grzadkowski <grzadkow@ohsu.edu>
 
 """
 
+import numpy as np
 import pandas as pd
 import synapseutils
 
@@ -37,7 +38,7 @@ def get_dream_data(syn, cohort, omic_type, source=None):
         >>> syn.login()
         >>>
         >>> get_dream_data(syn, "BRCA", "rna")
-        >>> get_dream_data(syn, "OV", "cna")
+        >>> get_dream_data(syn, "OV", "cna", "PNNL")
         >>> get_dream_data(syn, "BRCA", "rna+cna")
 
     """
@@ -61,15 +62,20 @@ def get_dream_data(syn, cohort, omic_type, source=None):
                  for dream_id in dream_ids]
 
     # read in the -omic dataset(s) and merge them according to sample ID
-    dream_data = pd.concat(
-        {omic_tp: pd.read_csv(syn.get("syn{}".format(dream_id)).path,
-                              sep='\t', index_col=0).transpose()
-         for dream_id, omic_tp in zip(dream_ids, omic_type)},
-        join='inner', axis=1
-        )
+    omic_list = {omic_tp: pd.read_csv(syn.get("syn{}".format(dream_id)).path,
+                                      sep='\t', index_col=0).transpose()
+                 for dream_id, omic_tp in zip(dream_ids, omic_type)}
 
-    # convert the pandas MultiIndex of the merged datasets into a flat
-    # list of strings
+    # replaces missing values according to the -omic type
+    omic_list = {
+        omic_tp: (omic_tbl.fillna(0.0) if omic_tp == 'cna'
+                  else omic_tbl.fillna(np.min(np.min(omic_tbl)) - 1))
+        for omic_tp, omic_tbl in omic_list.items()
+        }
+
+    # merges datasets into one table, converts the pandas MultiIndex of this
+    # table into a flat list of strings
+    dream_data = pd.concat(omic_list, join='inner', axis=1)
     dream_data.columns = ["__".join(col)
                           for col in dream_data.columns.values]
 
