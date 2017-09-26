@@ -849,8 +849,8 @@ class DreamCohort(ValueCohort, UniCohort):
                  syn, cohort, omic_type='rna', cv_seed=0, cv_prop=0.8):
 
         # gets the prediction features and the abundances to predict
-        feat_mat = get_dream_data(syn, cohort, omic_type).fillna(0.0)
-        prot_mat = get_dream_data(syn, cohort, 'prot')
+        feat_mat = get_dream_data(syn, cohort, omic_type)
+        prot_mat = get_dream_data(syn, cohort, 'prot', source='JHU')
 
         # filters out genes that have both low levels of expression
         # and low variance of expression
@@ -944,16 +944,13 @@ class TransferDreamCohort(TransferCohort):
 
         # subsets the proteomic dataset for genes that pass the missing value
         # threshold and gets the pathway interactions for these genes
-        prot_mat = prot_mat.loc[use_samples, :]
         self.path = get_type_networks(intx_types, prot_mat.columns)
 
         for gn in set(prot_mat.columns) - set(rna_mat.columns):
             rna_mat[gn] = 0
-        rna_mat = rna_mat.fillna(np.min(np.min(rna_mat)) - 1)
 
         for gn in set(prot_mat.columns) - set(cna_mat.columns):
             cna_mat[gn] = 0
-        cna_mat = cna_mat.fillna(0.0)
 
         # splits the protein abundances into training/testing sub-cohorts
         self.train_prot = prot_mat.loc[train_samps, :]

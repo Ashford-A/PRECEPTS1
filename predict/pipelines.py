@@ -379,6 +379,10 @@ class UniPipe(OmicPipe):
         return self.score_pheno(np.array(y).flatten(),
                                 np.array(self.predict_omic(X)).flatten())
 
+    def score(self, X, y=None):
+        return self.score_pheno(np.array(y).flatten(),
+                                np.array(self.predict_omic(X)).flatten())
+
 
 class LinearPipe(UniPipe):
     """A class corresponding to linear logistic regression classification
@@ -388,7 +392,7 @@ class LinearPipe(UniPipe):
 
     def get_coef(self):
         return {gene: coef for gene, coef in
-                zip(self.genes, self.named_steps['fit'].coef_[0])}
+                zip(self.genes, self.named_steps['fit'].coef_.flatten())}
 
 
 class TransferPipe(OmicPipe):
@@ -595,7 +599,10 @@ class ProteinPipe(ValuePipe):
     
     @staticmethod
     def score_pheno(X, y):
-        return pearsonr(X, y)[0]
+        if np.var(X) == 0 or np.var(y) == 0:
+            return 0
+        else:
+            return pearsonr(X, y)[0]
 
 
 class DrugPipe(ValuePipe):
