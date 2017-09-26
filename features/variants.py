@@ -1110,11 +1110,13 @@ class MuType(object):
         return eq
 
     def __repr__(self):
-        """Shows the hierarchy of mutation properties contained
-           within the MuType."""
+        """Shows the hierarchy of mutation properties within the MuType."""
         new_str = ''
 
-        for k, v in self._child.items():
+        # iterate over all mutation types at this level separately
+        # regardless of their children
+        for k, v in self:
+
             if isinstance(k, str):
                 new_str += self.cur_level + ' IS ' + k
             else:
@@ -1123,6 +1125,7 @@ class MuType(object):
 
             if v is not None:
                 new_str += ' AND ' + repr(v)
+
             new_str += ' OR '
 
         return gsub(' OR $', '', new_str)
@@ -1131,12 +1134,15 @@ class MuType(object):
         """Gets a condensed label for the MuType."""
         new_str = ''
 
-        for k, v in self:
-            if v is None:
-                new_str = new_str + k
-            else:
-                new_str = new_str + k + '-' + str(v)
-            new_str = new_str + ', '
+        # iterate over the mutation types at this level, grouping together
+        # types with the same children to produce a more concise label
+        for k, v in self._child.items():
+            new_str += reduce(lambda x, y: x + '+' + y, k)
+
+            if v is not None:
+                new_str += '-' + str(v)
+
+            new_str += ', '
 
         return gsub(', $', '', new_str)
 

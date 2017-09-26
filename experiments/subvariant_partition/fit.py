@@ -78,7 +78,7 @@ class PartitionOptim(object):
         self.best_mtypes = set()
 
     def __str__(self):
-        return ("\nThe current state of the optimizer is:\n"
+        return ("The current state of the optimizer is:\n"
                 "\tCurrent mtype: {}\n\tCurrent level: {}".format(
                     self.cur_mtype, self.use_lvls[self.lvl_index]))
 
@@ -149,7 +149,7 @@ class PartitionOptim(object):
 
         return out_scores
 
-    def get_null_performance(self, draw_count=5):
+    def get_null_performance(self, draw_count=20):
         """Estimates the null score distribution for the current sub-type.
 
         Args:
@@ -214,9 +214,21 @@ class PartitionOptim(object):
         return mtype_proj
 
     def step(self):
+        """Performs a step of the mutation sub-type search tree space.
+        
+        Returns:
+            out_scores (dict): Classification performances of the sub-types
+                               tested in this step.
+        
+        """
+
+        # if we are taking the first step of the optimizer, test the mutation
+        # sub-type at the top of the search tree space
         if self.cur_mtype == self.base_mtype and self.lvl_index == 0:
             self.mtype_scores.update(self.score_mtypes([self.base_mtype]))
 
+        # find the sub-types that are the children of the current sub-type
+        # in the search space
         test_mtypes = self.cdata.train_mut.combtypes(
             mtype=self.cur_mtype, sub_levels=[self.use_lvls[self.lvl_index]],
             comb_sizes=(1, 2, 3), min_type_size=10
@@ -231,17 +243,36 @@ class PartitionOptim(object):
             ]
 
         if self.verbose > 0:
-            print("\nFound {} sub-types to test...".format(len(test_mtypes)))
+            if len(test_mtypes) == 0:
+                print("\nDid not find any sub-types to test.")
+            elif len(test_mtypes) == 1:
+                print("\nFound one sub-type to test...")
+            else:
+                print("\nFound {} sub-types to test...".format(
+                    len(test_mtypes)))
 
+        # test the performance of the children sub-types, update the
+        # search history of the optimizer, add the performance of the
+        # current sub-type to the returned scores for comparison
         out_scores = self.score_mtypes(test_mtypes)
         self.mtype_scores.update(out_scores)
-
+        out_scores = (
+            list(out_scores.items())
+            + [(self.cur_mtype, self.mtype_scores[self.cur_mtype])]
+            )
+        
         return out_scores
 
     def traverse_branch(self):
+        """Traverses a branch of the mutation sub-type search tree.
+
+        Returns:
+            status (bool): Whether or not we have exhausted the search space.
+
+        """
 
         if self.verbose > 0:
-            print('-------------')
+            print('\n-------------')
             print(self)
             print('-------------')
 
@@ -258,22 +289,22 @@ class PartitionOptim(object):
             # ...finds how functionally similar the classification signatures
             # of the sub-types are to the signature of the current type
             mtype_proj = self.get_clf_projection(
-                [mtype for mtype, _ in new_scores.items()])
+                [mtype for mtype, _ in new_scores[:-1]])
 
             if self.verbose > 1:
                 print("\nRemaining samples' probability of being labelled "
                       "positively with each sub-type's classifier:")
                 print('\n'.join(
-                    '\t{}:\t\t{:.1%}'.format(s[0], (1 + 2 ** -s[1]) ** -1)
+                    '\t{}:\n\t\t{:.1%}'.format(s[0], (1 + 2 ** -s[1]) ** -1)
                     for s in mtype_proj.items()))
 
             mtype_sizes = [len(mtype.get_samples(self.cdata.train_mut))
-                           for mtype, _ in new_scores.items()]
+                           for mtype, _ in new_scores]
 
             null_wghts = [
                 [exp(-(((nl_sz - new_sz) ** 2) / new_sz ** 2)) ** 2
                  for nl_sz, _ in null_scores]
-                for (_, acc), new_sz in zip(new_scores.items(), mtype_sizes)
+                for (_, acc), new_sz in zip(new_scores, mtype_sizes)
                 ]
 
             wght_sums = [sum(wghts) for wghts in null_wghts]
@@ -299,31 +330,41 @@ class PartitionOptim(object):
                 print("\nResults of background classification analysis "
                       "(mean +/- sd) :")
 
-                print('\n'.join('\t{}:\t\t{:.4f} +/- {:.4f}'.format(*s)
-                                for s in zip(
-                                    new_scores.keys(), null_means, null_sds)))
+                print('\n'.join(
+                    '\t{}:\n\t\t{:.4f} +/- {:.4f}'.format(
+                        s[0][0], s[1], s[2])
+                    for s in zip(new_scores, null_means, null_sds)
+                    ))
 
             next_mtypes = sorted(
                 [(mtype, (acc['Null'] - nl_mn) / nl_sd)
                  for (mtype, acc), nl_mn, nl_sd in
-                 zip(new_scores.items(), null_means, null_sds)],
+                 zip(new_scores, null_means, null_sds)],
                 key=lambda x: x[1]
                 )
 
             if self.verbose > 1:
                 print("\nSub-type classification performance z-score "
                       "relative to background sample subset distribution:")
-                print('\n'.join('\t{}:\t\t{:.2f}'.format(*s)
+                print('\n'.join('\t{}:\n\t\t{:+.2f}'.format(*s)
                                 for s in next_mtypes))
 
-            next_mtypes = [x[0] for x in next_mtypes
-                           if x[1] > 2 and mtype_proj[x[0]] < 0]
+            # filters out sub-types whose classification performance is too
+            # low compared to the corresponding null performance distribution
+            # and whose classification signatures are too similar to that
+            # of the current type
+            next_mtypes = [
+                x[0] for x in next_mtypes
+                if (x[0] != self.cur_mtype
+                    and x[1] > max(1, dict(next_mtypes)[self.cur_mtype])
+                    and mtype_proj[x[0]] < 0)
+                ]
 
             # ...and at least one of these sub-types are significantly
             # better than the current type...
             if next_mtypes:
                 if self.verbose > 1:
-                    print("Found {} further sub-types...".format(
+                    print("\nFound {} further sub-types...".format(
                         len(next_mtypes)))
 
                 # ...and if we have reached the bottom of the mutation
@@ -341,6 +382,8 @@ class PartitionOptim(object):
                     # ...and then go back and interrogate previously found
                     # sub-types that were better than their parent type
                     if self.back_mtypes:
+                        if self.verbose > 1:
+                            print("\nGoing back up to previous sub-types...")
                         self.cur_mtype = self.back_mtypes[-1][0].pop()
                         self.lvl_index = self.back_mtypes[-1][1]
 
@@ -359,19 +402,27 @@ class PartitionOptim(object):
         # ...otherwise check if we can skip this mutation annotation level
         # and go one level deeper to find more sub-types
         if self.lvl_index < (len(self.use_lvls) - 1):
+            if self.verbose > 1:
+                print("\nSkipping this mutation annotation level...")
             self.lvl_index += 1
             return True
 
         # ...otherwise check to see if there are sub-types at the current
         # mutation level we can go back to...
-        if self.back_mtypes:
+        elif self.back_mtypes:
+            if self.verbose > 1:
+                print("\nAdding the current sub-type to the optimal set.")
+                print("\nGoing back up to previous sub-types...")
+
             self.best_mtypes |= set(self.cur_mtype)
             self.cur_mtype = self.back_mtypes[-1][0].pop()
             self.lvl_index = self.back_mtypes[-1][1]
 
             return True
 
-        return False
+        # ...otherwise the traversal of this tree is complete
+        else:
+            return False
 
 
 def main(argv):
