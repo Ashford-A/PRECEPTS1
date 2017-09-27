@@ -1,6 +1,10 @@
 
 """Finding the optimal partition of a gene's sub-variants.
 
+This module contains classes and methods for finding the partition of a
+gene's mutations that best clusters them according to downstream expression
+effects.
+
 Args:
     fit.py <cohort> <gene> <classif> <cv_id>
 
@@ -25,12 +29,8 @@ import numpy as np
 import pandas as pd
 
 from math import exp
-from sklearn.metrics.pairwise import cosine_similarity
 from scipy.stats import norm
-
 import random
-from itertools import product
-from itertools import combinations as combn
 
 import dill as pickle
 import synapseclient
@@ -88,10 +88,14 @@ class PartitionOptim(object):
         out_scores = {mtype: {'All': 0, 'Null': 0} for mtype in mtypes}
         for mtype in mtypes:
 
+            # if we have already tested this sub-type, retrieve its
+            # classification performances from the optimizer's history
             if mtype in self.mtype_scores:
                 out_scores[mtype]['All'] = self.mtype_scores[mtype]['All']
                 out_scores[mtype]['Null'] = self.mtype_scores[mtype]['Null']
 
+            # otherwise, get the samples that have the optimizer's base
+            # mutation but not any mutations in this sub-type
             else:
                 ex_train = (self.base_train_samps
                             - mtype.get_samples(self.cdata.train_mut))
@@ -149,7 +153,7 @@ class PartitionOptim(object):
 
         return out_scores
 
-    def get_null_performance(self, draw_count=20):
+    def get_null_performance(self, draw_count=50):
         """Estimates the null score distribution for the current sub-type.
 
         Args:
@@ -165,7 +169,7 @@ class PartitionOptim(object):
         draw_perfs = []
 
         samp_draws = [random.sample(mtype_samps,
-                                    random.randint(10, len(mtype_samps) - 1))
+                                    random.randint(6, len(mtype_samps) - 1))
                       for _ in range(draw_count)]
 
         for samp_draw in samp_draws:
@@ -284,7 +288,7 @@ class PartitionOptim(object):
         new_scores = self.step()
 
         # if we have found sub-types of the current mutation type...
-        if new_scores:
+        if len(new_scores) > 1:
 
             # ...finds how functionally similar the classification signatures
             # of the sub-types are to the signature of the current type
@@ -356,8 +360,10 @@ class PartitionOptim(object):
             next_mtypes = [
                 x[0] for x in next_mtypes
                 if (x[0] != self.cur_mtype
-                    and x[1] > max(1, dict(next_mtypes)[self.cur_mtype])
-                    and mtype_proj[x[0]] < 0)
+                    #and x[1] > max(1, dict(next_mtypes)[self.cur_mtype])
+                    #and mtype_proj[x[0]] < 0)
+                    and (x[1] > max(2, dict(next_mtypes)[self.cur_mtype] + 1)
+                         or (mtype_proj[x[0]] < 0 and x[1] > 1)))
                 ]
 
             # ...and at least one of these sub-types are significantly
@@ -394,8 +400,8 @@ class PartitionOptim(object):
                 # later
                 else:
                     self.cur_mtype = next_mtypes.pop()
-                    self.back_mtypes += [[next_mtypes, self.lvl_index]]
                     self.lvl_index += 1
+                    self.back_mtypes += [[next_mtypes, self.lvl_index]]
 
                     return True
 
@@ -444,7 +450,7 @@ def main(argv):
 
     cdata = VariantCohort(cohort=coh_lbl, mut_genes=[argv[1]],
                           mut_levels=('Gene', 'Form', 'Exon', 'Protein'),
-                          syn=syn, cv_seed=(int(argv[3]) + 3) * 19)
+                          syn=syn, cv_seed=(int(argv[3]) + 3) * 17)
 
     base_mtype = MuType({('Gene', argv[1]): None})
     optim = PartitionOptim(cdata, base_mtype, argv[1], eval(argv[2]),
@@ -456,7 +462,8 @@ def main(argv):
     # saves classifier results to file
     out_file = os.path.join(
         out_dir, 'results', 'out__cv-{}.p'.format(argv[3]))
-    pickle.dump(optim, open(out_file, 'wb'))
+    pickle.dump({'best': optim.best_mtypes, 'hist': optim.mtype_scores},
+                open(out_file, 'wb'))
 
 
 if __name__ == "__main__":

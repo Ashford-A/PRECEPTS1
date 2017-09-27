@@ -524,6 +524,21 @@ class MuTree(object):
 
         return len(self.get_samples())
 
+    def get_newick(self):
+        """Get the Newick tree format representation of this MuTree."""
+        newick_str = ''
+
+        for nm, mut in self:
+            if isinstance(mut, MuTree):
+                newick_str += '(' + gsub(',$', '', mut.get_newick()) + ')'
+
+            newick_str += '{' + nm + '},'
+
+        if self.depth == 0:
+            newick_str = gsub(',$', '', newick_str) + ';' 
+
+        return newick_str
+
     def get_levels(self):
         """Gets all the levels present in this tree and its children."""
 
@@ -684,7 +699,7 @@ class MuTree(object):
                                     {(self.mut_level, nm): branch.get_diff(
                                         use_btype, sub_btype)}
                                     )
-                    
+
                 elif mtype2.cur_level in self.get_levels():
                     diff_key.update({(self.mut_level, nm):
                                      branch.get_diff(use_btype, mtype2)})
@@ -716,6 +731,7 @@ class MuTree(object):
         """
         new_key = None
 
+        # use all levels if no levels to filter on are provided
         if levels is None:
             levels = self.get_levels()
 
@@ -786,7 +802,7 @@ class MuTree(object):
         """
         sub_mtypes = set()
 
-        # gets default values for filtering arguments
+        # gets default values for filtering arguments if they are missing
         if mtype is None:
             mtype = MuType(self.allkey())
         if sub_levels is None:
@@ -814,6 +830,9 @@ class MuTree(object):
                             btype, sub_levels, min_size)
                         )
 
+        # otherwise, if we are not at one of the mutation levels to
+        # retrieve MuTypes at but are at the same level in the
+        # subset MuType and MuTree...
         elif mtype.cur_level == self.mut_level:
             new_key = {}
 
