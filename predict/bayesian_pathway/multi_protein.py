@@ -56,9 +56,9 @@ class StanProteinPredict(BaseEstimator, RegressorMixin):
 
         self.fit_obj = pystan.stan(
             model_code=model_code,
-            iter=40, chains=n_chains, n_jobs=parallel_jobs,
+            iter=20, chains=n_chains, n_jobs=parallel_jobs,
             data={'N': x_rna.shape[0], 'G': x_rna.shape[1],
-                  'r': x_rna, 'c': x_cna, 'p': np.nan_to_num(y_use, 0.0),
+                  'r': x_rna, 'c': x_cna, 'p': np.nan_to_num(y_use),
                   'P': len(path_out), 'po': path_out, 'pi': path_in},
             init=[{'wght': path_wght} for _ in range(n_chains)],
             model_name="ProteinPredict"
@@ -103,7 +103,7 @@ class StanProteinPipe(MultiPipe, TransferPipe, ValuePipe):
     @classmethod
     def extra_fit_params(cls, cohort):
         return {**super().extra_fit_params(cohort),
-                **{'n_chains': 16, 'parallel_jobs': 16}}
+                **{'n_chains': 12, 'parallel_jobs': 12}}
 
     @classmethod
     def extra_tune_params(cls, cohort):

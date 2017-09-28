@@ -2,7 +2,7 @@
 from math import exp
 from scipy import stats
 
-from .pipelines import ValuePipe, LinearPipe
+from .pipelines import UniPipe, LinearPipe, ValuePipe
 from .selection import *
 
 from sklearn.preprocessing import StandardScaler, RobustScaler
@@ -31,7 +31,7 @@ class ElasticNet(LinearPipe, ValuePipe):
             )
 
 
-class SVRrbf(ValuePipe):
+class SVRrbf(UniPipe, ValuePipe):
     """A class corresponding to Support Vector Machine regression
        of gene gain/loss status using a radial basis kernel.
     """
@@ -52,7 +52,7 @@ class SVRrbf(ValuePipe):
             )
 
 
-class rForest(ValuePipe):
+class rForest(UniPipe, ValuePipe):
     """A class corresponding to Random Forest regression
        of gene gain/loss status.
     """
@@ -65,7 +65,7 @@ class rForest(ValuePipe):
     def __init__(self, path_keys=None):
         feat_step = PathwaySelect(path_keys=path_keys)
         norm_step = StandardScaler()
-        fit_step = RandomForestRegressor(n_estimators=1000)
+        fit_step = RandomForestRegressor(n_estimators=400)
 
         super().__init__(
             [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],
@@ -73,7 +73,7 @@ class rForest(ValuePipe):
             )
 
 
-class KNeighbors(ValuePipe):
+class KNeighbors(UniPipe, ValuePipe):
     """A class corresponding to Support Vector Machine regression
        of gene gain/loss status using a radial basis kernel.
     """
