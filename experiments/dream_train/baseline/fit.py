@@ -17,11 +17,18 @@ from HetMan.features.cohorts import DreamCohort
 from HetMan.predict.pipelines import ProteinPipe
 import HetMan.predict.regressors as regr
 
-import pickle
+import dill as pickle
 import synapseclient
 
 
+# machine learning pipelines for predicting proteomic levels from -omics data
 class ElasticNet(regr.ElasticNet, ProteinPipe):
+    pass
+
+class SVRrbf(regr.SVRrbf, ProteinPipe):
+    pass
+
+class rForest(regr.rForest, ProteinPipe):
     pass
 
 
@@ -43,7 +50,7 @@ def main(argv):
 
     out_rval = {gene: 0 for gene in gene_list}
     for i, gene in enumerate(gene_list):
-        if i % 8 == int(argv[4]):
+        if i % 20 == int(argv[4]):
 
             print(gene)
             regr_obj = regr_cls()

@@ -38,7 +38,7 @@ def main(argv):
     clf.fit_coh(cdata, pheno='inter') 
     clf.eval_coh(cdata, pheno='inter')
 
-    pickle.dump(clf, open(out_file, 'wb'))
+    pickle.dump(clf.get_coef(), open(out_file, 'wb'))
 
 
 if __name__ == "__main__":
