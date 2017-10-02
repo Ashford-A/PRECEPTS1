@@ -9,18 +9,20 @@ on multi-domain and multi-task prediction tasks.
 # Author: Michal Grzadkowski <grzadkow@ohsu.edu>
 
 import numpy as np
-import scipy.sparse as sp
+import pandas as pd
 import time
 
-from sklearn.utils.validation import check_array, _num_samples
-from sklearn.utils.fixes import bincount
+import scipy.sparse as sp
+from scipy.stats import rankdata
 
+from sklearn.utils.validation import check_array, _num_samples
 from sklearn.model_selection import (
     StratifiedShuffleSplit, StratifiedKFold)
 from sklearn.model_selection._split import (
     _validate_shuffle_split, _approximate_mode)
 from sklearn.model_selection._validation import _fit_and_predict, _score
 from sklearn.model_selection import RandomizedSearchCV
+from sklearn.externals.joblib import Parallel, delayed, logger
 
 from collections import Sized, defaultdict
 from functools import partial, reduce
@@ -29,81 +31,11 @@ from sklearn.base import is_classifier, clone
 from sklearn.model_selection._split import check_cv
 from sklearn.model_selection._validation import (
     _fit_and_score, _index_param_value)
-from sklearn.externals.joblib import Parallel, delayed, logger
 from sklearn.utils import check_random_state, indexable
-from sklearn.utils.fixes import rankdata
-from sklearn.utils.fixes import MaskedArray
 from sklearn.metrics.scorer import check_scoring
 
 
-def cross_val_predict_mut(estimator, X, y=None, groups=None,
-                          exclude_samps=None, cv_fold=4, cv_count=16,
-                          n_jobs=1, verbose=0, fit_params=None,
-                          pre_dispatch='2*n_jobs', random_state=None):
-    """Generates predicted mutation states for samples using internal
-       cross-validation via repeated stratified K-fold sampling.
-    """
-
-    # gets the number of K-fold repeats
-    if (cv_count % cv_fold) != 0:
-        raise ValueError("The number of folds should evenly divide the total"
-                         "number of cross-validation splits.")
-    cv_rep = int(cv_count / cv_fold)
-
-    # checks that the given estimator can predict continuous mutation states
-    if not callable(getattr(estimator, 'predict_proba')):
-        raise AttributeError('predict_proba not implemented in estimator')
-
-    # gets absolute indices for samples to train and test over
-    X, y, groups = indexable(X, y, groups)
-    if exclude_samps is None:
-        exclude_samps = []
-    else:
-        exclude_samps = list(set(exclude_samps) - set(X.index[y]))
-    use_samps = list(set(X.index) - set(exclude_samps))
-    use_samps_indx = X.index.get_indexer_for(use_samps)
-    ex_samps_indx = X.index.get_indexer_for(exclude_samps)
-
-    # generates the training/prediction splits
-    cv_iter = []
-    for i in range(cv_rep):
-        cv = StratifiedKFold(n_splits=cv_fold, shuffle=True,
-                             random_state=(random_state * i) % 12949671)
-        cv_iter += [
-            (use_samps_indx[train],
-             np.append(use_samps_indx[test], ex_samps_indx))
-            for train, test in cv.split(X.ix[use_samps_indx, :],
-                                        np.array(y)[use_samps_indx],
-                                        groups)
-            ]
-
-    # for each split, fit on the training set and get predictions for
-    # remaining cohort
-    parallel = Parallel(n_jobs=n_jobs, verbose=verbose,
-                        pre_dispatch=pre_dispatch)
-    prediction_blocks = parallel(delayed(_fit_and_predict)(
-        clone(estimator), X, y,
-        train, test, verbose, fit_params, 'predict_proba')
-                                 for train, test in cv_iter)
-
-    # consolidates the predictions into an array
-    pred_mat = [[] for _ in range(X.shape[0])]
-    for i in range(cv_rep):
-        predictions = np.concatenate(
-            [pred_block_i for pred_block_i, _
-             in prediction_blocks[(i * cv_fold):((i + 1) * cv_fold)]])
-        test_indices = np.concatenate(
-            [indices_i for _, indices_i
-             in prediction_blocks[(i * cv_fold):((i + 1) * cv_fold)]]
-            )
-
-        for j in range(X.shape[0]):
-            pred_mat[j] += list(predictions[test_indices == j, 1])
-
-    return pred_mat
-
-
-def cross_val_predict_drug(estimator, X, y=None, groups=None,
+def cross_val_predict_omic(estimator, X, y=None, groups=None,
                            exclude_samps=None, cv_fold=4, cv_count=16,
                            n_jobs=1, verbose=0, fit_params=None,
                            pre_dispatch='2*n_jobs', random_state=None):
@@ -170,7 +102,7 @@ def cross_val_predict_drug(estimator, X, y=None, groups=None,
     return pred_mat
 
 
-def mut_indexable(expr, mut):
+def omic_indexable(expr, omic):
     """Make arrays indexable for cross-validation.
 
     Checks consistent length, passes through None, and ensures that everything
@@ -192,20 +124,20 @@ def mut_indexable(expr, mut):
     else:
         new_expr = np.array(expr)
 
-    if sp.issparse(mut):
-        new_mut = mut.tocsr()
-    elif hasattr(mut, "__getitem__") or hasattr(mut, "iloc"):
-        new_mut = mut
-    elif mut is None:
-        new_mut = None
+    if sp.issparse(omic):
+        new_omic = omic.tocsr()
+    elif hasattr(omic, "__getitem__") or hasattr(omic, "iloc"):
+        new_omic = omic
+    elif omic is None:
+        new_omic = None
     else:
-        new_mut = np.array(mut)
+        new_omic = np.array(omic)
 
-    # check_consistent_mut_length(new_expr, new_mut)
-    return new_expr, new_mut
+    # check_consistent_omic_length(new_expr, new_omic)
+    return new_expr, new_omic
 
 
-def check_consistent_mut_length(expr, mut):
+def check_consistent_omic_length(expr, omic):
     """Check that all arrays have consistent first dimensions.
 
     Checks whether all objects in arrays have the same shape or length.
@@ -217,23 +149,23 @@ def check_consistent_mut_length(expr, mut):
     """
 
     expr_lengths = _num_samples(expr)
-    mut_lengths = _num_samples(mut)
+    omic_lengths = _num_samples(omic)
 
     if len(np.unique(expr_lengths)):
         pass
 
-    if len(np.unique(mut_lengths)):
+    if len(np.unique(omic_lengths)):
         pass
 
-    if expr_lengths != mut_lengths:
+    if expr_lengths != omic_lengths:
         pass
 
     #if len(uniques) > 1:
     #    raise ValueError("Found input variables with inconsistent numbers of"
-    #                     " samples: %r" % [int(l) for l in mut_lengths])
+    #                     " samples: %r" % [int(l) for l in omic_lengths])
 
 
-def _mut_fit_and_score(estimator, X, y, scorer, train, test, verbose,
+def _omic_fit_and_score(estimator, X, y, scorer, train, test, verbose,
                        parameters, fit_params, return_train_score=False,
                        return_parameters=False, return_n_test_samples=False,
                        return_times=False, error_score='raise'):
@@ -320,8 +252,8 @@ def _mut_fit_and_score(estimator, X, y, scorer, train, test, verbose,
 
     start_time = time.time()
 
-    X_train, y_train = _mut_safe_split(estimator, X, y, train)
-    X_test, y_test = _mut_safe_split(estimator, X, y, test, train)
+    X_train, y_train = _omic_safe_split(estimator, X, y, train)
+    X_test, y_test = _omic_safe_split(estimator, X, y, test, train)
 
     try:
         if y_train is None:
@@ -372,7 +304,7 @@ def _mut_fit_and_score(estimator, X, y, scorer, train, test, verbose,
     return ret
 
 
-def _mut_safe_split(estimator, X, y, indices, train_indices=None):
+def _omic_safe_split(estimator, X, y, indices, train_indices=None):
     """Create subset of dataset and properly handle kernels."""
     from sklearn.gaussian_process.kernels import Kernel as GPKernel
 
@@ -382,11 +314,15 @@ def _mut_safe_split(estimator, X, y, indices, train_indices=None):
         raise ValueError("Cannot use a custom kernel function. "
                          "Precompute the kernel matrix instead.")
 
-    if not hasattr(X, "shape"):
+    elif isinstance(X, dict):
+        X_subset = {lbl: x.iloc[indices] for lbl, x in X.items()}
+
+    elif not hasattr(X, "shape"):
         if getattr(estimator, "_pairwise", False):
             raise ValueError("Precomputed kernels or affinity matrices have "
                              "to be passed as arrays or sparse matrices.")
         X_subset = [X[index] for index in indices]
+
     else:
         if getattr(estimator, "_pairwise", False):
             # X is a precomputed square kernel matrix
@@ -397,17 +333,17 @@ def _mut_safe_split(estimator, X, y, indices, train_indices=None):
             else:
                 X_subset = X[np.ix_(indices, train_indices)]
         else:
-            X_subset = mut_safe_indexing(X, indices)
+            X_subset = omic_safe_indexing(X, indices)
 
     if y is not None:
-        y_subset = mut_safe_indexing(y, indices)
+        y_subset = omic_safe_indexing(y, indices)
     else:
         y_subset = None
 
     return X_subset, y_subset
 
 
-def mut_safe_indexing(X, indices):
+def omic_safe_indexing(X, indices):
     """Return items or rows from X using indices.
 
     Allows simple indexing of lists or arrays.
@@ -441,10 +377,10 @@ def mut_safe_indexing(X, indices):
         return [[x[idx] for x in X] for idx in indices]
 
 
-class MutRandomizedCV(RandomizedSearchCV):
+class OmicRandomizedCV(RandomizedSearchCV):
 
     def __init__(self, **kwargs):
-        super(MutRandomizedCV, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     def _fit(self, X, y, groups, parameter_iterable):
         """Actual fitting,  performing the search over parameters."""
@@ -453,7 +389,7 @@ class MutRandomizedCV(RandomizedSearchCV):
         cv = check_cv(self.cv, y, classifier=is_classifier(estimator))
         self.scorer_ = check_scoring(self.estimator, scoring=self.scoring)
 
-        # X, y, groups = mut_indexable(X, y, groups)
+        # X, y, groups = omic_indexable(X, y, groups)
         n_splits = cv.get_n_splits(X, y, groups)
         if self.verbose > 0 and isinstance(parameter_iterable, Sized):
             n_candidates = len(parameter_iterable)
@@ -468,9 +404,9 @@ class MutRandomizedCV(RandomizedSearchCV):
         out = Parallel(
             n_jobs=self.n_jobs, verbose=self.verbose,
             pre_dispatch=pre_dispatch
-        )(delayed(_mut_fit_and_score)(clone(base_estimator), X, y, self.scorer_,
+        )(delayed(_omic_fit_and_score)(clone(base_estimator), X, y, self.scorer_,
                                       train, test, self.verbose, parameters,
-                                      fit_params=self.fit_params,
+                                      fit_params=fit_params,
                                       return_train_score=self.return_train_score,
                                       return_n_test_samples=True,
                                       return_times=True, return_parameters=True,
@@ -564,43 +500,59 @@ class MutRandomizedCV(RandomizedSearchCV):
         return self
 
 
-class MutShuffleSplit(StratifiedShuffleSplit):
+class OmicShuffleSplit(StratifiedShuffleSplit):
     """Generates splits of single or multiple cohorts into training and
        testing sets that are stratified according to the mutation vectors.
     """
 
-    def _iter_indices(self, expr, mut=None, groups=None):
+    def _iter_indices(self, expr, omic=None, groups=None):
         """Generates indices of training/testing splits for use in
            stratified shuffle splitting of cohort data.
         """
 
         # with one domain and one variant to predict proceed with stratified
         # sampling, binning mutation values if they are continuous
-        if hasattr(expr, 'shape') and hasattr(mut, 'shape'):
+        if hasattr(expr, 'shape') and hasattr(omic, 'shape'):
 
-            if len(np.unique(mut)) > 2:
-                mut = mut > np.percentile(mut, 50)
-            for train, test in super(MutShuffleSplit, self)._iter_indices(
-                    X=expr, y=mut, groups=groups):
+            if len(np.unique(omic)) > 2:
+                omic = omic > np.percentile(omic, 50)
+
+            for train, test in super()._iter_indices(
+                    X=expr, y=omic, groups=groups):
 
                 yield train, test
 
-        # with one domain and multiple variants
+        elif hasattr(omic, 'shape'):
+
+            if len(np.unique(omic)) > 2:
+                if len(omic.shape) == 1:
+                    omic = omic > np.percentile(omic, 50)
+                else:
+                    if isinstance(omic, pd.DataFrame):
+                        samp_mean = np.mean(omic.fillna(0.0), axis=1)
+                    elif isinstance(omic, np.ndarray):
+                        samp_mean = np.mean(np.nan_to_num(omic), axis=1)
+
+                    omic = samp_mean > np.percentile(samp_mean, 50)
+
+            for train, test in super()._iter_indices(
+                    X=list(expr.values())[0], y=omic, groups=groups):
+
+                yield train, test
+
         elif hasattr(expr, 'shape'):
 
             # gets info about input
             n_samples = _num_samples(expr)
-            mut = [check_array(y, ensure_2d=False, dtype=None)
-                   for y in mut]
             n_train, n_test = _validate_shuffle_split(
                 n_samples, self.test_size, self.train_size)
 
-            class_info = [np.unique(y, return_inverse=True) for y in mut]
+            class_info = [np.unique(y, return_inverse=True) for y in omic]
             merged_classes = reduce(
                 lambda x, y: x + y,
                 [y_ind * 2 ** i for i, (_, y_ind) in enumerate(class_info)]
                 )
-            merged_counts = bincount(merged_classes)
+            merged_counts = np.bincount(merged_classes)
             class_info = np.unique(merged_classes, return_inverse=True)
 
             new_counts = merged_counts.tolist()
@@ -669,15 +621,13 @@ class MutShuffleSplit(StratifiedShuffleSplit):
 
             # gets info about input
             n_samples = [_num_samples(X) for X in expr]
-            mut = [check_array(y, ensure_2d=False, dtype=None)
-                   for y in mut]
             n_train_test = [
                 _validate_shuffle_split(n_samps,
                                         self.test_size, self.train_size)
                 for n_samps in n_samples]
-            class_info = [np.unique(y, return_inverse=True) for y in mut]
+            class_info = [np.unique(y, return_inverse=True) for y in omic]
             n_classes = [classes.shape[0] for classes, _ in class_info]
-            classes_counts = [bincount(y_indices)
+            classes_counts = [np.bincount(y_indices)
                               for _, y_indices in class_info]
 
             # ensure we have enough samples in each class for stratification
@@ -721,7 +671,7 @@ class MutShuffleSplit(StratifiedShuffleSplit):
                     for j, class_j in enumerate(classes):
                         permutation = rng.permutation(classes_counts[i][j])
                         perm_indices_class_j = np.where(
-                            (mut[i] == class_j))[0][permutation]
+                            (omic[i] == class_j))[0][permutation]
                         train[i].extend(perm_indices_class_j[:n_is[i][j]])
                         test[i].extend(
                             perm_indices_class_j[n_is[i][j]:n_is[i][j]
@@ -731,123 +681,28 @@ class MutShuffleSplit(StratifiedShuffleSplit):
 
                 yield train, test
 
-    def split(self, expr, mut=None, groups=None):
+    def split(self, expr, omic=None, groups=None):
         """Gets the training/testing splits for a cohort."""
 
-        if isinstance(mut, np.ndarray):
-            mut = check_array(mut, ensure_2d=False, dtype=None)
+        if isinstance(omic, np.ndarray):
+            omic = check_array(omic, ensure_2d=False, dtype=None)
 
-        elif isinstance(mut, list):
-            mut = [check_array(y, ensure_2d=False, dtype=None) for y in mut]
+        elif isinstance(omic, pd.DataFrame):
+            omic = check_array(omic.values, ensure_2d=False, dtype=None,
+                               force_all_finite=False)
+
+        elif isinstance(omic, list):
+            omic = [check_array(y, ensure_2d=False, dtype=None) for y in omic]
+
+        elif isinstance(omic, dict):
+            omic = [check_array(y, ensure_2d=False, dtype=None)
+                    for y in omic.values()]
 
         else:
             raise ValueError("Output values must be either a list of features"
                              "for a set of tasks or an numpy array of"
                              "features for a single task!")
 
-        expr, mut = mut_indexable(expr, mut)
-        return self._iter_indices(expr, mut)
-
-class DrugShuffleSplit(StratifiedShuffleSplit):
-    """Generates splits of single or multiple cohorts into training and
-       testing sets that are stratified such that they maintain proportionality
-       with regards to direction and magnitude of drug response (needs verification))
-    """
-
-    def __init__(self,
-                 n_splits=10, test_size=0.1, train_size=None,
-                 random_state=None):
-        super(DrugShuffleSplit, self).__init__(
-            n_splits, test_size, train_size, random_state)
-
-    def _iter_indices(self, expr, drug=None, groups=None):
-        """Generates indices of training/testing splits for use in
-           stratified shuffle splitting of drug cohort data.
-        """
-
-        # with one cohort, proceed with stratified sampling, binning mutation
-        # values if they are continuous
-        if hasattr(expr, 'shape'):
-            if len(np.unique(drug)) > 2:
-                drug = drug > np.percentile(drug, 50)
-            for train, test in super(DrugShuffleSplit, self)._iter_indices(
-                    X=expr, y=drug, groups=groups):
-                yield train, test
-
-        # otherwise, perform stratified sampling on each cohort separately
-        else:
-
-            # gets info about input
-            n_samples = [_num_samples(X) for X in expr]
-            drug = [check_array(y, ensure_2d=False, dtype=None)
-                    for y in drug]
-            n_train_test = [
-                _validate_shuffle_split(n_samps,
-                                        self.test_size, self.train_size)
-                for n_samps in n_samples]
-            class_info = [np.unique(y, return_inverse=True) for y in drug]
-            n_classes = [classes.shape[0] for classes, _ in class_info]
-            classes_counts = [bincount(y_indices)
-                              for _, y_indices in class_info]
-
-            # makes sure we have enough samples in each class for stratification
-            for i, (n_train, n_test) in enumerate(n_train_test):
-                if np.min(classes_counts[i]) < 2:
-                    raise ValueError(
-                        "The least populated class in y has only 1 "
-                        "member, which is too few. The minimum "
-                        "number of groups for any class cannot "
-                        "be less than 2.")
-
-                if n_train < n_classes[i]:
-                    raise ValueError(
-                        'The train_size = %d should be greater or '
-                        'equal to the number of classes = %d'
-                        % (n_train, n_classes[i]))
-
-                if n_test < n_classes[i]:
-                    raise ValueError(
-                        'The test_size = %d should be greater or '
-                        'equal to the number of classes = %d'
-                        % (n_test, n_classes[i]))
-
-            # generates random training and testing cohorts
-            rng = check_random_state(self.random_state)
-            for _ in range(self.n_splits):
-                n_is = [_approximate_mode(class_counts, n_train, rng)
-                        for class_counts, (n_train, _)
-                        in zip(classes_counts, n_train_test)]
-                classes_counts_remaining = [class_counts - n_i
-                                            for class_counts, n_i
-                                            in zip(classes_counts, n_is)]
-                t_is = [_approximate_mode(class_counts_remaining, n_test, rng)
-                        for class_counts_remaining, (_, n_test)
-                        in zip(classes_counts_remaining, n_train_test)]
-
-                train = [[] for _ in expr]
-                test = [[] for _ in expr]
-
-                for i, (classes, _) in enumerate(class_info):
-                    for j, class_j in enumerate(classes):
-                        permutation = rng.permutation(classes_counts[i][j])
-                        perm_indices_class_j = np.where(
-                            (drug[i] == class_j))[0][permutation]
-                        train[i].extend(perm_indices_class_j[:n_is[i][j]])
-                        test[i].extend(
-                            perm_indices_class_j[n_is[i][j]:n_is[i][j]
-                                                            + t_is[i][j]])
-                    train[i] = rng.permutation(train[i])
-                    test[i] = rng.permutation(test[i])
-
-                yield train, test
-
-    def split(self, expr, drug=None, groups=None):
-        if not hasattr(expr, 'shape'):
-            drug = [check_array(y, ensure_2d=False, dtype=None)
-                    for y in drug]
-        else:
-            drug = check_array(drug, ensure_2d=False, dtype=None)
-
-        expr, drug, groups = indexable(expr, drug, groups)
-        return self._iter_indices(expr, drug, groups)
+        expr, omic = omic_indexable(expr, omic)
+        return self._iter_indices(expr, omic)
 

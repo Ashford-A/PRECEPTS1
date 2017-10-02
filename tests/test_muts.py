@@ -442,7 +442,7 @@ class TestCaseMuTypeBinary:
 
             assert sorted(mtypes) == sorted(list(reversed(mtypes)))
             assert (sorted([mtypes[1], mtypes[5]])
-                    == sorted([mtypes[5], mtypes[1]))
+                    == sorted([mtypes[5], mtypes[1]]))
 
     @pytest.mark.parametrize('mtype_tester', ['binary'],
                              indirect=True, scope="function")

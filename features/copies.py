@@ -10,43 +10,39 @@ Author: Michal Grzadkowski <grzadkow@ohsu.edu>
 
 import pandas as pd
 from ophion import Ophion
-from . import DATA_PATH
-from functools import reduce
+
+import os
+import glob
+
+import tarfile
+from io import BytesIO
 
 
-def get_copies_firehose(cohort, gene_list):
-    """Loads gene-level copy number alteration data from Broad Firehose.
+def get_copies_firehose(cohort, data_dir):
+    """Loads gene-level copy number alteration data downloaded from Firehose.
 
     Args:
-        cohort (str): The name of an cohort in Firehose.
-        gene_list (list): The genes for which we want CNA data.
+        cohort (str): A TCGA cohort available in Broad Firehose.
+        data_dir (str): A local directory where the data has been downloaded.
 
     Returns:
-        copy_data (dict): A nested dictionary where the first level
-                          corresponds to a gene and the second level
-                          corresponds to sample. Note that this CNA data has
-                          been thresholded and discretized to be integers in
-                          the range [-2, 2].
+        copy_data (pandas DataFrame), shape = [n_samps, n_genes]
 
     Examples:
-        >>> copy_data1 = get_copies_firehose("BRCA", ["TP53", "PTEN"])
-        >>> copy_data2 = get_copies_firehose("SKCM", ["PIK3CA"])
+        >>> copy_data = get_copies_firehose(
+        >>>     'BRCA', '/home/users/grzadkow/compbio/input-data/firehose')
+        >>> copy_data = get_copies_firehose('STAD', '../input-data')
 
     """
-    copy_table = pd.read_csv(DATA_PATH + '/copies/' + cohort
-                             + '_all_thresholded.by_genes.txt.gz', sep='\t')
+    copy_tar = tarfile.open(glob.glob(os.path.join(
+        data_dir, "analyses__2016_01_28", cohort, "20160128",
+        '*CopyNumber_Gistic2.Level_4.*tar.gz'
+        ))[0])
 
-    # parse the TCGA barcodes to remove unnecessary suffixes
-    copy_table.columns = [reduce(lambda x, y: x + '-' + y,
-                                 samp.split('-', 4)[:4])
-                          if 'TCGA' in samp else samp
-                          for samp in copy_table.columns]
-
-    # filter the copy-number data for the genes in the given list
-    copy_data = {gene: (copy_table.ix[copy_table.ix[:, 0] == gene, 3:]
-                           .iloc[0, :].to_dict()
-                        if gene in list(copy_table.ix[:, 0]) else None)
-                 for gene in gene_list}
+    copy_fl = copy_tar.extractfile(copy_tar.getmembers()[-5])
+    copy_data = pd.read_csv(BytesIO(copy_fl.read()),
+                            sep='\t', index_col=0, engine='python')
+    copy_data = copy_data.iloc[:, 2:].transpose().fillna(0.0)
 
     return copy_data
 
@@ -58,7 +54,7 @@ def get_copies_bmeg(cohort, gene_list):
         cohort (str): The name of an individualCohort vertex in BMEG.
 
     Returns:
-        expr_data (pandas DataFrame of float), shape = [n_samps, n_feats]
+        copy_data (pandas DataFrame of float), shape = [n_samps, n_feats]
 
     Examples:
         >>> copy_data = get_copies_bmeg('TCGA-OV')
@@ -78,3 +74,4 @@ def get_copies_bmeg(cohort, gene_list):
             copy_list[gene][i["sample"]["name"]] = i["segment"]["value"]
 
     return pd.DataFrame(copy_list)
+

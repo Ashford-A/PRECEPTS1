@@ -7,14 +7,17 @@ This file contains the algorithms used to predict discrete mutation states.
 
 # Author: Michal Grzadkowski <grzadkow@ohsu.edu>
 
-from .pipelines import MutPipe, MultiVariantPipe
-from .selection import PathwaySelect
+from .pipelines import MutPipe, MultiPresencePipe, LinearPipe
+from .selection import *
 from .bayesian_transfer.single_domain import MultiVariant, MultiVariantAsym
 
+import numpy as np
 from math import exp
 from scipy import stats
 
+from sklearn.feature_selection import VarianceThreshold, SelectPercentile
 from sklearn.preprocessing import StandardScaler, RobustScaler
+
 from sklearn.naive_bayes import GaussianNB
 from sklearn.linear_model import LogisticRegression, SGDClassifier
 from sklearn.svm import SVC
@@ -56,7 +59,7 @@ class RobustNB(MutPipe):
             )
 
 
-class Lasso(MutPipe):
+class Lasso(MutPipe, LinearPipe):
     """A class corresponding to logistic regression classification
        of mutation status with the lasso regularization penalty.
     """
@@ -76,12 +79,8 @@ class Lasso(MutPipe):
             path_keys=path_keys
             )
 
-    def get_coef(self):
-        return {gene: coef for gene, coef in
-                zip(self.genes, self.named_steps['fit'].coef_[0])}
 
-
-class LogReg(MutPipe):
+class ElasticNet(MutPipe, LinearPipe):
     """A class corresponding to logistic regression classification
        of mutation status with the elastic net regularization penalty.
     """
@@ -94,17 +93,15 @@ class LogReg(MutPipe):
     def __init__(self, path_keys=None):
         feat_step = PathwaySelect(path_keys=path_keys)
         norm_step = StandardScaler()
-        fit_step = SGDClassifier(
-            loss='log', penalty='elasticnet',
-            n_iter=100, class_weight='balanced')
-        MutPipe.__init__(
-            self,
-            [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],
-            path_keys
-            )
+        fit_step = SGDClassifier(loss='log', penalty='elasticnet',
+                                 n_iter=100, class_weight='balanced')
+
+        super().__init__([('feat', feat_step),
+                          ('norm', norm_step), ('fit', fit_step)],
+                         path_keys=path_keys)
 
 
-class Ridge(MutPipe):
+class Ridge(MutPipe, LinearPipe):
     """A class corresponding to logistic regression classification
        of mutation status with the ridge regularization penalty.
     """
@@ -116,13 +113,12 @@ class Ridge(MutPipe):
     def __init__(self, path_keys=None):
         feat_step = PathwaySelect(path_keys=path_keys)
         norm_step = StandardScaler()
-        fit_step = LogisticRegression(
-            penalty='l1', tol=1e-2, class_weight='balanced')
-        MutPipe.__init__(
-            self,
-            [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],
-            path_keys
-            )
+        fit_step = LogisticRegression(penalty='l2', tol=1e-3,
+                                      class_weight='balanced')
+
+        super().__init__([('feat', feat_step),
+                          ('norm', norm_step), ('fit', fit_step)],
+                         path_keys=path_keys)
 
 
 class SVCpoly(MutPipe):
@@ -230,7 +226,7 @@ class GBCrbf(MutPipe):
 
 
 # .. classifiers utilizing Bayesian transfer learning ..
-class MKBMTL(MultiVariantPipe):
+class MKBMTL(MultiPresencePipe):
     """A class corresponding to Bayesian transfer learning with multi-feature
     """
 
@@ -247,13 +243,14 @@ class MKBMTL(MultiVariantPipe):
         feat_step = PathwaySelect(path_keys=path_keys)
         norm_step = StandardScaler()
         fit_step = MultiVariant(path_keys=path_keys)
-        MultiVariantPipe.__init__(
-            self,
-            [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)]
+
+        super().__init__(
+            [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],
+            path_keys=path_keys
             )
 
 
-class MKBMTLasym(MultiVariantPipe):
+class MKBMTLasym(MultiPresencePipe):
     """A class corresponding to Bayesian transfer learning with multi-feature
     """
 
@@ -269,13 +266,13 @@ class MKBMTLasym(MultiVariantPipe):
         feat_step = PathwaySelect(path_keys=path_keys)
         norm_step = StandardScaler()
         fit_step = MultiVariantAsym(path_keys=path_keys)
-        MultiVariantPipe.__init__(
+        MultiPresencePipe.__init__(
             self,
             [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)]
             )
 
 
-class MKBMTLnew(MultiVariantPipe):
+class MKBMTLnew(MultiPresencePipe):
     """A class corresponding to Bayesian transfer learning with multi-feature
     """
 
@@ -291,7 +288,8 @@ class MKBMTLnew(MultiVariantPipe):
         feat_step = PathwaySelect(path_keys=path_keys)
         norm_step = RobustScaler()
         fit_step = MultiVariantAsym(path_keys=path_keys, latent_features=2)
-        MultiVariantPipe.__init__(
+        MultiPresencePipe.__init__(
             self,
             [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)]
             )
+
