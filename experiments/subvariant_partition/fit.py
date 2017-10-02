@@ -153,7 +153,7 @@ class PartitionOptim(object):
 
         return out_scores
 
-    def get_null_performance(self, draw_count=50):
+    def get_null_performance(self, draw_count=5):
         """Estimates the null score distribution for the current sub-type.
 
         Args:
@@ -194,9 +194,19 @@ class PartitionOptim(object):
 
         return draw_perfs
 
-    def get_clf_projection(self, mtypes):
+    def get_clf_diff(self, mtypes):
+        """Finds the functional novelty of a set of sub-type classifiers.
+
+        Args:
+            mtypes (:obj:`iterable` of :obj:`MuType`)
+
+        Returns:
+            clf_diff (dict): The log-fold-difference for each MuType.
+        
+        """
+
         cur_samps = self.cur_mtype.get_samples(self.cdata.test_mut)
-        mtype_proj = {mtype: 0 for mtype in mtypes}
+        clf_diff = {mtype: 0 for mtype in mtypes}
 
         for mtype in mtypes:
             mtype_samps = mtype.get_samples(self.cdata.test_mut)
@@ -213,9 +223,60 @@ class PartitionOptim(object):
             left_null_likl = np.sum(norm.logpdf(left_scores, *null_param))
             left_mtype_likl = np.sum(norm.logpdf(left_scores, *mtype_param))
 
-            mtype_proj[mtype] = left_mtype_likl - left_null_likl
+            clf_diff[mtype] = left_mtype_likl - left_null_likl
 
-        return mtype_proj
+        return clf_diff
+
+    def get_null_scores(self, mtype_scores):
+        """Gets sub-type classification accuracy relative to random subsets.
+
+        Returns:
+            sorted_mtypes (list): The relative accuracy for each given MuType
+                                  along with the weighted mean and standard
+                                  deviation according to MuType size.
+        
+        """
+        mtype_sizes = [len(mtype.get_samples(self.cdata.train_mut))
+                       for mtype, _ in mtype_scores]
+        null_scores = self.get_null_performance()
+
+        # for each sub-type, weigh the randomly sampled subsets according to
+        # how close each subset's size is to the sub-type's size
+        null_wghts = [[exp(-(((nl_sz - new_sz) ** 2) / new_sz ** 2)) ** 2
+                       for nl_sz, _ in null_scores]
+                      for (_, acc), new_sz in zip(mtype_scores, mtype_sizes)]
+
+        # normalize the weights so that they sum to one for easier computation
+        wght_sums = [sum(wghts) for wghts in null_wghts]
+        null_wghts = [[wght / wght_sum for wght in wghts]
+                      for wghts, wght_sum in zip(null_wghts, wght_sums)]
+
+        # calculates the background classification accuracy for each sub-type
+        # using a weighted mean of the random subset accuracies
+        null_means = [sum(wght * perf
+                          for wght, (_, perf) in zip(wghts, null_scores))
+                      for wghts in null_wghts]
+
+        # calculates the correction we have to apply to the weights for each
+        # sub-type to obtain an unbiased estimate of accuracy variance
+        null_crcts = [sum(wght ** 2 for wght in wghts)
+                      for wghts in null_wghts]
+
+        # calculates the weighted standard deviation for each sub-type's
+        # sampled population of background accuracies
+        null_sds = [(sum(wght * (perf - nl_mn) ** 2
+                         for wght, (_, perf) in zip(wghts, null_scores))
+                     / (1 - null_crct)) ** 0.5
+                    for wghts, nl_mn, null_crct in
+                    zip(null_wghts, null_means, null_crcts)]
+
+        sorted_mtypes = sorted([((mtype, (acc['Null'] - nl_mn) / nl_sd),
+                               nl_mn, nl_sd)
+                              for (mtype, acc), nl_mn, nl_sd in
+                              zip(mtype_scores, null_means, null_sds)],
+                             key=lambda x: x[0][1])
+
+        return sorted_mtypes
 
     def step(self):
         """Performs a step of the mutation sub-type search tree space.
@@ -238,13 +299,19 @@ class PartitionOptim(object):
             comb_sizes=(1, 2, 3), min_type_size=10
             )
 
+        test_mtypes |= set(
+            self.cdata.train_mut.get_diff(self.cur_mtype, mtype)
+            for mtype in test_mtypes
+            )
+
         # filters out sub-types that are similar enough to the current type
         # that they have the same sample set in the testing cohort
         test_mtypes = [
             mtype for mtype in test_mtypes
-            if (mtype.get_samples(self.cdata.test_mut)
-                != self.cur_mtype.get_samples(self.cdata.test_mut))
-            ]
+            if not mtype.is_empty()
+            and (10 <= len(mtype.get_samples(self.cdata.test_mut))
+                 < len(self.cur_mtype.get_samples(self.cdata.test_mut)))
+            ][:3]
 
         if self.verbose > 0:
             if len(test_mtypes) == 0:
@@ -284,86 +351,47 @@ class PartitionOptim(object):
         if self.back_mtypes and not self.back_mtypes[-1][0]:
             self.back_mtypes = self.back_mtypes[:-1]
 
-        null_scores = self.get_null_performance()
         new_scores = self.step()
 
         # if we have found sub-types of the current mutation type...
         if len(new_scores) > 1:
 
-            # ...finds how functionally similar the classification signatures
-            # of the sub-types are to the signature of the current type
-            mtype_proj = self.get_clf_projection(
+            # ...find how well we can classify each of these sub-types
+            # relative to a null distribution of randomly drawn subsets
+            sorted_mtypes = self.get_null_scores(new_scores)
+
+            # ...then find how functionally similar the classification
+            # signatures of the sub-types are to the signature
+            # of the current type
+            clf_diff = self.get_clf_diff(
                 [mtype for mtype, _ in new_scores[:-1]])
+            clf_diff.update({self.cur_mtype: -100})
 
             if self.verbose > 1:
-                print("\nRemaining samples' probability of being labelled "
-                      "positively with each sub-type's classifier:")
-                print('\n'.join(
-                    '\t{}:\n\t\t{:.1%}'.format(s[0], (1 + 2 ** -s[1]) ** -1)
-                    for s in mtype_proj.items()))
-
-            mtype_sizes = [len(mtype.get_samples(self.cdata.train_mut))
-                           for mtype, _ in new_scores]
-
-            null_wghts = [
-                [exp(-(((nl_sz - new_sz) ** 2) / new_sz ** 2)) ** 2
-                 for nl_sz, _ in null_scores]
-                for (_, acc), new_sz in zip(new_scores, mtype_sizes)
-                ]
-
-            wght_sums = [sum(wghts) for wghts in null_wghts]
-            null_wghts = [[wght / wght_sum for wght in wghts]
-                          for wghts, wght_sum in zip(null_wghts, wght_sums)]
-
-            null_means = [sum(wght * perf
-                              for wght, (_, perf) in zip(wghts, null_scores))
-                          for wghts in null_wghts]
-
-            null_crcts = [sum(wght ** 2 for wght in wghts)
-                          for wghts in null_wghts]
-
-            null_sds = [
-                (sum(wght * (perf - nl_mn) ** 2
-                     for wght, (_, perf) in zip(wghts, null_scores))
-                 / (1 - null_crct)) ** 0.5
-                for wghts, nl_mn, null_crct in
-                zip(null_wghts, null_means, null_crcts)
-                ]
-
-            if self.verbose > 2:
-                print("\nResults of background classification analysis "
-                      "(mean +/- sd) :")
+                print("\nResults of background classification analysis and\n"
+                      "remaining samples' probability of being labelled "
+                      "positively with each sub-type's classifier: "
+                      "z-score, (mean +/- sd), prob")
 
                 print('\n'.join(
-                    '\t{}:\n\t\t{:.4f} +/- {:.4f}'.format(
-                        s[0][0], s[1], s[2])
-                    for s in zip(new_scores, null_means, null_sds)
+                    '\t{}:\n\t\t{:+.2f}\t({:.4f} +/- {:.4f})\t{:.1%}'.format(
+                        mtype, sc, nl_mn, nl_sd,
+                        (1 + 2 ** -clf_diff[mtype]) ** -1)
+                    for (mtype, sc), nl_mn, nl_sd in sorted_mtypes
                     ))
-
-            next_mtypes = sorted(
-                [(mtype, (acc['Null'] - nl_mn) / nl_sd)
-                 for (mtype, acc), nl_mn, nl_sd in
-                 zip(new_scores, null_means, null_sds)],
-                key=lambda x: x[1]
-                )
-
-            if self.verbose > 1:
-                print("\nSub-type classification performance z-score "
-                      "relative to background sample subset distribution:")
-                print('\n'.join('\t{}:\n\t\t{:+.2f}'.format(*s)
-                                for s in next_mtypes))
 
             # filters out sub-types whose classification performance is too
             # low compared to the corresponding null performance distribution
             # and whose classification signatures are too similar to that
             # of the current type
+            score_cutoff = self.mtype_scores[self.cur_mtype]['Null'] + 1
             next_mtypes = [
-                x[0] for x in next_mtypes
-                if (x[0] != self.cur_mtype
-                    #and x[1] > max(1, dict(next_mtypes)[self.cur_mtype])
-                    #and mtype_proj[x[0]] < 0)
-                    and (x[1] > max(2, dict(next_mtypes)[self.cur_mtype] + 1)
-                         or (mtype_proj[x[0]] < 0 and x[1] > 1)))
+                mtype for (mtype, sc), _, _ in sorted_mtypes
+                if (mtype != self.cur_mtype
+                    #and x[1] > max(1, dict(sorted_mtypes)[self.cur_mtype])
+                    #and clf_diff[x[0]] < 0)
+                    and (sc > max(2, score_cutoff)
+                         or (clf_diff[mtype] < 0 and sc > 1)))
                 ]
 
             # ...and at least one of these sub-types are significantly
@@ -420,7 +448,7 @@ class PartitionOptim(object):
                 print("\nAdding the current sub-type to the optimal set.")
                 print("\nGoing back up to previous sub-types...")
 
-            self.best_mtypes |= set(self.cur_mtype)
+            self.best_mtypes |= set([self.cur_mtype])
             self.cur_mtype = self.back_mtypes[-1][0].pop()
             self.lvl_index = self.back_mtypes[-1][1]
 
@@ -448,13 +476,15 @@ def main(argv):
                                 "mgrzad/input-data/synapse")
     syn.login()
 
-    cdata = VariantCohort(cohort=coh_lbl, mut_genes=[argv[1]],
-                          mut_levels=('Gene', 'Form', 'Exon', 'Protein'),
-                          syn=syn, cv_seed=(int(argv[3]) + 3) * 17)
+    cdata = VariantCohort(
+        cohort=coh_lbl, mut_genes=[argv[1]],
+        mut_levels=('Gene', 'Form', 'Exon', 'Location', 'Protein'),
+        syn=syn, cv_seed=(int(argv[3]) + 3) * 17
+        )
 
     base_mtype = MuType({('Gene', argv[1]): None})
     optim = PartitionOptim(cdata, base_mtype, argv[1], eval(argv[2]),
-                           ('Form', 'Exon', 'Protein'))
+                           ('Form', 'Exon', 'Location', 'Protein'))
 
     while optim.traverse_branch():
         pass
@@ -462,7 +492,8 @@ def main(argv):
     # saves classifier results to file
     out_file = os.path.join(
         out_dir, 'results', 'out__cv-{}.p'.format(argv[3]))
-    pickle.dump({'best': optim.best_mtypes, 'hist': optim.mtype_scores},
+    pickle.dump({'best': optim.best_mtypes, 'hist': optim.mtype_scores,
+                 'pred': optim.pred_scores},
                 open(out_file, 'wb'))
 
 

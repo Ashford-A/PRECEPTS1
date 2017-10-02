@@ -666,9 +666,14 @@ class MuTree(object):
             for (nm, branch), (_, btype) in filter(
                     lambda x: x[0][0] == x[1][0], product(self, mtype1)):
 
+                # if we have reached a leaf branch in the tree, get
+                # the MuType corresponding to this branch
+                if isinstance(branch, frozenset):
+                    use_btype = None
+
                 # if the branch in the set includes all possible
                 # sub-branches, enumerate these branches in the tree
-                if btype is None:
+                elif btype is None:
                     use_btype = MuType(
                         branch.allkey(levels=mtype2.get_levels()))
 
