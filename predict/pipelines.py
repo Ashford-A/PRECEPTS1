@@ -383,6 +383,10 @@ class UniPipe(OmicPipe):
         return self.score_pheno(np.array(y).flatten(),
                                 np.array(self.predict_omic(X)).flatten())
 
+    def score(self, X, y=None):
+        return self.score_pheno(np.array(y).flatten(),
+                                np.array(self.predict_omic(X)).flatten())
+
 
 class LinearPipe(UniPipe):
     """A class corresponding to linear logistic regression classification
