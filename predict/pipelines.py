@@ -254,8 +254,7 @@ class OmicPipe(Pipeline):
                         **self.extra_fit_params(cohort))
 
     def score_coh(self,
-                  cohort, pheno,
-                  score_splits=16,
+                  cohort, pheno, score_splits=16, parallel_jobs=8,
                   include_samps=None, exclude_samps=None,
                   include_genes=None, exclude_genes=None):
         """Test a classifier using tuning and cross-validation
@@ -285,19 +284,25 @@ class OmicPipe(Pipeline):
             curve metric.
 
         """
-        omics = cohort.train_omics(include_samps, exclude_samps,
-                                   include_genes, exclude_genes)
-        pheno_types = cohort.train_pheno(pheno, omics.index)
 
+        train_omics, train_pheno = cohort.train_data(
+            pheno,
+            include_samps, exclude_samps,
+            include_genes, exclude_genes
+            )
+
+        # get internal cross-validation splits in the training set and use
+        # them to score the performance of the classifier
         score_cvs = OmicShuffleSplit(
             n_splits=score_splits, test_size=0.2,
-            random_state=cohort.intern_cv_)
+            random_state=(cohort.cv_seed ** 3) % 42949672
+            )
 
         return np.percentile(
             cross_val_score(estimator=self,
-                            X=cohort.train_omics, y=pheno_types,
-                            fit_params=self.extra_fit_params(cohort),
-                            cv=score_cvs, n_jobs=-1),
+                            X=train_omics, y=train_pheno,
+                            fit_params=self.extra_tune_params(cohort),
+                            cv=score_cvs, n_jobs=parallel_jobs),
             25
             )
 
