@@ -160,7 +160,7 @@ class PartitionOptim(object):
 
         return out_scores
 
-    def get_null_performance(self, draw_count=20):
+    def get_null_performance(self, draw_count=120):
         """Estimates the null score distribution for the current sub-type.
 
         Args:
@@ -225,6 +225,8 @@ class PartitionOptim(object):
                 self.cdata.test_samps - self.base_test_samps, (mtype, )]
             mtype_scores = self.pred_scores.loc[mtype_samps, (mtype, )]
 
+            # fits the distributions of predicted mutation probabilities for
+            # samples with the current mutation and those without it
             null_param = norm.fit(null_scores)
             mtype_param = norm.fit(mtype_scores)
 
@@ -291,22 +293,24 @@ class PartitionOptim(object):
 
         """
 
-        # gets the list of the best sub-types we have found so far during
-        # sub-type space traversal, initializes the partition optimizer
-        use_mtypes = list(self.mtype_scores.keys())
-        use_mtypes = [mtype for mtype in use_mtypes
-                      if mtype != self.base_mtype]
-        partit_mdl = pulp.LpProblem("Mutation Set Model", pulp.LpMaximize)
+        if self.best_mtypes:
+            use_mtypes = list(self.best_mtypes)
+        else:
+            use_mtypes = list(self.mtype_scores.keys())
 
+        # gets the list of the best sub-types we have found so far during
+        # sub-type space traversal, initializes the partition optimizer,
         # creates the variables corresponding to which sub-types are chosen
         memb = pulp.LpVariable.dicts('memb', use_mtypes,
                                      lowBound=0, upBound=1,
                                      cat=pulp.LpInteger)
+        partit_mdl = pulp.LpProblem("Mutation Set Model", pulp.LpMaximize)
 
         # finds which of the sub-types each mutated sample harbours
-        memb_mat = {mtype: self.cdata.train_mut.status(self.base_train_samps,
-                                                       mtype)
-                    for mtype in use_mtypes}
+        memb_mat = {
+            mtype: self.cdata.train_mut.status(self.base_train_samps, mtype)
+            for mtype in use_mtypes
+            }
 
         # finds how well each mutated sample can be classified against only
         # non-mutated samples using a classifier for each of the sub-types
@@ -315,10 +319,9 @@ class PartitionOptim(object):
                     for mtype in use_mtypes}
 
         # adds the objective function of maximizing average AUC across samples
-        partit_mdl += pulp.lpSum(
-            [sum([memb[mtype] * perf_mat[mtype][i] for mtype in use_mtypes])
-             for i in range(len(self.base_train_samps))]
-            )
+        partit_mdl += pulp.lpSum([sum([memb[mtype] * perf_mat[mtype][i]
+                                       for mtype in use_mtypes])
+                                  for i in range(len(self.base_train_samps))])
 
         # adds the constraint that each mutated sample can belong to at most
         # a certain number of chosen sub-types
@@ -329,12 +332,26 @@ class PartitionOptim(object):
 
         # finds for the optimal solution and parses the results
         partit_mdl.solve()
-        optim_mtypes = {mtype for mtype, v in zip(use_mtypes,
-                                                  partit_mdl.variables())
-                        if v.varValue > 0}
-        optim_auc = pulp.value(partit_mdl.objective) / len(self.base_train_samps)
+        optim_mtypes = {mtype for mtype in use_mtypes
+                        if memb[mtype].varValue > 0}
+        optim_auc = (pulp.value(partit_mdl.objective)
+                     / len(self.base_train_samps)) + 0.5
 
-        return optim_mtypes, optim_auc + 0.5
+        if self.verbose > 1:
+            print("\n{}".format(pulp.LpStatus[partit_mdl.status]))
+            print("\nResults of partition optimization given current "
+                  "best sub-types found during traversal, mean AUC: "
+                  "{:.4f}\t(mtype, AUC, #samples)".format(optim_auc))
+            
+            print('\n'.join('\t{}:\n\t\t{:.4f}\t{}'.format(
+                    mtype,
+                    self.mtype_scores[mtype]['Null'],
+                    len(mtype.get_samples(self.cdata.train_mut))
+                    )
+                for mtype in optim_mtypes
+                ))
+
+        return optim_mtypes
 
     def step(self):
         """Performs a step of the mutation sub-type search tree space.
@@ -424,7 +441,7 @@ class PartitionOptim(object):
             # of the current type
             clf_diff = self.get_clf_diff(
                 [mtype for mtype, _ in new_scores[:-1]])
-            clf_diff.update({self.cur_mtype: -100})
+            clf_diff.update({self.cur_mtype: 100})
 
             if self.verbose > 1:
                 print("\nResults of background classification analysis and\n"
@@ -546,7 +563,7 @@ def main(argv):
                            ('Form', 'Exon', 'Location', 'Protein'))
 
     while optim.traverse_branch():
-        print(optim.best_optim())
+        optim_mtypes = optim.best_optim()
 
     # saves classifier results to file
     out_file = os.path.join(
