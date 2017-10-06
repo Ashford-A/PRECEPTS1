@@ -11,7 +11,7 @@
 
 
 cd ~/compbio/bergamot
-source activate HetMan
+source activate visions
 
 # finds the name of the TCGA cohort to use
 if [ -z ${cohort+x} ]

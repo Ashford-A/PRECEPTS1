@@ -36,7 +36,7 @@ def main(argv):
     #clf.tune_coh(cdata, pheno='inter',
     #             tune_splits=4, test_count=4, parallel_jobs=16)
     clf.fit_coh(cdata, pheno='inter') 
-    clf.eval_coh(cdata, pheno='inter')
+    print(clf.eval_coh(cdata, pheno='inter'))
 
     pickle.dump(clf.get_coef(), open(out_file, 'wb'))
 

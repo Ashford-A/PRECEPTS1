@@ -3,9 +3,9 @@
 #SBATCH --job-name=dream-stan
 #SBATCH --partition=long_jobs
 #SBATCH --mem=48000
-#SBATCH --time=5000
+#SBATCH --time=6000
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=12
+#SBATCH --cpus-per-task=24
 
 #SBATCH --output=/home/exacloud/lustre1/CompBio/mgrzad/slurm/log-files/dream-stan_%j.out
 #SBATCH --error=/home/exacloud/lustre1/CompBio/mgrzad/slurm/log-files/dream-stan_%j.err
