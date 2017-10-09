@@ -36,10 +36,16 @@ class PathwaySelect(TransformerMixin):
                 select_genes = set([xcol.split('__')[-1]
                                     for xcol in X.columns])
 
-            else:
+            elif isinstance(X, list):
                 select_genes = [
                     set([xcol.split('__')[-1] for xcol in Xmat.columns])
                     for Xmat in X
+                    ]
+
+            elif isinstance(X, dict):
+                select_genes = [
+                    set([xcol.split('__')[-1] for xcol in Xmat.columns])
+                    for Xmat in X.values()
                     ]
 
             self.select_genes = select_genes

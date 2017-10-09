@@ -17,7 +17,7 @@ from HetMan.experiments.dream_train.baseline.utils import load_output
 
 from itertools import product
 
-use_regrs = ['GradBoost', 'rForest']
+use_regrs = ['GradBoost', 'rForest'][::-1]
 use_input = ['rna+cna', 'rna', 'cna']
 out_dir = os.path.join(base_dir, 'ensemble', 'output')
 
@@ -52,7 +52,7 @@ def main(argv):
 
                 regr_obj.tune_coh(
                     cdata, regr_gene,
-                    tune_splits=8, test_count=32, parallel_jobs=16
+                    tune_splits=8, test_count=24, parallel_jobs=16
                     )
 
                 regr_obj.fit_coh(cdata, regr_gene)

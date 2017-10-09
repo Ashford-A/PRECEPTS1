@@ -14,7 +14,7 @@ Authors: Michal Grzadkowski <grzadkow@ohsu.edu>
 from .expression import *
 from .variants import *
 from .copies import get_copies_firehose
-from .drugs import get_expr_ioria, get_drug_ioria
+#from .drugs import get_expr_ioria, get_drug_ioria
 from .dream import get_dream_data
 
 from .pathways import *

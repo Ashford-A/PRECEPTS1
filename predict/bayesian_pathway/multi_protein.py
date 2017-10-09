@@ -1,7 +1,7 @@
 
 from ..pipelines import MultiPipe, TransferPipe, ValuePipe
 from ..selection import IntxTypeSelect
-from .stan_models import model_code
+from .stan_models import *
 
 from scipy.stats import pearsonr
 from sklearn.base import BaseEstimator, RegressorMixin
@@ -92,7 +92,7 @@ class StanProteinPredict(BaseEstimator, RegressorMixin):
 
 class StanProteinPredictEns(BaseEstimator, RegressorMixin):
 
-    def __init__(self, path_type, known_prots, precision=0.05):
+    def __init__(self, path_type, precision=0.05, known_prots=None):
         self.path_type = path_type
         self.precision = precision
         self.known_prots = known_prots
@@ -101,8 +101,8 @@ class StanProteinPredictEns(BaseEstimator, RegressorMixin):
         self.use_path = None
 
     def fit(self,
-            X, y=None,
-            path_obj=None, n_chains=8, parallel_jobs=24, **fit_params):
+            X, y=None, path_obj=None, n_chains=8, parallel_jobs=24,
+            verbose=True, **fit_params):
 
         if not isinstance(X, dict):
             raise TypeError("X must be a dictionary!")
@@ -122,28 +122,55 @@ class StanProteinPredictEns(BaseEstimator, RegressorMixin):
                     path_obj[self.path_type]
                     if up_gn in both_genes and down_gn in both_genes]
 
+        both_genes = [gn for gn in both_genes
+                      if gn not in self.known_prots.columns]
+
         x_rna = X['rna'].loc[:, both_genes]
         x_cna = X['cna'].loc[:, both_genes]
+
+        k_prots = self.known_prots.loc[x_rna.index, :]
         y_use = y.loc[:, both_genes]
 
         path_out = [x + 1 for x in range(len(both_genes))]
         path_in = [x + 1 for x in range(len(both_genes))]
 
         path_out += [x_rna.columns.get_loc(up_gn) + 1
-                     for up_gn, down_gn in use_path]
+                     for up_gn, down_gn in use_path
+                     if up_gn in both_genes and down_gn in both_genes]
         path_in += [x_rna.columns.get_loc(down_gn) + 1
-                    for up_gn, down_gn in use_path]
+                    for up_gn, down_gn in use_path
+                    if up_gn in both_genes and down_gn in both_genes]
 
-        path_wght = [0.8 for _ in both_genes] + [0.05 for _ in use_path]
+        path_out += [k_prots.columns.get_loc(up_gn) + 1 + len(both_genes)
+                     for up_gn, down_gn in use_path
+                     if up_gn in k_prots.columns and down_gn in both_genes]
+        path_in += [x_rna.columns.get_loc(down_gn) + 1
+                    for up_gn, down_gn in use_path
+                    if up_gn in k_prots.columns and down_gn in both_genes]
+
+        if verbose:
+            print("{} interactions found between {} genes".format(
+                len(path_out), len(both_genes)))
+
+        init_wghts = [{'wght': []} for _ in range(n_chains)]
+        for i in range(n_chains):
+
+            init_wghts[i]['wght'] += [round(0.5 + (i * 0.45 / n_chains), 2)
+                                      for _ in both_genes]
+            init_wghts[i]['wght'] += [
+                round((0.45 / n_chains) * (n_chains - i), 2)
+                for _ in range(len(path_out) - len(both_genes))
+                ]
 
         self.fit_obj = pystan.stan(
-            model_code=model_code,
-            iter=10, chains=n_chains, n_jobs=parallel_jobs,
+            model_code=model_code_ens,
+            iter=12, chains=n_chains, n_jobs=parallel_jobs,
             data={'N': x_rna.shape[0], 'G': x_rna.shape[1],
-                  'r': x_rna, 'c': x_cna, 'p': np.nan_to_num(y_use, 0.0),
-                  'P': len(path_out), 'po': path_out, 'pi': path_in,
-                  'prec': self.precision},
-            init=[{'wght': path_wght} for _ in range(n_chains)],
+                  'R': k_prots.shape[1], 'prec': self.precision,
+                  'r': x_rna, 'c': x_cna, 'p': np.nan_to_num(y_use),
+                  'k': k_prots, 'P': len(path_out), 'po': path_out,
+                  'pi': path_in},
+            init=init_wghts,
             model_name="ProteinPredict"
             )
 
@@ -181,7 +208,7 @@ class StanProteinPipe(MultiPipe, TransferPipe, ValuePipe):
     @classmethod
     def extra_fit_params(cls, cohort):
         return {**super().extra_fit_params(cohort),
-                **{'n_chains': 8, 'parallel_jobs': 24}}
+                **{'n_chains': 6, 'parallel_jobs': 24}}
 
     @classmethod
     def extra_tune_params(cls, cohort):
@@ -250,9 +277,10 @@ class StanDefault(StanProteinPipe):
 
 class StanEnsemble(StanProteinPipe):
 
-    def __init__(self, intx_type=None):
+    def __init__(self, intx_type=None, known_prots=None):
         feat_step = IntxTypeSelect(path_keys=intx_type)
-        fit_step = StanProteinPredictEns(path_type=intx_type)
+        fit_step = StanProteinPredictEns(path_type=intx_type,
+                                         known_prots=known_prots)
 
         super().__init__([('feat', feat_step), ('fit', fit_step)])
         self.intx_type = intx_type

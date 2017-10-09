@@ -82,7 +82,7 @@ model_code_ens = '''
         real r[N, G];       // RNA-seq expression values
         real c[N, G];       // copy number GISTIC values
         real p[N, G];       // proteomic measurements
-        real r[N, R];       // inferred proteomic measurements
+        real k[N, R];       // inferred proteomic measurements
 
         int <lower=G> P;                    // number of pathway interactions
         int <lower=1, upper=(G+R)> po[P];   // pathway out-edges
@@ -103,18 +103,23 @@ model_code_ens = '''
 
         for (g in 1:G) {
             for (n in 1:N) {
-
-                pred_p[n, g] = 0;
                 act_sum[n, g] = (comb[g] * r[n, g]) + ((1.0 - comb[g]) * c[n, g]);
+            }
+        }
+
+        for (g in 1:G) {
+            for (n in 1:N) {
+                pred_p[n, g] = 0;
 
                 for (i in 1:P) {
-                    if (pi[i] == g)
+                    if (pi[i] == g) {
                         
                         if (po[i] <= G) {
                             pred_p[n, g] = pred_p[n, g] + act_sum[n, po[i]] * wght[i];
                         
                         } else {
-                            pred_p[n, g] = pred_p[n, g] + r[n, po[i] - G] * wght[i];
+                            pred_p[n, g] = pred_p[n, g] + k[n, po[i] - G] * wght[i];
+                        }
                     }
                 }
             }
