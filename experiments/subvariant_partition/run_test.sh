@@ -13,7 +13,7 @@
 
 
 cd ~/compbio/bergamot
-source activate HetMan
+source activate schism
 
 # finds the name of the TCGA cohort to use
 if [ -z ${cohort+x} ]
