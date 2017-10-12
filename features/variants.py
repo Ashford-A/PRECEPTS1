@@ -524,15 +524,31 @@ class MuTree(object):
 
         return len(self.get_samples())
 
+    def sort_iter(self):
+
+        if self.mut_level in ['Exon', 'Location']:
+            return iter(sorted(
+                [("0", branch) if lbl == '.' else (lbl, branch)
+                 for lbl, branch in self._child.items()],
+                key=lambda x: int(x[0].split('/')[0])
+                ))
+
+        else:
+            return self.__iter__()
+
     def get_newick(self):
         """Get the Newick tree format representation of this MuTree."""
         newick_str = ''
 
-        for nm, mut in self:
+        for nm, mut in self.sort_iter():
+
             if isinstance(mut, MuTree):
                 newick_str += '(' + gsub(',$', '', mut.get_newick()) + ')'
 
-            newick_str += '{' + nm + '},'
+            if nm == "0":
+                newick_str += '{*none*},'
+            else:
+                newick_str += '{' + nm + '},'
 
         if self.depth == 0:
             newick_str = gsub(',$', '', newick_str) + ';' 
@@ -934,7 +950,8 @@ class MuTree(object):
 
         if self.mut_level == sub_level:
             sorted_types = tuple(sorted(
-                self._child.keys(), key=lambda lbl: int(lbl.split('/')[0])))
+                ["0" if x == '.' else x for x in self._child.keys()],
+                key=lambda lbl: int(lbl.split('/')[0])))
 
         elif mtype.cur_level == self.mut_level:
             rec_mtypes = set()
@@ -947,7 +964,8 @@ class MuTree(object):
                             btype, [sub_level], min_size=1)
 
             sorted_types = tuple(sorted(
-                [str(mtp).split('-')[-1] for mtp in rec_mtypes],
+                ["0" if x == '.' else x for x in [str(mtp).split('-')[-1] for mtp
+                                                in rec_mtypes]],
                 key=lambda lbl: int(lbl.split('/')[0])
                 ))
 
@@ -964,12 +982,12 @@ class MuTree(object):
                 for j in range(len(wind_ind) - 1)
                 ]
 
-            wind_mtypes = set(MuType({(sub_level, bk_type): None})
+            wind_mtypes = set(mtype & MuType({(sub_level, bk_type): None})
                               for bk_type in block_types)
 
         else:
             wind_mtypes = set(
-                MuType({
+                mtype & MuType({
                     (sub_level,
                      sorted_types[i:(i + wind_width)]): None})
                 for i in range(0, len(sorted_types) - wind_width + 1,
@@ -1343,14 +1361,15 @@ class MuType(object):
 
     def __and__(self, other):
         """Finds the intersection of two MuTypes."""
+
         if not isinstance(other, MuType):
             return NotImplemented
 
-        if self.cur_level == other.cur_level:
-            self_dict = dict(self)
-            other_dict = dict(other)
+        new_key = {}
+        self_dict = dict(self)
+        other_dict = dict(other)
 
-            new_key = {}
+        if self.cur_level == other.cur_level:
             for k in self_dict.keys() & other_dict.keys():
 
                 if self_dict[k] is None:
@@ -1365,12 +1384,29 @@ class MuType(object):
                     if not new_ch.is_empty():
                         new_key.update({(self.cur_level, k): new_ch})
 
+        elif other.cur_level in self.get_levels():
+            for k in self_dict.keys():
+
+                if self_dict[k] is None:
+                    new_key.update({(self.cur_level, k): other})
+
+                else:
+                    new_ch = self_dict[k] & other
+
+                    if not new_ch.is_empty():
+                        new_key.update({(self.cur_level, k): new_ch})
+
         else:
-            raise ValueError(
-                "Cannot take the intersection of two MuTypes with "
-                "mismatching mutation levels {} and {}!".format(
-                    self.cur_level, other.cur_level)
-                )
+            for k in self_dict.keys():
+
+                if self_dict[k] is None:
+                    new_key.update({(self.cur_level, k): other})
+
+                else:
+                    new_ch = other & self_dict[k]
+
+                    if not new_ch.is_empty():
+                        new_key.update({(self.cur_level, k): new_ch})
 
         return MuType(new_key)
 

@@ -528,11 +528,14 @@ class VariantCohort(PresenceCohort, UniCohort):
     """An expression dataset used to predict genes' mutations (variants).
 
     Args:
-        syn (synapseclient.Synapse): A logged-into Synapse instance.
+        cohort (str): The label for a cohort of samples.
         mut_genes (:obj:`list` of :obj:`str`)
             Which genes' variants to include.
         mut_levels (:obj:`list` of :obj:`str`)
             What variant annotation levels to consider.
+        expr_source (str): Where to load the expression data from.
+        var_source (str): Where to load the variant data from.
+        cv_seed (int): The random seed to use for cross-validation sampling.
         cv_prop (float): Proportion of samples to use for cross-validation.
 
     Attributes:
@@ -1024,4 +1027,3 @@ class TransferDreamCohort(TransferCohort):
                          & set(self.test_prot.columns))
 
         return self.test_prot.loc[samps, use_genes]
-

@@ -30,8 +30,10 @@ import pandas as pd
 
 from math import exp
 from scipy.stats import norm
-import pulp
+
 import random
+from itertools import combinations as combn
+import pulp
 
 import dill as pickle
 import synapseclient
@@ -110,8 +112,8 @@ class PartitionOptim(object):
                            - mtype.get_samples(self.cdata.test_mut))
 
                 use_clf = self.clf()
-                use_clf.tune_coh(self.cdata, mtype, tune_splits=4,
-                                 test_count=12, parallel_jobs=12,
+                use_clf.tune_coh(self.cdata, mtype, tune_splits=2,
+                                 test_count=6, parallel_jobs=12,
                                  exclude_genes=self.genes)
 
                 use_clf.fit_coh(self.cdata, mtype, exclude_genes=self.genes)
@@ -160,7 +162,7 @@ class PartitionOptim(object):
 
         return out_scores
 
-    def get_null_performance(self, draw_count=120):
+    def get_null_performance(self, draw_count=125):
         """Estimates the null score distribution for the current sub-type.
 
         Args:
@@ -323,12 +325,13 @@ class PartitionOptim(object):
                                        for mtype in use_mtypes])
                                   for i in range(len(self.base_train_samps))])
 
-        # adds the constraint that each mutated sample can belong to at most
-        # a certain number of chosen sub-types
-        for i in range(len(self.base_train_samps)):
-            partit_mdl += (pulp.lpSum([memb[mtype] * memb_mat[mtype][i]
-                                       for mtype in use_mtypes]) <= 1,
-                           "Should include sample {}".format(i))
+        # adds the constraint that we have to pick a group of subsets of
+        # mutations that are disjoint from one another
+        for mtype1, mtype2 in combn(use_mtypes, 2):
+            if not (mtype1 & mtype2).is_empty():
+                partit_mdl += (pulp.lpSum([memb[mtype1], memb[mtype2]]) <= 1,
+                               "{} and {} intersect".format(
+                                   repr(mtype1), repr(mtype2)))
 
         # finds for the optimal solution and parses the results
         partit_mdl.solve()
@@ -374,16 +377,40 @@ class PartitionOptim(object):
             comb_sizes=(1, 2, 3), min_type_size=self.min_mtype_size
             )
 
+        if self.use_lvls[self.lvl_index] == 'Exon':
+            test_mtypes |= set(
+                self.cdata.train_mut.windowtypes(
+                    mtype=self.cur_mtype,
+                    sub_level=self.use_lvls[self.lvl_index],
+                    min_samps=self.min_mtype_size,
+                    wind_width=4, wind_overlap=2, abs_windows=False
+                    )
+                )
+
+            test_mtypes |= set(
+                self.cdata.train_mut.windowtypes(
+                    mtype=self.cur_mtype,
+                    sub_level=self.use_lvls[self.lvl_index],
+                    min_samps=self.min_mtype_size,
+                    wind_width=30, wind_overlap=20, abs_windows=True
+                    )
+                )
+
         test_mtypes |= set(
             self.cdata.train_mut.get_diff(self.cur_mtype, mtype)
             for mtype in test_mtypes
             )
+
+        test_mtypes = set(self.cdata.train_mut.rationalize(mtype)
+                          for mtype in test_mtypes)
 
         # filters out sub-types that are similar enough to the current type
         # that they have the same sample set in the testing cohort
         test_mtypes = [
             mtype for mtype in test_mtypes
             if not mtype.is_empty()
+            and mtype != self.base_mtype and mtype != self.cur_mtype
+            and self.use_lvls[self.lvl_index] in mtype.get_levels()
             and (self.min_mtype_size
                  <= len(mtype.get_samples(self.cdata.test_mut))
                  < len(self.cur_mtype.get_samples(self.cdata.test_mut)))
