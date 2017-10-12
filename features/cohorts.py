@@ -14,7 +14,7 @@ Authors: Michal Grzadkowski <grzadkow@ohsu.edu>
 from .expression import *
 from .variants import *
 from .copies import get_copies_firehose
-#from .drugs import get_expr_ioria, get_drug_ioria
+# from .drugs import get_expr_ioria, get_drug_ioria
 from .dream import get_dream_data
 
 from .pathways import *
@@ -25,6 +25,7 @@ import pandas as pd
 
 from scipy.stats import fisher_exact
 import random
+import re
 
 from functools import reduce
 from abc import abstractmethod
@@ -141,6 +142,7 @@ class Cohort(object):
         Arguments:
             include_samps (:obj:`iterable` of :obj: `str`, optional)
             exclude_samps (:obj:`iterable` of :obj: `str`, optional)
+            use_test (bool, optional): Whether to use the testing cohort.
 
         Returns:
             samps (:obj:`list` of :obj:`str`)
@@ -155,7 +157,7 @@ class Cohort(object):
         else:
             samps = self.train_samps.copy()
 
-        # decide which samples to use
+        # decide what samples to use based on exclusion and inclusion criteria
         if include_samps is not None:
             samps &= set(include_samps)
         if exclude_samps is not None:
@@ -179,7 +181,7 @@ class Cohort(object):
 
         pheno_mat = np.array(self.train_pheno(pheno, samps))
         if pheno_mat.ndim == 1:
-            pheno_mat = pheno_mat.reshape(-1,1)
+            pheno_mat = pheno_mat.reshape(-1, 1)
 
         nan_stat = np.any(~np.isnan(pheno_mat), axis=1)
         samps = np.array(samps)[nan_stat]
@@ -198,7 +200,7 @@ class Cohort(object):
 
         pheno_mat = np.array(self.test_pheno(pheno, samps))
         if pheno_mat.ndim == 1:
-            pheno_mat = pheno_mat.reshape(-1,1)
+            pheno_mat = pheno_mat.reshape(-1, 1)
 
         nan_stat = np.any(~np.isnan(pheno_mat), axis=1)
         samps = np.array(samps)[nan_stat]
@@ -212,10 +214,12 @@ class Cohort(object):
     @abstractmethod
     def train_pheno(self, pheno, samps=None):
         """Returns the values for a phenotype in the training sub-cohort."""
+        raise CohortError("Cannot use base Cohort class!")
 
     @abstractmethod
     def test_pheno(self, pheno, samps=None):
         """Returns the values for a phenotype in the testing sub-cohort."""
+        raise CohortError("Cannot use base Cohort class!")
 
 
 class UniCohort(Cohort):
@@ -296,6 +300,18 @@ class UniCohort(Cohort):
 
         return self.omic_mat.loc[samps, genes]
 
+    @abstractmethod
+    def train_pheno(self, pheno, samps=None):
+        """Returns the values for a phenotype in the training sub-cohort.
+
+        """
+
+    @abstractmethod
+    def test_pheno(self, pheno, samps=None):
+        """Returns the values for a phenotype in the testing sub-cohort.
+
+        """
+
 
 class TransferCohort(Cohort):
     """Multiple -omic datasets paired with phenotypes to predict.
@@ -369,7 +385,6 @@ class TransferCohort(Cohort):
                 raise CohortError("At least one testing sample must be "
                                   "in each -omic dataset!")
 
-
     def subset_genes(self, include_genes=None, exclude_genes=None):
         """Gets a subset of the genes in the cohort's -omic datasets.
 
@@ -436,6 +451,18 @@ class TransferCohort(Cohort):
         return {lbl: self.omic_mats[lbl].loc[samps, genes[lbl]]
                 for lbl in self.omic_mats}
 
+    @abstractmethod
+    def train_pheno(self, pheno, samps=None):
+        """Returns the values for a phenotype in the training sub-cohort.
+
+        """
+
+    @abstractmethod
+    def test_pheno(self, pheno, samps=None):
+        """Returns the values for a phenotype in the testing sub-cohort.
+
+        """
+
 
 class PresenceCohort(Cohort):
     """An -omic dataset used to predict the presence of binary phenotypes.
@@ -463,7 +490,7 @@ class PresenceCohort(Cohort):
             pheno_vec (:obj:`list` of :obj:`bool`)
         """
 
-    #TODO: extend this to TransferCohorts?
+    # TODO: extend this to TransferCohorts?
     def mutex_test(self, pheno1, pheno2):
         """Tests the mutual exclusivity of two phenotypes.
 
@@ -549,8 +576,15 @@ class VariantCohort(PresenceCohort, UniCohort):
         >>> syn.login()
         >>>
         >>> cdata = VariantCohort(
-        >>>     syn, cohort='TCGA-BRCA', mut_genes=['TP53', 'PIK3CA'],
-        >>>     mut_levels=['Gene', 'Form', 'Exon']
+        >>>     cohort='TCGA-BRCA', mut_genes=['TP53', 'PIK3CA'],
+        >>>     mut_levels=['Gene', 'Form', 'Exon'], syn=syn
+        >>>     )
+        >>>
+        >>> cdata2 = VariantCohort(
+        >>>     cohort='TCGA-PAAD', mut_genes=['KRAS'],
+        >>>     mut_levels=['Form_base', 'Exon', 'Location'],
+        >>>     expr_source='Firehose', data_dir='../input-data/firehose',
+        >>>     cv_seed=98, cv_prop=0.8, syn=syn
         >>>     )
 
     """
@@ -560,19 +594,26 @@ class VariantCohort(PresenceCohort, UniCohort):
                  expr_source='BMEG', var_source='mc3',
                  cv_seed=None, cv_prop=2.0/3, **coh_args):
 
-        # loads gene expression data
+        # loads gene expression data from the given source, log-normalizes it
+        # and removes missing values as necessary
         if expr_source == 'BMEG':
-            expr = get_expr_bmeg(cohort)
+            expr_mat = get_expr_bmeg(cohort)
+            expr = log_norm_expr(expr_mat.fillna(expr_mat.min().min()))
+
         elif expr_source == 'Firehose':
-            expr = get_expr_firehose(cohort, coh_args['data_dir'])
+            expr_mat = get_expr_firehose(cohort, coh_args['data_dir'])
+            expr = expr_mat.fillna(expr_mat.min().min())
+
         else:
             raise ValueError("Unrecognized source of expression data!")
 
-        # loads gene variant data
+        # loads gene variant data from the given source
         if var_source == 'mc3':
             variants = get_variants_mc3(coh_args['syn'])
+
         elif var_source == 'Firehose':
             variants = get_variants_firehose(cohort, coh_args['data_dir'])
+
         else:
             raise ValueError("Unrecognized source of variant data!")
 
@@ -581,24 +622,29 @@ class VariantCohort(PresenceCohort, UniCohort):
         self.path = get_gene_neighbourhood(mut_genes)
         annot = get_gencode()
 
-        # filters out genes that have both low levels of expression
-        # and low variance of expression
+        # gets the genes for which we have both expression and annotation data
+        annot = {g: a for g, a in annot.items()
+                 if a['gene_name'] in expr.columns}
+        annot_genes = [a['gene_name'] for g, a in annot.items()]
+
+        # gets the set of samples shared across the expression and mutation
+        # data that are also primary tumour samples
+        use_samples = list(set(variants['Sample']) & set(expr.index))
+        use_samples = sorted([samp for samp in use_samples
+                              if re.search('-01A$', samp) is not None])
+
+        # gets the subset of expression data corresponding to the shared
+        # samples and annotated genes, and the subset of variant data with
+        # the genes whose mutations we want to consider
+        expr = expr.loc[use_samples, annot_genes]
+        variants = variants.loc[variants['Gene'].isin(mut_genes), :]
+
+        # filters out genes that have both low levels of expression and low
+        # variance of expression
         expr_mean = np.mean(expr)
         expr_var = np.var(expr)
         expr = expr.loc[:, ((expr_mean > np.percentile(expr_mean, 5))
                             | (expr_var > np.percentile(expr_var, 5)))]
-
-        # filters out genes that do not have annotation available
-        annot = {g: a for g,a in annot.items()
-                 if a['gene_name'] in expr.columns}
-        annot_genes = [a['gene_name'] for g, a in annot.items()]
-        expr = expr.loc[:, annot_genes]
-
-        # gets set of samples shared across expression and mutation datasets,
-        # subsets these datasets to use only these samples
-        use_samples = list(set(variants['Sample']) & set(expr.index))
-        use_samples.sort()
-        variants = variants.loc[variants['Gene'].isin(mut_genes), :]
 
         # gets annotation data for the genes whose mutations
         # are under consideration
@@ -877,6 +923,9 @@ class DreamCohort(ValueCohort, UniCohort):
         else:
             test_samps = None
 
+        self.mut_genes = None
+        self.path = None
+
         super().__init__(feat_mat, train_samps, test_samps, cohort, cv_seed)
 
     def train_pheno(self, prot_gene, samps=None):
@@ -1016,6 +1065,9 @@ class TransferDreamCohort(TransferCohort):
             use_genes = (self.genes['rna'] & self.genes['cna']
                          & set(self.train_prot.columns))
 
+        else:
+            use_genes = self.train_prot.columns
+
         return self.train_prot.loc[samps, use_genes]
 
     def test_pheno(self, gene_list, samps=None):
@@ -1025,5 +1077,8 @@ class TransferDreamCohort(TransferCohort):
         if gene_list == 'inter':
             use_genes = (self.genes['rna'] & self.genes['cna']
                          & set(self.test_prot.columns))
+
+        else:
+            use_genes = self.test_prot.columns
 
         return self.test_prot.loc[samps, use_genes]
