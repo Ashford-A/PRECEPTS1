@@ -36,8 +36,27 @@ import pandas as pd
 import synapseclient
 import dill as pickle
 from functools import reduce
+from glob import glob
+import os
 
 firehose_dir = '/home/exacloud/lustre1/CompBio/mgrzad/input-data/firehose'
+
+
+def load_output(out_dir, cohort, classif):
+
+    out_list = [
+        [pickle.load(open(fl, 'rb'))
+         for fl in glob(os.path.join(out_dir, cohort, classif,
+                                     "results/out__cv-{}_task-*"
+                                        .format(cv_id)))]
+        for cv_id in range(5)
+        ]
+
+    return pd.concat(
+        [pd.concat(pd.DataFrame.from_dict(x, orient='index') for x in ols)
+         for ols in out_list],
+        axis=1
+        )
 
 
 def main(argv):
