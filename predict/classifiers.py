@@ -7,7 +7,7 @@ This file contains the algorithms used to predict discrete mutation states.
 
 # Author: Michal Grzadkowski <grzadkow@ohsu.edu>
 
-from .pipelines import MutPipe, MultiPresencePipe, LinearPipe
+from .pipelines import MutPipe, MultiPresencePipe, LinearPipe, EnsemblePipe
 from .selection import *
 from .bayesian_transfer.single_domain import MultiVariant, MultiVariantAsym
 
@@ -21,7 +21,8 @@ from sklearn.preprocessing import StandardScaler, RobustScaler
 from sklearn.naive_bayes import GaussianNB
 from sklearn.linear_model import LogisticRegression, SGDClassifier
 from sklearn.svm import SVC
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import (RandomForestClassifier,
+                              GradientBoostingClassifier)
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.gaussian_process import GaussianProcessClassifier
 
@@ -166,7 +167,27 @@ class SVCrbf(MutPipe):
             )
 
 
-class rForest(MutPipe):
+class GradBoost(MutPipe, EnsemblePipe):
+    """A class for classification using an additive ensemble of trees."""
+    
+    tune_priors = (
+        ('fit__max_depth', (2, 3, 4, 5, 8)),
+        ('fit__min_samples_split', (2, 4, 6, 10)),
+        )
+
+    def __init__(self, path_keys=None):
+        feat_step = PathwaySelect(path_keys=path_keys)
+        norm_step = StandardScaler()
+        fit_step = GradientBoostingClassifier(n_estimators=200)
+
+        MutPipe.__init__(
+            self,
+            [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],
+            path_keys
+            )
+
+
+class rForest(MutPipe, EnsemblePipe):
     """A class corresponding to random forest classification
        of mutation status.
     """
@@ -174,13 +195,14 @@ class rForest(MutPipe):
     tune_priors = (
         ('fit__max_features', (0.005, 0.01, 0.02, 0.04, 0.08, 0.15)),
         ('fit__min_samples_leaf', (0.0001, 0.01, 0.05))
-    )
+        )
 
     def __init__(self, path_keys=None):
         feat_step = PathwaySelect(path_keys=path_keys)
         norm_step = StandardScaler()
         fit_step = RandomForestClassifier(
                     n_estimators=500, class_weight='balanced')
+
         MutPipe.__init__(
             self,
             [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],

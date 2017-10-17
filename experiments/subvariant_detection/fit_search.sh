@@ -16,7 +16,7 @@
 
 # move to the working directory, find where to place output
 cd ~/compbio/bergamot
-TEMPDIR=HetMan/experiments/subvariant_search/output/$cohort/$classif
+TEMPDIR=HetMan/experiments/subvariant_detection/output/$cohort/$classif/search
 
 # disable threading on each CPU, print info about this array job
 export OMP_NUM_THREADS=1
@@ -24,7 +24,7 @@ echo $cohort
 echo $classif
 
 # pause between starting array jobs to ease load when downloading -omic datasets
-sleep $(($SLURM_ARRAY_TASK_ID * 13));
+sleep $(($SLURM_ARRAY_TASK_ID * 17));
 
 # get the cross-validation ID and sub-variant sub-task ID defined by this
 # job's SLURM array ID
@@ -37,6 +37,5 @@ srun -p=exacloud \
 	--output=$TEMPDIR/slurm/fit-${cv_id}_${task_id}.txt \
 	--error=$TEMPDIR/slurm/fit-${cv_id}_${task_id}.err \
 	python HetMan/experiments/utilities/test_cohort_mutypes.py \
-	"/home/exacloud/lustre1/CompBio/mgrzad/bergamot/HetMan/experiments/subvariant_search" \
-	$cohort $classif $cv_id $task_id
+	$TEMPDIR $cohort $classif $cv_id $task_id
 

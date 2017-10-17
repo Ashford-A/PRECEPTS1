@@ -28,7 +28,7 @@ then
 fi
 
 # gets the output directory where results will be saved, removing it if it already exists
-TEMPDIR=HetMan/experiments/subvariant_search/output/$cohort/$classif
+TEMPDIR=HetMan/experiments/subvariant_detection/output/$cohort/$classif/search
 echo $TEMPDIR
 rm -rf $TEMPDIR
 
@@ -40,7 +40,7 @@ mkdir -p $TEMPDIR/results
 # submits the script that enumerates the gene sub-variants to be considered
 srun -p=exacloud \
 	--output=$TEMPDIR/slurm/setup.txt --error=$TEMPDIR/slurm/setup.err \
-	python HetMan/experiments/subvariant_search/setup.py $cohort $classif 15
+	python HetMan/experiments/subvariant_detection/setup_search.py $cohort $classif 12
 
-sbatch HetMan/experiments/subvariant_search/fit_search.sh
+sbatch HetMan/experiments/subvariant_detection/fit_search.sh
 

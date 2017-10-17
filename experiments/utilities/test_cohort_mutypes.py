@@ -42,13 +42,12 @@ import os
 firehose_dir = '/home/exacloud/lustre1/CompBio/mgrzad/input-data/firehose'
 
 
-def load_output(out_dir, cohort, classif):
+def load_output(out_dir):
 
     out_list = [
         [pickle.load(open(fl, 'rb'))
-         for fl in glob(os.path.join(out_dir, cohort, classif,
-                                     "results/out__cv-{}_task-*"
-                                        .format(cv_id)))]
+         for fl in glob(os.path.join(
+             out_dir, "results/out__cv-{}_task-*".format(cv_id)))]
         for cv_id in range(5)
         ]
 
@@ -65,9 +64,8 @@ def main(argv):
 
     # gets the directory where output will be saved and the name of the TCGA
     # cohort under consideration, loads the list of gene sub-variants 
-    out_dir = os.path.join(argv[0], 'output', argv[1], argv[2])
     mtype_list = pickle.load(
-        open(os.path.join(out_dir, 'tmp', 'mtype_list.p'), 'rb'))
+        open(os.path.join(argv[0], 'tmp', 'mtype_list.p'), 'rb'))
 
     # loads the pipeline used for classifying variants, gets the mutated
     # genes for each variant under consideration
@@ -116,7 +114,7 @@ def main(argv):
             del(out_acc[mtype])
 
     # saves the performance measurements for each variant to file
-    out_file = os.path.join(out_dir, 'results',
+    out_file = os.path.join(argv[0], 'results',
                             'out__cv-{}_task-{}.p'.format(argv[3], argv[4]))
     pickle.dump(out_acc, open(out_file, 'wb'))
 
