@@ -88,7 +88,7 @@ class rForest(UniPipe, ValuePipe):
     def __init__(self, path_keys=None):
         feat_step = PathwaySelect(path_keys=path_keys)
         norm_step = StandardScaler()
-        fit_step = RandomForestRegressor(n_estimators=4000)
+        fit_step = RandomForestRegressor(n_estimators=2500)
 
         super().__init__(
             [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],
@@ -100,14 +100,14 @@ class GradientBoosting(UniPipe, ValuePipe):
     """A class for regression by building an additive ensemble of trees."""
 
     tune_priors = (
-        ('fit__max_depth', (2, 3, 4, 5, 8)),
+        ('fit__max_depth', (2, 3, 4, 6)),
         ('fit__min_samples_split', (2, 4, 6, 10)),
         )
 
     def __init__(self, path_keys=None):
         feat_step = PathwaySelect(path_keys=path_keys)
         norm_step = StandardScaler()
-        fit_step = GradientBoostingRegressor(n_estimators=200, loss='huber')
+        fit_step = GradientBoostingRegressor(n_estimators=500, loss='huber')
 
         super().__init__(
             [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],

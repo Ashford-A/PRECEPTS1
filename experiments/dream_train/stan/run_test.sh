@@ -1,9 +1,9 @@
 #!/bin/bash
 
 #SBATCH --job-name=dream-stan
-#SBATCH --partition=long_jobs
+#SBATCH --partition=exacloud
 #SBATCH --mem=48000
-#SBATCH --time=6000
+#SBATCH --time=2100
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=24
 
@@ -13,7 +13,7 @@
 
 
 cd ~/compbio/bergamot
-source activate HetMan
+source activate visions
 
 # finds the name of the TCGA cohort to use
 if [ -z ${cohort+x} ]

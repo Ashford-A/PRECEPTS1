@@ -21,7 +21,10 @@ class StanProteinPredict(BaseEstimator, RegressorMixin):
 
     def fit(self,
             X, y=None,
-            path_obj=None, n_chains=8, parallel_jobs=24, **fit_params):
+            path_obj=None, n_chains=8, parallel_jobs=24,
+            verbose=False, **fit_params):
+
+        # ensures given input data is in the correct format
         if not isinstance(X, dict):
             raise TypeError("X must be a dictionary!")
 
@@ -31,49 +34,68 @@ class StanProteinPredict(BaseEstimator, RegressorMixin):
         if 'cna' not in X:
             raise ValueError("X must have a `cna` entry!")
 
+        # gets the list of genes we can use in the model
         both_genes = sorted(list(
             set(X['rna'].columns) & set(X['cna'].columns)
             & set(fit_params['prot_genes'])
             ))
 
+        # gets the pathway interactions we can use in our model
         use_path = [(up_gn, down_gn) for up_gn, down_gn in
                     path_obj[self.path_type]
                     if up_gn in both_genes and down_gn in both_genes]
+
+        if verbose:
+            print("\nConsidering {} interactions between {} genes.\n".format(
+                        len(use_path), len(both_genes)))
 
         x_rna = X['rna'].loc[:, both_genes]
         x_cna = X['cna'].loc[:, both_genes]
         y_use = y.loc[:, both_genes]
 
+        # constructs the pathway edges between each gene and itself
+        # to feed into the model
         path_out = [x + 1 for x in range(len(both_genes))]
         path_in = [x + 1 for x in range(len(both_genes))]
 
+        # adds the edges defined by the given pathway interactions
         path_out += [x_rna.columns.get_loc(up_gn) + 1
                      for up_gn, down_gn in use_path]
         path_in += [x_rna.columns.get_loc(down_gn) + 1
                     for up_gn, down_gn in use_path]
 
-        path_wght = [0.99 for _ in both_genes] + [0.05 for _ in use_path]
+        # provides initial values to use for edge weights in the model
+        path_wght = [0.8 for _ in both_genes] + [0.05 for _ in use_path]
 
-        self.fit_obj = pystan.stan(
-            model_code=model_code,
-            iter=10, chains=n_chains, n_jobs=parallel_jobs,
-            data={'N': x_rna.shape[0], 'G': x_rna.shape[1],
-                  'r': x_rna, 'c': x_cna, 'p': np.nan_to_num(y_use),
-                  'P': len(path_out), 'po': path_out, 'pi': path_in},
-            init=[{'wght': path_wght} for _ in range(n_chains)],
-            model_name="ProteinPredict"
+        # initializes the Stan model and compiles it to C++ code
+        sm = pystan.StanModel(model_code=model_code,
+                              model_name='ProteinPredict', verbose=True)
+
+        # lists the known data we will feed into the model
+        data_dict = {'N': x_rna.shape[0], 'G': x_rna.shape[1],
+                     'r': x_rna, 'c': x_cna, 'p': np.nan_to_num(y_use),
+                     'P': len(path_out), 'po': path_out, 'pi': path_in}
+
+        # fits the model given known data, initial values, and priors
+        self.fit_obj = sm.sampling(
+            chains=n_chains, n_jobs=parallel_jobs, iter=200,
+            data=data_dict, init=[{'wght': path_wght} for _ in range(n_chains)],
+            verbose=True
             )
 
-        print("Fitting has finished!")
+        if verbose:
+            print("Fitting has finished!")
 
         self.use_genes = both_genes
         self.use_path = use_path
 
-    def predict(self, X, **fit_params):
+    def predict(self, X, verbose=False, **fit_params):
 
-        print("Creating predictions...")
         if self.fit_obj is None:
             raise ValueError("Model has not been fit yet!")
+
+        if verbose:
+            print("Creating predictions...")
 
         x_rna = X['rna'].loc[:, self.use_genes]
         x_cna = X['cna'].loc[:, self.use_genes]
@@ -104,6 +126,7 @@ class StanProteinPredictEns(BaseEstimator, RegressorMixin):
             X, y=None, path_obj=None, n_chains=8, parallel_jobs=24,
             verbose=True, **fit_params):
 
+        # ensures given input data is in the correct format
         if not isinstance(X, dict):
             raise TypeError("X must be a dictionary!")
 
@@ -162,16 +185,17 @@ class StanProteinPredictEns(BaseEstimator, RegressorMixin):
                 for _ in range(len(path_out) - len(both_genes))
                 ]
 
-        self.fit_obj = pystan.stan(
-            model_code=model_code_ens,
-            iter=12, chains=n_chains, n_jobs=parallel_jobs,
+        sm = pystan.StanModel(model_code=model_code_ens,
+                              verbose=True, model_name="ProteinPredict")
+
+        self.fit_obj = sm.sampling(
+            iter=10, chains=n_chains, n_jobs=parallel_jobs,
             data={'N': x_rna.shape[0], 'G': x_rna.shape[1],
                   'R': k_prots.shape[1], 'prec': self.precision,
                   'r': x_rna, 'c': x_cna, 'p': np.nan_to_num(y_use),
                   'k': k_prots, 'P': len(path_out), 'po': path_out,
                   'pi': path_in},
-            init=init_wghts,
-            model_name="ProteinPredict"
+            init=init_wghts, verbose=True,
             )
 
         print("Fitting has finished!")
@@ -208,7 +232,7 @@ class StanProteinPipe(MultiPipe, TransferPipe, ValuePipe):
     @classmethod
     def extra_fit_params(cls, cohort):
         return {**super().extra_fit_params(cohort),
-                **{'n_chains': 6, 'parallel_jobs': 24}}
+                **{'n_chains': 12, 'parallel_jobs': 12}}
 
     @classmethod
     def extra_tune_params(cls, cohort):

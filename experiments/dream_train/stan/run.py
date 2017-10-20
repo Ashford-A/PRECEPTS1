@@ -23,22 +23,20 @@ def main(argv):
     # loads the challenge data
     cdata = TransferDreamCohort(syn, argv[0], intx_types=[argv[1]],
                                 cv_seed=171, cv_prop=0.8)
-
-    out_dir = os.path.join(base_dir, 'output')
-    out_file = os.path.join(out_dir, argv[0], argv[1], 'results', 'coefs.p')
+    out_dir = os.path.join(base_dir, 'output', argv[0], argv[1], 'results')
 
     # initializes the model and fits it using all of the genes in the
     # `inter`section of the RNA genes, CNA genes, and proteome genes
-    clf = mpt.StanEnsemble(argv[1])
+    clf = mpt.StanDefault(argv[1])
 
     # finds the best combination of model hyper-parameters, uses these
     # parameters to fit to the data
     #clf.tune_coh(cdata, pheno='inter',
     #             tune_splits=4, test_count=4, parallel_jobs=16)
     clf.fit_coh(cdata, pheno='inter') 
-    print(clf.eval_coh(cdata, pheno='inter'))
 
-    pickle.dump(clf.get_coef(), open(out_file, 'wb'))
+    pickle.dump(clf, open(os.path.join(out_dir, 'clf.p'), 'wb'))
+    print(clf.eval_coh(cdata, pheno='inter'))
 
 
 if __name__ == "__main__":

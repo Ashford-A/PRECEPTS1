@@ -19,13 +19,13 @@ model_code = '''
     
     parameters {
         vector<lower=0, upper=1>[P] wght;   // pathway interaction weights
-        vector<lower=0.01, upper=10>[2] wght_prior;
+        vector<lower=0.1, upper=5>[2] wght_prior;
 
         vector<lower=0, upper=1>[G] comb;   // RNA-CNA combinations
-        vector<lower=0.01, upper=10>[2] comb_prior;
+        vector<lower=0.1, upper=5>[2] comb_prior;
 
         vector<lower=0.1>[G] prec;   // precision of activities
-        // vector<lower=0.01, upper=20>[2] prec_prior;
+        vector<lower=0.01, upper=20>[2] prec_prior;
 
         matrix[N, G] act;                   // inferred gene activities
     }
@@ -36,15 +36,16 @@ model_code = '''
 
         for (g in 1:G) {
             for (n in 1:N) {
-                act_sum[n, g] = (comb[g] * r[n, g]) + ((1.0 - comb[g]) * c[n, g]);
-
                 pred_p[n, g] = 0;
-                for (i in 1:P) {
-                    if (pi[i] == g)
-                        pred_p[n, g] = pred_p[n, g] + act[n, po[i]] * wght[i];
-                }
-                // print(pred_p[n, g]);
+                act_sum[n, g] = (comb[g] * r[n, g]) + ((1.0 - comb[g]) * c[n, g]);
             }
+        }
+
+        for (i in 1:P) {
+            for (n in 1:N) {
+                pred_p[n, pi[i]] = pred_p[n, pi[i]] + act[n, po[i]] * wght[i];
+            }
+
         }
     }
 
@@ -58,8 +59,7 @@ model_code = '''
         }
         
         for (g in 1:G) {
-            // prec[g] ~ gamma(prec_prior[1], prec_prior[2]);
-            prec[g] ~ gamma(1.5, 10);
+            prec[g] ~ gamma(prec_prior[1], prec_prior[2]);
         }
         
         for (g in 1:G) {
