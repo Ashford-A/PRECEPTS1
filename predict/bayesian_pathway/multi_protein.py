@@ -78,7 +78,7 @@ class StanProteinPredict(BaseEstimator, RegressorMixin):
 
         # fits the model given known data, initial values, and priors
         self.fit_obj = sm.sampling(
-            chains=n_chains, n_jobs=parallel_jobs, iter=200,
+            chains=n_chains, n_jobs=parallel_jobs, iter=16,
             data=data_dict, init=[{'wght': path_wght} for _ in range(n_chains)],
             verbose=True
             )
@@ -97,17 +97,40 @@ class StanProteinPredict(BaseEstimator, RegressorMixin):
         if verbose:
             print("Creating predictions...")
 
+        # reorders the given RNA and CNA input to match the data
+        # the model was trained on
         x_rna = X['rna'].loc[:, self.use_genes]
         x_cna = X['cna'].loc[:, self.use_genes]
 
-        comb_data = self.fit_obj.summary(pars='comb')['summary'][:, 0]
-        path_wghts = self.fit_obj.summary(pars='wght')['summary'][:, 0]
+        # extract more detailed information about sampled parameters, current
+        # PyStan implementation (v2.17) makes this too slow however:
 
-        act_sum = (x_rna * comb_data) + (x_cna * (1 - comb_data))
-        pred_p = act_sum * path_wghts[:len(self.use_genes)]
+        # print('Extracting combination estimates...')
+        # comb_data = self.fit_obj.summary(pars='comb')['summary'][:, 0]
+        # print('Extracting edge weight estimates...')
+        # path_wghts = self.fit_obj.summary(pars='wght')['summary'][:, 0]
 
-        for pt, wght in zip(self.use_path, path_wghts[len(self.use_genes):]):
-            pred_p[pt[1]] += act_sum[pt[0]] * wght
+        # get the names of the variables in the model and their posterior
+        # means, find the chain with the best log-posterior
+        var_names = self.fit_obj.flatnames
+        post_means = self.fit_obj.get_posterior_mean()
+        best_chain = post_means[-1, :].argmax()
+
+        # gets the fitted values of the rna-cna combination weights
+        tx_wghts = post_means[[i for i, nm in enumerate(var_names)
+                               if 'tx_wght[' in nm],
+                              best_chain]
+
+        # gets the fitted values of the pathway edge weights
+        edge_wghts = post_means[[i for i, nm in enumerate(var_names)
+                                 if 'edge_wght[' in nm],
+                                best_chain]
+
+        tx_mat = (x_rna * tx_wghts) + (x_cna * (1 - tx_wghts))
+        pred_p = tx_mat * edge_wghts[:len(self.use_genes)]
+
+        for pt, wght in zip(self.use_path, edge_wghts[len(self.use_genes):]):
+            pred_p[pt[1]] += tx_mat[pt[0]] * wght
 
         return pred_p
 
@@ -232,7 +255,7 @@ class StanProteinPipe(MultiPipe, TransferPipe, ValuePipe):
     @classmethod
     def extra_fit_params(cls, cohort):
         return {**super().extra_fit_params(cohort),
-                **{'n_chains': 12, 'parallel_jobs': 12}}
+                **{'n_chains': 4, 'parallel_jobs': 4}}
 
     @classmethod
     def extra_tune_params(cls, cohort):
@@ -250,8 +273,7 @@ class StanProteinPipe(MultiPipe, TransferPipe, ValuePipe):
         nan_stat = np.isnan(y_true) | np.isnan(y_pred)
 
         if np.sum(nan_stat) < (len(y_true) - 2):
-            score_val = pearsonr(
-                y_true.loc[~nan_stat], y_pred.loc[~nan_stat])[0]
+            score_val = pearsonr(y_true[~nan_stat], y_pred[~nan_stat])[0]
 
         else:
             score_val = np.nan
@@ -260,8 +282,11 @@ class StanProteinPipe(MultiPipe, TransferPipe, ValuePipe):
 
     def score_pheno(self, y_true, y_pred):
         return self.parse_scores(
-            [self.score_each(y_true.loc[:, j], y_pred.loc[:, j])
-             for j in set(y_true.columns) & set(y_pred.columns)]
+            [self.score_each(
+                y_true[gn],
+                y_pred[:, self.named_steps['fit'].use_genes.index(gn)]
+                )
+             for gn in y_true]
             )
 
     def get_coef(self):

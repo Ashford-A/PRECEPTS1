@@ -35,7 +35,7 @@ def main(argv):
     #             tune_splits=4, test_count=4, parallel_jobs=16)
     clf.fit_coh(cdata, pheno='inter') 
 
-    pickle.dump(clf, open(os.path.join(out_dir, 'clf.p'), 'wb'))
+    # pickle.dump(clf, open(os.path.join(out_dir, 'clf.p'), 'wb'))
     print(clf.eval_coh(cdata, pheno='inter'))
 
 

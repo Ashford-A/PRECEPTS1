@@ -457,7 +457,7 @@ class MultiPipe(OmicPipe):
 
     def score(self, X, y=None):
         y_pred = np.array(self.predict_omic(X))
-        return self.score_pheno(np.array(y).reshape(y_pred.shape), y_pred)
+        return self.score_pheno(y, y_pred)
 
     @staticmethod
     def parse_scores(scores):
