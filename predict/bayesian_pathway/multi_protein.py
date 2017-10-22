@@ -35,37 +35,41 @@ class StanProteinPredict(BaseEstimator, RegressorMixin):
             raise ValueError("X must have a `cna` entry!")
 
         # gets the list of genes we can use in the model
-        both_genes = sorted(list(
+        self.use_genes = sorted(list(
             set(X['rna'].columns) & set(X['cna'].columns)
             & set(fit_params['prot_genes'])
             ))
 
         # gets the pathway interactions we can use in our model
-        use_path = [(up_gn, down_gn) for up_gn, down_gn in
-                    path_obj[self.path_type]
-                    if up_gn in both_genes and down_gn in both_genes]
+        self.use_path = sorted([
+            (up_gn, down_gn) for up_gn, down_gn in path_obj[self.path_type]
+            if up_gn in self.use_genes and down_gn in self.use_genes
+            ])
 
         if verbose:
             print("\nConsidering {} interactions between {} genes.\n".format(
-                        len(use_path), len(both_genes)))
+                        len(self.use_path), len(self.use_genes)))
 
-        x_rna = X['rna'].loc[:, both_genes]
-        x_cna = X['cna'].loc[:, both_genes]
-        y_use = y.loc[:, both_genes]
+        # ensures the gene column names in the input datasets line up with one
+        # another, and that we only use the genes present in all three
+        x_rna = X['rna'].loc[:, self.use_genes]
+        x_cna = X['cna'].loc[:, self.use_genes]
+        y_use = y.loc[:, self.use_genes]
 
         # constructs the pathway edges between each gene and itself
         # to feed into the model
-        path_out = [x + 1 for x in range(len(both_genes))]
-        path_in = [x + 1 for x in range(len(both_genes))]
+        path_out = [x + 1 for x in range(len(self.use_genes))]
+        path_in = [x + 1 for x in range(len(self.use_genes))]
 
         # adds the edges defined by the given pathway interactions
         path_out += [x_rna.columns.get_loc(up_gn) + 1
-                     for up_gn, down_gn in use_path]
+                     for up_gn, down_gn in self.use_path]
         path_in += [x_rna.columns.get_loc(down_gn) + 1
-                    for up_gn, down_gn in use_path]
+                    for up_gn, down_gn in self.use_path]
 
         # provides initial values to use for edge weights in the model
-        path_wght = [0.8 for _ in both_genes] + [0.05 for _ in use_path]
+        path_wght = [0.8 for _ in self.use_genes]
+        path_wght += [0.05 for _ in self.use_path]
 
         # initializes the Stan model and compiles it to C++ code
         sm = pystan.StanModel(model_code=model_code,
@@ -78,7 +82,7 @@ class StanProteinPredict(BaseEstimator, RegressorMixin):
 
         # fits the model given known data, initial values, and priors
         self.fit_obj = sm.sampling(
-            chains=n_chains, n_jobs=parallel_jobs, iter=16,
+            chains=n_chains, n_jobs=parallel_jobs, iter=75,
             data=data_dict, init=[{'wght': path_wght} for _ in range(n_chains)],
             verbose=True
             )
@@ -86,8 +90,11 @@ class StanProteinPredict(BaseEstimator, RegressorMixin):
         if verbose:
             print("Fitting has finished!")
 
-        self.use_genes = both_genes
-        self.use_path = use_path
+        # get the names of the variables in the model and their posterior
+        # means, find the chain with the best log-posterior
+        self.var_names = self.fit_obj.flatnames
+        self.post_means = self.fit_obj.get_posterior_mean()
+        self.best_chain = self.post_means[-1, :].argmax()
 
     def predict(self, X, verbose=False, **fit_params):
 
@@ -110,21 +117,17 @@ class StanProteinPredict(BaseEstimator, RegressorMixin):
         # print('Extracting edge weight estimates...')
         # path_wghts = self.fit_obj.summary(pars='wght')['summary'][:, 0]
 
-        # get the names of the variables in the model and their posterior
-        # means, find the chain with the best log-posterior
-        var_names = self.fit_obj.flatnames
-        post_means = self.fit_obj.get_posterior_mean()
-        best_chain = post_means[-1, :].argmax()
-
         # gets the fitted values of the rna-cna combination weights
-        tx_wghts = post_means[[i for i, nm in enumerate(var_names)
-                               if 'tx_wght[' in nm],
-                              best_chain]
+        tx_wghts = self.post_means[
+            [i for i, nm in enumerate(self.var_names) if 'tx_wght[' in nm],
+            self.best_chain
+            ]
 
         # gets the fitted values of the pathway edge weights
-        edge_wghts = post_means[[i for i, nm in enumerate(var_names)
-                                 if 'edge_wght[' in nm],
-                                best_chain]
+        edge_wghts = self.post_means[
+            [i for i, nm in enumerate(self.var_names) if 'edge_wght[' in nm],
+            self.best_chain
+            ]
 
         tx_mat = (x_rna * tx_wghts) + (x_cna * (1 - tx_wghts))
         pred_p = tx_mat * edge_wghts[:len(self.use_genes)]
@@ -159,53 +162,53 @@ class StanProteinPredictEns(BaseEstimator, RegressorMixin):
         if 'cna' not in X:
             raise ValueError("X must have a `cna` entry!")
 
-        both_genes = sorted(list(
+        self.use_genes = sorted(list(
             set(X['rna'].columns) & set(X['cna'].columns)
             & set(fit_params['prot_genes'])
             ))
 
         use_path = [(up_gn, down_gn) for up_gn, down_gn in
                     path_obj[self.path_type]
-                    if up_gn in both_genes and down_gn in both_genes]
+                    if up_gn in self.use_genes and down_gn in both_genes]
 
-        both_genes = [gn for gn in both_genes
+        self.use_genes = [gn for gn in both_genes
                       if gn not in self.known_prots.columns]
 
-        x_rna = X['rna'].loc[:, both_genes]
-        x_cna = X['cna'].loc[:, both_genes]
+        x_rna = X['rna'].loc[:, self.use_genes]
+        x_cna = X['cna'].loc[:, self.use_genes]
 
         k_prots = self.known_prots.loc[x_rna.index, :]
-        y_use = y.loc[:, both_genes]
+        y_use = y.loc[:, self.use_genes]
 
-        path_out = [x + 1 for x in range(len(both_genes))]
-        path_in = [x + 1 for x in range(len(both_genes))]
+        path_out = [x + 1 for x in range(len(self.use_genes))]
+        path_in = [x + 1 for x in range(len(self.use_genes))]
 
         path_out += [x_rna.columns.get_loc(up_gn) + 1
                      for up_gn, down_gn in use_path
-                     if up_gn in both_genes and down_gn in both_genes]
+                     if up_gn in self.use_genes and down_gn in both_genes]
         path_in += [x_rna.columns.get_loc(down_gn) + 1
                     for up_gn, down_gn in use_path
-                    if up_gn in both_genes and down_gn in both_genes]
+                    if up_gn in self.use_genes and down_gn in both_genes]
 
-        path_out += [k_prots.columns.get_loc(up_gn) + 1 + len(both_genes)
+        path_out += [k_prots.columns.get_loc(up_gn) + 1 + len(self.use_genes)
                      for up_gn, down_gn in use_path
-                     if up_gn in k_prots.columns and down_gn in both_genes]
+                     if up_gn in k_prots.columns and down_gn in self.use_genes]
         path_in += [x_rna.columns.get_loc(down_gn) + 1
                     for up_gn, down_gn in use_path
-                    if up_gn in k_prots.columns and down_gn in both_genes]
+                    if up_gn in k_prots.columns and down_gn in self.use_genes]
 
         if verbose:
             print("{} interactions found between {} genes".format(
-                len(path_out), len(both_genes)))
+                len(path_out), len(self.use_genes)))
 
         init_wghts = [{'wght': []} for _ in range(n_chains)]
         for i in range(n_chains):
 
             init_wghts[i]['wght'] += [round(0.5 + (i * 0.45 / n_chains), 2)
-                                      for _ in both_genes]
+                                      for _ in self.use_genes]
             init_wghts[i]['wght'] += [
                 round((0.45 / n_chains) * (n_chains - i), 2)
-                for _ in range(len(path_out) - len(both_genes))
+                for _ in range(len(path_out) - len(self.use_genes))
                 ]
 
         sm = pystan.StanModel(model_code=model_code_ens,
@@ -222,9 +225,6 @@ class StanProteinPredictEns(BaseEstimator, RegressorMixin):
             )
 
         print("Fitting has finished!")
-
-        self.use_genes = both_genes
-        self.use_path = use_path
 
     def predict(self, X, **fit_params):
 
