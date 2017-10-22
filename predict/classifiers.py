@@ -1,11 +1,13 @@
 
-"""
-Hetman (Heterogeneity Manifold)
-Prediction of mutation sub-types using expression data.
-This file contains the algorithms used to predict discrete mutation states.
-"""
+"""Specific pipelines for prediction of binary phenotypes.
 
-# Author: Michal Grzadkowski <grzadkow@ohsu.edu>
+See Also:
+    :module:`.pipelines`: Base classes for phenotype prediction.
+    :module:`.regressors`: Predicting continuous phenotypes.
+
+Author: Michal Grzadkowski <grzadkow@ohsu.edu>
+
+"""
 
 from .pipelines import MutPipe, MultiPresencePipe, LinearPipe
 from .selection import *

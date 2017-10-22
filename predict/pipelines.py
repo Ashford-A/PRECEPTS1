@@ -189,7 +189,6 @@ class OmicPipe(Pipeline):
         raise PipelineError("Class `OmicPipe` can't be used for prediction, "
                             "use its subclasses instead!")
 
-
     def tune_coh(self,
                  cohort, pheno,
                  tune_splits=2, test_count=8, parallel_jobs=16,
@@ -255,8 +254,7 @@ class OmicPipe(Pipeline):
                         **self.extra_fit_params(cohort))
 
     def score_coh(self,
-                  cohort, pheno,
-                  score_splits=16,
+                  cohort, pheno, score_splits=16, parallel_jobs=8,
                   include_samps=None, exclude_samps=None,
                   include_genes=None, exclude_genes=None):
         """Test a classifier using tuning and cross-validation
@@ -286,19 +284,25 @@ class OmicPipe(Pipeline):
             curve metric.
 
         """
-        omics = cohort.train_omics(include_samps, exclude_samps,
-                                   include_genes, exclude_genes)
-        pheno_types = cohort.train_pheno(pheno, omics.index)
 
+        train_omics, train_pheno = cohort.train_data(
+            pheno,
+            include_samps, exclude_samps,
+            include_genes, exclude_genes
+            )
+
+        # get internal cross-validation splits in the training set and use
+        # them to score the performance of the classifier
         score_cvs = OmicShuffleSplit(
             n_splits=score_splits, test_size=0.2,
-            random_state=cohort.intern_cv_)
+            random_state=(cohort.cv_seed ** 3) % 42949672
+            )
 
         return np.percentile(
             cross_val_score(estimator=self,
-                            X=cohort.train_omics, y=pheno_types,
-                            fit_params=self.extra_fit_params(cohort),
-                            cv=score_cvs, n_jobs=-1),
+                            X=train_omics, y=train_pheno,
+                            fit_params=self.extra_tune_params(cohort),
+                            cv=score_cvs, n_jobs=parallel_jobs),
             25
             )
 
@@ -380,6 +384,14 @@ class UniPipe(OmicPipe):
         return self.score_pheno(np.array(y).flatten(),
                                 np.array(self.predict_omic(X)).flatten())
 
+    def score(self, X, y=None):
+        return self.score_pheno(np.array(y).flatten(),
+                                np.array(self.predict_omic(X)).flatten())
+
+    def score(self, X, y=None):
+        return self.score_pheno(np.array(y).flatten(),
+                                np.array(self.predict_omic(X)).flatten())
+
 
 class LinearPipe(UniPipe):
     """A class corresponding to linear logistic regression classification
@@ -389,7 +401,7 @@ class LinearPipe(UniPipe):
 
     def get_coef(self):
         return {gene: coef for gene, coef in
-                zip(self.genes, self.named_steps['fit'].coef_[0])}
+                zip(self.genes, self.named_steps['fit'].coef_.flatten())}
 
 
 class TransferPipe(OmicPipe):
@@ -408,7 +420,9 @@ class TransferPipe(OmicPipe):
                 'expr_genes': {
                     lbl: [xcol.split('__')[-1] for xcol in Xmat.columns]
                     for lbl, Xmat in X.items()
-                    }}}
+                    },
+                'prot_genes': self.prot_genes
+                }}
             )
 
         if 'feat' in self.named_steps:
@@ -439,6 +453,11 @@ class MultiPipe(OmicPipe):
     def predict_omic(self, omic_data):
         return [self.parse_preds(preds)
                 for preds in self.predict_base(omic_data)]
+
+
+    def score(self, X, y=None):
+        y_pred = np.array(self.predict_omic(X))
+        return self.score_pheno(y, y_pred)
 
     @staticmethod
     def parse_scores(scores):
@@ -589,7 +608,10 @@ class ProteinPipe(ValuePipe):
     
     @staticmethod
     def score_pheno(X, y):
-        return pearsonr(X, y)[0]
+        if np.var(X) == 0 or np.var(y) == 0:
+            return 0
+        else:
+            return pearsonr(X, y)[0]
 
 
 class DrugPipe(ValuePipe):
@@ -619,93 +641,4 @@ class MutPipe(UniPipe, VariantPipe):
     def extra_fit_params(cls, cohort):
         return {'mut_genes': cohort.mut_genes,
                 'path_obj': cohort.path}
-
-
-
-
-class MultiPresencePipe(MultiPipe, PresencePipe):
-    """A class corresponding to pipelines for predicting a collection of
-       discrete gene mutation states simultaenously.
-    """
-
-    def predict_mut(self, expr):
-        """Returns the probability of mutation presence calculated by the
-           classifier based on the given expression matrix.
-        """
-        return self.predict_proba(expr)
-
-    def predict_labels(self, expr):
-        expr_t = self.transform(expr)
-        return self.predict_labels(expr_t)
-
-    def score_coh(self,
-                  cohort, pheno,
-                  score_splits=16,
-                  include_samples=None, exclude_samples=None,
-                  include_genes=None, exclude_genes=None):
-        """Test a classifier using tuning and cross-validation
-           within the training samples of this dataset.
-
-        Parameters
-        ----------
-        clf : UniClassifier
-            An instance of the classifier to test.
-
-        mtype : MuType, optional
-            The mutation sub-type to test the classifier on.
-            Default is to use all of the mutations available.
-
-        verbose : boolean
-            Whether or not the classifier should print information about the
-            optimal hyper-parameters found during tuning.
-
-        Returns
-        -------
-        P : float
-            The 1st quartile of tuned classifier performance across the
-            cross-validation samples. Used instead of the mean of performance
-            to take into account performance variation for "hard" samples.
-
-            Performance is measured using the area under the receiver operator
-            curve metric.
-        """
-        samps, genes = cohort._validate_dims(mtype=mtype,
-                                             exclude_samps=exclude_samps,
-                                             gene_list=gene_list)
-
-        score_cvs = OmicShuffleSplit(
-            n_splits=score_splits, test_size=0.2,
-            random_state=cohort.intern_cv_)
-
-        return np.percentile(cross_val_score(
-            estimator=self,
-            X=cohort.train_expr_.loc[samps, genes],
-            y=cohort.train_mut_.status(samps, mtype),
-            fit_params={'feat__mut_genes': cohort.mut_genes,
-                        'feat__path_obj': cohort.path,
-                        'fit__mut_genes': cohort.mut_genes,
-                        'fit__path_obj': cohort.path},
-            scoring=self.score_mut, cv=score_cvs, n_jobs=-1
-            ), 25)
-
-    def infer_coh(self,
-                  cohort, pheno,
-                  infer_splits=16,
-                  include_samples=None, exclude_samples=None,
-                  include_genes=None, exclude_genes=None):
-        samps, genes = cohort._validate_dims(gene_list=gene_list)
-
-        infer_scores = cross_val_predict_mut(
-            estimator=self,
-            X=cohort.train_expr_.loc[:, genes],
-            y=cohort.train_mut_.status(samps, mtype),
-            exclude_samps=exclude_samps, cv_fold=4, cv_count=infer_splits,
-            fit_params={'feat__mut_genes': cohort.mut_genes,
-                        'feat__path_obj': cohort.path,
-                        'fit__mut_genes': cohort.mut_genes,
-                        'fit__path_obj': cohort.path},
-            random_state=int(cohort.intern_cv_ ** 1.5) % 42949672, n_jobs=-1
-            )
-
-        return infer_scores
 

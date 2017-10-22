@@ -5,6 +5,7 @@ Author: Michal Grzadkowski <grzadkow@ohsu.edu>
 
 """
 
+import numpy as np
 import pandas as pd
 import synapseutils
 
@@ -15,13 +16,13 @@ syn_ids = {
              'cna': '10139527',
              'prot': '10139538'},
     
-    'OV': {'rna': '10139533',
+    'OV': {'rna': '10535396',
            'cna': '10139531',
-           'prot': ['10290694', '10290695']}
+           'prot': {'JHU': '10514980', 'PNNL': '10514979'}}
     }
 
 
-def get_dream_data(syn, cohort, omic_type):
+def get_dream_data(syn, cohort, omic_type, source=None):
     """Retrieves a particular -omic dataset used in the challenge.
 
     Args:
@@ -37,7 +38,7 @@ def get_dream_data(syn, cohort, omic_type):
         >>> syn.login()
         >>>
         >>> get_dream_data(syn, "BRCA", "rna")
-        >>> get_dream_data(syn, "OV", "cna")
+        >>> get_dream_data(syn, "OV", "cna", "PNNL")
         >>> get_dream_data(syn, "BRCA", "rna+cna")
 
     """
@@ -55,20 +56,26 @@ def get_dream_data(syn, cohort, omic_type):
     else:
         dream_ids = syn_ids[cohort][omic_type]
         omic_type = [omic_type]
-        
-        if isinstance(dream_ids, str):
-            dream_ids = [dream_ids]
+        dream_ids = [dream_ids]
+
+    dream_ids = [dream_id if isinstance(dream_id, str) else dream_id[source]
+                 for dream_id in dream_ids]
 
     # read in the -omic dataset(s) and merge them according to sample ID
-    dream_data = pd.concat(
-        {omic_tp: pd.read_csv(syn.get("syn{}".format(dream_id)).path,
-                              sep='\t', index_col=0).transpose()
-         for dream_id, omic_tp in zip(dream_ids, omic_type)},
-        join='inner', axis=1
-        )
+    omic_list = {omic_tp: pd.read_csv(syn.get("syn{}".format(dream_id)).path,
+                                      sep='\t', index_col=0).transpose()
+                 for dream_id, omic_tp in zip(dream_ids, omic_type)}
 
-    # convert the pandas MultiIndex of the merged datasets into a flat
-    # list of strings
+    # replaces missing values according to the -omic type
+    omic_list = {
+        omic_tp: (omic_tbl.fillna(0.0) if omic_tp == 'cna'
+                  else omic_tbl.fillna(np.min(np.min(omic_tbl)) - 1))
+        for omic_tp, omic_tbl in omic_list.items()
+        }
+
+    # merges datasets into one table, converts the pandas MultiIndex of this
+    # table into a flat list of strings
+    dream_data = pd.concat(omic_list, join='inner', axis=1)
     dream_data.columns = ["__".join(col)
                           for col in dream_data.columns.values]
 
