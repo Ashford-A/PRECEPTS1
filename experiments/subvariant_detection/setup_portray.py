@@ -16,9 +16,7 @@ import dill as pickle
 from itertools import combinations as combn
 from itertools import chain
 
-from HetMan.experiments.utilities.test_cohort_mutypes import load_output
-
-firehose_dir = '/home/exacloud/lustre1/CompBio/mgrzad/input-data/firehose'
+import HetMan.experiments.utilities as utils
 
 
 def main(argv):
@@ -30,15 +28,18 @@ def main(argv):
     out_path = os.path.join(base_dir, 'output', argv[0], argv[1], 'portray')
     auc_cutoff = float(argv[2])
 
-    out_data = load_output(os.path.join(
+    # loads information about the sub-types found in the search phase, finds
+    # the sub-types that pass the AUC criterion
+    out_data = utils.test_output(os.path.join(
         base_dir, 'output', argv[0], argv[1], 'search'))
     portray_mtypes = out_data.loc[out_data.min(axis=1) > auc_cutoff, :].index
 
-    print("Investigating {} sub-types that were found to have an AUC of at"
+    print("Investigating {} sub-types that were found to have an AUC of at "
           "least {} during the search phase."
             .format(len(portray_mtypes), argv[2]))
 
-    # save the list of sub-types to file
+    # save the list of sub-types whose expression profile is to be portrayed
+    # to file for use by further scripts
     pickle.dump(list(portray_mtypes),
                 open(os.path.join(out_path, 'tmp/mtype_list.p'), 'wb'))
 
