@@ -6,6 +6,7 @@ mutations such as SNPs, indels, and frameshifts in formats suitable for use
 in machine learning pipelines.
 
 See Also:
+    :module:`.utils`: Utilities common across many types of features.
     :module:`.copies`: Dealing with copy number alterations.
 
 Author: Michal Grzadkowski <grzadkow@ohsu.edu>
@@ -233,47 +234,56 @@ class MuTree(object):
             split_muts (:obj:`dict` of :obj:`pd.DataFrame`)
         """
 
-        # level names have to consist of a base level name and an optional
+        # level names have to consist of a base level name and an al
         # parsing label separated by an underscore
         lvl_info = lvl_name.split('_')
         if len(lvl_info) > 2:
-            raise ValueError("Invalid level name " + lvl_name
-                             + " with more than two fields!")
+            raise ValueError(
+                "Invalid level name {} with more than two fields!".format(
+                    lvl_name)
+                )
 
         # if a parsing label is present, add the parsed level
         # to the table of mutations
         elif len(lvl_info) == 2:
             parse_lbl = lvl_info[1].lower()
-            parse_fx = 'parse_' + parse_lbl
+            parse_fx = 'parse_{}'.format(parse_lbl)
 
             if parse_fx in cls.__dict__:
-                muts = eval('cls.' + parse_fx)(muts, lvl_info[0])
+                muts = eval('cls.{}'.format(parse_fx))(muts, lvl_info[0])
 
             else:
-                raise ValueError("Custom parse label " + parse_lbl + " must "
-                                 + "have a corresponding <" + parse_fx +
-                                 "> method defined in " + cls.__name__ + "!")
+                raise ValueError(
+                    "Custom parse label {} must have a corresponding <{}> "
+                    "method defined in {}!".format(
+                        parse_lbl, parse_fx, cls.__name__)
+                    )
 
         # splits mutations according to values of the specified level
         if isinstance(muts, tuple):
             if np.all(pd.isnull(val) for _, val in muts):
                 split_muts = {}
+
             else:
                 split_muts = muts
+
         elif lvl_name in muts:
             split_muts = dict(tuple(muts.groupby(lvl_name)))
 
         # if the specified level is not a column in the mutation table,
         # we assume it's a custom mutation level
         else:
-            split_fx = 'muts_' + lvl_info[0].lower()
+            split_fx = 'muts_{}'.format(lvl_info[0].lower())
+
             if split_fx in cls.__dict__:
-                split_muts = eval('cls.' + split_fx)(muts)
+                split_muts = eval('cls.{}'.format(split_fx))(muts)
+
             else:
-                raise ValueError("Custom mutation level " + lvl_name
-                                     + " must have a corresponding <"
-                                     + split_fx + "> method defined in "
-                                     + cls.__name__ + "!")
+                raise ValueError(
+                    "Custom mutation level {} must have a corresponding <{}> "
+                    "method defined in {}!".format(
+                        lvl_name, split_fx, cls.__name__)
+                    )
 
         return split_muts
 
@@ -349,7 +359,7 @@ class MuTree(object):
            of the same type together.
         """
 
-        new_lvl = parse_lvl + '_base'
+        new_lvl = '{}_base'.format(parse_lvl)
 
         new_muts = muts.assign(**{new_lvl: muts.loc[:, parse_lvl]})
         new_muts.replace(to_replace={new_lvl: {'_(Del|Ins)$': ''}},

@@ -43,7 +43,24 @@ firehose_dir = '/home/exacloud/lustre1/CompBio/mgrzad/input-data/firehose'
 
 
 def load_output(out_dir):
+    """Gets the cross-validated AUCs of a set of tested MuTypes.
 
+    Args:
+        out_dir (str): The directory where the results were saved.
+
+    Returns:
+        out_data (pd.DataFrame), shape = [n_MuTypes, 5]
+            How well the given classifier was able to predict the presence
+            of each mutation sub-type in each cross-validation run.
+
+    Examples:
+        >>> out_data = test_output("HetMan/experiments/subvariant_detection/"
+        >>>                        "output/PAAD/rForest/search")
+
+    """
+
+    # gets the list of output files for each cross-validation run and
+    # reads in the data
     out_list = [
         [pickle.load(open(fl, 'rb'))
          for fl in glob(os.path.join(
@@ -51,6 +68,7 @@ def load_output(out_dir):
         for cv_id in range(5)
         ]
 
+    # consolidates the output into a DataFrame and returns it
     return pd.concat(
         [pd.concat(pd.DataFrame.from_dict(x, orient='index') for x in ols)
          for ols in out_list],

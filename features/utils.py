@@ -1,5 +1,10 @@
 
-"""Utilities for loading and processing features.
+"""Utilities for loading and processing feature datasets.
+
+This module contains utility functions that are commonly used in the
+loading and processing of many different kinds of features. Utilities specific
+to a particular type of feature are stored in the module corresponding to that
+feature, see eg. :function:`.expression.log_norm_expr`.
 
 Author: Michal Grzadkowski <grzadkow@ohsu.edu>
 
@@ -8,26 +13,39 @@ Author: Michal Grzadkowski <grzadkow@ohsu.edu>
 from ophion import Ophion
 
 
-def choose_bmeg_server(verbose=False):
-    """Chooses a BMEG server to use based on availability."""
+def choose_bmeg_server(server_list=('http://bmeg.compbio.ohsu.edu',
+                                    'http://bmeg.io'),
+                       verbose=False):
+    """Chooses a BMEG server to use based on availability.
 
-    # list of BMEG servers to try
-    server_list = ['http://bmeg.compbio.ohsu.edu', 'http://bmeg.io']
-    
-    # iterate over these servers until we find one or there aren't any left
+    Args:
+        server_list (:obj:`tuple` of :obj:`str`), optional
+            The list of BMEG servers to try in reverse order of priority.
+            The default is the list of servers that were available as of
+            October 23, 2017.
+        verbose (bool): Whether to print which BMEG server was chosen.
+
+    Returns:
+        bmeg_server (str): A BMEG server that is up and responding to queries.
+
+    """
     server_found = False
+    server_list = list(server_list)
+    bmeg_server = None
+
+    # iterate over the given servers until we find one that is working or
+    # there aren't any left to try
     while not server_found and server_list:
 
-        # get a new server and intialize the query interface
+        # initialize the query interface and see if we can run a simple query
         bmeg_server = server_list.pop()
         oph = Ophion(bmeg_server)
-
-        # ...check if we can run a simple query...
         try:
-            proj_count = oph.query().has(
-                "gid", "project:TCGA-BRCA").count().execute()[0]
+            proj_count = oph.query().has("gid", "project:TCGA-BRCA")\
+                                .count().execute()[0]
 
-            # ...if so, check if the query returns a proper value
+            # if the query runs successfully, check if the query
+            # returns a proper value
             if int(proj_count) > 0:
                 server_found = True
 
@@ -41,4 +59,3 @@ def choose_bmeg_server(verbose=False):
         raise RuntimeError("No BMEG server available!")
 
     return bmeg_server
-
