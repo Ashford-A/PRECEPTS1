@@ -27,7 +27,9 @@ from re import sub as gsub
 from math import exp
 from ophion import Ophion
 
+from operator import and_, or_
 from functools import reduce
+
 from itertools import combinations as combn
 from itertools import product
 
@@ -919,17 +921,20 @@ class MuTree(object):
                                 new_key[rec_mtype] = {nm}
 
             for rec_mtype, nms in new_key.items():
-                if (len(rec_mtype.get_samples(self) & mtype.get_samples(self))
-                    >= min_size):
-                    sub_mtypes |= {
-                        MuType({(self.mut_level, tuple(nms)): rec_mtype})}
+                rec_samp_count = len(rec_mtype.get_samples(self)
+                                     & mtype.get_samples(self))
+
+                if rec_samp_count >= min_size:
+                    sub_mtypes.update({
+                        MuType({(self.mut_level, tuple(nms)): rec_mtype})})
 
         else:
-            recurse_mtypes = reduce(lambda x, y: x | y,
-                                    [branch.branchtypes(
-                                        mtype, sub_levels, min_size=1)
-                                     for _, branch in self],
-                                    set())
+            recurse_mtypes = reduce(
+                or_,
+                [branch.branchtypes(mtype, sub_levels, min_size=1)
+                 for _, branch in self],
+                set()
+                )
 
             sub_mtypes |= set(filter(
                 lambda x: (len(x.get_samples(self) & mtype.get_samples(self))
@@ -1027,9 +1032,14 @@ class MuTree(object):
             min_type_size (int), optional
                 The minimum number of samples in each returned MuType. The
                 default is each returned MuType having at least ten samples.
+            min_branch_size (:obj:`int` or :obj:`str`), optional
+                The minimum number of samples in each of the MuTypes combined
+                to compose each of the returned MuTypes. The default is to
+                divide min_type_size by the number of MuTypes in each returned
+                combination MuType.
 
         Returns:
-            comb_mtypes (set of MuType)
+            comb_mtypes (:obj:`set` of :obj:`MuType`)
 
         Examples:
             >>> # get all possible MuTypes that combine three branches
@@ -1054,7 +1064,7 @@ class MuTree(object):
 
             if branch_mtypes:
                 for kc in combn(branch_mtypes, csize):
-                    new_set = reduce(lambda x, y: x | y, kc)
+                    new_set = reduce(or_, kc)
 
                     if (min_branch_size == 'auto'
                         or len(new_set.get_samples(self)) >= min_type_size):
@@ -1099,7 +1109,7 @@ class MuTree(object):
 
         else:
             tree_mtypes |= reduce(
-                lambda x,y: x | y,
+                or_,
                 [branch.treetypes(btype, sub_levels, min_size)
                  for (nm, branch), (lbl, btype) in product(self, mtype)
                  if (isinstance(branch, MuTree)
@@ -1624,3 +1634,49 @@ class MuType(object):
                           for i in k for s in v.subkeys()]
 
         return mkeys
+
+
+class MutComb(object):
+    """A class corresponding to the presence of multiple mutation sub-types.
+
+    Args:
+        mtypes (:obj:`list` of :obj:`MuType`)
+
+    Examples:
+        >>> # create an object representing samples that have both a TTN
+        >>> # mutation and a KRAS missense mutation
+        >>>
+        >>> from HetMan.features.variants import MuType
+        >>> mtype1 = MuType({('Gene', 'TTN'): None})
+        >>> mtype2 = MuType({('Gene', 'KRAS'): {
+        >>>                     ('Form', 'Missense_Mutation'): None}})
+        >>>
+        >>> comb_type = MutComb([mtype1, mtype2])
+
+    """
+
+    def __init__(self, mtypes):
+        if not all(isinstance(mtype, MuType) for mtype in mtypes):
+            raise TypeError(
+                "A MutComb object must be a combination of MuTypes!")
+
+        self.mtypes = frozenset(mtypes)
+
+    def mtype_apply(self, each_fx, comb_fx):
+        each_list = [each_fx(mtype) for mtype in self.mtypes]
+        return reduce(comb_fx, each_list)
+
+    def __str__(self):
+        return self.mtype_apply(str, lambda x, y: x + ' & ' + y)
+
+    def __hash__(self):
+        value = 0x213129 
+
+        return value + self.mtype_apply(
+            hash,
+            lambda x, y: (x ^ y + eval(hex((int(value) * 1003)
+                                           & 0xFFFFFFFF)[:-1]))
+            )
+
+    def get_samples(self, mtree):
+        return self.mtype_apply(lambda x: x.get_samples(mtree), and_)
