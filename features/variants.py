@@ -724,7 +724,7 @@ class MuTree(object):
                 # if the exclusion mutation set is also at the same mutation
                 # level, find if it has the branch we are at
                 if mtype2.cur_level == self.mut_level:
-                    for sub_lbl, sub_btype in mtype2:
+                    for sub_lbl, sub_btype in mtype2.subtype_iter():
                         if sub_lbl == nm:
 
                             # delete the sub-branches if the branch to be
@@ -884,7 +884,7 @@ class MuTree(object):
         if self.mut_level in sub_levels:
             for (nm, branch), (_, btype) in filter(
                     lambda x: x[0][0] == x[1][0] and len(x[0][1]) >= min_size,
-                    product(self, mtype)):
+                    product(self, mtype.subtype_iter())):
 
                 # returns the current branch if we are at one of the given
                 # mutation levels
@@ -1220,11 +1220,10 @@ class MuType(object):
         # their further subdivisions if they exist
         membs = [(k,) if isinstance(k, str) else k for _, k in set_key.keys()]
         children = {
-            tuple(i for i in k):
-            (None if ch is None or (isinstance(ch, MuType) and not ch._child)
-             else ch if isinstance(ch, MuType)
-             else MuType(ch))
+            tuple(i for i in k): (ch if ch is None or isinstance(ch, MuType)
+                                  else MuType(ch))
             for k, ch in zip(membs, set_key.values())
+            if not (isinstance(ch, MuType) and ch.is_empty())
             }
 
         # merges subsets at this level if their children are the same:
@@ -1251,18 +1250,12 @@ class MuType(object):
             else:
                 self._child[val] = ch
 
-    def __iter__(self):
-        """Returns an expanded representation of the set structure."""
-
-        return iter(sorted(
-            [(l, v) for k, v in self._child.items() for l in k],
-            key=lambda x: x[0]
-            ))
+    def subtype_iter(self):
+        return [(l, v) for k, v in self._child.items() for l in k]
 
     def __len__(self):
         """The length of a MuType is the # of annotation levels it has."""
-
-        return len(list(self.__iter__()))
+        return len(self.subtype_iter())
 
     def __eq__(self, other):
         """Two MuTypes are equal if and only if they have the same set
@@ -1279,7 +1272,7 @@ class MuType(object):
         # MuTypes with the same mutation levels are equal if and only if
         # they have the same mutation subtypes for the same level entries
         else:
-            eq = (self._child == other._child)
+            eq = (self.subtype_iter() == other.subtype_iter())
 
         return eq
 
@@ -1289,60 +1282,54 @@ class MuType(object):
 
         # iterate over all mutation types at this level separately
         # regardless of their children
-        for k, v in self:
-
-            if isinstance(k, str):
-                new_str += self.cur_level + ' IS ' + k
-            else:
-                new_str += (self.cur_level + ' IS '
-                            + reduce(lambda x, y: x + ' OR ' + y, k))
+        for k, v in sorted(self.subtype_iter(), key=lambda x: x[0]):
+            new_str += self.cur_level + ' IS ' + k
 
             if v is not None:
-                new_str += ' AND ' + repr(v)
+                new_str += ' WITH ' + repr(v)
 
-            new_str += ' OR '
+            new_str += ', OR '
 
-        return gsub(' OR $', '', new_str)
+        return gsub(', OR $', '', new_str)
 
     def __str__(self):
         """Gets a condensed label for the MuType."""
         new_str = ''
+        self_iter = sorted(self._child.items(), key=lambda x: x[0])
 
         # if there aren't too many types to list at this mutation level...
-        if len(self) <= 10:
+        if len(self_iter) <= 10:
 
             # ...iterate over the types, grouping together those with the
             # same children to produce a more concise label
-            for k, v in self._child.items():
-                new_str += reduce(lambda x, y: x + '+' + y, k)
+            for k, v in self_iter:
+
+                if len(k) > 1:
+                    new_str += "({})".format('|'.join(k))
+
+                else:
+                    new_str += list(k)[0]
                 
                 if v is not None:
-                    new_str += '-' + str(v)
+                    new_str += ':' + str(v)
                 
-                new_str += ', '
+                new_str += '|'
 
         # ...otherwise, show how many types there are and move on to the
         # levels further down if they exist
         else:
-            new_str += "({} {}s)".format(len(self), self.cur_level.lower())
-            ch_items = self._child.items()
+            new_str += "({} {}s)".format(
+                len(self.subtype_iter()), self.cur_level.lower())
 
-            if len(ch_items) <= 10:
-                for k, v in ch_items:
-                    if v is not None:
-                        new_str += '-' + str(v)
-
-                    new_str += ', '
-
-            # condense sub-types at the further levels if there are too many
-            else:
+            # condense sub-types at the further levels
+            for k, v in self_iter:
                 new_str += "-(>= {} sub-types at level(s): {})".format(
-                    len(ch_items),
+                    len(v),
                     reduce(lambda x, y: x + ', ' + y,
                            self.get_levels() - {self.cur_level})
                     )
 
-        return gsub(', $', '', new_str)
+        return gsub('\\|+$', '', new_str)
 
     def is_empty(self):
         """Checks if this MuType corresponds to the null mutation set."""
@@ -1354,8 +1341,8 @@ class MuType(object):
             return NotImplemented
 
         new_key = {}
-        self_dict = dict(self)
-        other_dict = dict(other)
+        self_dict = dict(self.subtype_iter())
+        other_dict = dict(other.subtype_iter())
 
         if self.cur_level == other.cur_level:
             for k in (self_dict.keys() - other_dict.keys()):
@@ -1386,8 +1373,8 @@ class MuType(object):
             return NotImplemented
 
         new_key = {}
-        self_dict = dict(self)
-        other_dict = dict(other)
+        self_dict = dict(self.subtype_iter())
+        other_dict = dict(other.subtype_iter())
 
         if self.cur_level == other.cur_level:
             for k in self_dict.keys() & other_dict.keys():
@@ -1430,6 +1417,13 @@ class MuType(object):
 
         return MuType(new_key)
 
+    def __add__(self, other):
+
+        if not isinstance(other, MuType):
+            return NotImplemented
+
+        return MutComb([self, other])
+
     def __lt__(self, other):
         """Defines a sort order for MuTypes."""
         if not isinstance(other, MuType):
@@ -1438,20 +1432,18 @@ class MuType(object):
         # if two MuTypes have the same mutation level, we compare how many
         # mutation entries each of them have
         if self.cur_level == other.cur_level:
-            self_dict = dict(self)
-            other_dict = dict(other)
+            self_dict = dict(self.subtype_iter())
+            other_dict = dict(other.subtype_iter())
        
             # if they both have the same number of entries, we compare the
             # entries themselves, which are sorted in __iter__ so that
             # pairwise invariance is ensured
             if len(self_dict) == len(other_dict):
-                self_keys = self_dict.keys()
-                other_keys = other_dict.keys()
 
                 # if they have the same entries, we compare each pair of
                 # entries' mutation sub-types
-                if self_keys == other_keys:
-                    for (_, v), (_, w) in zip(self, other):
+                if self_dict.keys() == other_dict.keys():
+                    for v, w in zip(self_dict.values(), other_dict.values()):
                         if v != w:
 
                             # for the first pair of subtypes that are not
@@ -1471,7 +1463,7 @@ class MuType(object):
                 # order defined by the sorted lists corresponding to the
                 # entries
                 else:
-                    return self_keys < other_keys
+                    return self_dict.keys() < other_dict.keys()
 
             # MuTypes with fewer mutation entries are sorted above
             else:
@@ -1487,8 +1479,8 @@ class MuType(object):
         if not isinstance(other, MuType):
             return NotImplemented
 
-        self_dict = dict(self)
-        other_dict = dict(other)
+        self_dict = dict(self.subtype_iter())
+        other_dict = dict(other.subtype_iter())
 
         if self.cur_level == other.cur_level:
             if self_dict.keys() >= other_dict.keys():
@@ -1515,8 +1507,8 @@ class MuType(object):
             return NotImplemented
 
         new_key = {}
-        self_dict = dict(self)
-        other_dict = dict(other)
+        self_dict = dict(self.subtype_iter())
+        other_dict = dict(other.subtype_iter())
 
         if self.cur_level == other.cur_level:
             for k in self_dict.keys():
@@ -1533,9 +1525,9 @@ class MuType(object):
                     new_key.update({(self.cur_level, k): self_dict[k]})
 
         else:
-            raise ValueError("Cannot subtract MuType with mutation level "
-                                 + other.cur_level + " from MuType with "
-                                 + "mutation level " + self.cur_level + "!")
+            raise ValueError("Cannot subtract MuType with mutation level {} "
+                             "from MuType with mutation level {}!".format(
+                                other.cur_level, self.cur_level))
 
         if new_key:
             return MuType(new_key)
@@ -1547,7 +1539,7 @@ class MuType(object):
            tuples, see for instance http://effbot.org/zone/python-hash.htm"""
         value = 0x163125
 
-        for k, v in self:
+        for k, v in self._child.items():
             value += eval(hex((int(value) * 1000007) & 0xFFFFFFFF)[:-1])
             value ^= hash(k) ^ hash(v)
             value ^= len(self._child)
@@ -1561,7 +1553,7 @@ class MuType(object):
         """Gets all the levels present in this type and its children."""
         levels = {self.cur_level}
 
-        for _, v in self:
+        for v in self._child.values():
             if isinstance(v, MuType):
                 levels |= set(v.get_levels())
 
@@ -1588,7 +1580,7 @@ class MuType(object):
 
             # ...find the mutation entries in the MuTree that match the
             # mutation entries in the MuType
-            for (nm, mut), (k, v) in product(mtree, self):
+            for (nm, mut), (k, v) in product(mtree, self.subtype_iter()):
                 if k == nm:
                     
                     if isinstance(mut, frozenset):
