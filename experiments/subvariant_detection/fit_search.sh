@@ -37,5 +37,5 @@ srun -p=exacloud \
 	--output=$TEMPDIR/slurm/fit-${cv_id}_${task_id}.txt \
 	--error=$TEMPDIR/slurm/fit-${cv_id}_${task_id}.err \
 	python HetMan/experiments/utilities/test_cohort_mutypes.py \
-	$TEMPDIR $cohort $classif $cv_id $task_id
+	$TEMPDIR $cohort $classif $cv_id $task_id -v
 
