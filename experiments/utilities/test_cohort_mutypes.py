@@ -14,9 +14,10 @@ is done by taking the modulus of each type's position in the given master list
 of types. We repeat this process for multiple splits of the TCGA cohort into
 training/testing cohorts, as defined by the given cross-validation ID.
 
-Args:
-
 Examples:
+    python test_cohort_mutypes.py ../subv_search/output BRCA Lasso 3 11
+    python test_cohort_mutypes.py /home/experiments/clf_compare/output \
+            SKCM rForest 0 8
 
 """
 
@@ -35,9 +36,12 @@ import pandas as pd
 
 import synapseclient
 import dill as pickle
-from functools import reduce
+
+import argparse
 from glob import glob
-import os
+from operator import or_
+from functools import reduce
+
 
 firehose_dir = '/home/exacloud/lustre1/CompBio/mgrzad/input-data/firehose'
 
@@ -76,20 +80,46 @@ def load_output(out_dir):
         )
 
 
-def main(argv):
+def main():
     """Runs the experiment."""
-    print(argv)
+
+    parser = argparse.ArgumentParser(
+        description=("Test a classifier's ability to predict the presence "
+                     "of a list of sub-types.")
+        )
+
+    parser.add_argument('mtype_dir', type=str,
+                        help='the folder where sub-types are stored')
+    parser.add_argument('cohort', type=str, help='a TCGA cohort')
+    parser.add_argument('classif', type=str,
+                        help='a classifier in HetMan.predict.classifiers')
+
+    parser.add_argument('cv_id', type=int,
+                        help='a random seed used for cross-validation')
+    parser.add_argument('task_id', type=int,
+                        help='the subset of sub-types to assign to this task')
+
+    parser.add_argument('--verbose', '-v', action='store_true',
+                        help='turns on diagnostic messages')
+
+    # parse the command line arguments and show info about where the
+    # input sub-types are stored and which subset of them will be tested
+    args = parser.parse_args()
+    if args.verbose:
+        print("Starting testing for directory\n{}\nwith "
+              "cross-validation ID:{} and task ID:{} ...".format(
+                  args.mtype_dir, args.cv_id, args.task_id))
 
     # gets the directory where output will be saved and the name of the TCGA
     # cohort under consideration, loads the list of gene sub-variants 
     mtype_list = pickle.load(
-        open(os.path.join(argv[0], 'tmp', 'mtype_list.p'), 'rb'))
+        open(os.path.join(args.mtype_dir, 'tmp', 'mtype_list.p'), 'rb'))
 
     # loads the pipeline used for classifying variants, gets the mutated
     # genes for each variant under consideration
-    mut_clf = eval(argv[2])
-    use_genes = reduce(lambda x, y: x | y,
-                       [set(dict(mtype).keys()) for mtype in mtype_list])
+    mut_clf = eval(args.classif)
+    use_genes = reduce(or_, [set(gn for gn, _ in mtype.subtype_iter())
+                             for mtype in mtype_list])
 
     # loads the expression data and gene mutation data for the given TCGA
     # cohort, with the training/testing cohort split defined by the
@@ -100,22 +130,32 @@ def main(argv):
     syn.login()
 
     cdata = VariantCohort(
-        cohort=argv[1], mut_genes=list(use_genes),
+        cohort=args.cohort, mut_genes=list(use_genes),
         mut_levels=['Gene', 'Form_base', 'Exon', 'Protein'],
         expr_source='Firehose', data_dir=firehose_dir,
-        cv_seed=(int(argv[3]) + 3) * 19, syn=syn
+        cv_seed=(args.cv_id + 3) * 19, syn=syn
         )
 
+    if args.verbose:
+        print("Loaded {} sub-types over {} genes in cohort {} with {} "
+              "samples which will be tested using classifier {}.".format(
+                    len(mtype_list), len(use_genes), args.cohort,
+                    len(cdata.samples), args.classif
+                    ))
+
+    # intialize the dictionary that will store classification performances
     out_acc = {mtype: -1 for mtype in mtype_list}
 
     # for each sub-variants, check if it has been assigned to this task
     for i, mtype in enumerate(mtype_list):
-        if i % 24 == int(argv[4]):
-            print(mtype)
+        if i % 24 == args.task_id:
+
+            if args.verbose:
+                print("Testing {} ...".format(mtype))
 
             # gets the genes that this variant mutates, initializes the
             # classification pipeline
-            ex_genes = list(dict(mtype).keys())
+            ex_genes = set(gn for gn, _ in mtype.subtype_iter())
             clf = mut_clf()
 
             # tunes the classifier using the training cohort
@@ -132,11 +172,13 @@ def main(argv):
             del(out_acc[mtype])
 
     # saves the performance measurements for each variant to file
-    out_file = os.path.join(argv[0], 'results',
-                            'out__cv-{}_task-{}.p'.format(argv[3], argv[4]))
+    out_file = os.path.join(
+        args.mtype_dir, 'results',
+        'out__cv-{}_task-{}.p'.format(args.cv_id, args.task_id)
+        )
     pickle.dump(out_acc, open(out_file, 'wb'))
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    main()
 

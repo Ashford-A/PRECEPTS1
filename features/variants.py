@@ -31,6 +31,7 @@ from operator import and_, or_
 from functools import reduce
 
 from itertools import combinations as combn
+from itertools import permutations as perm
 from itertools import product
 
 from sklearn.cluster import MeanShift
@@ -1647,16 +1648,33 @@ class MutComb(object):
 
     """
 
-    def __init__(self, mtypes):
+    def __new__(cls, mtypes):
         if not all(isinstance(mtype, MuType) for mtype in mtypes):
             raise TypeError(
                 "A MutComb object must be a combination of MuTypes!")
 
-        self.mtypes = frozenset(mtypes)
+        obj = super().__new__(cls)
+        mtypes = list(mtypes)
+
+        for i, j in perm(range(len(mtypes)), r=2):
+            if mtypes[i] and mtypes[j]:
+                mtypes[j] -= mtypes[i]
+
+        mtypes = [mtype for mtype in mtypes if mtype and not mtype.is_empty()]
+
+        if mtypes:
+            if len(mtypes) == 1:
+                return mtypes[0]
+            else:
+                obj.mtypes = frozenset(mtypes)
+                return obj
 
     def mtype_apply(self, each_fx, comb_fx):
         each_list = [each_fx(mtype) for mtype in self.mtypes]
         return reduce(comb_fx, each_list)
+
+    def __repr__(self):
+        return self.mtype_apply(repr, lambda x, y: x + ' AND ' + y)
 
     def __str__(self):
         return self.mtype_apply(str, lambda x, y: x + ' & ' + y)
