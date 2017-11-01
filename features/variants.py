@@ -725,7 +725,7 @@ class MuTree(object):
                 # if the exclusion mutation set is also at the same mutation
                 # level, find if it has the branch we are at
                 if mtype2.cur_level == self.mut_level:
-                    for sub_lbl, sub_btype in mtype2.subtype_iter():
+                    for sub_lbl, sub_btype in mtype2.subtype_list():
                         if sub_lbl == nm:
 
                             # delete the sub-branches if the branch to be
@@ -885,7 +885,7 @@ class MuTree(object):
         if self.mut_level in sub_levels:
             for (nm, branch), (_, btype) in filter(
                     lambda x: x[0][0] == x[1][0] and len(x[0][1]) >= min_size,
-                    product(self, mtype.subtype_iter())):
+                    product(self, mtype.subtype_list())):
 
                 # returns the current branch if we are at one of the given
                 # mutation levels
@@ -1181,6 +1181,11 @@ class MuType(object):
     they are being parsed in order to reduce the memory footprint of each
     MuType object.
 
+    Note that subtypes can be already-instantiated MuType objects instead of
+    type dictionaries. Explicitly passing the `None` object by itself as a
+    type dictionary creates a MuType corresponding to the empty null set of
+    mutations.
+
     Arguments:
         type_dict (dict): The mutation sub-types included in this type.
 
@@ -1210,26 +1215,32 @@ class MuType(object):
     """
 
     def __init__(self, type_dict):
+
+        # ensures the type dictionary is in the proper format, parses out the
+        # mutation property level from its keys
         if type_dict is None:
             type_dict = {}
-
-        # gets the property hierarchy level of this mutation type after making
-        # sure the set key is properly specified
-        levels = set(lvl for lvl, _ in type_dict)
-
-        if len(levels) > 1:
-            raise ValueError("Improperly defined set key with multiple"
-                             "mutation levels!")
-
-        elif len(levels) == 0:
             self.cur_level = None
-        else:
-            self.cur_level = tuple(levels)[0]
 
-        # gets the subsets of mutations defined at this level, and
-        # their further subdivisions if they exist
-        level_lbls = [(lbls,) if isinstance(lbls, str) else lbls
+        elif isinstance(type_dict, dict):
+            levels = set(lvl for lvl, _ in type_dict)
+
+            if len(levels) > 1:
+                raise ValueError("Improperly defined set key with multiple"
+                                 "mutation levels!")
+
+            else:
+                self.cur_level = tuple(levels)[0]
+
+        else:
+            raise TypeError("MuType type dictionary must be a dict object!")
+
+        # parses out the category labels listed for the given property level
+        level_lbls = [(lbls, ) if isinstance(lbls, str) else lbls
                       for _, lbls in type_dict]
+
+        # creates an expanded type dictionary where category labels that were
+        # originally grouped together by subtype are given separate keys
         full_dict = {
             lbl: (sub_type if sub_type is None or isinstance(sub_type, MuType)
                   else MuType(sub_type))
@@ -1238,24 +1249,24 @@ class MuType(object):
             for lbl in lbls
             }
 
-        # merges subsets at this level if their children are the same:
-        #   missense:None, frameshift:None => (missense,frameshift):None
-        # or if they have the same keys:
-        #   (missense, splice):M1, missense:M2, splice:M2
-        #    => (missense, splice):(M1, M2)
+        # collapses category labels with the same subtype into one key:subtype
+        # pair, i.e. silent:None, frameshift:None => (silent, frameshift):None
         uniq_vals = [
             (frozenset(k for k, v in full_dict.items() if v == sub_type),
              sub_type)
             for sub_type in set(full_dict.values())
             ]
 
-        # adds the children nodes of this MuTree
+        # merges the subtypes of type dictionary entries with the same
+        # category label, i.e. silent: <Exon IS 7/11>, silent: <Exon IS 10/11>
+        # => silent: <Exon IS 7/11 or 10/11> to create the final dictionary
         self._child = {}
         for lbls, sub_type in uniq_vals:
 
             if lbls in self._child:
                 if sub_type is None:
                     self._child[lbls] = None
+
                 else:
                     self._child[lbls] |= sub_type
 
@@ -1267,12 +1278,12 @@ class MuType(object):
         return self._child == {}
 
     def get_levels(self):
-        """Gets all the levels present in this type and its children."""
+        """Gets the property levels present in this type and its subtypes."""
         levels = {self.cur_level}
 
-        for v in self._child.values():
-            if isinstance(v, MuType):
-                levels |= set(v.get_levels())
+        for tp in self._child.values():
+            if isinstance(tp, MuType):
+                levels |= set(tp.get_levels())
 
         return levels
 
@@ -1281,9 +1292,9 @@ class MuType(object):
            tuples, see for instance http://effbot.org/zone/python-hash.htm"""
         value = 0x163125
 
-        for k, v in self._child.items():
+        for lbls, tp in self._child.items():
             value += eval(hex((int(value) * 1000007) & 0xFFFFFFFF)[:-1])
-            value ^= hash(k) ^ hash(v)
+            value ^= hash(lbls) ^ hash(tp)
             value ^= len(self._child)
 
         if value == -1:
@@ -1291,101 +1302,115 @@ class MuType(object):
 
         return value
 
-    def subtype_iter(self):
-        """Creates an iterable over the MuType's annotation levels."""
-        return [(l, v) for k, v in self._child.items() for l in k]
+    def subtype_list(self):
+        """Returns the list of all unique label, subtype pairs."""
+        return [(lbl, tp) for lbls, tp in self._child.items() for lbl in lbls]
 
     def __len__(self):
-        """The length of a MuType is the # of annotation levels it has."""
-        return len(self.subtype_iter())
+        """Returns the number of unique category labels in the MuType.
+
+        Examples:
+            >>> len(MuType({('Gene', 'KRAS'): None}))
+                1
+            >>> len(MuType({('Gene', ('BRAF', 'TP53')): None}))
+                2
+            >>> len(MuType({('Gene', 'TTN'): {('Form', 'Nonsense'): None}}))
+                1
+            >>> len(MuType({('Gene', 'AR'): {('Exon', '2/87'): None},
+            >>>             ('Gene', 'MUC16'): {('Exon', '4/8'): None}}))
+                2
+
+        """
+        return len(self.subtype_list())
 
     def __eq__(self, other):
-        """Two MuTypes are equal if and only if they have the same set
-           of children MuTypes for the same subsets."""
+        """Checks if one MuType is equal to another."""
 
-        # if one of the two objects is not a MuType they are not equal
-        if isinstance(self, MuType) ^ isinstance(other, MuType):
+        # if the other object is not a MuType they are not equal
+        if not isinstance(other, MuType):
             eq = False
 
-        # MuTypes for different mutation levels are not equal
+        # MuTypes with different mutation property levels are not equal
         elif self.cur_level != other.cur_level:
             eq = False
 
         # MuTypes with the same mutation levels are equal if and only if
-        # they have the same mutation subtypes for the same level entries
+        # they have the same subtypes for the same level category labels
         else:
-            eq = (self.subtype_iter() == other.subtype_iter())
+            eq = (self.subtype_list() == other.subtype_list())
 
         return eq
-
-    def __ne__(self, other):
-        return not self == other
 
     def __lt__(self, other):
         """Defines a sort order for MuTypes."""
         if not isinstance(other, MuType):
             return NotImplemented
 
+        # we first compare the mutation property levels of the two MuTypes...
         if self.cur_level == other.cur_level:
-            self_dict = sorted(self.subtype_iter(), key=lambda x: x[0])
-            other_dict = sorted(other.subtype_iter(), key=lambda x: x[0])
 
-        # if two MuTypes have the same mutation level, we compare how many
-        # mutation entries each of them have
-            if len(self_dict) == len(other_dict):
-                self_keys = [k for k, _ in self_dict]
-                other_keys = [k for k, _ in other_dict]
+            # sort label:subtype pairs according to label such that pairwise
+            # invariance is preserved
+            self_pairs = sorted(self.subtype_list(), key=lambda x: x[0])
+            other_pairs = sorted(other.subtype_list(), key=lambda x: x[0])
 
-            # if they both have the same number of entries, we compare the
-            # entries themselves, which are sorted in __iter__ so that
-            # pairwise invariance is ensured
-                if len(self_keys) == len(other_keys):
+            # ...then compare how many (label:subtype) pairs they have...
+            if len(self_pairs) == len(other_pairs):
+                self_lbls = [lbl for lbl, _ in self_pairs]
+                other_lbls = [lbl for lbl, _ in other_pairs]
 
-                    # if they have the same entries, we compare each pair of
-                    # entries' mutation sub-types
-                    if self_keys == other_keys:
-                        self_lvls = self.get_levels()
-                        other_lvls = other.get_levels()
+                # ...then compare the labels themselves...
+                if self_lbls == other_lbls:
+                    self_lvls = self.get_levels()
+                    other_lvls = other.get_levels()
 
-                        if len(self_lvls) == len(other_lvls):
+                    # ...then compare how deep the subtypes recurse...
+                    if len(self_lvls) == len(other_lvls):
+                        self_subtypes = [tp for _, tp in self_pairs]
+                        other_subtypes = [tp for _, tp in other_pairs]
 
-                            self_vals = [v for _, v in self_dict]
-                            other_vals = [v for _, v in other_dict]
+                        # ...then compare the subtypes for each pair of
+                        # matching labels...
+                        for tp1, tp2 in zip(self_subtypes, other_subtypes):
+                            if tp1 != tp2:
 
-                            for v, w in zip(self_vals, other_vals):
-                                if v != w:
+                                # for the first pair of subtypes that are not
+                                # equal (always the same pair because entries
+                                # are sorted), we recursively compare the pair
+                                if tp1 is None:
+                                    return False
 
-                                    # for the first pair of subtypes that are not
-                                    # equal (always the same pair because entries
-                                    # are sorted), we recursively compare the pair
-                                    if v is None:
-                                        return True
-                                    elif w is None:
-                                        return False
-                                    else:
-                                        return v < w
+                                elif tp2 is None:
+                                    return True
 
-                            # if all sub-types are equal, the two MuTypes are equal
-                            else:
-                                return False
+                                else:
+                                    return tp1 < tp2
 
+                        # if all subtypes are equal, the two MuTypes are equal
                         else:
-                            return len(self_lvls) < len(other_lvls)
+                            return False
 
-                # MuTypes with different entries are sorted according to the
-                # order defined by the sorted lists corresponding to the
-                # entries
+                    # MuTypes with fewer subtype levels are sorted first
+                    else:
+                        return len(self_lvls) < len(other_lvls)
+
+                # MuTypes with different labels are sorted according to the
+                # order defined by the sorted label lists
                 else:
-                    return self_keys < other_keys
+                    return self_lbls < other_lbls
 
-            # MuTypes with fewer mutation entries are sorted above
+            # MuTypes with fewer mutation entries are sorted first
             else:
-                return len(self_dict) < len(other_dict)
+                return len(self_pairs) < len(other_pairs)
 
-        # MuTypes with different mutation levels are sorted according to the
-        # order defined by the strings corresponding to the entries
+        # MuTypes with differing mutation property levels are sorted according
+        # to the sort order of the property strings
         else:
             return self.cur_level < other.cur_level
+
+    # remaining methods necessary to define rich comparison for MuTypes
+    def __ne__(self, other):
+        return not self == other
 
     def __le__(self, other):
         return self < other or self == other
@@ -1402,11 +1427,11 @@ class MuType(object):
 
         # iterate over all mutation types at this level separately
         # regardless of their children
-        for k, v in sorted(self.subtype_iter(), key=lambda x: x[0]):
-            new_str += self.cur_level + ' IS ' + k
+        for lbl, tp in sorted(self.subtype_list(), key=lambda x: x[0]):
+            new_str += self.cur_level + ' IS ' + lbl
 
-            if v is not None:
-                new_str += ' WITH ' + repr(v)
+            if tp is not None:
+                new_str += ' WITH ' + repr(tp)
 
             new_str += ', OR '
 
@@ -1422,16 +1447,16 @@ class MuType(object):
 
             # ...iterate over the types, grouping together those with the
             # same children to produce a more concise label
-            for k, v in self_iter:
+            for lbls, tp in self_iter:
 
-                if len(k) > 1:
-                    new_str += "({})".format('|'.join(k))
+                if len(lbls) > 1:
+                    new_str += "({})".format('|'.join(lbls))
 
                 else:
-                    new_str += list(k)[0]
+                    new_str += list(lbls)[0]
                 
-                if v is not None:
-                    new_str += ':' + str(v)
+                if tp is not None:
+                    new_str += ':' + str(tp)
                 
                 new_str += '|'
 
@@ -1439,12 +1464,12 @@ class MuType(object):
         # levels further down if they exist
         else:
             new_str += "({} {}s)".format(
-                len(self.subtype_iter()), self.cur_level.lower())
+                len(self.subtype_list()), self.cur_level.lower())
 
             # condense sub-types at the further levels
-            for k, v in self_iter:
+            for lbls, tp in self_iter:
                 new_str += "-(>= {} sub-types at level(s): {})".format(
-                    len(v),
+                    len(tp),
                     reduce(lambda x, y: x + ', ' + y,
                            self.get_levels() - {self.cur_level})
                     )
@@ -1456,22 +1481,29 @@ class MuType(object):
         if not isinstance(other, MuType):
             return NotImplemented
 
-        new_key = {}
-        self_dict = dict(self.subtype_iter())
-        other_dict = dict(other.subtype_iter())
+        # gets the unique label:subtype pairs in each MuType
+        self_dict = dict(self.subtype_list())
+        other_dict = dict(other.subtype_list())
 
         if self.cur_level == other.cur_level:
-            for k in (self_dict.keys() - other_dict.keys()):
-                new_key.update({(self.cur_level, k): self_dict[k]})
-            for k in (other_dict.keys() - self_dict.keys()):
-                new_key.update({(self.cur_level, k): other_dict[k]})
+            new_key = {}
 
-            for k in (self_dict.keys() & other_dict.keys()):
-                if (self_dict[k] is None) or (other_dict[k] is None):
-                    new_key.update({(self.cur_level, k): None})
-                else:
-                    new_key.update({
-                        (self.cur_level, k): self_dict[k] | other_dict[k]})
+            # adds the subtypes paired with the labels in the symmetric
+            # difference of the labels in the two MuTypes
+            new_key.update({(self.cur_level, lbl): self_dict[lbl]
+                            for lbl in self_dict.keys() - other_dict.keys()})
+            new_key.update({(self.cur_level, lbl): other_dict[lbl]
+                            for lbl in other_dict.keys() - self_dict.keys()})
+
+            # finds the union of the subtypes paired with each of the labels 
+            # appearing in both MuTypes
+            new_key.update(
+                {(self.cur_level, lbl): (
+                    None if self_dict[lbl] is None or other_dict[lbl] is None
+                    else self_dict[lbl] | other_dict[lbl]
+                    )
+                 for lbl in self_dict.keys() & other_dict.keys()}
+                )
 
         else:
             raise ValueError(
@@ -1484,57 +1516,57 @@ class MuType(object):
 
     def __and__(self, other):
         """Finds the intersection of two MuTypes."""
-
         if not isinstance(other, MuType):
             return NotImplemented
 
+        # gets the unique label:subtype pairs in each MuType
+        self_dict = dict(self.subtype_list())
+        other_dict = dict(other.subtype_list())
+
         new_key = {}
-        self_dict = dict(self.subtype_iter())
-        other_dict = dict(other.subtype_iter())
-
         if self.cur_level == other.cur_level:
-            for k in self_dict.keys() & other_dict.keys():
+            for lbl in self_dict.keys() & other_dict.keys():
 
-                if self_dict[k] is None:
-                    new_key.update({(self.cur_level, k): other_dict[k]})
+                if self_dict[lbl] is None:
+                    new_key.update({(self.cur_level, lbl): other_dict[lbl]})
 
-                elif other_dict[k] is None:
-                    new_key.update({(self.cur_level, k): self_dict[k]})
+                elif other_dict[lbl] is None:
+                    new_key.update({(self.cur_level, lbl): self_dict[lbl]})
 
                 else:
-                    new_ch = self_dict[k] & other_dict[k]
+                    new_ch = self_dict[lbl] & other_dict[lbl]
 
                     if not new_ch.is_empty():
-                        new_key.update({(self.cur_level, k): new_ch})
+                        new_key.update({(self.cur_level, lbl): new_ch})
 
         elif other.cur_level in self.get_levels():
-            for k in self_dict.keys():
+            for lbl in self_dict.keys():
 
-                if self_dict[k] is None:
-                    new_key.update({(self.cur_level, k): other})
+                if self_dict[lbl] is None:
+                    new_key.update({(self.cur_level, lbl): other})
 
                 else:
-                    new_ch = self_dict[k] & other
+                    new_ch = self_dict[lbl] & other
 
                     if not new_ch.is_empty():
-                        new_key.update({(self.cur_level, k): new_ch})
+                        new_key.update({(self.cur_level, lbl): new_ch})
 
         else:
-            for k in self_dict.keys():
+            for lbl in self_dict.keys():
 
-                if self_dict[k] is None:
-                    new_key.update({(self.cur_level, k): other})
+                if self_dict[lbl] is None:
+                    new_key.update({(self.cur_level, lbl): other})
 
                 else:
-                    new_ch = other & self_dict[k]
+                    new_ch = other & self_dict[lbl]
 
                     if not new_ch.is_empty():
-                        new_key.update({(self.cur_level, k): new_ch})
+                        new_key.update({(self.cur_level, lbl): new_ch})
 
         return MuType(new_key)
 
     def __add__(self, other):
-
+        """The sum of MuTypes yields the type where both MuTypes appear."""
         if not isinstance(other, MuType):
             return NotImplemented
 
@@ -1545,8 +1577,9 @@ class MuType(object):
         if not isinstance(other, MuType):
             return NotImplemented
 
-        self_dict = dict(self.subtype_iter())
-        other_dict = dict(other.subtype_iter())
+        # gets the unique label:subtype pairs in each MuType
+        self_dict = dict(self.subtype_list())
+        other_dict = dict(other.subtype_list())
 
         if self.cur_level == other.cur_level:
             if self_dict.keys() >= other_dict.keys():
@@ -1572,33 +1605,32 @@ class MuType(object):
         if not isinstance(other, MuType):
             return NotImplemented
 
-        new_key = {}
-        self_dict = dict(self.subtype_iter())
-        other_dict = dict(other.subtype_iter())
+        # gets the unique label:subtype pairs in each MuType
+        self_dict = dict(self.subtype_list())
+        other_dict = dict(other.subtype_list())
 
         if self.cur_level == other.cur_level:
-            for k in self_dict.keys():
-                if k in other_dict:
-                    if other_dict[k] is not None:
-                        if self_dict[k] is not None:
-                            sub_val = self_dict[k] - other_dict[k]
-                            if sub_val is not None:
-                                new_key.update({(self.cur_level, k): sub_val})
-                        else:
-                            new_key.update(
-                                {(self.cur_level, k): self_dict[k]})
-                else:
-                    new_key.update({(self.cur_level, k): self_dict[k]})
+            new_key = {(self.cur_level, lbl): self_dict[lbl]
+                       for lbl in self_dict.keys() - other_dict.keys()}
+
+            for lbl in self_dict.keys() & other_dict.keys():
+                if other_dict[lbl] is not None:
+
+                    if self_dict[lbl] is not None:
+                        sub_val = self_dict[lbl] - other_dict[lbl]
+
+                        if not sub_val.is_empty():
+                            new_key.update({(self.cur_level, lbl): sub_val})
+
+                    else:
+                        new_key.update({(self.cur_level, lbl): None})
 
         else:
             raise ValueError("Cannot subtract MuType with mutation level {} "
                              "from MuType with mutation level {}!".format(
                                 other.cur_level, self.cur_level))
 
-        if new_key:
-            return MuType(new_key)
-        else:
-            return None
+        return MuType(new_key)
 
     def get_samples(self, mtree):
         """Gets the samples contained in branch(es) of a MuTree.
@@ -1621,16 +1653,16 @@ class MuType(object):
 
             # ...find the mutation entries in the MuTree that match the
             # mutation entries in the MuType
-            for (nm, mut), (k, v) in product(mtree, self.subtype_iter()):
-                if k == nm:
+            for (nm, mut), (lbl, tp) in product(mtree, self.subtype_list()):
+                if lbl == nm:
                     
                     if isinstance(mut, frozenset):
                             samps |= mut
                     elif isinstance(mut, MuTree):
-                        if v is None:
+                        if tp is None:
                             samps |= mut.get_samples()
                         else:
-                            samps |= v.get_samples(mut)
+                            samps |= tp.get_samples(mut)
                     else:
                         raise ValueError("get_samples error!")
 
@@ -1659,12 +1691,12 @@ class MuType(object):
            exactly one of the leaf properties."""
         mkeys = []
 
-        for k, v in list(self._child.items()):
-            if v is None:
-                mkeys += [{(self.cur_level, i): None} for i in k]
+        for lbls, tp in list(self._child.items()):
+            if tp is None:
+                mkeys += [{(self.cur_level, lbl): None} for lbl in lbls]
             else:
-                mkeys += [{(self.cur_level, i): s}
-                          for i in k for s in v.subkeys()]
+                mkeys += [{(self.cur_level, lbl): sub_tp}
+                          for lbl in lbls for sub_tp in tp.subkeys()]
 
         return mkeys
 
