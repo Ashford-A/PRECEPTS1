@@ -112,9 +112,18 @@ class TestCaseBasic:
 
     def test_print(self, mtype_tester):
         """Can we print MuTypes?"""
-        for mtype in mtype_tester.get_types():
+        mtypes = mtype_tester.get_types()
+
+        for mtype in mtypes:
             assert isinstance(repr(mtype), str)
             assert isinstance(str(mtype), str)
+
+        for mtype1, mtype2 in combn(mtypes, 2):
+            if mtype1 == mtype2:
+                assert str(mtype1) == str(mtype2)
+            else:
+                assert repr(mtype1) != repr(mtype2)
+                assert str(mtype1) != str(mtype2)
 
     def test_hash(self, mtype_tester):
         """Can we get proper hash values of MuTypes?"""

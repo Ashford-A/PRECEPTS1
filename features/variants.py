@@ -908,7 +908,7 @@ class MuTree(object):
         elif mtype.cur_level == self.mut_level:
             new_key = {}
 
-            for lbls, btype in mtype._child.items():
+            for lbls, btype in mtype.child_iter():
                 for nm, branch in self:
 
                     if nm in lbls:
@@ -972,7 +972,7 @@ class MuTree(object):
         elif mtype.cur_level == self.mut_level:
             rec_mtypes = set()
 
-            for lbls, btype in mtype._child.items():
+            for lbls, btype in mtype.child_iter():
                 for nm, branch in self:
 
                     if nm in lbls:
@@ -1064,12 +1064,19 @@ class MuTree(object):
                     mtype, sub_levels, min_size=(min_type_size / csize))
 
             if branch_mtypes:
-                for kc in combn(branch_mtypes, csize):
-                    new_set = reduce(or_, kc)
+                for mtype_combs in combn(branch_mtypes, csize):
 
-                    if (min_branch_size == 'auto'
-                        or len(new_set.get_samples(self)) >= min_type_size):
-                        comb_mtypes |= {new_set}
+                    if (csize == 1
+                            or all([not (mtype1.is_supertype(mtype2)
+                                         or mtype2.is_supertype(mtype1))
+                                    for mtype1, mtype2
+                                    in combn(mtype_combs, 2)])):
+                        new_mtype = reduce(or_, mtype_combs)
+
+                        if (min_branch_size == 'auto'
+                                or (len(new_mtype.get_samples(self))
+                                    >= min_type_size)):
+                            comb_mtypes |= {new_mtype}
 
         return comb_mtypes
 
@@ -1184,7 +1191,7 @@ class MuType(object):
     Note that subtypes can be already-instantiated MuType objects instead of
     type dictionaries. Explicitly passing the `None` object by itself as a
     type dictionary creates a MuType corresponding to the empty null set of
-    mutations.
+    mutations, as does passing any empty iterable such as [] or (,).
 
     Arguments:
         type_dict (dict): The mutation sub-types included in this type.
@@ -1218,7 +1225,7 @@ class MuType(object):
 
         # ensures the type dictionary is in the proper format, parses out the
         # mutation property level from its keys
-        if type_dict is None:
+        if not type_dict:
             type_dict = {}
             self.cur_level = None
 
@@ -1241,13 +1248,27 @@ class MuType(object):
 
         # creates an expanded type dictionary where category labels that were
         # originally grouped together by subtype are given separate keys
-        full_dict = {
-            lbl: (sub_type if sub_type is None or isinstance(sub_type, MuType)
-                  else MuType(sub_type))
+        full_pairs = [
+            (lbl,
+             (sub_type if sub_type is None or isinstance(sub_type, MuType)
+              else MuType(sub_type)))
             for lbls, sub_type in zip(level_lbls, type_dict.values())
             if not (isinstance(sub_type, MuType) and sub_type.is_empty())
             for lbl in lbls
-            }
+            ]
+
+        full_dict = {}
+        for lbl, sub_type in full_pairs:
+
+            if lbl in full_dict:
+                if sub_type is None or full_dict[lbl] is None:
+                    full_dict[lbl] = None
+
+                else:
+                    full_dict[lbl] |= sub_type
+
+            else:
+                full_dict[lbl] = sub_type
 
         # collapses category labels with the same subtype into one key:subtype
         # pair, i.e. silent:None, frameshift:None => (silent, frameshift):None
@@ -1264,7 +1285,7 @@ class MuType(object):
         for lbls, sub_type in uniq_vals:
 
             if lbls in self._child:
-                if sub_type is None:
+                if sub_type is None or self._child[lbls] is None:
                     self._child[lbls] = None
 
                 else:
@@ -1290,20 +1311,23 @@ class MuType(object):
     def __hash__(self):
         """MuType hashes are defined in an analagous fashion to those of
            tuples, see for instance http://effbot.org/zone/python-hash.htm"""
-        value = 0x163125
+        value = 0x163125 ^ len(self._child)
 
-        for lbls, tp in self._child.items():
+        for lbls, tp in sorted(self._child.items(), key=lambda x: list(x[0])):
             value += eval(hex((int(value) * 1000007) & 0xFFFFFFFF)[:-1])
             value ^= hash(lbls) ^ hash(tp)
-            value ^= len(self._child)
 
         if value == -1:
             value = -2
 
         return value
 
+    def child_iter(self):
+        """Returns an iterator over the collapsed (labels):subtype pairs."""
+        return self._child.items()
+
     def subtype_list(self):
-        """Returns the list of all unique label, subtype pairs."""
+        """Returns the list of all unique label:subtype pairs."""
         return [(lbl, tp) for lbls, tp in self._child.items() for lbl in lbls]
 
     def __len__(self):
@@ -1337,7 +1361,7 @@ class MuType(object):
         # MuTypes with the same mutation levels are equal if and only if
         # they have the same subtypes for the same level category labels
         else:
-            eq = (self.subtype_list() == other.subtype_list())
+            eq = self.child_iter() == other.child_iter()
 
         return eq
 
@@ -1427,7 +1451,7 @@ class MuType(object):
 
         # iterate over all mutation types at this level separately
         # regardless of their children
-        for lbl, tp in sorted(self.subtype_list(), key=lambda x: x[0]):
+        for lbl, tp in self.subtype_list():
             new_str += self.cur_level + ' IS ' + lbl
 
             if tp is not None:
@@ -1440,7 +1464,7 @@ class MuType(object):
     def __str__(self):
         """Gets a condensed label for the MuType."""
         new_str = ''
-        self_iter = sorted(self._child.items(), key=lambda x: x[0])
+        self_iter = sorted(self._child.items(), key=lambda x: list(x[0]))
 
         # if there aren't too many types to list at this mutation level...
         if len(self_iter) <= 10:
@@ -1450,7 +1474,7 @@ class MuType(object):
             for lbls, tp in self_iter:
 
                 if len(lbls) > 1:
-                    new_str += "({})".format('|'.join(lbls))
+                    new_str += "({})".format('|'.join(sorted(lbls)))
 
                 else:
                     new_str += list(lbls)[0]
@@ -1480,6 +1504,11 @@ class MuType(object):
         """Returns the union of two MuTypes."""
         if not isinstance(other, MuType):
             return NotImplemented
+
+        if self.is_empty():
+            return other
+        if other.is_empty():
+            return self
 
         # gets the unique label:subtype pairs in each MuType
         self_dict = dict(self.subtype_list())
@@ -1518,6 +1547,9 @@ class MuType(object):
         """Finds the intersection of two MuTypes."""
         if not isinstance(other, MuType):
             return NotImplemented
+
+        if self.is_empty() or other.is_empty():
+            return MuType({})
 
         # gets the unique label:subtype pairs in each MuType
         self_dict = dict(self.subtype_list())
@@ -1573,14 +1605,25 @@ class MuType(object):
         return MutComb([self, other])
 
     def is_supertype(self, other):
-        """Checks if one MuType is a subset of the other."""
+        """Checks if one MuType (non-strictly) contains another MuType."""
         if not isinstance(other, MuType):
             return NotImplemented
+
+        # the empty null set cannot be the supertype of any other MuType
+        if self.is_empty():
+            return False
+
+        # the empty null set is a subtype of every other non-empty MuType
+        if other.is_empty():
+            return True
 
         # gets the unique label:subtype pairs in each MuType
         self_dict = dict(self.subtype_list())
         other_dict = dict(other.subtype_list())
 
+        # a MuType cannot be a supertype of another MuType unless they are on
+        # the same mutation property level and its category labels are a
+        # superset of the others'
         if self.cur_level == other.cur_level:
             if self_dict.keys() >= other_dict.keys():
 
@@ -1604,6 +1647,9 @@ class MuType(object):
         """Subtracts one MuType from another."""
         if not isinstance(other, MuType):
             return NotImplemented
+
+        if self.is_empty() or other.is_empty():
+            return self
 
         # gets the unique label:subtype pairs in each MuType
         self_dict = dict(self.subtype_list())
