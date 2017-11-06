@@ -66,7 +66,7 @@ def load_output(out_dir):
     # gets the list of output files for each cross-validation run and
     # reads in the data
     out_list = [
-        [pickle.load(open(fl, 'rb'))
+        [pickle.load(open(fl, 'rb'))['Acc']
          for fl in glob(os.path.join(
              out_dir, "results/out__cv-{}_task-*".format(cv_id)))]
         for cv_id in range(5)
@@ -88,6 +88,7 @@ def main():
                      "of a list of sub-types.")
         )
 
+    # positional command line arguments
     parser.add_argument('mtype_dir', type=str,
                         help='the folder where sub-types are stored')
     parser.add_argument('cohort', type=str, help='a TCGA cohort')
@@ -99,6 +100,19 @@ def main():
     parser.add_argument('task_id', type=int,
                         help='the subset of sub-types to assign to this task')
 
+    parser.add_argument(
+        '--tune_splits', type=int, default=4,
+        help='how many training cohort splits to use for tuning'
+        )
+    parser.add_argument(
+        '--test_count', type=int, default=16,
+        help='how many hyper-parameter values to test in each tuning split'
+        )
+    parser.add_argument(
+        '--parallel_jobs', type=int, default=8,
+        help='how many parallel CPUs to allocate the tuning tests across'
+        )
+
     parser.add_argument('--verbose', '-v', action='store_true',
                         help='turns on diagnostic messages')
 
@@ -107,18 +121,18 @@ def main():
     args = parser.parse_args()
     if args.verbose:
         print("Starting testing for directory\n{}\nwith "
-              "cross-validation ID:{} and task ID:{} ...".format(
+              "cross-validation ID {} and task ID {} ...".format(
                   args.mtype_dir, args.cv_id, args.task_id))
 
     # gets the directory where output will be saved and the name of the TCGA
     # cohort under consideration, loads the list of gene sub-variants 
-    mtype_list = pickle.load(
-        open(os.path.join(args.mtype_dir, 'tmp', 'mtype_list.p'), 'rb'))
+    mtype_list = sorted(pickle.load(
+        open(os.path.join(args.mtype_dir, 'tmp', 'mtype_list.p'), 'rb')))
 
     # loads the pipeline used for classifying variants, gets the mutated
     # genes for each variant under consideration
     mut_clf = eval(args.classif)
-    use_genes = reduce(or_, [set(gn for gn, _ in mtype.subtype_iter())
+    use_genes = reduce(or_, [set(gn for gn, _ in mtype.subtype_list())
                              for mtype in mtype_list])
 
     # loads the expression data and gene mutation data for the given TCGA
@@ -137,10 +151,10 @@ def main():
         )
 
     if args.verbose:
-        print("Loaded {} sub-types over {} genes in cohort {} with {} "
-              "samples which will be tested using classifier {}.".format(
-                    len(mtype_list), len(use_genes), args.cohort,
-                    len(cdata.samples), args.classif
+        print("Loaded {} sub-types over {} genes which will be tested using "
+              "classifier {} in cohort {} with {} samples.".format(
+                    len(mtype_list), len(use_genes), args.classif,
+                    args.cohort, len(cdata.samples)
                     ))
 
     # intialize the dictionary that will store classification performances
@@ -148,19 +162,21 @@ def main():
 
     # for each sub-variants, check if it has been assigned to this task
     for i, mtype in enumerate(mtype_list):
-        if i % 24 == args.task_id:
+        if (i % 12) == args.task_id:
 
             if args.verbose:
                 print("Testing {} ...".format(mtype))
 
             # gets the genes that this variant mutates, initializes the
             # classification pipeline
-            ex_genes = set(gn for gn, _ in mtype.subtype_iter())
+            ex_genes = set(gn for gn, _ in mtype.subtype_list())
             clf = mut_clf()
 
             # tunes the classifier using the training cohort
             clf.tune_coh(cdata, mtype, exclude_genes=ex_genes,
-                         tune_splits=8, test_count=24, parallel_jobs=12)
+                         tune_splits=args.tune_splits,
+                         test_count=args.test_count,
+                         parallel_jobs=args.parallel_jobs)
 
             # fits the tuned classifier on the training cohort, evaluates its
             # performance on the testing cohort and saves the results
@@ -176,7 +192,11 @@ def main():
         args.mtype_dir, 'results',
         'out__cv-{}_task-{}.p'.format(args.cv_id, args.task_id)
         )
-    pickle.dump(out_acc, open(out_file, 'wb'))
+    pickle.dump({'Acc': out_acc,
+                 'Info': {'TuneSplits': args.tune_splits,
+                          'TestCount': args.test_count,
+                          'ParallelJobs': args.parallel_jobs}},
+                 open(out_file, 'wb'))
 
 
 if __name__ == "__main__":
