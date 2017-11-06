@@ -874,74 +874,100 @@ class MuTree(object):
         """
         sub_mtypes = set()
 
-        # gets default values for filtering arguments if they are missing
-        if mtype is None:
-            mtype = MuType(self.allkey())
+        # use all mutation property levels if none are given
         if sub_levels is None:
             sub_levels = self.get_levels()
 
-        # finds the branches at the current mutation level that are a subset
-        # of the given mutation type and have the minimum number of samples
-        if self.mut_level in sub_levels:
-            for (nm, branch), (_, btype) in filter(
-                    lambda x: x[0][0] == x[1][0] and len(x[0][1]) >= min_size,
-                    product(self, mtype.subtype_list())):
-
-                # returns the current branch if we are at one of the given
-                # mutation levels
-                sub_mtypes.update({MuType({(self.mut_level, nm): None})})
-
-                # ...otherwise, recurses into the children of the current
-                # branch that have at least one of the given levels
-                if (isinstance(branch, MuTree)
-                        and set(sub_levels) & set(branch.get_levels())):
-                
-                    sub_mtypes |= set(
-                        MuType({(self.mut_level, nm): rec_mtype})
-                        for rec_mtype in branch.branchtypes(
-                            btype, sub_levels, min_size)
-                        )
-
-        # otherwise, if we are not at one of the mutation levels to
-        # retrieve MuTypes at but are at the same level in the
-        # subset MuType and MuTree...
-        elif mtype.cur_level == self.mut_level:
-            new_key = {}
-
-            for lbls, btype in mtype.child_iter():
-                for nm, branch in self:
-
-                    if nm in lbls:
-                        rec_mtypes = branch.branchtypes(
-                            btype, sub_levels, min_size=1)
-
-                        for rec_mtype in rec_mtypes:
-                            if rec_mtype in new_key:
-                                new_key[rec_mtype] |= {nm}
-                            else:
-                                new_key[rec_mtype] = {nm}
-
-            for rec_mtype, nms in new_key.items():
-                rec_samp_count = len(rec_mtype.get_samples(self)
-                                     & mtype.get_samples(self))
-
-                if rec_samp_count >= min_size:
-                    sub_mtypes.update({
-                        MuType({(self.mut_level, tuple(nms)): rec_mtype})})
-
+        # if not mutation type is given, use all the types in this tree
+        if mtype is None:
+            mtype_dict = {lbl: None for lbl in dict(self)}
         else:
-            recurse_mtypes = reduce(
-                or_,
-                [branch.branchtypes(mtype, sub_levels, min_size=1)
-                 for _, branch in self],
-                set()
-                )
+            mtype_dict = dict(mtype.subtype_list())
 
-            sub_mtypes |= set(filter(
-                lambda x: (len(x.get_samples(self) & mtype.get_samples(self))
-                           >= min_size),
-                recurse_mtypes
-                ))
+        # check if we are at one of the property levels specified in the
+        # query and if this level is also that of the given mutation type
+        if self.mut_level in sub_levels:
+            if mtype is None or self.mut_level == mtype.cur_level:
+
+                # for each level label specified by the mutation type that is
+                # also in the tree, check if there are enough samples in the
+                # corresponding tree branch to satisfy the query
+                for lbl in dict(self).keys() & mtype_dict.keys():
+                    if len(self[lbl]) >= min_size:
+
+                        # if we are at a leaf node of the mutation type or the
+                        # tree, or if there are no further property levels to
+                        # recurse into, return the mutation type of the branch
+                        if (mtype_dict[lbl] is None
+                                or not isinstance(self[lbl], MuTree)
+                                or not (set(sub_levels)
+                                        & self[lbl].get_levels())):
+                            sub_mtypes.update(
+                                {MuType({(self.mut_level, lbl): None})})
+
+                        # recurse deeper into this branch if possible
+                        if (isinstance(self[lbl], MuTree)
+                                and set(sub_levels) & self[lbl].get_levels()):
+                            sub_mtypes.update(
+                                {MuType({(self.mut_level, lbl): rec_mtype})
+                                 for rec_mtype in self[lbl].branchtypes(
+                                     mtype_dict[lbl], sub_levels, min_size)}
+                                )
+
+            # if we are at one of the property levels specified in the query
+            # but the levels of the mutation type and tree do not match...
+            else:
+                for lbl, branch in self:
+                    if (isinstance(branch, MuTree)
+                            and len(mtype.get_samples(branch)) >= min_size):
+
+                        # ...for each branch at this level return its
+                        # sub-branches that satisfy the query
+                        if set(sub_levels) & branch.get_levels():
+                            sub_mtypes.update(
+                                {MuType({(self.mut_level, lbl): rec_mtype})
+                                 for rec_mtype in branch.branchtypes(
+                                     mtype, sub_levels, min_size)}
+                                )
+
+                        else:
+                            sub_mtypes.update(
+                                {MuType({(self.mut_level, lbl): None})})
+
+        # if we are not one of the property levels specified in the query but
+        # the levels of the mutation type and tree do match...
+        else:
+            if mtype is None or self.mut_level == mtype.cur_level:
+                rec_dict = {}
+
+                # ...group together the identical sub-branches at deeper
+                # levels across branches that do satisfy the query
+                for lbl in dict(self).keys() & mtype_dict.keys():
+                    rec_mtypes = self[lbl].branchtypes(
+                        mtype_dict[lbl], sub_levels, min_size=1)
+
+                    for rec_mtype in rec_mtypes:
+                        rec_dict[rec_mtype] = (
+                            rec_mtype.get_samples(self[lbl]) |
+                            rec_dict.setdefault(rec_mtype, set())
+                            )
+
+                sub_mtypes.update(
+                    {mtype for mtype, samps in rec_dict.items()
+                     if len(samps) >= min_size}
+                    )
+
+            # if we are not at a level matching that of the mutation type or
+            # specified in the query, recurse into each branch, only
+            # considering those branches that could possibly satisfy the query
+            else:
+                for lbl, branch in self:
+                    if (isinstance(branch, MuTree)
+                            and set(sub_levels) & branch.get_levels()
+                            and len(branch) >= min_size):
+
+                        sub_mtypes.update(
+                            branch.branchtypes(mtype, sub_levels, min_size))
 
         return sub_mtypes
 
