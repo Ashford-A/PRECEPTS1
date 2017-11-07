@@ -3,7 +3,7 @@
 #SBATCH --job-name=subv-search
 #SBATCH --partition=exacloud
 #SBATCH --mem=4000
-#SBATCH --time=60
+#SBATCH --time=200
 
 #SBATCH --output=/home/exacloud/lustre1/CompBio/mgrzad/slurm/log-files/subv-search_%j.out
 #SBATCH --error=/home/exacloud/lustre1/CompBio/mgrzad/slurm/log-files/subv-search_%j.err
@@ -41,7 +41,7 @@ mkdir -p $TEMPDIR/results
 srun -p=exacloud \
 	--output=$TEMPDIR/slurm/setup.txt --error=$TEMPDIR/slurm/setup.err \
 	python HetMan/experiments/subvariant_detection/setup_search.py \
-	$cohort $classif 12 -v
+	$cohort $classif -v
 
 sbatch HetMan/experiments/subvariant_detection/fit_search.sh
 

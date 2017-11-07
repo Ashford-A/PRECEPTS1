@@ -3,10 +3,10 @@
 #SBATCH --job-name=varsearch-fit
 #SBATCH --partition=exacloud
 
-#SBATCH --array=0-119
+#SBATCH --array=0-59
 #SBATCH --time=1200
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=12
+#SBATCH --cpus-per-task=8
 #SBATCH --mem-per-cpu=4000
 
 #SBATCH --output=/home/exacloud/lustre1/CompBio/mgrzad/slurm/log-files/varsearch-fit_out-%A.txt
@@ -28,8 +28,8 @@ sleep $(($SLURM_ARRAY_TASK_ID * 17));
 
 # get the cross-validation ID and sub-variant sub-task ID defined by this
 # job's SLURM array ID
-cv_id=$(($SLURM_ARRAY_TASK_ID / 24));
-task_id=$(($SLURM_ARRAY_TASK_ID % 24));
+cv_id=$(($SLURM_ARRAY_TASK_ID / 12));
+task_id=$(($SLURM_ARRAY_TASK_ID % 12));
 
 # find the expression effects for the training/testing cohort split defined
 # by the cross-validation ID and the sub-variant subset defined by the sub-task ID
