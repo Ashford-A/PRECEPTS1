@@ -394,14 +394,23 @@ class UniPipe(OmicPipe):
 
 
 class LinearPipe(UniPipe):
-    """A class corresponding to linear logistic regression classification
-       of mutation status. For classes implementing specific
-       regularization penalties.
+    """An abstract class for classifiers implementing a linear separator.
+
     """
 
     def get_coef(self):
         return {gene: coef for gene, coef in
                 zip(self.genes, self.named_steps['fit'].coef_.flatten())}
+
+
+class EnsemblePipe(UniPipe):
+    """An abstract class for classifiers made up of ensembles of separators.
+
+    """
+
+    def get_coef(self):
+        return {gene: coef for gene, coef in
+                zip(self.genes, self.named_steps['fit'].feature_importances_)}
 
 
 class TransferPipe(OmicPipe):

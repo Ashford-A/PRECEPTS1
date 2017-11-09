@@ -4,6 +4,9 @@
 This module contains functions for retrieving RNA-seq expression data
 and processing it into formats suitable for use in machine learning pipelines.
 
+See Also:
+    :module:`.utils`: Utilities common across many types of features.
+
 Author: Michal Grzadkowski <grzadkow@ohsu.edu>
 
 """
@@ -135,4 +138,3 @@ def get_expr_firehose(cohort, data_dir):
                        for x in expr_data.index.str.split('-')]
 
     return expr_data
-

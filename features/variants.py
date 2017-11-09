@@ -6,6 +6,7 @@ mutations such as SNPs, indels, and frameshifts in formats suitable for use
 in machine learning pipelines.
 
 See Also:
+    :module:`.utils`: Utilities common across many types of features.
     :module:`.copies`: Dealing with copy number alterations.
 
 Author: Michal Grzadkowski <grzadkow@ohsu.edu>
@@ -26,8 +27,11 @@ from re import sub as gsub
 from math import exp
 from ophion import Ophion
 
+from operator import and_, or_
 from functools import reduce
+
 from itertools import combinations as combn
+from itertools import permutations as perm
 from itertools import product
 
 from sklearn.cluster import MeanShift
@@ -233,47 +237,56 @@ class MuTree(object):
             split_muts (:obj:`dict` of :obj:`pd.DataFrame`)
         """
 
-        # level names have to consist of a base level name and an optional
+        # level names have to consist of a base level name and an al
         # parsing label separated by an underscore
         lvl_info = lvl_name.split('_')
         if len(lvl_info) > 2:
-            raise ValueError("Invalid level name " + lvl_name
-                             + " with more than two fields!")
+            raise ValueError(
+                "Invalid level name {} with more than two fields!".format(
+                    lvl_name)
+                )
 
         # if a parsing label is present, add the parsed level
         # to the table of mutations
         elif len(lvl_info) == 2:
             parse_lbl = lvl_info[1].lower()
-            parse_fx = 'parse_' + parse_lbl
+            parse_fx = 'parse_{}'.format(parse_lbl)
 
             if parse_fx in cls.__dict__:
-                muts = eval('cls.' + parse_fx)(muts, lvl_info[0])
+                muts = eval('cls.{}'.format(parse_fx))(muts, lvl_info[0])
 
             else:
-                raise ValueError("Custom parse label " + parse_lbl + " must "
-                                 + "have a corresponding <" + parse_fx +
-                                 "> method defined in " + cls.__name__ + "!")
+                raise ValueError(
+                    "Custom parse label {} must have a corresponding <{}> "
+                    "method defined in {}!".format(
+                        parse_lbl, parse_fx, cls.__name__)
+                    )
 
         # splits mutations according to values of the specified level
         if isinstance(muts, tuple):
             if np.all(pd.isnull(val) for _, val in muts):
                 split_muts = {}
+
             else:
                 split_muts = muts
+
         elif lvl_name in muts:
             split_muts = dict(tuple(muts.groupby(lvl_name)))
 
         # if the specified level is not a column in the mutation table,
         # we assume it's a custom mutation level
         else:
-            split_fx = 'muts_' + lvl_info[0].lower()
+            split_fx = 'muts_{}'.format(lvl_info[0].lower())
+
             if split_fx in cls.__dict__:
-                split_muts = eval('cls.' + split_fx)(muts)
+                split_muts = eval('cls.{}'.format(split_fx))(muts)
+
             else:
-                raise ValueError("Custom mutation level " + lvl_name
-                                     + " must have a corresponding <"
-                                     + split_fx + "> method defined in "
-                                     + cls.__name__ + "!")
+                raise ValueError(
+                    "Custom mutation level {} must have a corresponding <{}> "
+                    "method defined in {}!".format(
+                        lvl_name, split_fx, cls.__name__)
+                    )
 
         return split_muts
 
@@ -349,7 +362,7 @@ class MuTree(object):
            of the same type together.
         """
 
-        new_lvl = parse_lvl + '_base'
+        new_lvl = '{}_base'.format(parse_lvl)
 
         new_muts = muts.assign(**{new_lvl: muts.loc[:, parse_lvl]})
         new_muts.replace(to_replace={new_lvl: {'_(Del|Ins)$': ''}},
@@ -712,7 +725,7 @@ class MuTree(object):
                 # if the exclusion mutation set is also at the same mutation
                 # level, find if it has the branch we are at
                 if mtype2.cur_level == self.mut_level:
-                    for sub_lbl, sub_btype in mtype2:
+                    for sub_lbl, sub_btype in mtype2.subtype_list():
                         if sub_lbl == nm:
 
                             # delete the sub-branches if the branch to be
@@ -861,71 +874,100 @@ class MuTree(object):
         """
         sub_mtypes = set()
 
-        # gets default values for filtering arguments if they are missing
-        if mtype is None:
-            mtype = MuType(self.allkey())
+        # use all mutation property levels if none are given
         if sub_levels is None:
             sub_levels = self.get_levels()
 
-        # finds the branches at the current mutation level that are a subset
-        # of the given mutation type and have the minimum number of samples
-        if self.mut_level in sub_levels:
-            for (nm, branch), (_, btype) in filter(
-                    lambda x: x[0][0] == x[1][0] and len(x[0][1]) >= min_size,
-                    product(self, mtype)):
-
-                # returns the current branch if we are at one of the given
-                # mutation levels
-                sub_mtypes.update({MuType({(self.mut_level, nm): None})})
-
-                # ...otherwise, recurses into the children of the current
-                # branch that have at least one of the given levels
-                if (isinstance(branch, MuTree)
-                        and set(sub_levels) & set(branch.get_levels())):
-                
-                    sub_mtypes |= set(
-                        MuType({(self.mut_level, nm): rec_mtype})
-                        for rec_mtype in branch.branchtypes(
-                            btype, sub_levels, min_size)
-                        )
-
-        # otherwise, if we are not at one of the mutation levels to
-        # retrieve MuTypes at but are at the same level in the
-        # subset MuType and MuTree...
-        elif mtype.cur_level == self.mut_level:
-            new_key = {}
-
-            for lbls, btype in mtype._child.items():
-                for nm, branch in self:
-
-                    if nm in lbls:
-                        rec_mtypes = branch.branchtypes(
-                            btype, sub_levels, min_size=1)
-
-                        for rec_mtype in rec_mtypes:
-                            if rec_mtype in new_key:
-                                new_key[rec_mtype] |= {nm}
-                            else:
-                                new_key[rec_mtype] = {nm}
-
-            for rec_mtype, nms in new_key.items():
-                if (len(rec_mtype.get_samples(self) & mtype.get_samples(self))
-                    >= min_size):
-                    sub_mtypes |= {
-                        MuType({(self.mut_level, tuple(nms)): rec_mtype})}
-
+        # if not mutation type is given, use all the types in this tree
+        if mtype is None:
+            mtype_dict = {lbl: None for lbl in dict(self)}
         else:
-            recurse_mtypes = reduce(lambda x, y: x | y,
-                                    [branch.branchtypes(
-                                        mtype, sub_levels, min_size=1)
-                                     for _, branch in self],
-                                    set())
+            mtype_dict = dict(mtype.subtype_list())
 
-            sub_mtypes |= set(filter(
-                lambda x: (len(x.get_samples(self) & mtype.get_samples(self))
-                           >= min_size),
-                recurse_mtypes
-                ))
+        # check if we are at one of the property levels specified in the
+        # query and if this level is also that of the given mutation type
+        if self.mut_level in sub_levels:
+            if mtype is None or self.mut_level == mtype.cur_level:
+
+                # for each level label specified by the mutation type that is
+                # also in the tree, check if there are enough samples in the
+                # corresponding tree branch to satisfy the query
+                for lbl in dict(self).keys() & mtype_dict.keys():
+                    if len(self[lbl]) >= min_size:
+
+                        # if we are at a leaf node of the mutation type or the
+                        # tree, or if there are no further property levels to
+                        # recurse into, return the mutation type of the branch
+                        if (mtype_dict[lbl] is None
+                                or not isinstance(self[lbl], MuTree)
+                                or not (set(sub_levels)
+                                        & self[lbl].get_levels())):
+                            sub_mtypes.update(
+                                {MuType({(self.mut_level, lbl): None})})
+
+                        # recurse deeper into this branch if possible
+                        if (isinstance(self[lbl], MuTree)
+                                and set(sub_levels) & self[lbl].get_levels()):
+                            sub_mtypes.update(
+                                {MuType({(self.mut_level, lbl): rec_mtype})
+                                 for rec_mtype in self[lbl].branchtypes(
+                                     mtype_dict[lbl], sub_levels, min_size)}
+                                )
+
+            # if we are at one of the property levels specified in the query
+            # but the levels of the mutation type and tree do not match...
+            else:
+                for lbl, branch in self:
+                    if (isinstance(branch, MuTree)
+                            and len(mtype.get_samples(branch)) >= min_size):
+
+                        # ...for each branch at this level return its
+                        # sub-branches that satisfy the query
+                        if set(sub_levels) & branch.get_levels():
+                            sub_mtypes.update(
+                                {MuType({(self.mut_level, lbl): rec_mtype})
+                                 for rec_mtype in branch.branchtypes(
+                                     mtype, sub_levels, min_size)}
+                                )
+
+                        else:
+                            sub_mtypes.update(
+                                {MuType({(self.mut_level, lbl): None})})
+
+        # if we are not one of the property levels specified in the query but
+        # the levels of the mutation type and tree do match...
+        else:
+            if mtype is None or self.mut_level == mtype.cur_level:
+                rec_dict = {}
+
+                # ...group together the identical sub-branches at deeper
+                # levels across branches that do satisfy the query
+                for lbl in dict(self).keys() & mtype_dict.keys():
+                    rec_mtypes = self[lbl].branchtypes(
+                        mtype_dict[lbl], sub_levels, min_size=1)
+
+                    for rec_mtype in rec_mtypes:
+                        rec_dict[rec_mtype] = (
+                            rec_mtype.get_samples(self[lbl]) |
+                            rec_dict.setdefault(rec_mtype, set())
+                            )
+
+                sub_mtypes.update(
+                    {mtype for mtype, samps in rec_dict.items()
+                     if len(samps) >= min_size}
+                    )
+
+            # if we are not at a level matching that of the mutation type or
+            # specified in the query, recurse into each branch, only
+            # considering those branches that could possibly satisfy the query
+            else:
+                for lbl, branch in self:
+                    if (isinstance(branch, MuTree)
+                            and set(sub_levels) & branch.get_levels()
+                            and len(branch) >= min_size):
+
+                        sub_mtypes.update(
+                            branch.branchtypes(mtype, sub_levels, min_size))
 
         return sub_mtypes
 
@@ -956,7 +998,7 @@ class MuTree(object):
         elif mtype.cur_level == self.mut_level:
             rec_mtypes = set()
 
-            for lbls, btype in mtype._child.items():
+            for lbls, btype in mtype.child_iter():
                 for nm, branch in self:
 
                     if nm in lbls:
@@ -1017,9 +1059,14 @@ class MuTree(object):
             min_type_size (int), optional
                 The minimum number of samples in each returned MuType. The
                 default is each returned MuType having at least ten samples.
+            min_branch_size (:obj:`int` or :obj:`str`), optional
+                The minimum number of samples in each of the MuTypes combined
+                to compose each of the returned MuTypes. The default is to
+                divide min_type_size by the number of MuTypes in each returned
+                combination MuType.
 
         Returns:
-            comb_mtypes (set of MuType)
+            comb_mtypes (:obj:`set` of :obj:`MuType`)
 
         Examples:
             >>> # get all possible MuTypes that combine three branches
@@ -1043,12 +1090,19 @@ class MuTree(object):
                     mtype, sub_levels, min_size=(min_type_size / csize))
 
             if branch_mtypes:
-                for kc in combn(branch_mtypes, csize):
-                    new_set = reduce(lambda x, y: x | y, kc)
+                for mtype_combs in combn(branch_mtypes, csize):
 
-                    if (min_branch_size == 'auto'
-                        or len(new_set.get_samples(self)) >= min_type_size):
-                        comb_mtypes |= {new_set}
+                    if (csize == 1
+                            or all([not (mtype1.is_supertype(mtype2)
+                                         or mtype2.is_supertype(mtype1))
+                                    for mtype1, mtype2
+                                    in combn(mtype_combs, 2)])):
+                        new_mtype = reduce(or_, mtype_combs)
+
+                        if (min_branch_size == 'auto'
+                                or (len(new_mtype.get_samples(self))
+                                    >= min_type_size)):
+                            comb_mtypes |= {new_mtype}
 
         return comb_mtypes
 
@@ -1089,7 +1143,7 @@ class MuTree(object):
 
         else:
             tree_mtypes |= reduce(
-                lambda x,y: x | y,
+                or_,
                 [branch.treetypes(btype, sub_levels, min_size)
                  for (nm, branch), (lbl, btype) in product(self, mtype)
                  if (isinstance(branch, MuTree)
@@ -1127,36 +1181,50 @@ class MuTree(object):
 
 
 class MuType(object):
-    """A particular type of mutation defined by annotation properties.
+    """A set of properties recursively defining a particular type of mutation.
 
-    A class corresponding to a subset of mutations defined through a hierarchy
-    of properties. Used in conjunction with the above MuTree class to
-    represent and navigate the space of possible mutation subsets.
+    This class corresponds to a mutation type defined through a list of
+    properties, each possibly linked to a further mutation sub-type. Used in
+    conjunction with the above MuTree class to represent and navigate the
+    space of possible mutation subsets in a given cohort. While a MuTree is
+    linked to a particular set of samples, a MuType represents a mutation
+    type abstract of any samples that may or may not have it.
 
-    MuTypes are defined through a set key, which is a recursively structured
-    dictionary of annotation property values of the form
-        {(Level, Sub-Type1): (None or set_key), (Level, Sub-Type1): ...}
+    MuTypes are initialized via recursively structured type dictionaries of
+    the form type_dict={(Level, Label1): <None or subtype_dict>,
+                        (Level, Label2): <None or subtype_dict>, ...}
 
-    Each item in the set key dictionary denotes a annotation property value
-    contained within this mutation type. The key of an item is a 2-tuple
-    with the first entry being a annotation hierarchy level (eg. 'Gene',
-    'Form', 'Exon', etc.) and the second entry being a type or tuple of types
-    available at this level (eg. 'KRAS', ('Missense_Mutation', 'Silent'),
-    ('3/23', '6/13', '4/201'). The value of item can either be None, which
-    means the mutation subtype contains all possible mutations with this
-    property, or a set key to denote further subsetting of mutation types at
-    more specific annotation property levels.
+    The keys of this type dictionary are thus 2-tuples composed of
+        1) `Level`: anything that defines categories that a mutation can
+        belong to, such as Gene, Exon, PolyPhen
+        2) `Label`: one or more of these categories, such as TP53, 7/11, 0.67
 
-    All combinations of mutation subtypes within a MuType are defined as
-    unions, that is, a MuType represents the abstract set of samples that
-    has at least one of the mutation sub-types contained within it, as opposed
-    to all of them.
+    The value for a given key in a type_dict can be either `None`, indicating
+    that all mutations in this category are represented this MuType, or
+    another type_dict, indicating that only the given subset of mutations
+    within this category are represented by this MuType. A MuType can thus
+    contain children MuTypes, and the set of mutations the MuType stands for
+    is the intersection of the children and their parent(s), and the union of
+    parents and their siblings.
+
+    For the sake of convenience, a `Label` can itself be a tuple of mutation
+    property level categories, thus indicating that the corresponding subtype
+    value applies to all the listed categories. Type dictionaries are
+    automatically rationalized to group together identical subtype values when
+    they are being parsed in order to reduce the memory footprint of each
+    MuType object.
+
+    Note that subtypes can be already-instantiated MuType objects instead of
+    type dictionaries. Explicitly passing the `None` object by itself as a
+    type dictionary creates a MuType corresponding to the empty null set of
+    mutations, as does passing any empty iterable such as [] or (,).
 
     Arguments:
-        set_key (dict): Defines the mutation sub-types included in this set.
+        type_dict (dict): The mutation sub-types included in this type.
 
     Attributes:
-        cur_level (str): The mutation property level at the head of this set.
+        cur_level (str): The mutation property level whose categories are
+                         listed in this type.
 
     Examples:
         >>> # mutations of the KRAS gene
@@ -1179,89 +1247,229 @@ class MuType(object):
 
     """
 
-    def __init__(self, set_key):
-        if set_key is None:
-            set_key = {}
+    def __init__(self, type_dict):
 
-        # gets the property hierarchy level of this mutation type after making
-        # sure the set key is properly specified
-        level = set(k for k, _ in set_key.keys())
-
-        if len(level) > 1:
-            raise ValueError("Improperly defined set key with multiple"
-                             "mutation levels!")
-
-        elif len(level) == 0:
+        # ensures the type dictionary is in the proper format, parses out the
+        # mutation property level from its keys
+        if not type_dict:
+            type_dict = {}
             self.cur_level = None
-        else:
-            self.cur_level = tuple(level)[0]
 
-        # gets the subsets of mutations defined at this level, and
-        # their further subdivisions if they exist
-        membs = [(k,) if isinstance(k, str) else k for _, k in set_key.keys()]
-        children = {
-            tuple(i for i in k):
-            (None if ch is None or (isinstance(ch, MuType) and not ch._child)
-             else ch if isinstance(ch, MuType)
-             else MuType(ch))
-            for k, ch in zip(membs, set_key.values())
-            }
+        elif isinstance(type_dict, dict):
+            levels = set(lvl for lvl, _ in type_dict)
 
-        # merges subsets at this level if their children are the same:
-        #   missense:None, frameshift:None => (missense,frameshift):None
-        # or if they have the same keys:
-        #   (missense, splice):M1, missense:M2, splice:M2
-        #    => (missense, splice):(M1, M2)
-        uniq_ch = set(children.values())
-        uniq_vals = tuple((frozenset(i for j in
-                                     [k for k, v in children.items()
-                                      if v == ch] for i in j), ch)
-                          for ch in uniq_ch)
-
-        # adds the children nodes of this MuTree
-        self._child = {}
-        for val, ch in uniq_vals:
-
-            if val in self._child:
-                if ch is None or self._child[val] is None:
-                    self._child[val] = None
-                else:
-                    self._child[val] |= ch
+            if len(levels) > 1:
+                raise ValueError("Improperly defined set key with multiple"
+                                 "mutation levels!")
 
             else:
-                self._child[val] = ch
+                self.cur_level = tuple(levels)[0]
 
-    def __iter__(self):
-        """Returns an expanded representation of the set structure."""
+        else:
+            raise TypeError("MuType type dictionary must be a dict object!")
 
-        return iter(sorted(
-            [(l, v) for k, v in self._child.items() for l in k],
-            key=lambda x: x[0]
-            ))
+        # parses out the category labels listed for the given property level
+        level_lbls = [(lbls, ) if isinstance(lbls, str) else lbls
+                      for _, lbls in type_dict]
+
+        # creates an expanded type dictionary where category labels that were
+        # originally grouped together by subtype are given separate keys
+        full_pairs = [
+            (lbl,
+             (sub_type if sub_type is None or isinstance(sub_type, MuType)
+              else MuType(sub_type)))
+            for lbls, sub_type in zip(level_lbls, type_dict.values())
+            if not (isinstance(sub_type, MuType) and sub_type.is_empty())
+            for lbl in lbls
+            ]
+
+        full_dict = {}
+        for lbl, sub_type in full_pairs:
+
+            if lbl in full_dict:
+                if sub_type is None or full_dict[lbl] is None:
+                    full_dict[lbl] = None
+
+                else:
+                    full_dict[lbl] |= sub_type
+
+            else:
+                full_dict[lbl] = sub_type
+
+        # collapses category labels with the same subtype into one key:subtype
+        # pair, i.e. silent:None, frameshift:None => (silent, frameshift):None
+        uniq_vals = [
+            (frozenset(k for k, v in full_dict.items() if v == sub_type),
+             sub_type)
+            for sub_type in set(full_dict.values())
+            ]
+
+        # merges the subtypes of type dictionary entries with the same
+        # category label, i.e. silent: <Exon IS 7/11>, silent: <Exon IS 10/11>
+        # => silent: <Exon IS 7/11 or 10/11> to create the final dictionary
+        self._child = {}
+        for lbls, sub_type in uniq_vals:
+
+            if lbls in self._child:
+                if sub_type is None or self._child[lbls] is None:
+                    self._child[lbls] = None
+
+                else:
+                    self._child[lbls] |= sub_type
+
+            else:
+                self._child[lbls] = sub_type
+
+    def is_empty(self):
+        """Checks if this MuType corresponds to the null mutation set."""
+        return self._child == {}
+
+    def get_levels(self):
+        """Gets the property levels present in this type and its subtypes."""
+        levels = {self.cur_level}
+
+        for tp in self._child.values():
+            if isinstance(tp, MuType):
+                levels |= set(tp.get_levels())
+
+        return levels
+
+    def __hash__(self):
+        """MuType hashes are defined in an analagous fashion to those of
+           tuples, see for instance http://effbot.org/zone/python-hash.htm"""
+        value = 0x163125 ^ len(self._child)
+
+        for lbls, tp in sorted(self._child.items(), key=lambda x: list(x[0])):
+            value += eval(hex((int(value) * 1000007) & 0xFFFFFFFF)[:-1])
+            value ^= hash(lbls) ^ hash(tp)
+
+        if value == -1:
+            value = -2
+
+        return value
+
+    def child_iter(self):
+        """Returns an iterator over the collapsed (labels):subtype pairs."""
+        return self._child.items()
+
+    def subtype_list(self):
+        """Returns the list of all unique label:subtype pairs."""
+        return [(lbl, tp) for lbls, tp in self._child.items() for lbl in lbls]
 
     def __len__(self):
-        """The length of a MuType is the # of annotation levels it has."""
+        """Returns the number of unique category labels in the MuType.
 
-        return len(list(self.__iter__()))
+        Examples:
+            >>> len(MuType({('Gene', 'KRAS'): None}))
+                1
+            >>> len(MuType({('Gene', ('BRAF', 'TP53')): None}))
+                2
+            >>> len(MuType({('Gene', 'TTN'): {('Form', 'Nonsense'): None}}))
+                1
+            >>> len(MuType({('Gene', 'AR'): {('Exon', '2/87'): None},
+            >>>             ('Gene', 'MUC16'): {('Exon', '4/8'): None}}))
+                2
+
+        """
+        return len(self.subtype_list())
 
     def __eq__(self, other):
-        """Two MuTypes are equal if and only if they have the same set
-           of children MuTypes for the same subsets."""
+        """Checks if one MuType is equal to another."""
 
-        # if one of the two objects is not a MuType they are not equal
-        if isinstance(self, MuType) ^ isinstance(other, MuType):
+        # if the other object is not a MuType they are not equal
+        if not isinstance(other, MuType):
             eq = False
 
-        # MuTypes for different mutation levels are not equal
+        # MuTypes with different mutation property levels are not equal
         elif self.cur_level != other.cur_level:
             eq = False
 
         # MuTypes with the same mutation levels are equal if and only if
-        # they have the same mutation subtypes for the same level entries
+        # they have the same subtypes for the same level category labels
         else:
-            eq = (self._child == other._child)
+            eq = self.child_iter() == other.child_iter()
 
         return eq
+
+    def __lt__(self, other):
+        """Defines a sort order for MuTypes."""
+        if not isinstance(other, MuType):
+            return NotImplemented
+
+        # we first compare the mutation property levels of the two MuTypes...
+        if self.cur_level == other.cur_level:
+
+            # sort label:subtype pairs according to label such that pairwise
+            # invariance is preserved
+            self_pairs = sorted(self.subtype_list(), key=lambda x: x[0])
+            other_pairs = sorted(other.subtype_list(), key=lambda x: x[0])
+
+            # ...then compare how many (label:subtype) pairs they have...
+            if len(self_pairs) == len(other_pairs):
+                self_lbls = [lbl for lbl, _ in self_pairs]
+                other_lbls = [lbl for lbl, _ in other_pairs]
+
+                # ...then compare the labels themselves...
+                if self_lbls == other_lbls:
+                    self_lvls = self.get_levels()
+                    other_lvls = other.get_levels()
+
+                    # ...then compare how deep the subtypes recurse...
+                    if len(self_lvls) == len(other_lvls):
+                        self_subtypes = [tp for _, tp in self_pairs]
+                        other_subtypes = [tp for _, tp in other_pairs]
+
+                        # ...then compare the subtypes for each pair of
+                        # matching labels...
+                        for tp1, tp2 in zip(self_subtypes, other_subtypes):
+                            if tp1 != tp2:
+
+                                # for the first pair of subtypes that are not
+                                # equal (always the same pair because entries
+                                # are sorted), we recursively compare the pair
+                                if tp1 is None:
+                                    return False
+
+                                elif tp2 is None:
+                                    return True
+
+                                else:
+                                    return tp1 < tp2
+
+                        # if all subtypes are equal, the two MuTypes are equal
+                        else:
+                            return False
+
+                    # MuTypes with fewer subtype levels are sorted first
+                    else:
+                        return len(self_lvls) < len(other_lvls)
+
+                # MuTypes with different labels are sorted according to the
+                # order defined by the sorted label lists
+                else:
+                    return self_lbls < other_lbls
+
+            # MuTypes with fewer mutation entries are sorted first
+            else:
+                return len(self_pairs) < len(other_pairs)
+
+        # MuTypes with differing mutation property levels are sorted according
+        # to the sort order of the property strings
+        else:
+            return self.cur_level < other.cur_level
+
+    # remaining methods necessary to define rich comparison for MuTypes
+    def __ne__(self, other):
+        return not self == other
+
+    def __le__(self, other):
+        return self < other or self == other
+
+    def __gt__(self, other):
+        return not (self < other or self == other)
+
+    def __ge__(self, other):
+        return not (self < other)
 
     def __repr__(self):
         """Shows the hierarchy of mutation properties within the MuType."""
@@ -1269,86 +1477,88 @@ class MuType(object):
 
         # iterate over all mutation types at this level separately
         # regardless of their children
-        for k, v in self:
+        for lbl, tp in self.subtype_list():
+            new_str += self.cur_level + ' IS ' + lbl
 
-            if isinstance(k, str):
-                new_str += self.cur_level + ' IS ' + k
-            else:
-                new_str += (self.cur_level + ' IS '
-                            + reduce(lambda x, y: x + ' OR ' + y, k))
+            if tp is not None:
+                new_str += ' WITH ' + repr(tp)
 
-            if v is not None:
-                new_str += ' AND ' + repr(v)
+            new_str += ', OR '
 
-            new_str += ' OR '
-
-        return gsub(' OR $', '', new_str)
+        return gsub(', OR $', '', new_str)
 
     def __str__(self):
         """Gets a condensed label for the MuType."""
         new_str = ''
+        self_iter = sorted(self._child.items(), key=lambda x: list(x[0]))
 
         # if there aren't too many types to list at this mutation level...
-        if len(self) <= 10:
+        if len(self_iter) <= 10:
 
             # ...iterate over the types, grouping together those with the
             # same children to produce a more concise label
-            for k, v in self._child.items():
-                new_str += reduce(lambda x, y: x + '+' + y, k)
+            for lbls, tp in self_iter:
+
+                if len(lbls) > 1:
+                    new_str += "({})".format('|'.join(sorted(lbls)))
+
+                else:
+                    new_str += list(lbls)[0]
                 
-                if v is not None:
-                    new_str += '-' + str(v)
+                if tp is not None:
+                    new_str += ':' + str(tp)
                 
-                new_str += ', '
+                new_str += '|'
 
         # ...otherwise, show how many types there are and move on to the
         # levels further down if they exist
         else:
-            new_str += "({} {}s)".format(len(self), self.cur_level.lower())
-            ch_items = self._child.items()
+            new_str += "({} {}s)".format(
+                len(self.subtype_list()), self.cur_level.lower())
 
-            if len(ch_items) <= 10:
-                for k, v in ch_items:
-                    if v is not None:
-                        new_str += '-' + str(v)
-
-                    new_str += ', '
-
-            # condense sub-types at the further levels if there are too many
-            else:
+            # condense sub-types at the further levels
+            for lbls, tp in self_iter:
                 new_str += "-(>= {} sub-types at level(s): {})".format(
-                    len(ch_items),
+                    len(tp),
                     reduce(lambda x, y: x + ', ' + y,
                            self.get_levels() - {self.cur_level})
                     )
 
-        return gsub(', $', '', new_str)
-
-    def is_empty(self):
-        """Checks if this MuType corresponds to the null mutation set."""
-        return self._child == {}
+        return gsub('\\|+$', '', new_str)
 
     def __or__(self, other):
         """Returns the union of two MuTypes."""
         if not isinstance(other, MuType):
             return NotImplemented
 
-        new_key = {}
-        self_dict = dict(self)
-        other_dict = dict(other)
+        if self.is_empty():
+            return other
+        if other.is_empty():
+            return self
+
+        # gets the unique label:subtype pairs in each MuType
+        self_dict = dict(self.subtype_list())
+        other_dict = dict(other.subtype_list())
 
         if self.cur_level == other.cur_level:
-            for k in (self_dict.keys() - other_dict.keys()):
-                new_key.update({(self.cur_level, k): self_dict[k]})
-            for k in (other_dict.keys() - self_dict.keys()):
-                new_key.update({(self.cur_level, k): other_dict[k]})
+            new_key = {}
 
-            for k in (self_dict.keys() & other_dict.keys()):
-                if (self_dict[k] is None) or (other_dict[k] is None):
-                    new_key.update({(self.cur_level, k): None})
-                else:
-                    new_key.update({
-                        (self.cur_level, k): self_dict[k] | other_dict[k]})
+            # adds the subtypes paired with the labels in the symmetric
+            # difference of the labels in the two MuTypes
+            new_key.update({(self.cur_level, lbl): self_dict[lbl]
+                            for lbl in self_dict.keys() - other_dict.keys()})
+            new_key.update({(self.cur_level, lbl): other_dict[lbl]
+                            for lbl in other_dict.keys() - self_dict.keys()})
+
+            # finds the union of the subtypes paired with each of the labels 
+            # appearing in both MuTypes
+            new_key.update(
+                {(self.cur_level, lbl): (
+                    None if self_dict[lbl] is None or other_dict[lbl] is None
+                    else self_dict[lbl] | other_dict[lbl]
+                    )
+                 for lbl in self_dict.keys() & other_dict.keys()}
+                )
 
         else:
             raise ValueError(
@@ -1361,115 +1571,85 @@ class MuType(object):
 
     def __and__(self, other):
         """Finds the intersection of two MuTypes."""
-
         if not isinstance(other, MuType):
             return NotImplemented
 
+        if self.is_empty() or other.is_empty():
+            return MuType({})
+
+        # gets the unique label:subtype pairs in each MuType
+        self_dict = dict(self.subtype_list())
+        other_dict = dict(other.subtype_list())
+
         new_key = {}
-        self_dict = dict(self)
-        other_dict = dict(other)
-
         if self.cur_level == other.cur_level:
-            for k in self_dict.keys() & other_dict.keys():
+            for lbl in self_dict.keys() & other_dict.keys():
 
-                if self_dict[k] is None:
-                    new_key.update({(self.cur_level, k): other_dict[k]})
+                if self_dict[lbl] is None:
+                    new_key.update({(self.cur_level, lbl): other_dict[lbl]})
 
-                elif other_dict[k] is None:
-                    new_key.update({(self.cur_level, k): self_dict[k]})
+                elif other_dict[lbl] is None:
+                    new_key.update({(self.cur_level, lbl): self_dict[lbl]})
 
                 else:
-                    new_ch = self_dict[k] & other_dict[k]
+                    new_ch = self_dict[lbl] & other_dict[lbl]
 
                     if not new_ch.is_empty():
-                        new_key.update({(self.cur_level, k): new_ch})
+                        new_key.update({(self.cur_level, lbl): new_ch})
 
         elif other.cur_level in self.get_levels():
-            for k in self_dict.keys():
+            for lbl in self_dict.keys():
 
-                if self_dict[k] is None:
-                    new_key.update({(self.cur_level, k): other})
+                if self_dict[lbl] is None:
+                    new_key.update({(self.cur_level, lbl): other})
 
                 else:
-                    new_ch = self_dict[k] & other
+                    new_ch = self_dict[lbl] & other
 
                     if not new_ch.is_empty():
-                        new_key.update({(self.cur_level, k): new_ch})
+                        new_key.update({(self.cur_level, lbl): new_ch})
 
         else:
-            for k in self_dict.keys():
+            for lbl in self_dict.keys():
 
-                if self_dict[k] is None:
-                    new_key.update({(self.cur_level, k): other})
+                if self_dict[lbl] is None:
+                    new_key.update({(self.cur_level, lbl): other})
 
                 else:
-                    new_ch = other & self_dict[k]
+                    new_ch = other & self_dict[lbl]
 
                     if not new_ch.is_empty():
-                        new_key.update({(self.cur_level, k): new_ch})
+                        new_key.update({(self.cur_level, lbl): new_ch})
 
         return MuType(new_key)
 
-    def __lt__(self, other):
-        """Defines a sort order for MuTypes."""
+    def __add__(self, other):
+        """The sum of MuTypes yields the type where both MuTypes appear."""
         if not isinstance(other, MuType):
             return NotImplemented
 
-        # if two MuTypes have the same mutation level, we compare how many
-        # mutation entries each of them have
-        if self.cur_level == other.cur_level:
-            self_dict = dict(self)
-            other_dict = dict(other)
-       
-            # if they both have the same number of entries, we compare the
-            # entries themselves, which are sorted in __iter__ so that
-            # pairwise invariance is ensured
-            if len(self_dict) == len(other_dict):
-                self_keys = self_dict.keys()
-                other_keys = other_dict.keys()
-
-                # if they have the same entries, we compare each pair of
-                # entries' mutation sub-types
-                if self_keys == other_keys:
-                    for (_, v), (_, w) in zip(self, other):
-                        if v != w:
-
-                            # for the first pair of subtypes that are not
-                            # equal (always the same pair because entries
-                            # are sorted), we recursively compare the pair
-                            if v is None:
-                                return True
-                            elif w is None:
-                                return False
-                            else:
-                                return v < w
-
-                    # if all sub-types are equal, the two MuTypes are equal
-                    return False
-
-                # MuTypes with different entries are sorted according to the
-                # order defined by the sorted lists corresponding to the
-                # entries
-                else:
-                    return self_keys < other_keys
-
-            # MuTypes with fewer mutation entries are sorted above
-            else:
-                return len(self_dict) < len(other_dict)
-
-        # MuTypes with different mutation levels are sorted according to the
-        # order defined by the strings corresponding to the entries
-        else:
-            return self.cur_level < other.cur_level
+        return MutComb([self, other])
 
     def is_supertype(self, other):
-        """Checks if one MuType is a subset of the other."""
+        """Checks if one MuType (non-strictly) contains another MuType."""
         if not isinstance(other, MuType):
             return NotImplemented
 
-        self_dict = dict(self)
-        other_dict = dict(other)
+        # the empty null set cannot be the supertype of any other MuType
+        if self.is_empty():
+            return False
 
+        # the empty null set is a subtype of every other non-empty MuType
+        if other.is_empty():
+            return True
+
+        # gets the unique label:subtype pairs in each MuType
+        self_dict = dict(self.subtype_list())
+        other_dict = dict(other.subtype_list())
+
+        # a MuType cannot be a supertype of another MuType unless they are on
+        # the same mutation property level and its category labels are a
+        # superset of the others'
         if self.cur_level == other.cur_level:
             if self_dict.keys() >= other_dict.keys():
 
@@ -1494,58 +1674,35 @@ class MuType(object):
         if not isinstance(other, MuType):
             return NotImplemented
 
-        new_key = {}
-        self_dict = dict(self)
-        other_dict = dict(other)
+        if self.is_empty() or other.is_empty():
+            return self
+
+        # gets the unique label:subtype pairs in each MuType
+        self_dict = dict(self.subtype_list())
+        other_dict = dict(other.subtype_list())
 
         if self.cur_level == other.cur_level:
-            for k in self_dict.keys():
-                if k in other_dict:
-                    if other_dict[k] is not None:
-                        if self_dict[k] is not None:
-                            sub_val = self_dict[k] - other_dict[k]
-                            if sub_val is not None:
-                                new_key.update({(self.cur_level, k): sub_val})
-                        else:
-                            new_key.update(
-                                {(self.cur_level, k): self_dict[k]})
-                else:
-                    new_key.update({(self.cur_level, k): self_dict[k]})
+            new_key = {(self.cur_level, lbl): self_dict[lbl]
+                       for lbl in self_dict.keys() - other_dict.keys()}
+
+            for lbl in self_dict.keys() & other_dict.keys():
+                if other_dict[lbl] is not None:
+
+                    if self_dict[lbl] is not None:
+                        sub_val = self_dict[lbl] - other_dict[lbl]
+
+                        if not sub_val.is_empty():
+                            new_key.update({(self.cur_level, lbl): sub_val})
+
+                    else:
+                        new_key.update({(self.cur_level, lbl): None})
 
         else:
-            raise ValueError("Cannot subtract MuType with mutation level "
-                                 + other.cur_level + " from MuType with "
-                                 + "mutation level " + self.cur_level + "!")
+            raise ValueError("Cannot subtract MuType with mutation level {} "
+                             "from MuType with mutation level {}!".format(
+                                other.cur_level, self.cur_level))
 
-        if new_key:
-            return MuType(new_key)
-        else:
-            return None
-
-    def __hash__(self):
-        """MuType hashes are defined in an analagous fashion to those of
-           tuples, see for instance http://effbot.org/zone/python-hash.htm"""
-        value = 0x163125
-
-        for k, v in self:
-            value += eval(hex((int(value) * 1000007) & 0xFFFFFFFF)[:-1])
-            value ^= hash(k) ^ hash(v)
-            value ^= len(self._child)
-
-        if value == -1:
-            value = -2
-
-        return value
-
-    def get_levels(self):
-        """Gets all the levels present in this type and its children."""
-        levels = {self.cur_level}
-
-        for _, v in self:
-            if isinstance(v, MuType):
-                levels |= set(v.get_levels())
-
-        return levels
+        return MuType(new_key)
 
     def get_samples(self, mtree):
         """Gets the samples contained in branch(es) of a MuTree.
@@ -1568,16 +1725,16 @@ class MuType(object):
 
             # ...find the mutation entries in the MuTree that match the
             # mutation entries in the MuType
-            for (nm, mut), (k, v) in product(mtree, self):
-                if k == nm:
+            for (nm, mut), (lbl, tp) in product(mtree, self.subtype_list()):
+                if lbl == nm:
                     
                     if isinstance(mut, frozenset):
                             samps |= mut
                     elif isinstance(mut, MuTree):
-                        if v is None:
+                        if tp is None:
                             samps |= mut.get_samples()
                         else:
-                            samps |= v.get_samples(mut)
+                            samps |= tp.get_samples(mut)
                     else:
                         raise ValueError("get_samples error!")
 
@@ -1606,11 +1763,74 @@ class MuType(object):
            exactly one of the leaf properties."""
         mkeys = []
 
-        for k, v in list(self._child.items()):
-            if v is None:
-                mkeys += [{(self.cur_level, i): None} for i in k]
+        for lbls, tp in list(self._child.items()):
+            if tp is None:
+                mkeys += [{(self.cur_level, lbl): None} for lbl in lbls]
             else:
-                mkeys += [{(self.cur_level, i): s}
-                          for i in k for s in v.subkeys()]
+                mkeys += [{(self.cur_level, lbl): sub_tp}
+                          for lbl in lbls for sub_tp in tp.subkeys()]
 
         return mkeys
+
+
+class MutComb(object):
+    """A class corresponding to the presence of multiple mutation sub-types.
+
+    Args:
+        mtypes (:obj:`list` of :obj:`MuType`)
+
+    Examples:
+        >>> # create an object representing samples that have both a TTN
+        >>> # mutation and a KRAS missense mutation
+        >>>
+        >>> from HetMan.features.variants import MuType
+        >>> mtype1 = MuType({('Gene', 'TTN'): None})
+        >>> mtype2 = MuType({('Gene', 'KRAS'): {
+        >>>                     ('Form', 'Missense_Mutation'): None}})
+        >>>
+        >>> comb_type = MutComb([mtype1, mtype2])
+
+    """
+
+    def __new__(cls, mtypes):
+        if not all(isinstance(mtype, MuType) for mtype in mtypes):
+            raise TypeError(
+                "A MutComb object must be a combination of MuTypes!")
+
+        obj = super().__new__(cls)
+        mtypes = list(mtypes)
+
+        for i, j in perm(range(len(mtypes)), r=2):
+            if mtypes[i] and mtypes[j]:
+                mtypes[j] -= mtypes[i]
+
+        mtypes = [mtype for mtype in mtypes if mtype and not mtype.is_empty()]
+
+        if mtypes:
+            if len(mtypes) == 1:
+                return mtypes[0]
+            else:
+                obj.mtypes = frozenset(mtypes)
+                return obj
+
+    def mtype_apply(self, each_fx, comb_fx):
+        each_list = [each_fx(mtype) for mtype in self.mtypes]
+        return reduce(comb_fx, each_list)
+
+    def __repr__(self):
+        return self.mtype_apply(repr, lambda x, y: x + ' AND ' + y)
+
+    def __str__(self):
+        return self.mtype_apply(str, lambda x, y: x + ' & ' + y)
+
+    def __hash__(self):
+        value = 0x213129 
+
+        return value + self.mtype_apply(
+            hash,
+            lambda x, y: (x ^ y + eval(hex((int(value) * 1003)
+                                           & 0xFFFFFFFF)[:-1]))
+            )
+
+    def get_samples(self, mtree):
+        return self.mtype_apply(lambda x: x.get_samples(mtree), and_)
