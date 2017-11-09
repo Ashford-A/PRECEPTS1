@@ -27,5 +27,6 @@ then
 	export classif="Lasso"
 fi
 
-python HetMan/experiments/subvariant_detection/plotting.py $cohort $classif
+python HetMan/experiments/subvariant_detection/plot_search.py $cohort $classif
+python HetMan/experiments/subvariant_detection/plot_portray.py $cohort $classif
 

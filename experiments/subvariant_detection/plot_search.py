@@ -4,25 +4,61 @@ import sys
 
 base_dir = os.path.dirname(os.path.realpath(__file__))
 plot_dir = os.path.join(base_dir, 'plots')
-
 sys.path.extend([os.path.join(base_dir, '../../..')])
-import HetMan.experiments.utilities as utils
 
+from HetMan.experiments.utilities import test_output
 from HetMan.features.variants import MuType
 
 import numpy as np
 import pandas as pd
-from math import log
 import argparse
 
 import matplotlib as mpl
 mpl.use('Agg')
-import matplotlib.cm as cm
-import seaborn as sns
 
 import matplotlib.pyplot as plt
-import matplotlib.colors as pltcol
-from pylab import rcParams
+plt.style.use('fivethirtyeight')
+import seaborn as sns
+
+
+def plot_auc_distribution(out_data, args):
+
+    fig, ax = plt.subplots(nrows=1, ncols=1)
+
+    med_perf = out_data.quantile(q=0.5, axis=1)
+    top_perf = out_data.max(axis=1) - med_perf
+    bot_perf = med_perf - out_data.min(axis=1)
+
+    perf_df = pd.DataFrame(
+        {'Med': med_perf, 'Top': top_perf, 'Bot': bot_perf})
+    sort_perf = med_perf.sort_values(ascending=False)
+    sort_indx = [med_perf.index.get_loc(x) for x in sort_perf.index]
+
+    top_perf = top_perf[sort_indx]
+    bot_perf = bot_perf[sort_indx]
+    err_arr = np.array(pd.concat([bot_perf, top_perf], axis=1).transpose())
+
+    ax.errorbar(x=range(out_data.shape[0]), y=sort_perf, yerr=err_arr,
+                elinewidth=0.7, alpha=0.5, color='#726437')
+
+    plt.xlim(out_data.shape[0] / -125, out_data.shape[0] * (126/125))
+    plt.ylim(-0.02, 1.02)
+
+    ax.xaxis.set_major_formatter(plt.NullFormatter())
+    ax.grid(axis='x')
+    ax.grid(axis='y', which='major', linewidth=3, alpha=0.6)
+
+    plt.ylabel('AUC', fontsize=25)
+    plt.axhline(color='r', y=0.5, xmin=-10, xmax=out_data.shape[0] + 10,
+                linewidth=1, linestyle='--')
+
+    fig.set_size_inches(out_data.shape[0] ** 0.9 / 125, 9)
+    plt.savefig(os.path.join(
+        plot_dir, 'mtype-performance_{}-{}.png'.format(
+            args.cohort, args.classif)
+        ),
+        dpi=600, bbox_inches='tight')
+    plt.close()
 
 
 def plot_mtype_highlights(out_data, args, mtype_choice='Genes'):
@@ -89,76 +125,14 @@ def plot_mtype_highlights(out_data, args, mtype_choice='Genes'):
     plt.ylabel('AUC', fontsize=25)
 
     fig.set_size_inches(len(use_mtypes) ** 0.9 / 2.5, 9)
-    plt.savefig(
-        os.path.join(plot_dir, 'mtype-highlights_{}-{}_{}.png'.format(
-                args.cohort, args.classif, mtype_choice)),
-        dpi=600, bbox_inches='tight'
-        )
+    plt.savefig(os.path.join(
+        plot_dir, 'mtype-highlights_{}-{}_{}.png'.format(
+            args.cohort, args.classif, mtype_choice)
+        ),
+        dpi=600, bbox_inches='tight')
     plt.close()
 
     return use_mtypes
-
-
-def plot_auc_distribution(out_data, args):
-    rcParams['figure.figsize'] = 24, 8
-
-    med_perf = out_data.quantile(q=0.5, axis=1)
-    top_perf = out_data.max(axis=1) - med_perf
-    bot_perf = med_perf - out_data.min(axis=1)
-    perf_df = pd.DataFrame({'Med': med_perf, 'Top': top_perf, 'Bot': bot_perf})
-
-    sort_perf = med_perf.sort_values(ascending=False)
-    sort_indx = [med_perf.index.get_loc(x) for x in sort_perf.index]
-    top_perf = top_perf[sort_indx]
-    bot_perf = bot_perf[sort_indx]
-    err_arr = np.array(pd.concat([bot_perf, top_perf], axis=1).transpose())
-
-    plt.errorbar(x=range(out_data.shape[0]), y=sort_perf,
-                 yerr=err_arr, elinewidth=0.9)
-
-    plt.savefig(
-        os.path.join(
-            plot_dir, 'mtype-performance_{}-{}.png'.format(
-                args.cohort, args.classif)),
-        dpi=500, bbox_inches='tight'
-        )
-    plt.close()
-
-
-def plot_coef_heatmap(coef_data, args, auc_cutoff=None, acc_data=None):
-
-    if auc_cutoff is None:
-        plot_file = "mtype-coefs_{}-{}.png".format(args.cohort, args.classif)
-        use_mtypes = coef_data.index
-
-    else:
-        plot_file = "mtype-coefs_{}-{}_auc-cutoff-{}.png".format(
-                args.cohort, args.classif, auc_cutoff)
-        use_mtypes = acc_data.index[acc_data.mean(axis=1) > auc_cutoff]
-
-    use_data = coef_data.loc[use_mtypes, :]
-    use_data = (use_data.transpose() / use_data.abs().max(axis=1)).transpose()
-
-    gene_means = use_data.abs().mean()
-    gene_vars = use_data.var()
-
-    if use_data.shape[1] > 100:
-        use_genes = set(
-            gene_means.sort_values(ascending=False)[:75].index.tolist()
-            + gene_vars.sort_values(ascending=False)[:75].index.tolist()
-            )
-
-    else:
-        use_genes = use_data.columns
-
-    use_data = use_data.loc[:, use_genes]
-    sns.set_context("paper")
-
-    sig_plot = sns.clustermap(use_data,
-                              method='centroid', center=0, cmap="coolwarm_r",
-                              figsize=(33, 17))
-
-    sig_plot.savefig(os.path.join(plot_dir, plot_file))
 
 
 def main():
@@ -170,27 +144,24 @@ def main():
                         help='a classifier in HetMan.predict.classifiers')
     args = parser.parse_args()
 
-    search_data = utils.test_output(os.path.join(
+    search_data = test_output(os.path.join(
         base_dir, 'output', args.cohort, args.classif, 'search'))
 
+    print('Plotting distribution of mtype performance...')
     plot_auc_distribution(search_data, args)
 
+    print('Plotting performance of single-gene mtypes...')
     gene_mtypes = plot_mtype_highlights(search_data, args,
                                         mtype_choice='Genes')
+
+    print('Plotting performance of the best mtypes...')
     best_mtypes = plot_mtype_highlights(search_data, args,
                                         mtype_choice='Best')
 
     for gene_mtype in gene_mtypes:
+        print('Plotting performance of the neighbourhood of mtype {} ...'\
+                .format(gene_mtype))
         _ = plot_mtype_highlights(search_data, args, mtype_choice=gene_mtype)
-
-    acc_data, coef_data = utils.depict_output(
-        os.path.join(base_dir, 'output',
-                     args.cohort, args.classif, 'portray')
-        )
-
-    plot_coef_heatmap(coef_data, args)
-    plot_coef_heatmap(coef_data, args, auc_cutoff=0.85, acc_data=acc_data)
-    plot_coef_heatmap(coef_data, args, auc_cutoff=0.9, acc_data=acc_data)
 
 
 if __name__ == '__main__':

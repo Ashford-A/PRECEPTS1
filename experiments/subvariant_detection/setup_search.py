@@ -1,4 +1,19 @@
 
+"""Enumerating the sub-types in a cohort to be tested by a classifier.
+
+Examples:
+    python setup_search.py BRCA Lasso
+    python setup_search.py COAD rForest
+    python setup_search.py UCEC ElasticNet -v
+    python setup_search.py BRCA GradBoost --freq_cutoff=20
+    python setup_search.py OV Lasso --mut_levels Protein
+    python setup_search.py LAML Ridge --max_genes=25 --comb_size=4
+    python setup_search.py LUAD rForest \
+            --freq_cutoff=15 --max_genes=70 \
+            --comb_size=3 --mut_levels Form Location
+
+"""
+
 import os
 base_dir = os.path.dirname(__file__)
 
@@ -102,6 +117,9 @@ def main():
         print("Found {} candidate genes with at least {} potential "
               "mutated samples.".format(len(common_genes), count_cutoff))
 
+    # if too many genes passed the frequency cutoff, use only the top n by
+    # frequency - note that ties are broken arbitrarily and so the list of
+    # genes chosen will differ slightly between runs
     if len(common_genes) >= args.max_genes:
         gene_counts = gene_counts[common_genes].sort_values(ascending=False)
         common_genes = set(gene_counts[:args.max_genes].index)
