@@ -40,7 +40,8 @@ mkdir -p $TEMPDIR/results
 # submits the script that enumerates the gene sub-variants to be considered
 srun -p=exacloud \
 	--output=$TEMPDIR/slurm/setup.txt --error=$TEMPDIR/slurm/setup.err \
-	python HetMan/experiments/subvariant_detection/setup_portray.py $cohort $classif 0.8
+	python HetMan/experiments/subvariant_detection/setup_portray.py \
+	$cohort $classif --auc_cutoff=0.8 -v
 
 sbatch HetMan/experiments/subvariant_detection/fit_portray.sh
 

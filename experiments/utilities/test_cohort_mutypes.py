@@ -146,8 +146,8 @@ def main():
     cdata = VariantCohort(
         cohort=args.cohort, mut_genes=list(use_genes),
         mut_levels=['Gene', 'Form_base', 'Exon', 'Protein'],
-        expr_source='Firehose', data_dir=firehose_dir,
-        cv_seed=(args.cv_id + 3) * 19, syn=syn
+        expr_source='Firehose', data_dir=firehose_dir, syn=syn,
+        cv_seed=(args.cv_id + 3) * 19, cv_prop=2/3
         )
 
     if args.verbose:
@@ -157,7 +157,7 @@ def main():
                     args.cohort, len(cdata.samples)
                     ))
 
-    # intialize the dictionary that will store classification performances
+    # initialize the dictionary that will store classification performances
     out_acc = {mtype: -1 for mtype in mtype_list}
 
     # for each sub-variants, check if it has been assigned to this task

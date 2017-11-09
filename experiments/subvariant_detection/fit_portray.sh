@@ -3,10 +3,10 @@
 #SBATCH --job-name=varportray-fit
 #SBATCH --partition=exacloud
 
-#SBATCH --array=0-59
+#SBATCH --array=0-29
 #SBATCH --time=1200
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=12
+#SBATCH --cpus-per-task=16
 #SBATCH --mem-per-cpu=4000
 
 #SBATCH --output=/home/exacloud/lustre1/CompBio/mgrzad/slurm/log-files/varportray-fit_out-%A.txt
@@ -24,12 +24,12 @@ echo $cohort
 echo $classif
 
 # pause between starting array jobs to ease load when downloading -omic datasets
-sleep $(($SLURM_ARRAY_TASK_ID * 13));
+sleep $(($SLURM_ARRAY_TASK_ID * 17));
 
 # get the cross-validation ID and sub-variant sub-task ID defined by this
 # job's SLURM array ID
-cv_id=$(($SLURM_ARRAY_TASK_ID / 6));
-task_id=$(($SLURM_ARRAY_TASK_ID % 6));
+cv_id=$(($SLURM_ARRAY_TASK_ID / 3));
+task_id=$(($SLURM_ARRAY_TASK_ID % 3));
 
 # find the expression effects for the training/testing cohort split defined
 # by the cross-validation ID and the sub-variant subset defined by the sub-task ID
@@ -37,5 +37,5 @@ srun -p=exacloud \
 	--output=$TEMPDIR/slurm/fit-${cv_id}_${task_id}.txt \
 	--error=$TEMPDIR/slurm/fit-${cv_id}_${task_id}.err \
 	python HetMan/experiments/utilities/depict_cohort_mutypes.py \
-	$TEMPDIR $cohort $classif $cv_id $task_id
+	$TEMPDIR $cohort $classif $cv_id $task_id -v
 

@@ -79,7 +79,7 @@ def load_output(out_dir):
 
         coef_data += [coef_mat / 10.0]
 
-    coef_data = pd.concat(coef_data, axis=1).fillna(0.0)
+    coef_data = pd.concat(coef_data, axis=0).fillna(0.0)
 
     return acc_data, coef_data
 

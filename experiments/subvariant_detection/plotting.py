@@ -94,8 +94,9 @@ def plot_mtype_highlights(out_data, args, mtype_choice='Genes'):
                 args.cohort, args.classif, mtype_choice)),
         dpi=600, bbox_inches='tight'
         )
-
     plt.close()
+
+    return use_mtypes
 
 
 def plot_auc_distribution(out_data, args):
@@ -117,7 +118,7 @@ def plot_auc_distribution(out_data, args):
 
     plt.savefig(
         os.path.join(
-            plot_dir, 'mtype-performance_{}_{}.png'.format(
+            plot_dir, 'mtype-performance_{}-{}.png'.format(
                 args.cohort, args.classif)),
         dpi=500, bbox_inches='tight'
         )
@@ -127,23 +128,35 @@ def plot_auc_distribution(out_data, args):
 def plot_coef_heatmap(coef_data, args, auc_cutoff=None, acc_data=None):
 
     if auc_cutoff is None:
-        plot_file = "mtype-coefs_{}_{}.png".format(args.cohort, args.classif)
+        plot_file = "mtype-coefs_{}-{}.png".format(args.cohort, args.classif)
         use_mtypes = coef_data.index
 
     else:
-        plot_file = "mtype-coefs_{}_{}_auc-cutoff-{}.png".format(
+        plot_file = "mtype-coefs_{}-{}_auc-cutoff-{}.png".format(
                 args.cohort, args.classif, auc_cutoff)
         use_mtypes = acc_data.index[acc_data.mean(axis=1) > auc_cutoff]
 
-    use_data = coef_data.loc[use_mtypes, coef_data.max(axis=0) > 0.01]
+    use_data = coef_data.loc[use_mtypes, :]
+    use_data = (use_data.transpose() / use_data.abs().max(axis=1)).transpose()
 
+    gene_means = use_data.abs().mean()
+    gene_vars = use_data.var()
+
+    if use_data.shape[1] > 100:
+        use_genes = set(
+            gene_means.sort_values(ascending=False)[:75].index.tolist()
+            + gene_vars.sort_values(ascending=False)[:75].index.tolist()
+            )
+
+    else:
+        use_genes = use_data.columns
+
+    use_data = use_data.loc[:, use_genes]
     sns.set_context("paper")
 
-    sig_plot = sns.clustermap(
-        use_data, method='centroid',
-        cmap=sns.cubehelix_palette(light=1, as_cmap=True),
-        figsize=(33, 17)
-        )
+    sig_plot = sns.clustermap(use_data,
+                              method='centroid', center=0, cmap="coolwarm_r",
+                              figsize=(33, 17))
 
     sig_plot.savefig(os.path.join(plot_dir, plot_file))
 
@@ -162,21 +175,18 @@ def main():
 
     plot_auc_distribution(search_data, args)
 
-    plot_mtype_highlights(search_data, args, mtype_choice='Genes')
-    plot_mtype_highlights(search_data, args, mtype_choice='Best')
+    gene_mtypes = plot_mtype_highlights(search_data, args,
+                                        mtype_choice='Genes')
+    best_mtypes = plot_mtype_highlights(search_data, args,
+                                        mtype_choice='Best')
 
-    plot_mtype_highlights(search_data, args,
-                          mtype_choice=MuType({('Gene', 'TP53'): None}))
-    plot_mtype_highlights(search_data, args,
-                          mtype_choice=MuType({('Gene', 'KRAS'): None}))
-    plot_mtype_highlights(search_data, args,
-                          mtype_choice=MuType({('Gene', 'CDKN2A'): None}))
-    plot_mtype_highlights(search_data, args,
-                          mtype_choice=MuType({('Gene', 'SMAD4'): None}))
+    for gene_mtype in gene_mtypes:
+        _ = plot_mtype_highlights(search_data, args, mtype_choice=gene_mtype)
 
     acc_data, coef_data = utils.depict_output(
         os.path.join(base_dir, 'output',
-                     args.cohort, args.classif, 'portray'))
+                     args.cohort, args.classif, 'portray')
+        )
 
     plot_coef_heatmap(coef_data, args)
     plot_coef_heatmap(coef_data, args, auc_cutoff=0.85, acc_data=acc_data)
