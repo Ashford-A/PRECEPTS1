@@ -91,17 +91,18 @@ class ElasticNet(MutPipe, LinearPipe):
     tune_priors = (
         ('fit__alpha', stats.lognorm(scale=exp(1), s=exp(1))),
         ('fit__l1_ratio', (0.05, 0.25, 0.5, 0.75, 0.95))
-    )
+        )
 
     def __init__(self, path_keys=None):
         feat_step = PathwaySelect(path_keys=path_keys)
         norm_step = StandardScaler()
         fit_step = SGDClassifier(loss='log', penalty='elasticnet',
-                                 n_iter=100, class_weight='balanced')
+                                 max_iter=500, class_weight='balanced')
 
-        super().__init__([('feat', feat_step),
-                          ('norm', norm_step), ('fit', fit_step)],
-                         path_keys=path_keys)
+        super().__init__(
+            [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],
+            path_keys=path_keys
+            )
 
 
 class Ridge(MutPipe, LinearPipe):
@@ -182,8 +183,7 @@ class GradBoost(MutPipe, EnsemblePipe):
         norm_step = StandardScaler()
         fit_step = GradientBoostingClassifier(n_estimators=200)
 
-        MutPipe.__init__(
-            self,
+        super().__init__(
             [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],
             path_keys
             )
@@ -205,8 +205,7 @@ class rForest(MutPipe, EnsemblePipe):
         fit_step = RandomForestClassifier(
                     n_estimators=500, class_weight='balanced')
 
-        MutPipe.__init__(
-            self,
+        super().__init__(
             [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],
             path_keys
             )
@@ -226,8 +225,8 @@ class KNeigh(MutPipe):
         norm_step = StandardScaler()
         fit_step = KNeighborsClassifier(
             weights='distance', algorithm='ball_tree')
-        MutPipe.__init__(
-            self,
+
+        super().__init__(
             [('feat', feat_step), ('norm', norm_step), ('fit', fit_step)],
             path_keys
             )

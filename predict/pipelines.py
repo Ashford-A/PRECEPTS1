@@ -408,9 +408,19 @@ class EnsemblePipe(UniPipe):
 
     """
 
+    def fit(self, X, y=None, **fit_params):
+        self.effect_direct = [
+            ((X.iloc[y.flatten(), i].mean() - X.iloc[~y.flatten(), i].mean())
+             > 0)
+            for i in range(X.shape[1])
+            ]
+
+        return super().fit(X, y, **fit_params)
+
     def get_coef(self):
-        return {gene: coef for gene, coef in
-                zip(self.genes, self.named_steps['fit'].feature_importances_)}
+        return {gene: coef * (2 * direct - 1) for gene, coef, direct in
+                zip(self.genes, self.named_steps['fit'].feature_importances_,
+                    self.effect_direct)}
 
 
 class TransferPipe(OmicPipe):
@@ -576,9 +586,11 @@ class PresencePipe(OmicPipe):
     """
 
     def __init__(self, steps, path_keys=None):
-        if not hasattr(steps[-1][-1], 'predict_proba'):
+        if not (hasattr(steps[-1][-1], 'predict_proba')
+                or 'predict_proba' not in steps[-1][-1].__class__.__dict__):
+
             raise PipelineError(
-                "Variant pipelines must have a classification estimator"
+                "Variant pipelines must have a classification estimator "
                 "with a 'predict_proba' method as their final step!"
                 )
 
@@ -650,4 +662,8 @@ class MutPipe(UniPipe, VariantPipe):
     def extra_fit_params(cls, cohort):
         return {'mut_genes': cohort.mut_genes,
                 'path_obj': cohort.path}
+
+
+class MultiPresencePipe(MultiPipe, PresencePipe):
+    pass
 

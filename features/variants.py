@@ -384,12 +384,20 @@ class MuTree(object):
 
         return new_muts
 
-    def __new__(cls, muts, levels=('Gene', 'Form'), **kwargs):
+    def __new__(cls, muts=None, levels=('Gene', 'Form'), **kwargs):
         """Given a list of mutations and a set of mutation levels, determines
            whether a mutation tree should be built, or a frozenset returned,
            presumably as a branch of another MuTree.
-
         """
+
+        # used for eg. copying
+        if muts is None:
+            return super(MuTree, cls).__new__(cls)
+
+        # checks mutation table for proper format
+        if not isinstance(muts, pd.DataFrame):
+            raise TypeError("Mutation table must be a pandas DataFrame!")
+
         if 'Sample' not in muts:
             raise ValueError("Mutation table must have a 'Sample' field!")
 
@@ -639,13 +647,19 @@ class MuTree(object):
 
             if isinstance(mut, MuTree):
                 new_samps = mut.get_samples() & set(samps)
+
                 if new_samps:
                     new_child[nm] = mut.subtree(new_samps)
+                else:
+                    del(new_child[nm])
 
             elif isinstance(mut, frozenset):
                 new_samps = mut & frozenset(samps)
+
                 if new_samps:
                     new_child[nm] = new_samps
+                else:
+                    del(new_child[nm])
 
             else:
                 pass
