@@ -1,29 +1,62 @@
 
+"""Plots the results of searching for classifiable sub-types in a cohort.
+
+Examples:
+    plot_search.py PAAD Lasso
+    plot_search.py BRCA ElasticNet
+    plot_search.py OV rForest
+
+"""
+
 import os
 import sys
 
 base_dir = os.path.dirname(os.path.realpath(__file__))
-plot_dir = os.path.join(base_dir, 'plots')
+plot_dir = os.path.join(base_dir, 'plots', 'search')
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
 from HetMan.experiments.utilities import test_output
+from HetMan.features.cohorts import VariantCohort
 from HetMan.features.variants import MuType
 
 import numpy as np
 import pandas as pd
+
 import argparse
+import synapseclient
 
 import matplotlib as mpl
 mpl.use('Agg')
+import seaborn as sns
 
 import matplotlib.pyplot as plt
 plt.style.use('fivethirtyeight')
-import seaborn as sns
+import colorsys
+
+from functools import reduce
+from operator import or_
+
+from math import log
+from scipy.stats import fisher_exact
+
+firehose_dir = '/home/exacloud/lustre1/CompBio/mgrzad/input-data/firehose'
 
 
-def plot_auc_distribution(out_data, args):
+def plot_auc_distribution(out_data, args, mtype_choice=None, cdata=None):
+
+    if mtype_choice is None != cdata is None:
+        raise ValueError("Both or neither mtype and cdata must be specified!")
 
     fig, ax = plt.subplots(nrows=1, ncols=1)
+
+    if mtype_choice is None:
+        plot_fl = 'mtype-performance_{}-{}.png'.format(
+            args.cohort, args.classif)
+
+    else:
+        plot_fl = 'mtype-performance_{}-{}_{}.png'.format(
+            args.cohort, args.classif, mtype_choice)
+        choice_samps = mtype_choice.get_samples(cdata.train_mut)
 
     med_perf = out_data.quantile(q=0.5, axis=1)
     top_perf = out_data.max(axis=1) - med_perf
@@ -38,8 +71,41 @@ def plot_auc_distribution(out_data, args):
     bot_perf = bot_perf[sort_indx]
     err_arr = np.array(pd.concat([bot_perf, top_perf], axis=1).transpose())
 
-    ax.errorbar(x=range(out_data.shape[0]), y=sort_perf, yerr=err_arr,
-                elinewidth=0.7, alpha=0.5, color='#726437')
+    for i, mtype in enumerate(sort_perf.index):
+        if mtype_choice is None:
+            ax.errorbar(
+                x=i, y=sort_perf[i], yerr=err_arr[:, i].reshape(-1, 1),
+                fmt='o', ms=2, elinewidth=0.9, alpha=0.2, color='#726437'
+                )
+
+        else:
+            cur_samps = mtype.get_samples(cdata.train_mut)
+            both_samps = choice_samps & cur_samps
+            or_samps = choice_samps | cur_samps
+
+            ovlp_val = fisher_exact(
+                [[len(both_samps), len(cur_samps - both_samps)],
+                 [len(choice_samps - both_samps),
+                  len(cdata.samples - or_samps)]],
+                alternative='greater'
+                )[0]
+            sub_val = log(len(cur_samps) / len(choice_samps), 2)
+
+            clr_h = 300 + sub_val * 35
+            clr_l = 75 - min(ovlp_val, 25) * 3
+            clr_s = min(ovlp_val, 5) * 20
+
+            plt_size = min(ovlp_val, 20) ** 0.5 / 3.5
+            plt_clr = colorsys.hls_to_rgb(
+                clr_h / 360, clr_l / 100, clr_s / 100)
+            plt_alpha = 0.02 + min(ovlp_val, 16) / 35
+            import pdb; pdb.set_trace()
+
+            ax.errorbar(
+                x=i, y=sort_perf[i], yerr=err_arr[:, i].reshape(-1, 1),
+                elinewidth=plt_size, fmt='o', ms=2 * plt_size,
+                alpha=plt_alpha, color=plt_clr
+                )
 
     plt.xlim(out_data.shape[0] / -125, out_data.shape[0] * (126/125))
     plt.ylim(-0.02, 1.02)
@@ -53,11 +119,8 @@ def plot_auc_distribution(out_data, args):
                 linewidth=1, linestyle='--')
 
     fig.set_size_inches(out_data.shape[0] ** 0.9 / 125, 9)
-    plt.savefig(os.path.join(
-        plot_dir, 'mtype-performance_{}-{}.png'.format(
-            args.cohort, args.classif)
-        ),
-        dpi=600, bbox_inches='tight')
+    plt.savefig(os.path.join(plot_dir, plot_fl),
+                dpi=600, bbox_inches='tight')
     plt.close()
 
 
@@ -136,6 +199,7 @@ def plot_mtype_highlights(out_data, args, mtype_choice='Genes'):
 
 
 def main():
+    """Creates plots for the given combination of cohort and classifier."""
 
     # parses command line arguments
     parser = argparse.ArgumentParser(description='Process plotting options.')
@@ -144,23 +208,41 @@ def main():
                         help='a classifier in HetMan.predict.classifiers')
     args = parser.parse_args()
 
+    # reads in experiment data, finds the genes with at least one mutation
+    # sub-type that was tested during the search
     search_data = test_output(os.path.join(
         base_dir, 'output', args.cohort, args.classif, 'search'))
+    use_genes = reduce(or_, [set(gn for gn, _ in mtype.subtype_list())
+                             for mtype in search_data.index])
 
-    print('Plotting distribution of mtype performance...')
+    # logs into Synapse using locally-stored credentials
+    syn = synapseclient.Synapse()
+    syn.cache.cache_root_dir = ("/home/exacloud/lustre1/CompBio/"
+                                "mgrzad/input-data/synapse")
+    syn.login()
+
+    cdata = VariantCohort(
+        cohort=args.cohort, mut_genes=list(use_genes),
+        mut_levels=['Gene', 'Form_base', 'Exon', 'Protein'],
+        expr_source='Firehose', data_dir=firehose_dir, syn=syn, cv_prop=1.0
+        )
+
+    print('Plotting distribution of sub-type performance...')
     plot_auc_distribution(search_data, args)
 
-    print('Plotting performance of single-gene mtypes...')
+    print('Plotting performance of single-gene sub-types...')
     gene_mtypes = plot_mtype_highlights(search_data, args,
                                         mtype_choice='Genes')
 
-    print('Plotting performance of the best mtypes...')
+    print('Plotting performance of the best sub-types...')
     best_mtypes = plot_mtype_highlights(search_data, args,
                                         mtype_choice='Best')
 
     for gene_mtype in gene_mtypes:
-        print('Plotting performance of the neighbourhood of mtype {} ...'\
+        print('Plotting performance of sub-types related to {} ...'\
                 .format(gene_mtype))
+        plot_auc_distribution(search_data, args,
+                              mtype_choice=gene_mtype, cdata=cdata)
         _ = plot_mtype_highlights(search_data, args, mtype_choice=gene_mtype)
 
 

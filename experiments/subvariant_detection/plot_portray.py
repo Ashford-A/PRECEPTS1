@@ -1,9 +1,18 @@
 
+"""Plots the results of describing the classification signatures of sub-types.
+
+Examples:
+    plot_portray.py LUAD ElasticNet
+    plot_portray.py BRCA Ridge
+    plot_portray.py THCA GradBoost
+
+"""
+
 import os
 import sys
 
 base_dir = os.path.dirname(os.path.realpath(__file__))
-plot_dir = os.path.join(base_dir, 'plots')
+plot_dir = os.path.join(base_dir, 'plots', 'portray')
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
 import HetMan.experiments.utilities import depict_output
@@ -21,6 +30,12 @@ import seaborn as sns
 
 
 def plot_coef_heatmap(coef_data, args, auc_cutoff=None, acc_data=None):
+
+    if auc_cutoff is None != acc_data is None:
+        raise ValueError(
+            "If an AUC cutoff is specified, sub-type classification "
+            "performance must be specified as well!"
+            )
 
     if auc_cutoff is None:
         plot_file = "mtype-coefs_{}-{}.png".format(args.cohort, args.classif)
@@ -57,6 +72,7 @@ def plot_coef_heatmap(coef_data, args, auc_cutoff=None, acc_data=None):
 
 
 def main():
+    """Creates plots for the given combination of cohort and classifier."""
 
     # parses command line arguments
     parser = argparse.ArgumentParser(description='Process plotting options.')
