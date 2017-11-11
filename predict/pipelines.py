@@ -324,6 +324,26 @@ class OmicPipe(Pipeline):
         else:
             return self.score(test_omics, test_pheno)
 
+    def tune_fit_eval(self,
+                      cohort, pheno,
+                      tune_splits=2, test_count=8, parallel_jobs=16,
+                      include_samps=None, exclude_samps=None,
+                      include_genes=None, exclude_genes=None):
+
+        self.tune_coh(cohort, pheno, tune_splits, test_count, parallel_jobs,
+                      include_samps, exclude_samps,
+                      include_genes, exclude_genes)
+
+        self.fit_coh(cohort, pheno,
+                     include_samps, exclude_samps,
+                     include_genes, exclude_genes)
+
+        eval_score = self.eval_coh(cohort, pheno,
+                                   include_samps, exclude_samps,
+                                   include_genes, exclude_genes)
+
+        return eval_score
+
     def infer_coh(self,
                   cohort, pheno,
                   infer_splits=16,
@@ -587,7 +607,7 @@ class PresencePipe(OmicPipe):
 
     def __init__(self, steps, path_keys=None):
         if not (hasattr(steps[-1][-1], 'predict_proba')
-                or 'predict_proba' not in steps[-1][-1].__class__.__dict__):
+                or 'predict_proba' in steps[-1][-1].__class__.__dict__):
 
             raise PipelineError(
                 "Variant pipelines must have a classification estimator "

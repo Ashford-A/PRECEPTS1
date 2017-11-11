@@ -23,7 +23,7 @@ def main():
                         help='a classifier ijn HetMan.predict.classifiers')
 
     parser.add_argument(
-        '--auc_cutoff', type=float, default=0.8,
+        '--auc_cutoff', type=float, default=0.75,
         help='AUC classification performance threshold'
         )
 
@@ -41,11 +41,13 @@ def main():
     out_data = utils.test_output(os.path.join(
         base_dir, 'output', args.cohort, args.classif, 'search'))
     portray_mtypes = out_data.loc[
-        out_data.min(axis=1) > args.auc_cutoff, :].index
+        out_data.min(axis=1) >= args.auc_cutoff, :].index
 
-    print("Investigating {} sub-types that were found to have an AUC of at "
-          "least {} during the search phase."
-            .format(len(portray_mtypes), args.auc_cutoff))
+    if args.verbose:
+        print("Investigating {} sub-types that were found to have an AUC of "
+              "at least {} across all cross-validation folds during the "
+              "search phase."\
+                .format(len(portray_mtypes), args.auc_cutoff))
 
     # save the list of sub-types whose expression profile is to be portrayed
     # to file for use by further scripts

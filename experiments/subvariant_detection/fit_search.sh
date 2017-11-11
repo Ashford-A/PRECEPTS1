@@ -4,7 +4,7 @@
 #SBATCH --partition=exacloud
 
 #SBATCH --array=0-59
-#SBATCH --time=1200
+#SBATCH --time=1800
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem-per-cpu=4000

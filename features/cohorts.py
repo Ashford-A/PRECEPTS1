@@ -82,9 +82,9 @@ class Cohort(object):
         self.cohort_lbl = cohort_lbl
 
         if cv_seed is None:
-            self.cv_seed = cv_seed
-        else:
             self.cv_seed = 0
+        else:
+            self.cv_seed = cv_seed
 
     @staticmethod
     def split_samples(cv_seed, cv_prop, samps):

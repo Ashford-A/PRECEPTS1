@@ -99,7 +99,6 @@ def plot_auc_distribution(out_data, args, mtype_choice=None, cdata=None):
             plt_clr = colorsys.hls_to_rgb(
                 clr_h / 360, clr_l / 100, clr_s / 100)
             plt_alpha = 0.02 + min(ovlp_val, 16) / 35
-            import pdb; pdb.set_trace()
 
             ax.errorbar(
                 x=i, y=sort_perf[i], yerr=err_arr[:, i].reshape(-1, 1),
@@ -181,7 +180,7 @@ def plot_mtype_highlights(out_data, args, mtype_choice='Genes'):
     plt.yticks(fontsize=13)
 
     plt.xlim(-0.41, len(use_mtypes) - 0.59)
-    plt.ylim(use_data.min().min() - 0.02, 1.0)
+    plt.ylim(use_data.min().min() - 0.02, 1.02)
 
     plt.axhline(color='r', y=0.5, xmin=-1, xmax=len(use_mtypes) + 1,
                 linewidth=1.5, linestyle='--')

@@ -15,7 +15,7 @@ base_dir = os.path.dirname(os.path.realpath(__file__))
 plot_dir = os.path.join(base_dir, 'plots', 'portray')
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
-import HetMan.experiments.utilities import depict_output
+from HetMan.experiments.utilities import depict_output
 from HetMan.features.variants import MuType
 
 import numpy as np
@@ -24,9 +24,10 @@ import argparse
 
 import matplotlib as mpl
 mpl.use('Agg')
+import seaborn as sns
 
 import matplotlib.pyplot as plt
-import seaborn as sns
+plt.style.use('fivethirtyeight')
 
 
 def plot_coef_heatmap(coef_data, args, auc_cutoff=None, acc_data=None):
@@ -52,10 +53,10 @@ def plot_coef_heatmap(coef_data, args, auc_cutoff=None, acc_data=None):
     gene_means = use_data.abs().mean()
     gene_vars = use_data.var()
 
-    if use_data.shape[1] > 100:
+    if use_data.shape[1] > 120:
         use_genes = set(
-            gene_means.sort_values(ascending=False)[:75].index.tolist()
-            + gene_vars.sort_values(ascending=False)[:75].index.tolist()
+            gene_means.sort_values(ascending=False)[:80].index.tolist()
+            + gene_vars.sort_values(ascending=False)[:80].index.tolist()
             )
 
     else:
