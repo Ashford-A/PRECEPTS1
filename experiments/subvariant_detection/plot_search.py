@@ -43,6 +43,8 @@ firehose_dir = '/home/exacloud/lustre1/CompBio/mgrzad/input-data/firehose'
 
 
 def plot_auc_distribution(out_data, args, mtype_choice=None, cdata=None):
+    """Plots the range of AUCs across all tested sub-types.
+    """
 
     if mtype_choice is None != cdata is None:
         raise ValueError("Both or neither mtype and cdata must be specified!")
@@ -123,29 +125,88 @@ def plot_auc_distribution(out_data, args, mtype_choice=None, cdata=None):
     plt.close()
 
 
-def plot_mtype_highlights(out_data, args, mtype_choice='Genes'):
+def plot_mtype_highlights(out_data, args, mtype_choice='Genes', cdata=None):
+    """Compares the AUCs for a given subset of tested sub-types.
+    """
 
     fig, ax = plt.subplots(nrows=1, ncols=1)
     use_data = out_data.apply(sorted, axis=1)
     mtype_means = use_data.mean(axis=1)
 
+    # highlights subsets and supersets of a given sub-type
     if isinstance(mtype_choice, MuType):
+        choice_samps = mtype_choice.get_samples(cdata.train_mut)
+
+        # finds the tested sub-types that are subsets of the given sub-type
         use_mtypes = sorted([mtype for mtype in use_data.index
                              if mtype_choice.is_supertype(mtype)
                              and mtype != mtype_choice],
-                            key=lambda x: mtype_means[x])
+                            key=lambda x: mtype_means[x]) + [mtype_choice]
 
-        use_mtypes += [mtype_choice]
+        # subset sub-types are given a background shade corresponding to how
+        # many samples they contain
+        for i, mtype in enumerate(use_mtypes[:-1]):
+            sub_val = (len(mtype.get_samples(cdata.train_mut))
+                       / len(choice_samps))
+
+            clr_s = sub_val ** 1.5
+            plt_a = 0.07 + sub_val / 5.5
+            plt_clr = colorsys.hls_to_rgb(240 / 360, 0.5, clr_s)
+
+            ax.add_patch(mpl.patches.Rectangle(
+                (i - 0.5, -0.5), 1, 2,
+                fill=True, edgecolor='none', facecolor=plt_clr,
+                alpha=plt_a, zorder=500
+                ))
+
+        sub_indx = len(use_mtypes)
+        plt_clr = colorsys.hls_to_rgb(240 / 360, 0.5, 1.0)
         ax.add_patch(mpl.patches.Rectangle(
-            (len(use_mtypes) - 1.49, 0), 0.98, 1,
-            fill=True, color='blue', alpha=0.1, zorder=500
+            (sub_indx - 1.5, -0.5), 1, 2,
+            fill=True, lw=2, color=plt_clr, linestyle=':',
+            alpha=0.3, zorder=500
             ))
 
+        # finds the tested sub-types that are supersets of the given sub-type
         use_mtypes += sorted([mtype for mtype in use_data.index
                               if mtype.is_supertype(mtype_choice)
                               and mtype != mtype_choice],
                              key=lambda x: mtype_means[x], reverse=True)
 
+        # superset sub-types are given a background shade corresponding to the
+        # degree of overlap between the given sub-type and the other sub-type
+        for i, mtype in enumerate(use_mtypes[sub_indx:]):
+            cur_samps = (mtype - mtype_choice).get_samples(cdata.train_mut)
+            both_samps = choice_samps & cur_samps
+            or_samps = choice_samps | cur_samps
+
+            ovlp_test = fisher_exact(
+                [[len(both_samps), len(cur_samps - both_samps)],
+                 [len(choice_samps - both_samps),
+                  len(cdata.samples - or_samps)]],
+                alternative='two-sided'
+                )
+
+            ovlp_val = log(max(ovlp_test[0], 20 ** -6), 20)
+            ovlp_val *= 2 * (ovlp_test[1] > 0.5) - 1
+
+            if ovlp_val > 6:
+                ovlp_val = 6
+            elif ovlp_val < -6:
+                ovlp_val = -6
+
+            clr_h = 240 + (6 - ovlp_val) * 10
+            clr_s = abs(ovlp_val) / 6
+            plt_a = 0.07 + abs(ovlp_val) / 33
+            plt_clr = colorsys.hls_to_rgb(clr_h / 360, 0.5, clr_s)
+
+            ax.add_patch(mpl.patches.Rectangle(
+                (i + sub_indx - 0.5, -0.5), 1, 2,
+                fill=True, edgecolor='none', facecolor=plt_clr,
+                alpha=plt_a, zorder=500
+                ))
+
+    # highlights the sub-types corresponding to mutations of a single gene
     elif mtype_choice == 'Genes':
         use_mtypes = [
             mtype for mtype in use_data.index
@@ -154,6 +215,7 @@ def plot_mtype_highlights(out_data, args, mtype_choice='Genes'):
         use_mtypes = sorted(use_mtypes,
                             key=lambda x: mtype_means[x], reverse=True)
 
+    # highlights the top twenty sub-types by average performance
     elif mtype_choice == 'Best':
         use_mtypes = mtype_means.sort_values(ascending=False)[:20].index
 
@@ -161,29 +223,43 @@ def plot_mtype_highlights(out_data, args, mtype_choice='Genes'):
         raise ValueError("Unrecognized mtype_choice argument!")
 
     use_data = use_data.loc[use_mtypes, :]
-    ax.plot(use_data.iloc[:, 0].values,
-            '.', color='black', ms=4)
+    plot_min = use_data.min().min()
+    plot_gap = (1 - plot_min) / 31
+
+    # plots the median AUC and the top/bottom AUCs for each sub-type across
+    # the cross-validation folds used in testing
     ax.plot(use_data.iloc[:, 2].values,
             '_', color='#9CADB5', ms=9, mew=2.5)
+    ax.plot(use_data.iloc[:, 0].values,
+            '.', color='black', ms=4)
     ax.plot(use_data.iloc[:, 4].values,
             '.', color='black', ms=4)
 
-    for i in range(len(use_mtypes)):
+    # plots a box between the 20th and 80th percentiles of performance for
+    # as well as the number of mutated samples for each sub-type
+    for i, mtype in enumerate(use_mtypes):
         ax.add_patch(mpl.patches.Rectangle(
             (i - 0.15, use_data.iloc[i, 1]),
             0.3, use_data.iloc[i, 3] - use_data.iloc[i, 1],
             fill=True, color='0.3', alpha=0.2, zorder=1000
             ))
 
+        ax.text(x=i, y=1,
+                s='({})'.format(len(mtype.get_samples(cdata.train_mut))),
+                fontsize=8, rotation=-45, ha='center')
+
+    ax.text(x=(len(use_mtypes) - 1) / 2, y=1 + plot_gap, s='Samples',
+            fontsize=11, ha='center')
+
     plt.xticks(np.arange(len(use_mtypes)), use_mtypes,
                fontsize=10, rotation=45, ha='right')
     plt.yticks(fontsize=13)
 
     plt.xlim(-0.41, len(use_mtypes) - 0.59)
-    plt.ylim(use_data.min().min() - 0.02, 1.02)
+    plt.ylim(use_data.min().min() - plot_gap, 1 + plot_gap * 2)
 
     plt.axhline(color='r', y=0.5, xmin=-1, xmax=len(use_mtypes) + 1,
-                linewidth=1.5, linestyle='--')
+                linewidth=0.9, linestyle='--')
     plt.ylabel('AUC', fontsize=25)
 
     fig.set_size_inches(len(use_mtypes) ** 0.9 / 2.5, 9)
@@ -231,18 +307,20 @@ def main():
 
     print('Plotting performance of single-gene sub-types...')
     gene_mtypes = plot_mtype_highlights(search_data, args,
-                                        mtype_choice='Genes')
+                                        mtype_choice='Genes', cdata=cdata)
 
     print('Plotting performance of the best sub-types...')
     best_mtypes = plot_mtype_highlights(search_data, args,
-                                        mtype_choice='Best')
+                                        mtype_choice='Best', cdata=cdata)
 
     for gene_mtype in gene_mtypes:
         print('Plotting performance of sub-types related to {} ...'\
                 .format(gene_mtype))
+
         plot_auc_distribution(search_data, args,
                               mtype_choice=gene_mtype, cdata=cdata)
-        _ = plot_mtype_highlights(search_data, args, mtype_choice=gene_mtype)
+        _ = plot_mtype_highlights(search_data, args,
+                                  mtype_choice=gene_mtype, cdata=cdata)
 
 
 if __name__ == '__main__':
