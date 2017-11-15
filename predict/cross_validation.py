@@ -36,9 +36,10 @@ from sklearn.metrics.scorer import check_scoring
 
 
 def cross_val_predict_omic(estimator, X, y=None, groups=None,
-                           exclude_samps=None, cv_fold=4, cv_count=16,
-                           n_jobs=1, verbose=0, fit_params=None,
-                           pre_dispatch='2*n_jobs', random_state=None):
+                           force_test_samps=None,
+                           cv_fold=4, cv_count=16, n_jobs=1, fit_params=None,
+                           pre_dispatch='2*n_jobs', random_state=None,
+                           verbose=0):
     """Generates predicted mutation states for samples using internal
        cross-validation via repeated stratified K-fold sampling.
     """
@@ -48,31 +49,30 @@ def cross_val_predict_omic(estimator, X, y=None, groups=None,
         raise ValueError("The number of folds should evenly divide the total"
                          "number of cross-validation splits.")
     cv_rep = int(cv_count / cv_fold)
-
-    # checks that the given estimator can predict continuous mutation states
-    if not callable(getattr(estimator, 'predict_proba')):
-        raise AttributeError('predict_proba not implemented in estimator')
-
-    # gets absolute indices for samples to train and test over
     X, y, groups = indexable(X, y, groups)
-    if exclude_samps is None:
-        exclude_samps = []
+    y = y.reshape(-1)
+
+    if force_test_samps is None:
+        train_samps_indx = np.arange(X.shape[0])
+        test_samps_indx = np.array()
+
     else:
-        exclude_samps = list(set(exclude_samps) - set(X.index[y]))
-    use_samps = list(set(X.index) - set(exclude_samps))
-    use_samps_indx = X.index.get_indexer_for(use_samps)
-    ex_samps_indx = X.index.get_indexer_for(exclude_samps)
+        train_samps = list(set(X.index) - set(force_test_samps))
+        test_samps = list(set(force_test_samps) - set(X.index[y]))
+        train_samps_indx = X.index.get_indexer_for(train_samps)
+        test_samps_indx = X.index.get_indexer_for(test_samps)
 
     # generates the training/prediction splits
     cv_iter = []
     for i in range(cv_rep):
         cv = StratifiedKFold(n_splits=cv_fold, shuffle=True,
-                             random_state=(random_state * i) % 12949671)
+                             random_state=(random_state ** i) % 12949671)
+
         cv_iter += [
-            (use_samps_indx[train],
-             np.append(use_samps_indx[test], ex_samps_indx))
-            for train, test in cv.split(X.ix[use_samps_indx, :],
-                                        np.array(y)[use_samps_indx],
+            (train_samps_indx[train],
+             np.append(train_samps_indx[test], test_samps_indx))
+            for train, test in cv.split(X.iloc[train_samps_indx, :],
+                                        y[train_samps_indx],
                                         groups)
             ]
 
@@ -80,27 +80,27 @@ def cross_val_predict_omic(estimator, X, y=None, groups=None,
     # remaining cohort
     parallel = Parallel(n_jobs=n_jobs, verbose=verbose,
                         pre_dispatch=pre_dispatch)
-    prediction_blocks = parallel(delayed(_fit_and_predict)(
-        clone(estimator), X, y,
-        train, test, verbose, fit_params, 'predict_proba')
-                                 for train, test in cv_iter)
+    prediction_blocks = parallel(delayed(
+        _omic_fit_and_predict)(clone(estimator), X, y,
+                               train, test, verbose, fit_params)
+        for train, test in cv_iter
+        )
 
     # consolidates the predictions into an array
     pred_mat = [[] for _ in range(X.shape[0])]
     for i in range(cv_rep):
         predictions = np.concatenate(
-            [pred_block_i for pred_block_i, _
-             in prediction_blocks[(i * cv_fold):((i + 1) * cv_fold)]])
+            prediction_blocks[(i * cv_fold):((i + 1) * cv_fold)])
+
         test_indices = np.concatenate(
             [indices_i for _, indices_i
-             in prediction_blocks[(i * cv_fold):((i + 1) * cv_fold)]]
+             in cv_iter[(i * cv_fold):((i + 1) * cv_fold)]]
             )
 
         for j in range(X.shape[0]):
-            pred_mat[j] += list(predictions[test_indices == j, 1])
+            pred_mat[j] += predictions[test_indices == j, 0].tolist()
 
     return pred_mat
-
 
 def omic_indexable(expr, omic):
     """Make arrays indexable for cross-validation.
@@ -164,6 +164,21 @@ def check_consistent_omic_length(expr, omic):
     #    raise ValueError("Found input variables with inconsistent numbers of"
     #                     " samples: %r" % [int(l) for l in omic_lengths])
 
+def _omic_fit_and_predict(estimator, X, y, train, test, verbose, fit_params):
+
+    fit_params = fit_params if fit_params is not None else {}
+    fit_params = dict([(k, _index_param_value(X, v, train))
+                      for k, v in fit_params.items()])
+
+    X_train, y_train = _omic_safe_split(estimator, X, y, train)
+    X_test, _ = _omic_safe_split(estimator, X, y, test, train)
+
+    if y_train is None:
+        estimator.fit(X_train, **fit_params)
+    else:
+        estimator.fit(X_train, y_train, **fit_params)
+
+    return estimator.predict_omic(X_test)
 
 def _omic_fit_and_score(estimator, X, y, scorer, train, test, verbose,
                        parameters, fit_params, return_train_score=False,

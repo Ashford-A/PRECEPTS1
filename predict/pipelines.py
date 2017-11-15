@@ -345,20 +345,23 @@ class OmicPipe(Pipeline):
         return eval_score
 
     def infer_coh(self,
-                  cohort, pheno,
-                  infer_splits=16,
+                  cohort, pheno, force_test_samps=None,
+                  infer_splits=16, infer_folds=4, parallel_jobs=8,
                   include_samps=None, exclude_samps=None,
                   include_genes=None, exclude_genes=None):
-        omics = cohort.train_omics(include_samps, exclude_samps,
-                                   include_genes, exclude_genes)
-        pheno_types = cohort.train_pheno(pheno, omics.index)
 
-        return cross_val_predict_mut(
-            estimator=self,
-            X=omics, y=pheno_types,
-            cv_fold=5, cv_count=infer_splits,
+        train_omics, train_pheno = cohort.train_data(
+            pheno,
+            include_samps, exclude_samps,
+            include_genes, exclude_genes
+            )
+
+        return cross_val_predict_omic(
+            estimator=self, X=train_omics, y=train_pheno,
+            force_test_samps=force_test_samps,
+            cv_fold=infer_folds, cv_count=infer_splits, n_jobs=parallel_jobs,
             fit_params=self.extra_fit_params(cohort),
-            random_state=int(cohort.intern_cv_ ** 1.5) % 42949672, n_jobs=-1
+            random_state=int(cohort.cv_seed ** 1.5) % 42949672,
             )
 
     def get_coef(self):
