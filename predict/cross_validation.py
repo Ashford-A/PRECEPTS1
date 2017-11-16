@@ -57,10 +57,9 @@ def cross_val_predict_omic(estimator, X, y=None, groups=None,
         test_samps_indx = np.array()
 
     else:
-        train_samps = list(set(X.index) - set(force_test_samps))
-        test_samps = list(set(force_test_samps) - set(X.index[y]))
+        train_samps = set(X.index) - set(force_test_samps)
         train_samps_indx = X.index.get_indexer_for(train_samps)
-        test_samps_indx = X.index.get_indexer_for(test_samps)
+        test_samps_indx = X.index.get_indexer_for(force_test_samps)
 
     # generates the training/prediction splits
     cv_iter = []
