@@ -35,13 +35,14 @@ def load_output(out_dir):
 
     for mtypes in out_list[0]:
         out_dict[mtypes] = {}
-        for cx_type in out_list[0][mtypes]:
-            out_dict[mtypes][cx_type] = [
-                np.mean(reduce(add, x)) for x in zip(*[ols[mtypes]['Diff']
-                                                       for ols in out_list])
-                ]
 
-    return pd.DataFrame.from_dict(out_dict)
+        for cx_type in out_list[0][mtypes]:
+            out_dict[mtypes][cx_type] = np.array([
+                np.mean(reduce(add, x)) for x in zip(*[ols[mtypes][cx_type]
+                                                       for ols in out_list])
+                ])
+
+    return pd.DataFrame.from_dict(out_dict).T
 
 
 def main():
