@@ -29,17 +29,36 @@ plt.style.use('fivethirtyeight')
 from functools import reduce
 from operator import add
 from itertools import product, cycle
+from itertools import combinations as combn
 
 firehose_dir = '/home/exacloud/lustre1/CompBio/mgrzad/input-data/firehose'
 
 
-def plot_comb_distribution(out_data, args, cdata, use_mtypes):
+def plot_comb_distribution(out_data, args, cdata, use_mtypes, use_which=None):
+
+    if isinstance(use_which, tuple):
+        if use_which[0] == 'freq':
+            use_mtypes = sorted(
+                use_mtypes,
+                key=lambda x: len(x.get_samples(cdata.train_mut)),
+                reverse=True
+                )[:use_which[1]]
+        which_lbl = '_' + '-'.join([str(x) for x in use_which])
+
+    elif isinstance(use_which, set):
+        use_mtypes = list(use_which)
+        which_lbl = '_' + '-'.join([str(x) for x in use_which])
+
+    else:
+        use_mtypes = out_data.index
+        which_lbl = ''
 
     fig, axarr = plt.subplots(nrows=len(use_mtypes), ncols=len(use_mtypes))
     fig.tight_layout(w_pad=-0.5, h_pad=-0.87)
 
-    plot_fl = 'comb-infer_{}-{}.png'.format(args.cohort, args.classif)
     train_clrs = ['#672885', '#323E8A', '#C03344', '0.5']
+    plot_fl = 'comb-infer_{}-{}{}.png'.format(
+        args.cohort, args.classif, which_lbl)
 
     for mtype in use_mtypes:
         pi = use_mtypes.index(mtype)
@@ -64,29 +83,32 @@ def plot_comb_distribution(out_data, args, cdata, use_mtypes):
             size=17, ha='center', va='center'
             )
 
-    for mtypes in out_data.index:
+    for (i, mtype1), (j, mtype2) in combn(enumerate(use_mtypes), 2):
         plot_data = []
         pos_data = []
 
-        plot_locx = use_mtypes.index(mtypes[0])
-        plot_locy = use_mtypes.index(mtypes[1])
-        px = min(plot_locx, plot_locy)
-        py = max(plot_locx, plot_locy)
+        if (mtype1, mtype2) in out_data.index:
+            mtypes = (mtype1, mtype2)
+            mtype_lbls = ['Mtype1', 'Mtype2']
 
-        mtype1_pheno = np.array(cdata.train_pheno(mtypes[0]))
-        mtype2_pheno = np.array(cdata.train_pheno(mtypes[1]))
+        else:
+            mtypes = (mtype2, mtype1)
+            mtype_lbls = ['Mtype2', 'Mtype1']
+
+        mtype1_pheno = np.array(cdata.train_pheno(mtype1))
+        mtype2_pheno = np.array(cdata.train_pheno(mtype2))
 
         both_stat = mtype1_pheno & mtype2_pheno
         mtype1_stat = mtype1_pheno & ~mtype2_pheno
         mtype2_stat = ~mtype1_pheno & mtype2_pheno
         neith_stat = ~mtype1_pheno & ~mtype2_pheno
 
-        for (i, train), (j, stat) in product(
-                enumerate(['Both', 'Mtype1', 'Mtype2', 'Diff']),
+        for (w, train), (v, stat) in product(
+                enumerate(['Both'] + mtype_lbls + ['Diff']),
                 enumerate([both_stat, mtype1_stat, mtype2_stat, neith_stat])):
 
             if not isinstance(out_data.loc[mtypes, train], float):
-                pos_data += [i * 2.5 + j / 2]
+                pos_data += [w * 2.5 + v / 2]
 
                 if np.sum(stat) < 3:
                     plot_data += [[]]
@@ -94,7 +116,7 @@ def plot_comb_distribution(out_data, args, cdata, use_mtypes):
                     plot_data += [out_data.loc[mtypes, train][stat]]
 
         if plot_data:
-            bplot = axarr[px, py].boxplot(
+            bplot = axarr[i, j].boxplot(
                 x=plot_data, positions=pos_data, patch_artist=True,
                 flierprops=dict(markersize=2),
                 medianprops=dict(color='0.3', linewidth=3)
@@ -104,58 +126,66 @@ def plot_comb_distribution(out_data, args, cdata, use_mtypes):
                 patch.set_facecolor(color)
                 patch.set_alpha(0.6)
 
-        if (py - px) == 1:
-            axarr[px, py].set_xticks([0.75, 3.25, 5.75, 8.25])
-            axarr[px, py].set_xticklabels(
+        if (j - i) == 1:
+            axarr[i, j].set_xticks([0.75, 3.25, 5.75, 8.25])
+            axarr[i, j].set_xticklabels(
                 ['M1 & M2', 'M1 - M2', 'M2 - M1', 'M1 ^ M2'],
                 size=9, ha='center'
                 )
 
         else:
-            axarr[px, py].xaxis.set_ticklabels([])
+            axarr[i, j].xaxis.set_ticklabels([])
 
-        if py == (len(use_mtypes) - 1):
-            axarr[px, py].tick_params(axis='y', labelsize=15)
-            axarr[px, py].yaxis.tick_right()
+        if j == (len(use_mtypes) - 1):
+            axarr[i, j].tick_params(axis='y', labelsize=15)
+            axarr[i, j].yaxis.tick_right()
 
         else:
-            axarr[px, py].yaxis.set_ticklabels([])
+            axarr[i, j].yaxis.set_ticklabels([])
 
-        axarr[px, py].set_xlim(-0.5, 9.5)
-        axarr[px, py].set_ylim(-0.02, 1.02)
+        axarr[i, j].set_xlim(-0.5, 9.5)
+        axarr[i, j].set_ylim(-0.02, 1.02)
             
-        axarr[px, py].grid(axis='x')
-        axarr[px, py].grid(axis='y', which='major', linewidth=2, alpha=0.7)
+        axarr[i, j].grid(axis='x')
+        axarr[i, j].grid(axis='y', which='major', linewidth=2, alpha=0.7)
 
-        axarr[py, px].set_xlim(-2, len(cdata.samples) + 2)
-        axarr[py, px].grid(b=True, axis='x', which='major',
-                           linewidth=2, alpha=0.7)
+        axarr[j, i].set_xlim(len(cdata.samples) * -0.01,
+                             len(cdata.samples) * 1.01)
+        axarr[j, i].grid(b=True, axis='x', which='major',
+                         linewidth=2, alpha=0.7)
 
-        axarr[py, px].minorticks_on()
-        axarr[py, px].grid(b=True, axis='x', which='minor',
-                           linewidth=1, alpha=0.5)
+        if j == (len(use_mtypes) - 1):
+            axarr[j, i].xaxis.set_major_locator(mpl.ticker.MaxNLocator(4))
+            axarr[j, i].tick_params(axis='x', which='major', labelsize=13)
 
-        axarr[py, px].grid(axis='y')
-        axarr[py, px].yaxis.set_major_formatter(plt.NullFormatter())
+        else:
+            axarr[j, i].xaxis.set_ticklabels([])
 
-        axarr[py, px].add_patch(mpl.patches.Rectangle(
+        axarr[j, i].grid(b=True, axis='x', which='minor',
+                         linewidth=1, alpha=0.5)
+        axarr[j, i].minorticks_on()
+
+        axarr[j, i].grid(axis='y')
+        axarr[j, i].yaxis.set_major_formatter(plt.NullFormatter())
+
+        axarr[j, i].add_patch(mpl.patches.Rectangle(
             (np.sum(neith_stat) / 2, 0.51), np.sum(mtype1_stat), 0.1,
             fill=True, facecolor='#323E8A', alpha=0.6
             ))
 
-        axarr[py, px].add_patch(mpl.patches.Rectangle(
+        axarr[j, i].add_patch(mpl.patches.Rectangle(
             (np.sum(mtype1_stat) + np.sum(neith_stat) / 2, 0.51),
             np.sum(both_stat), 0.1,
             fill=True, facecolor='#672885', alpha=0.6
             ))
 
-        axarr[py, px].add_patch(mpl.patches.Rectangle(
+        axarr[j, i].add_patch(mpl.patches.Rectangle(
             (np.sum(mtype1_stat) + np.sum(neith_stat) / 2, 0.39),
             np.sum(both_stat), 0.1,
             fill=True, facecolor='#672885', alpha=0.6
             ))
 
-        axarr[py, px].add_patch(mpl.patches.Rectangle(
+        axarr[j, i].add_patch(mpl.patches.Rectangle(
             (np.sum(mtype1_pheno) + np.sum(neith_stat) / 2, 0.39),
             np.sum(mtype2_stat), 0.1,
             fill=True, facecolor='#C03344', alpha=0.6
@@ -167,7 +197,7 @@ def plot_comb_distribution(out_data, args, cdata, use_mtypes):
             alternative='two-sided'
             )
 
-        axarr[py, px].text(
+        axarr[j, i].text(
             x=0, y=0.9,
             s='{: <8} log2 odds ratio\n$10^{{{: <8}}}$ pval'.format(
                 str(round(log(ovlp_test[0], 2.0), 2)),
@@ -175,13 +205,9 @@ def plot_comb_distribution(out_data, args, cdata, use_mtypes):
             size=13, ha='left', va='center'
             )
 
-        if py == (len(use_mtypes) - 1):
-            axarr[py, px].tick_params(axis='x', labelsize=15)
-        else:
-            axarr[py, px].xaxis.set_ticklabels([])
+    fig_inch = len(use_mtypes) * 3.4
+    fig.set_size_inches(fig_inch, fig_inch)
 
-
-    fig.set_size_inches(17, 17)
     plt.savefig(os.path.join(plot_dir, plot_fl),
                 dpi=600, bbox_inches='tight')
     plt.close()
@@ -214,7 +240,7 @@ def main():
                           expr_source='Firehose', data_dir=firehose_dir,
                           syn=syn, cv_prop=1.0)
 
-    plot_comb_distribution(cross_df, args, cdata, use_mtypes)
+    plot_comb_distribution(cross_df, args, cdata, use_mtypes, ('freq', 7))
 
 
 if __name__ == '__main__':
