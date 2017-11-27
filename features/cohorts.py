@@ -19,6 +19,7 @@ from .dream import get_dream_data
 
 from .pathways import *
 from .annot import get_gencode
+from .utils import match_tcga_samples
 
 import numpy as np
 import pandas as pd
@@ -608,6 +609,9 @@ class VariantCohort(PresenceCohort, UniCohort):
             raise ValueError("Unrecognized source of expression data!")
 
         # loads gene variant data from the given source
+        if var_source is None:
+            var_source = expr_source
+
         if var_source == 'mc3':
             variants = get_variants_mc3(coh_args['syn'])
 
@@ -629,15 +633,23 @@ class VariantCohort(PresenceCohort, UniCohort):
 
         # gets the set of samples shared across the expression and mutation
         # data that are also primary tumour samples
-        use_samples = list(set(variants['Sample']) & set(expr.index))
-        use_samples = sorted([samp for samp in use_samples
-                              if re.search('-01A$', samp) is not None])
+        matched_samps = match_tcga_samples(expr.index, variants['Sample'])
+        use_samples = [samp for samp, _ in matched_samps]
+        expr_samps = [samp for (_, (samp, _)) in matched_samps]
+        var_samps = [samp for (_, (_, samp)) in matched_samps]
 
         # gets the subset of expression data corresponding to the shared
-        # samples and annotated genes, and the subset of variant data with
-        # the genes whose mutations we want to consider
-        expr = expr.loc[use_samples, annot_genes]
-        variants = variants.loc[variants['Gene'].isin(mut_genes), :]
+        # samples and annotated genes
+        expr = expr.loc[expr.index.isin(expr_samps), annot_genes]
+        expr.index = [use_samples[expr_samps.index(samp)]
+                      for samp in expr.index]
+
+        # gets the subset of variant data for the shared samples with the
+        # genes whose mutations we want to consider
+        variants = variants.loc[variants['Gene'].isin(mut_genes)
+                                & variants['Sample'].isin(var_samps), :]
+        variants['Sample'] = [use_samples[var_samps.index(samp)]
+                              for samp in variants['Sample']]
 
         # filters out genes that have both low levels of expression and low
         # variance of expression

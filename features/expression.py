@@ -120,12 +120,25 @@ def get_expr_firehose(cohort, data_dir):
         >>> expr_data = get_expr_bmeg('SKCM', '../firehose')
 
     """
-    expr_tar = tarfile.open(glob.glob(os.path.join(
+
+    expr_tars = glob.glob(os.path.join(
         data_dir, "stddata__2016_01_28", cohort, "20160128",
         "*Merge_rnaseqv2_*_RSEM_genes_normalized_*.Level_3*.tar.gz"
-        ))[0])
+        ))
 
-    expr_fl = expr_tar.extractfile(expr_tar.getmembers()[0])
+    if len(expr_tars) > 1:
+        raise IOError("Multiple normalized gene expression tarballs found!")
+
+    expr_tar = tarfile.open(expr_tars[0])
+    expr_indx = [i for i, memb in enumerate(expr_tar.getmembers())
+                 if 'data.txt' in memb.get_info()['name']]
+   
+    if len(expr_indx) == 0:
+        raise IOError("No expression files found in the tarball!")
+    elif len(expr_indx) > 1:
+        raise IOError("Multiple expression files found in the tarball!")
+
+    expr_fl = expr_tar.extractfile(expr_tar.getmembers()[expr_indx[0]])
     expr_data = pd.read_csv(BytesIO(expr_fl.read()),
                             sep='\t', skiprows=[1], index_col=0,
                             engine='python')
