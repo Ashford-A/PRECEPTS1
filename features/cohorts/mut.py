@@ -11,13 +11,15 @@ Authors: Michal Grzadkowski <grzadkow@ohsu.edu>
 
 """
 
-from .expression import *
-from .variants import *
-from .copies import get_copies_firehose
+from .base import *
 
-from .pathways import *
-from .annot import get_gencode
-from .utils import match_tcga_samples
+from ..expression import *
+from ..variants import *
+from ..copies import get_copies_firehose
+
+from ..pathways import *
+from ..annot import get_gencode
+from ..utils import match_tcga_samples
 
 import numpy as np
 import pandas as pd
@@ -169,13 +171,35 @@ class VariantCohort(PresenceCohort, UniCohort):
         if samps is None:
             samps = self.train_samps
 
-        return self.train_mut.status(samps, mtype)
+        if isinstance(mtype, MuType):
+            stat_list = self.train_mut.status(samps, mtype)
+
+        elif isinstance(tuple(mtype)[0], MuType):
+            stat_list = [self.train_mut.status(samps, mtp)
+                         for mtp in sorted(mtype)]
+
+        else:
+            raise TypeError("A VariantCohort accepts only MuTypes or lists "
+                            "of MuTypes as training phenotypes!")
+
+        return stat_list
 
     def test_pheno(self, mtype, samps=None):
         if samps is None:
             samps = self.test_samps
 
-        return self.test_mut.status(samps, mtype)
+        if isinstance(mtype, MuType):
+            stat_list = self.test_mut.status(samps, mtype)
+
+        elif isinstance(tuple(mtype)[0], MuType):
+            stat_list = [self.test_mut.status(samps, mtp)
+                         for mtp in sorted(mtype)]
+
+        else:
+            raise TypeError("A VariantCohort accepts only MuTypes or lists "
+                            "of MuTypes as testing phenotypes!")
+
+        return stat_list
 
 
 class MutCohort(VariantCohort, UniCohort):

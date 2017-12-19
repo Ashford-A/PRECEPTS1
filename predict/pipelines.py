@@ -19,7 +19,6 @@ from .cross_validation import (OmicRandomizedCV, cross_val_predict_omic,
 
 import numpy as np
 from abc import abstractmethod
-import inspect
 
 from numbers import Number
 from functools import reduce
@@ -74,6 +73,30 @@ class OmicPipe(Pipeline):
             param_str += 'no tuned parameters.'
 
         return param_str
+
+    def fit(self, X, y=None, **fit_params):
+        """Fits the steps of the pipeline in turn."""
+
+        Xt, final_params = self._fit(
+            X, y,
+            **{**fit_params,
+               **{'expr_genes': [xcol.split('__')[-1]
+                                 for xcol in X.columns]}}
+            )
+
+        if 'feat' in self.named_steps:
+            self.genes = X.columns[
+                self.named_steps['feat']._get_support_mask()]
+
+        else:
+            self.genes = X.columns
+
+        if 'genes' in final_params:
+            final_params['genes'] = self.genes
+        if self._final_estimator is not None:
+            self._final_estimator.fit(Xt, y, **final_params)
+
+        return self
 
     def _fit(self, X, y=None, **fit_params):
         self._validate_steps()
@@ -160,13 +183,6 @@ class OmicPipe(Pipeline):
     def extra_tune_params(cls, cohort):
         return cls.extra_fit_params(cohort)
 
-    @staticmethod
-    def score_pheno(X, y):
-        """The function used to calculate the accuracy of phenotype values
-           predicted by the pipeline and the actual values themselves."""
-        raise PipelineError("Class `OmicPipe` can't be used for prediction, "
-                            "use its subclasses instead!")
-
     def score(self, X, y=None):
         """Get the accuracy of the classifier in predicting phenotype values.
         
@@ -186,6 +202,13 @@ class OmicPipe(Pipeline):
                 pipeline's `score_pheno` method.
 
         """
+        return self.score_pheno(np.array(y).flatten(),
+                                np.array(self.predict_omic(X)).flatten())
+
+    @staticmethod
+    def score_pheno(X, y):
+        """The function used to calculate the accuracy of phenotype values
+           predicted by the pipeline and the actual values themselves."""
         raise PipelineError("Class `OmicPipe` can't be used for prediction, "
                             "use its subclasses instead!")
 
@@ -224,8 +247,11 @@ class OmicPipe(Pipeline):
                 n_iter=test_count, cv=tune_cvs, refit=False,
                 n_jobs=parallel_jobs, pre_dispatch='n_jobs'
                 )
-            grid_test.fit(X=train_omics, y=train_pheno,
-                          **self.extra_tune_params(cohort))
+
+            #TODO: figure out why passing extra_tune_params breaks in the new
+            # scikit-learn code
+            grid_test.fit(X=train_omics, y=train_pheno)
+            #              **self.extra_tune_params(cohort))
 
             # finds the best parameter combination and updates the classifier
             tune_scores = (grid_test.cv_results_['mean_test_score']
@@ -375,9 +401,53 @@ class OmicPipe(Pipeline):
             return {gn: 0 for gn in self.genes}
 
 
-class UniPipe(OmicPipe):
-    """Predicting a single phenotype from -omics dataset(s).
-    
+class PresencePipe(OmicPipe):
+    """A class corresponding to pipelines which use continuous data to
+       predict discrete outcomes.
+    """
+
+    def __init__(self, steps, path_keys=None):
+        if not (hasattr(steps[-1][-1], 'predict_proba')
+                or 'predict_proba' in steps[-1][-1].__class__.__dict__):
+
+            raise PipelineError(
+                "Variant pipelines must have a classification estimator "
+                "with a 'predict_proba' method as their final step!"
+                )
+
+        super().__init__(steps, path_keys)
+
+    def parse_preds(self, preds):
+        if hasattr(self, 'classes_'):
+            true_indx = [i for i, x in enumerate(self.classes_) if x]
+            parse_preds = [scrs[true_indx] for scrs in preds]
+
+        else:
+            parse_preds = preds
+
+        return parse_preds
+
+    def predict_base(self, omic_data):
+        return self.predict_proba(omic_data)
+
+    @staticmethod
+    def score_pheno(X, y):
+        if len(np.unique(X)) == 1:
+            return 0.5
+        else:
+            return roc_auc_score(X, y)
+
+
+class ValuePipe(OmicPipe):
+    """A class corresponding to pipelines which use continuous data to
+       predict continuous outcomes.
+    """
+    pass
+
+
+class TransferPipe(OmicPipe):
+    """A pipeline that transfers information between multiple datasets.
+
     """
 
     def fit(self, X, y=None, **fit_params):
@@ -402,89 +472,6 @@ class UniPipe(OmicPipe):
             self._final_estimator.fit(Xt, y.ravel(), **final_params)
 
         return self
-    
-    def score(self, X, y=None):
-        return self.score_pheno(np.array(y).flatten(),
-                                np.array(self.predict_omic(X)).flatten())
-
-    def score(self, X, y=None):
-        return self.score_pheno(np.array(y).flatten(),
-                                np.array(self.predict_omic(X)).flatten())
-
-    def score(self, X, y=None):
-        return self.score_pheno(np.array(y).flatten(),
-                                np.array(self.predict_omic(X)).flatten())
-
-
-class LinearPipe(UniPipe):
-    """An abstract class for classifiers implementing a linear separator.
-
-    """
-
-    def get_coef(self):
-        return {gene: coef for gene, coef in
-                zip(self.genes, self.named_steps['fit'].coef_.flatten())}
-
-
-class EnsemblePipe(UniPipe):
-    """An abstract class for classifiers made up of ensembles of separators.
-
-    """
-
-    def fit(self, X, y=None, **fit_params):
-        self.effect_direct = [
-            ((X.iloc[y.flatten(), i].mean() - X.iloc[~y.flatten(), i].mean())
-             > 0)
-            for i in range(X.shape[1])
-            ]
-
-        return super().fit(X, y, **fit_params)
-
-    def get_coef(self):
-        return {gene: coef * (2 * direct - 1) for gene, coef, direct in
-                zip(self.genes, self.named_steps['fit'].feature_importances_,
-                    self.effect_direct)}
-
-
-class TransferPipe(OmicPipe):
-    """A pipeline that transfers information between multiple datasets.
-
-    """
-
-    def fit(self, X, y=None, **fit_params):
-        """Fits the steps of the pipeline in turn."""
-
-        self.prot_genes = y.columns
-
-        Xt_list, final_params = self._fit(
-            X, y,
-            **{**fit_params, **{
-                'expr_genes': {
-                    lbl: [xcol.split('__')[-1] for xcol in Xmat.columns]
-                    for lbl, Xmat in X.items()
-                    },
-                'prot_genes': self.prot_genes
-                }}
-            )
-
-        if 'feat' in self.named_steps:
-            sup_mask = self.named_steps['feat']._get_support_mask()
-            self.genes = {lbl: Xmat.columns[sup_mask[lbl]]
-                          for lbl, Xmat in X.items()}
-
-        else:
-            self.genes = {lbl: Xmat.columns for lbl, Xmat in X.items()}
-
-        if 'genes' in final_params:
-            final_params['genes'] = self.genes
-
-        if self._final_estimator is not None:
-            self._final_estimator.fit(
-                Xt_list, y, **{'prot_genes': self.prot_genes,
-                               **final_params}
-                )
-
-        return self
 
 
 class MultiPipe(OmicPipe):
@@ -496,23 +483,31 @@ class MultiPipe(OmicPipe):
         return [self.parse_preds(preds)
                 for preds in self.predict_base(omic_data)]
 
-
     def score(self, X, y=None):
         y_pred = np.array(self.predict_omic(X))
-        return self.score_pheno(y, y_pred)
+
+        if y.shape[0] == X.shape[0]:
+            y = np.transpose(y)
+        
+        if y_pred.shape[0] == X.shape[0]:
+            y_pred = np.transpose(y_pred)
+
+        return self.score_pheno(y.tolist(), y_pred.tolist())
+
+    def score_pheno(self, ylist_true, ylist_pred):
+        return self.parse_scores(
+            [self.score_each(true_y, pred_y)
+             for true_y, pred_y in zip(ylist_true, ylist_pred)]
+            )
 
     @staticmethod
     def parse_scores(scores):
         """Summarizes the scores across the predicted variates."""
         return np.min(scores)
 
-    @abstractmethod
-    def score_each(self, omics, pheno):
-        """Scores each of the given phenotypes separately."""
-
-    def score_pheno(self, X, y):
-        return self.parse_scores([self.score_each(omics, pheno)
-                                  for omics, pheno in zip(X, y)])
+    @staticmethod
+    def score_each(y_true, y_pred):
+        return pearsonr(y_true, y_pred)[0]
 
 
 class ParallelPipe(TransferPipe):
@@ -603,50 +598,6 @@ class ParallelPipe(TransferPipe):
                               [pheno for _, pheno in test_data])
 
 
-class PresencePipe(OmicPipe):
-    """A class corresponding to pipelines which use continuous data to
-       predict discrete outcomes.
-    """
-
-    def __init__(self, steps, path_keys=None):
-        if not (hasattr(steps[-1][-1], 'predict_proba')
-                or 'predict_proba' in steps[-1][-1].__class__.__dict__):
-
-            raise PipelineError(
-                "Variant pipelines must have a classification estimator "
-                "with a 'predict_proba' method as their final step!"
-                )
-
-        super().__init__(steps, path_keys)
-
-    def parse_preds(self, preds):
-        if hasattr(self, 'classes_'):
-            true_indx = [i for i, x in enumerate(self.classes_) if x]
-            parse_preds = [scrs[true_indx] for scrs in preds]
-
-        else:
-            parse_preds = preds
-
-        return parse_preds
-
-    def predict_base(self, omic_data):
-        return self.predict_proba(omic_data)
-
-    @staticmethod
-    def score_pheno(X, y):
-        if len(np.unique(X)) == 1:
-            return 0.5
-        else:
-            return roc_auc_score(X, y)
-
-
-class ValuePipe(OmicPipe):
-    """A class corresponding to pipelines which use continuous data to
-       predict continuous outcomes.
-    """
-    pass
-
-
 class ProteinPipe(ValuePipe):
     """A class corresponding to pipelines for predicting proteomic levels."""
     
@@ -676,7 +627,7 @@ class VariantPipe(PresencePipe):
             type(self).__name__, str(self.get_params()['path_keys']))
 
 
-class MutPipe(UniPipe, VariantPipe):
+class MutPipe(VariantPipe):
     """A class corresponding to pipelines for predicting
        discrete gene mutation states individually.
     """
@@ -687,6 +638,32 @@ class MutPipe(UniPipe, VariantPipe):
                 'path_obj': cohort.path}
 
 
-class MultiPresencePipe(MultiPipe, PresencePipe):
-    pass
+class LinearPipe(OmicPipe):
+    """An abstract class for classifiers implementing a linear separator.
+
+    """
+
+    def get_coef(self):
+        return {gene: coef for gene, coef in
+                zip(self.genes, self.named_steps['fit'].coef_.flatten())}
+
+
+class EnsemblePipe(OmicPipe):
+    """An abstract class for classifiers made up of ensembles of separators.
+
+    """
+
+    def fit(self, X, y=None, **fit_params):
+        self.effect_direct = [
+            ((X.iloc[y.flatten(), i].mean() - X.iloc[~y.flatten(), i].mean())
+             > 0)
+            for i in range(X.shape[1])
+            ]
+
+        return super().fit(X, y, **fit_params)
+
+    def get_coef(self):
+        return {gene: coef * (2 * direct - 1) for gene, coef, direct in
+                zip(self.genes, self.named_steps['fit'].feature_importances_,
+                    self.effect_direct)}
 

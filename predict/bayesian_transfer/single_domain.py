@@ -111,25 +111,26 @@ class BaseSingleDomain(object):
         for k,v in kwargs.items():
             setattr(self, k, v)
 
-    def compute_kernels(self, x_mat, y_mat=None, **fit_params):
+    def compute_kernels(self,
+                        x_mat, y_mat=None, expr_genes=None, **fit_params):
         """Gets the kernel matrices from a list of feature matrices."""
 
-        for param in ('path_keys', 'path_obj', 'mut_genes'):
-            if self.__getattribute__(param) is None:
-                self.__setattr__(param, fit_params[param])
-            else:
-                fit_params = {**fit_params,
-                              **{param: self.__getattribute__(param)}}
         if self.expr_genes is None:
-            self.expr_genes = fit_params['expr_genes']
+            self.expr_genes = expr_genes
 
-        select_list = [PathwaySelect(pk, expr_genes=self.expr_genes)
-                       for pk in self.path_keys]
-        x_list = [ps.fit(X=x_mat, y=None, **fit_params).transform(x_mat)
+        if self.path_keys is None:
+            select_list = [PathwaySelect(pk) for pk in [None]]
+
+        else:
+            select_list = [PathwaySelect(pk) for pk in self.path_keys]
+
+        x_list = [ps.fit(X=x_mat, y=None, expr_genes=expr_genes,
+                         **fit_params).transform(x_mat)
                   for ps in select_list]
 
         if y_mat is not None:
-            y_list = [ps.fit(X=y_mat, y=None, **fit_params).transform(y_mat)
+            y_list = [ps.fit(X=y_mat, y=None, expr_genes=expr_genes,
+                             **fit_params).transform(y_mat)
                       for ps in select_list]
         else:
             y_list = x_list
@@ -157,7 +158,9 @@ class BaseSingleDomain(object):
 
         return np.vstack(kernel_list)
 
-    def fit(self, X, y_list, verbose=False, **fit_params):
+    def fit(self,
+            X, y_list, expr_genes=None, path_keys=None, verbose=False,
+            **fit_params):
         """Fits the classifier.
 
         Args:
@@ -171,10 +174,11 @@ class BaseSingleDomain(object):
 
         """
         self.X = X
+        self.expr_genes = expr_genes
 
         # computes the kernel matrices and concatenates them, gets number of
         # training samples and total number of kernel features
-        self.kernel_mat = self.compute_kernels(X, **fit_params)
+        self.kernel_mat = self.compute_kernels(X, expr_genes=expr_genes)
         self.kkt_mat = self.kernel_mat @ self.kernel_mat.transpose()
         self.kern_size = self.kernel_mat.shape[0]
         self.sample_count = self.kernel_mat.shape[1]
@@ -218,7 +222,7 @@ class BaseSingleDomain(object):
         cur_iter = 1
         old_log_like = float('-inf')
         log_like_stop = False
-        while cur_iter <= self.max_iter and not log_like_stop:
+        while cur_iter <= 10 and not log_like_stop:
 
             new_lambda = self.update_precision_priors(
                 self.lambda_mat, self.A_mat,
@@ -266,7 +270,8 @@ class BaseSingleDomain(object):
         return self
 
     def predict_labels(self, X):
-        kern_dist = self.compute_kernels(x_mat=self.X, y_mat=X)
+        kern_dist = self.compute_kernels(x_mat=self.X, y_mat=X,
+                                         expr_genes=self.expr_genes)
 
         h_mu = self.A_mat['mu'].transpose() @ kern_dist
         f_mu = [np.zeros(X.shape[0]) for _ in range(self.task_count)]
@@ -762,3 +767,4 @@ class MultiVariantAsym(BaseSingleDomain):
                 'prec_distr': self.prec_distr,
                 'latent_features': self.R,
                 'margin': self.margin}
+

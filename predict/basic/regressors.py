@@ -12,8 +12,8 @@ Author: Michal Grzadkowski <grzadkow@ohsu.edu>
 from math import exp
 from scipy import stats
 
-from .pipelines import UniPipe, LinearPipe, ValuePipe
-from .selection import *
+from ..pipelines import UniPipe, LinearPipe, ValuePipe
+from ..selection import *
 
 from sklearn.preprocessing import StandardScaler, RobustScaler
 from sklearn.linear_model import LinearRegression
