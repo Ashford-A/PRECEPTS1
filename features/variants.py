@@ -823,7 +823,8 @@ class MuTree(object):
             in_stat = {nm: False for nm, _ in self}
 
             for (nm, branch), (_, btype) in filter(
-                    lambda x: x[0][0] == x[1][0], product(self, mtype)):
+                    lambda x: x[0][0] == x[1][0],
+                    product(self, mtype.subtype_list())):
 
                 if btype is not None and isinstance(branch, MuTree):
                     new_key.update(
@@ -1497,9 +1498,9 @@ class MuType(object):
             if tp is not None:
                 new_str += ' WITH ' + repr(tp)
 
-            new_str += ', OR '
+            new_str += ' OR '
 
-        return gsub(', OR $', '', new_str)
+        return gsub(' OR $', '', new_str)
 
     def __str__(self):
         """Gets a condensed label for the MuType."""
@@ -1514,7 +1515,13 @@ class MuType(object):
             for lbls, tp in self_iter:
 
                 if len(lbls) > 1:
-                    new_str += "({})".format('|'.join(sorted(lbls)))
+
+                    #TODO: find a more elegant way of dealing with this
+                    if self.cur_level == 'Gene' and tp is None:
+                        new_str += '|'.join(sorted(lbls))
+
+                    else:
+                        new_str += '(' + '|'.join(sorted(lbls)) + ')'
 
                 else:
                     new_str += list(lbls)[0]

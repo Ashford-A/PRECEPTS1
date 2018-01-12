@@ -56,6 +56,9 @@ class OmicPipe(Pipeline):
         self.cur_tuning = dict(self.tune_priors)
         self.path_keys = path_keys
 
+        self.tune_params_add = None
+        self.fit_params_add = None
+
     def __str__(self):
         """Prints the tuned parameters of the pipeline."""
         param_str = type(self).__name__ + ' with '
@@ -79,9 +82,13 @@ class OmicPipe(Pipeline):
 
         Xt, final_params = self._fit(
             X, y,
-            **{**fit_params,
-               **{'expr_genes': [xcol.split('__')[-1]
-                                 for xcol in X.columns]}}
+            **{**fit_params, **{
+                'expr_genes': [
+                    xcol.split('__')[-1] if isinstance(xcol, str)
+                    else xcol[0].split('__')[-1] for xcol in X.columns
+                    ],
+                'expr_cols': X.columns
+                }}
             )
 
         if 'feat' in self.named_steps:
@@ -104,6 +111,10 @@ class OmicPipe(Pipeline):
 
         fit_params_steps = {name: {} for name, step in self.steps
                             if step is not None}
+
+        if 'fit' in fit_params_steps and self.fit_params_add:
+            for pname, pval in self.fit_params_add.items():
+                fit_params_steps['fit'][pname] = pval
 
         for pname, pval in fit_params.items():
             if '__' in pname:
@@ -174,8 +185,8 @@ class OmicPipe(Pipeline):
     def extra_fit_params(cls, cohort):
         fit_params = {}
 
-        if hasattr(cohort, 'path'):
-            fit_params.update({'path_obj': cohort.path})
+        #if hasattr(cohort, 'path'):
+        #    fit_params.update({'path_obj': cohort.path})
 
         return fit_params
 
@@ -250,8 +261,8 @@ class OmicPipe(Pipeline):
 
             #TODO: figure out why passing extra_tune_params breaks in the new
             # scikit-learn code
-            grid_test.fit(X=train_omics, y=train_pheno)
-            #              **self.extra_tune_params(cohort))
+            grid_test.fit(X=train_omics, y=train_pheno,
+                          **self.extra_tune_params(cohort))
 
             # finds the best parameter combination and updates the classifier
             tune_scores = (grid_test.cv_results_['mean_test_score']
@@ -275,9 +286,9 @@ class OmicPipe(Pipeline):
             include_samps, exclude_samps,
             include_genes, exclude_genes
             )
+        self.fit_params_add = self.extra_fit_params(cohort)
 
-        return self.fit(X=train_omics, y=train_pheno,
-                        **self.extra_fit_params(cohort))
+        return self.fit(X=train_omics, y=train_pheno)
 
     def score_coh(self,
                   cohort, pheno, score_splits=16, parallel_jobs=8,
@@ -576,8 +587,7 @@ class ParallelPipe(TransferPipe):
                       for cohort in cohorts]
 
         return self.fit(X=[omics for omics, _ in train_data],
-                        y=[pheno for _, pheno in train_data],
-                        **self.extra_fit_params(cohort))
+                        y=[pheno for _, pheno in train_data])
 
     def eval_coh(self,
                  cohorts, pheno,
@@ -631,11 +641,7 @@ class MutPipe(VariantPipe):
     """A class corresponding to pipelines for predicting
        discrete gene mutation states individually.
     """
-
-    @classmethod
-    def extra_fit_params(cls, cohort):
-        return {'mut_genes': cohort.mut_genes,
-                'path_obj': cohort.path}
+    pass
 
 
 class LinearPipe(OmicPipe):

@@ -54,7 +54,7 @@ def cross_val_predict_omic(estimator, X, y=None, groups=None,
 
     if force_test_samps is None:
         train_samps_indx = np.arange(X.shape[0])
-        test_samps_indx = np.array()
+        test_samps_indx = np.array([], dtype=int)
 
     else:
         train_samps = set(X.index) - set(force_test_samps)
@@ -396,7 +396,7 @@ class OmicRandomizedCV(RandomizedSearchCV):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-    def _fit(self, X, y, groups, parameter_iterable):
+    def _fit(self, X, y, groups=None, **tune_params):
         """Actual fitting,  performing the search over parameters."""
 
         estimator = self.estimator
@@ -405,8 +405,8 @@ class OmicRandomizedCV(RandomizedSearchCV):
 
         # X, y, groups = omic_indexable(X, y, groups)
         n_splits = cv.get_n_splits(X, y, groups)
-        if self.verbose > 0 and isinstance(parameter_iterable, Sized):
-            n_candidates = len(parameter_iterable)
+        if self.verbose > 0 and isinstance(tune_params, Sized):
+            n_candidates = len(tune_params)
             print("Fitting {0} folds for each of {1} candidates, totalling"
                   " {2} fits".format(n_splits, n_candidates,
                                      n_candidates * n_splits))
@@ -420,12 +420,12 @@ class OmicRandomizedCV(RandomizedSearchCV):
             pre_dispatch=pre_dispatch
         )(delayed(_omic_fit_and_score)(clone(base_estimator), X, y, self.scorer_,
                                       train, test, self.verbose, parameters,
-                                      fit_params=fit_params,
+                                      fit_params=tune_params,
                                       return_train_score=self.return_train_score,
                                       return_n_test_samples=True,
                                       return_times=True, return_parameters=True,
                                       error_score=self.error_score)
-          for parameters in parameter_iterable
+          for parameters in tune_params
           for train, test in cv_iter)
 
         # if one choose to see train score, "out" will contain train score info

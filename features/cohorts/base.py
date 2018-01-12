@@ -80,7 +80,7 @@ class Cohort(object):
         # choose samples for the testing cohort...
         if cv_prop < 1:
             train_samps = set(
-                random.sample(population=samps,
+                random.sample(population=sorted(tuple(samps)),
                               k=int(round(len(samps) * cv_prop)))
                 )
             test_samps = set(samps) - train_samps
@@ -278,6 +278,9 @@ class UniCohort(Cohort):
         nan_stat = np.any(~np.isnan(pheno_mat), axis=1)
         samps = np.array(samps)[nan_stat]
 
+        if pheno_mat.shape[1] == 1:
+            pheno_mat = pheno_mat.ravel()
+
         return self.omic_loc(samps, genes), pheno_mat[nan_stat]
 
     def test_data(self,
@@ -305,6 +308,9 @@ class UniCohort(Cohort):
 
         nan_stat = np.any(~np.isnan(pheno_mat), axis=1)
         samps = np.array(samps)[nan_stat]
+
+        if pheno_mat.shape[1] == 1:
+            pheno_mat = pheno_mat.ravel()
 
         return self.omic_loc(samps, genes), pheno_mat[nan_stat]
 

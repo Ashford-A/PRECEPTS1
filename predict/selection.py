@@ -35,8 +35,11 @@ class PathwaySelect(TransformerMixin):
             if hasattr(X, 'shape'):
 
                 if hasattr(X, 'columns'):
-                    select_genes = set([xcol.split('__')[-1]
-                                        for xcol in X.columns])
+                    select_genes = set(
+                        [xcol.split('__')[-1] if isinstance(xcol, str)
+                         else xcol[0].split('__')[-1] for xcol in X.columns]
+                        )
+
                 else:
                     select_genes = set(expr_genes)
 
