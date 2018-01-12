@@ -11,7 +11,7 @@ Author: Michal Grzadkowski <grzadkow@ohsu.edu>
 
 """
 
-from .utils import choose_bmeg_server
+from .utils import choose_bmeg_server, match_tcga_samples
 
 import numpy as np
 import pandas as pd
@@ -19,6 +19,7 @@ import pandas as pd
 import os
 import glob
 
+import gzip
 import tarfile
 from io import BytesIO
 
@@ -123,7 +124,7 @@ def get_expr_firehose(cohort, data_dir):
 
     expr_tars = glob.glob(os.path.join(
         data_dir, "stddata__2016_01_28", cohort, "20160128",
-        "*Merge_rnaseqv2_*_RSEM_genes_normalized_*.Level_3*.tar.gz"
+        "*Merge_rnaseqv2_*hiseq*_RSEM_genes_normalized_*.Level_3*.tar.gz"
         ))
 
     if len(expr_tars) > 1:
@@ -151,3 +152,12 @@ def get_expr_firehose(cohort, data_dir):
                        for x in expr_data.index.str.split('-')]
 
     return expr_data
+
+
+def get_expr_toil(cohort, data_dir):
+    expr_mat = pd.read_csv(os.path.join(data_dir, '{}.txt.gz'.format(cohort)),
+                           sep='\t', index_col=0)
+    expr_mat.index.name = None
+
+    return expr_mat
+

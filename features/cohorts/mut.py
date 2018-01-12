@@ -81,6 +81,20 @@ class VariantCohort(PresenceCohort, UniCohort):
             expr_mat = get_expr_firehose(cohort, coh_args['data_dir'])
             expr = expr_mat.fillna(expr_mat.min().min())
 
+        elif expr_source == 'toil':
+            expr_mat = get_expr_toil(cohort, coh_args['data_dir'])
+            expr = np.transpose(expr_mat.fillna(expr_mat.min().min()))
+
+            tx_file = ('../input-data/toil/'
+                       'gencode.v23.annotation.transcript.probemap.gz')
+            tx_annot = pd.read_csv(tx_file, sep='\t', index_col=0)
+
+            expr.columns = pd.MultiIndex.from_arrays(
+                [tx_annot.loc[expr.columns, 'gene'], expr.columns],
+                names=['Gene', 'Transcript']
+                )
+            expr.sort_index(axis=1, level=['Gene'], inplace=True)
+
         else:
             raise ValueError("Unrecognized source of expression data!")
 
@@ -111,6 +125,13 @@ class VariantCohort(PresenceCohort, UniCohort):
         # data that are also primary tumour samples
         matched_samps = match_tcga_samples(expr.index, variants['Sample'])
         use_samples = [samp for samp, _ in matched_samps]
+
+        if 'samples_use' in coh_args:
+            use_samples = [samp for samp in use_samples
+                           if samp in coh_args['samples_use']]
+            matched_samps = [(samp, _) for samp, _ in matched_samps
+                             if samp in use_samples]
+
         expr_samps = [samp for (_, (samp, _)) in matched_samps]
         var_samps = [samp for (_, (_, samp)) in matched_samps]
 
