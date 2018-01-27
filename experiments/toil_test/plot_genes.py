@@ -15,7 +15,7 @@ from HetMan.features.variants import MuType
 from HetMan.features.cohorts.mut import VariantCohort
 
 import numpy as np
-import pandas as pd
+from scipy.stats import wilcoxon
 
 import argparse
 import synapseclient
@@ -45,10 +45,20 @@ def plot_auc_comp(out_data, args, cdata_dict):
     fire_acc = out_data.loc[:, 'Firehose'].quantile(axis=1, q=0.25)
     toil_acc = out_data.loc[:, 'toil'].quantile(axis=1, q=0.25)
 
+    # gets the difference in performance according to the input dataset used,
+    # calculates the statistical significane of this difference
+    acc_diff = toil_acc - fire_acc
+    pair_test = wilcoxon(acc_diff)[1]
+    acc_delta = (acc_diff / fire_acc).quantile(q=0.5)
+
+    # picks axis limits to ensure the plot shows the performance of
+    # all tested genes, finds which samples appear in both input datasets
     plot_min = min(np.min(fire_acc), np.min(toil_acc)) - 0.01
+    use_samps = cdata_dict['Firehose'].samples & cdata_dict['toil'].samples
+
+    # initializes variables determining point label position
     lbl_offset = {mtype: None for mtype in out_data.index}
     lbl_align = {mtype: 'left' for mtype in out_data.index}
-    use_samps = cdata_dict['Firehose'].samples & cdata_dict['toil'].samples
 
     for mtype in out_data.index:
         if not ((fire_acc > fire_acc[mtype])
@@ -100,18 +110,21 @@ def plot_auc_comp(out_data, args, cdata_dict):
                     s=str(mtype), size=8, va='center', ha=lbl_align[mtype],
                     stretch=10)
 
+    ax.text(x=0.82, y=0.52,
+            s="median change: {:+.2%}\np-val: {:.2e}".format(
+                acc_delta, pair_test),
+            size=14)
+
     plt.axhline(color='r', y=0.5, xmin=-2, xmax=2,
                 linewidth=1.1, linestyle=':')
     plt.axvline(color='r', x=0.5, ymin=-2, ymax=2,
                 linewidth=1.1, linestyle=':')
     plt.plot([-1, 2], [-1, 2], linewidth=1.7, linestyle='--')
 
-    # creates axis titles and labels
+    # creates axis titles and labels, sets limits to ensure plot is square
     plt.xlabel('Firehose Gene AUC', fontsize=21)
     plt.ylabel('Toil Transcript AUC', fontsize=21)
     plt.tick_params(axis='both', which='major', labelsize=14)
-
-    # sets axis limits, ensuring the plot is square
     ax.set_xlim(plot_min, 1)
     ax.set_ylim(plot_min, 1)
 
