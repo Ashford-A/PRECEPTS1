@@ -38,6 +38,7 @@ then
 	export baseline="Lasso"
 fi
 
+export OUTDIR=HetMan/experiments/stan_test/genes/models/$out_tag/$cohort/$solve_type
 echo $OUTDIR
 rm -rf $OUTDIR
 
