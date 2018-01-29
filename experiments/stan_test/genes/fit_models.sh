@@ -6,8 +6,9 @@
 #SBATCH --array=0-49
 #SBATCH --time=2150
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=1
 #SBATCH --mem-per-cpu=4000
+#SBATCH --exclude=exanode-0-2
 
 #SBATCH --output=/home/exacloud/lustre1/CompBio/mgrzad/slurm/log-files/stan-genes-models_out-%A.txt
 #SBATCH --error=/home/exacloud/lustre1/CompBio/mgrzad/slurm/log-files/stan-genes-models_err-%A.txt
