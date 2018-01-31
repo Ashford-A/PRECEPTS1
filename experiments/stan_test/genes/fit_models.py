@@ -6,7 +6,7 @@ import sys
 sys.path.extend([os.path.join(base_dir, '../../../..')])
 
 from HetMan.features.cohorts.mut import VariantCohort
-from HetMan.predict.bayesian_margins.logistic import *
+from HetMan.predict.stan_margins import *
 
 import synapseclient
 from importlib import import_module

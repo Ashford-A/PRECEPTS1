@@ -28,7 +28,7 @@ echo $solve_type
 echo $baseline
 
 # pause between starting array jobs to ease load when downloading -omic datasets
-sleep $(($SLURM_ARRAY_TASK_ID * 11));
+sleep $(($SLURM_ARRAY_TASK_ID * 23));
 
 # get the cross-validation ID and sub-variant sub-task ID defined by this
 # job's SLURM array ID
