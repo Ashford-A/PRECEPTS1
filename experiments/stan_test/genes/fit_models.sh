@@ -3,20 +3,28 @@
 #SBATCH --job-name=stan-genes-models
 #SBATCH --partition=exacloud
 
-#SBATCH --array=0-49
-#SBATCH --time=2150
-#SBATCH --ntasks=1
-#SBATCH --cpus-per-task=1
-#SBATCH --mem-per-cpu=4000
-
 #SBATCH --output=/home/exacloud/lustre1/CompBio/mgrzad/slurm/log-files/stan-genes-models_out-%A.txt
 #SBATCH --error=/home/exacloud/lustre1/CompBio/mgrzad/slurm/log-files/stan-genes-models_err-%A.txt
 #SBATCH --verbose
 
+#SBATCH --array=0-49
+#SBATCH --time=2150
+#SBATCH --ntasks=1
+#SBATCH --mem-per-cpu=6000
+
+if [ $solve_type == 'sampling' ];
+then
+	echo $solve_type
+	#SBATCH --cpus-per-task=8
+
+else
+	echo $solve_type
+	#SBATCH --cpus-per-task=1
+fi
 
 # pause between starting array jobs to reduce disk stress when loading
 # packages, -omic datasets, etc., then move to working directory
-sleep $(($SLURM_ARRAY_TASK_ID * 17));
+sleep $(($SLURM_ARRAY_TASK_ID * 13));
 cd ~/compbio/bergamot
 
 # determine where the job's output will go, load software packages
@@ -27,7 +35,6 @@ source activate precepts
 export OMP_NUM_THREADS=1
 echo $out_tag
 echo $cohort
-echo $solve_type
 echo $baseline
 
 # get the cross-validation ID and sub-variant sub-task ID defined by this

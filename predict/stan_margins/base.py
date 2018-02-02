@@ -40,6 +40,8 @@ class BaseStan(BaseEstimator, ClassifierMixin):
         raise NotImplementedError("Class must implement method calc_pred_p!")
 
     def fit(self, X, y=None, expr_genes=None, verbose=False, **fit_params):
+        self.X = X
+        self.y = y
         self.expr_genes = expr_genes
 
         self.stan_model = pystan.StanModel(
@@ -110,7 +112,7 @@ class StanOptimizing(BaseStan):
 
     def run_model(self, X, y=None, verbose=False, **fit_params):
         self.fit_obj = self.stan_model.optimizing(
-            data=self.data_dict, verbose=verbose)
+            data=self.data_dict, verbose=verbose, iter=1e5)
 
         if verbose:
             print("Fitting has finished!")
@@ -138,7 +140,7 @@ class StanVariational(BaseStan):
 
     def run_model(self, X, y=None, verbose=True, **fit_params):
         self.fit_obj = self.stan_model.vb(
-            data=self.data_dict, verbose=verbose)
+            data=self.data_dict, iter=2e4, verbose=verbose)
 
         if verbose:
             print("Fitting has finished!")
