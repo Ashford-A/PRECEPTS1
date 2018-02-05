@@ -174,7 +174,7 @@ class StanSampling(BaseStan):
             n_chains = fit_params['n_chains']
 
         self.fit_obj = self.stan_model.sampling(
-            data=self.data_dict, chains=n_chains, iter=100, n_jobs=n_chains,
+            data=self.data_dict, chains=n_chains, iter=50, n_jobs=n_chains,
             verbose=verbose
             )
 

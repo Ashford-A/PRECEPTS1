@@ -10,7 +10,7 @@
 #SBATCH --array=0-49
 #SBATCH --time=2150
 #SBATCH --ntasks=1
-#SBATCH --mem-per-cpu=6000
+#SBATCH --mem-per-cpu=8000
 
 if [ $solve_type == 'sampling' ];
 then
