@@ -151,3 +151,35 @@ def get_expr_firehose(cohort, data_dir):
                        for x in expr_data.index.str.split('-')]
 
     return expr_data
+
+
+def get_expr_cptac(syn, cohort):
+    """Get the CPTAC RNAseq data used in the DREAM proteogenomics challenge.
+
+    Args:
+        syn (synapseclient.Synapse): A logged-into Synapse instance.
+        cohort (str): A TCGA cohort included in the challenge.
+
+    Examples:
+        >>> import synapseclient
+        >>> syn = synapseclient.Synapse()
+        >>>
+        >>> syn.cache.cache_root_dir = (
+        >>>     '/home/exacloud/lustre1/'
+        >>>     'share_your_data_here/precepts/synapse'
+        >>>     )
+        >>> syn.login()
+        >>>
+        >>> get_expr_cptac(syn, "BRCA")
+        >>> get_expr_cptac(syn, "OV")
+
+    """
+
+    syn_ids = {'BRCA': '11328694',
+               'OV': '10535396'}
+
+    expr_data = pd.read_csv(syn.get("syn{}".format(syn_ids[cohort])).path,
+                            sep='\t', index_col=0).transpose()
+
+    return expr_data
+
