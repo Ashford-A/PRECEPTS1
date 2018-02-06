@@ -170,6 +170,8 @@ class VariantCohort(PresenceCohort, UniCohort):
     def train_pheno(self, mtype, samps=None):
         if samps is None:
             samps = self.train_samps
+        else:
+            samps = set(samps) & self.train_samps
 
         if isinstance(mtype, MuType):
             stat_list = self.train_mut.status(samps, mtype)
@@ -187,6 +189,8 @@ class VariantCohort(PresenceCohort, UniCohort):
     def test_pheno(self, mtype, samps=None):
         if samps is None:
             samps = self.test_samps
+        else:
+            samps = set(samps) & self.test_samps
 
         if isinstance(mtype, MuType):
             stat_list = self.test_mut.status(samps, mtype)

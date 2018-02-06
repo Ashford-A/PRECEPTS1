@@ -269,7 +269,7 @@ class UniCohort(Cohort):
         elif pheno_mat.shape[1] == len(samps):
             pheno_mat = np.transpose(pheno_mat)
 
-        else:
+        elif pheno_mat.shape[0] != len(samps):
             raise ValueError(
                 "Given phenotype(s) do not return a valid matrix of values "
                 "to predict from the training data!"
@@ -300,7 +300,7 @@ class UniCohort(Cohort):
         elif pheno_mat.shape[1] == len(samps):
             pheno_mat = np.transpose(pheno_mat)
 
-        else:
+        elif pheno_mat.shape[0] != len(samps):
             raise ValueError(
                 "Given phenotype(s) do not return a valid matrix of values "
                 "to predict from the training data!"
