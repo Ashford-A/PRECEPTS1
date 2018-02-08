@@ -97,7 +97,7 @@ def cross_val_predict_omic(estimator, X, y=None, groups=None,
             )
 
         for j in range(X.shape[0]):
-            pred_mat[j] += predictions[test_indices == j, 0].tolist()
+            pred_mat[j] += predictions[test_indices == j].tolist()
 
     return pred_mat
 
