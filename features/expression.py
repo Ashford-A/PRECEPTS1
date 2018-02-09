@@ -4,9 +4,6 @@
 This module contains functions for retrieving RNA-seq expression data
 and processing it into formats suitable for use in machine learning pipelines.
 
-See Also:
-    :module:`.utils`: Utilities common across many types of features.
-
 Author: Michal Grzadkowski <grzadkow@ohsu.edu>
 
 """
@@ -33,10 +30,12 @@ def log_norm_expr(expr):
     a constant derived from the smallest non-zero value.
 
     Args:
-        expr (array of float), shape = [n_samples, n_features]
+        expr (:obj:`np.array` of :obj:`float`,
+              shape = [n_samples, n_features])
 
     Returns:
-        norm_expr (array of float), shape = [n_samples, n_features]
+        norm_expr (:obj:`np.array` of :obj:`float`,
+                   shape = [n_samples, n_features])
 
     Examples:
         >>> norm_expr = log_norm_expr(np.array([[1.0, 0], [2.0, 8.0]]))
@@ -58,7 +57,7 @@ def get_expr_bmeg(cohort):
         cohort (str): The name of an individualCohort vertex in BMEG.
 
     Returns:
-        expr_data (pandas DataFrame of float), shape = [n_samps, n_feats]
+        expr_data (:obj:`pd.DataFrame`, shape = [n_samps, n_genes])
 
     Examples:
         >>> expr_data = get_expr_bmeg('TCGA-BRCA')
@@ -112,7 +111,7 @@ def get_expr_firehose(cohort, data_dir):
                         downloaded.
 
     Returns:
-        expr_data (pandas DataFrame of float), shape = [n_samps, n_feats]
+        expr_data (:obj:`pd.DataFrame`, shape = [n_samps, n_genes])
 
     Examples:
         >>> expr_data = get_expr_bmeg(
@@ -151,3 +150,32 @@ def get_expr_firehose(cohort, data_dir):
                        for x in expr_data.index.str.split('-')]
 
     return expr_data
+
+
+def get_expr_icgc(cohort, data_dir):
+    """Loads RNA-seq gene-level expression data downloaded from ICGC.
+
+    Args:
+        cohort (str): The name of an ICGC downloaded locally.
+        data_dir (str): The local directory where the ICGC data has
+                        been downloaded.
+
+    Returns:
+        expr_data (:obj:`pd.DataFrame`, shape = [n_samps, n_genes])
+
+    Examples:
+        >>> expr_data = get_expr_icgc(
+        >>>     'PACA-AU',
+        >>>     '/home/exacloud/lustre1/share_your_data_here/precepts/ICGC'
+        >>>     )
+        >>> expr_data = get_expr_icgc('LIRI-JP', '../ICGC-cohorts')
+
+    """
+
+    expr_file = os.path.join(data_dir, cohort, 'exp_seq.tsv.gz')
+    expr_df = pd.read_csv(expr_file, sep='\t')
+    expr_data = expr_df.pivot(index='icgc_sample_id', columns='gene_id',
+                              values='normalized_read_count')
+
+    return expr_data
+

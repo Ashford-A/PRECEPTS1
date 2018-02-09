@@ -112,6 +112,27 @@ def get_variants_firehose(cohort, data_dir):
     return mut_data
 
 
+def get_variants_icgc(cohort, data_dir):
+    """Gets variants for an ICGC cohort that have been downloaded locally.
+
+    Args:
+        cohort (str): The name of an ICGC cohort downloaded locally.
+        data_dir (str): The path where the ICGC data has been downloaded.
+
+    Returns:
+        mut_data (:obj:`pd.DataFrame`, shape = [n_mutations, 5])
+
+    """
+
+    mut_data = pd.read_csv(
+        os.path.join(data_dir, cohort, 'simple_somatic_mutation.open.tsv.gz'),
+        sep='\t', skiprows=1, usecols=[5, 13, 25, 28, 29],
+        names=['Sample', 'Type', 'Form', 'Gene', 'Transcript']
+        )
+
+    return mut_data
+
+
 def get_variants_bmeg(sample_list, gene_list, mut_fields=("term", )):
     """Gets variants from BMEG."""
 

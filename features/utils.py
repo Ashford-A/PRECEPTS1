@@ -11,7 +11,10 @@ Author: Michal Grzadkowski <grzadkow@ohsu.edu>
 """
 
 from ophion import Ophion
+import os
+
 import numpy as np
+import pandas as pd
 
 
 def choose_bmeg_server(server_list=('http://bmeg.compbio.ohsu.edu',
@@ -117,6 +120,45 @@ def match_tcga_samples(samples1, samples2):
 
         samps_match += [(partic1[chs1], (samps1[chs1], samps2[chs2]))
                         for chs1, chs2 in choose_indx]
+
+    return samps_match
+
+
+def match_icgc_samples(samples1, samples2, cohort, data_dir):
+    """Matches tumour samples from two different files in an ICGC cohort.
+
+    Args:
+        samples1, samples2 (:obj:`list` of :obj:`str`)
+        cohort (str): The name of an ICGC cohort downloaded locally.
+        data_dir (str): The path where the ICGC data has been downloaded.
+
+    Returns:
+        samps_match (list)
+
+    """
+    samps1 = list(set(samples1))
+    samps2 = list(set(samples2))
+
+    # gets the sample annotation data for the given ICGC cohort
+    sampl_file = os.path.join(data_dir, cohort, 'sample.tsv.gz')
+    sampl_df = pd.read_csv(sampl_file, sep='\t')
+
+    # for each of the two sample lists, matches the samples to ICGC donors
+    donors1 = {
+        sampl_df['icgc_donor_id'][
+            np.where(sampl_df['icgc_sample_id'] == samp)[0][0]]: samp
+        for samp in samps1
+        }
+    donors2 = {
+        sampl_df['icgc_donor_id'][
+            np.where(sampl_df['icgc_sample_id'] == samp)[0][0]]: samp
+        for samp in samps2
+        }
+
+    # links the two sets of samples via common donors
+    samps_match = [(donor, (donors1[donor], donors2[donor]))
+                   for donor in set(sampl_df['icgc_donor_id'])
+                   if donor in donors1 and donor in donors2]
 
     return samps_match
 
