@@ -344,16 +344,24 @@ class OmicPipe(Pipeline):
             )
 
     def eval_coh(self,
-                 cohort, pheno,
+                 cohort, pheno, use_train=False,
                  include_samps=None, exclude_samps=None,
                  include_genes=None, exclude_genes=None):
         """Evaluate the performance of a classifier."""
 
-        test_omics, test_pheno = cohort.test_data(
-            pheno,
-            include_samps, exclude_samps,
-            include_genes, exclude_genes
-            )
+        if use_train:
+            test_omics, test_pheno = cohort.train_data(
+                pheno,
+                include_samps, exclude_samps,
+                include_genes, exclude_genes
+                )
+
+        else:
+            test_omics, test_pheno = cohort.test_data(
+                pheno,
+                include_samps, exclude_samps,
+                include_genes, exclude_genes
+                )
 
         if len(test_pheno) < 5:
             return float('nan')

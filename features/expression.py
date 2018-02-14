@@ -120,18 +120,31 @@ def get_expr_firehose(cohort, data_dir):
 
     """
 
+    # finds the tarballs containing expression data for the given cohort in
+    # the given data directory
     expr_tars = glob.glob(os.path.join(
         data_dir, "stddata__2016_01_28", cohort, "20160128",
-        "*Merge_rnaseqv2_*_RSEM_genes_normalized_*.Level_3*.tar.gz"
+        ("*.Merge_rnaseqv2__illuminahiseq_rnaseqv2__unc_edu__Level_3__"
+         "RSEM_genes_normalized__data.Level_3.2016012800.0.0.tar.gz")
         ))
 
+    # ensures only one tarball matches the file name pattern
     if len(expr_tars) > 1:
-        raise IOError("Multiple normalized gene expression tarballs found!")
+        raise IOError("Multiple normalized gene expression tarballs found "
+                      "for cohort {} in directory {} !".format(
+                          cohort, data_dir))
 
+    elif len(expr_tars) == 0:
+        raise IOError("No normalized gene expression tarballs found "
+                      "for cohort {} in directory {} !".format(
+                          cohort, data_dir))
+
+    # opens the tarball and locates the expression data within it
     expr_tar = tarfile.open(expr_tars[0])
     expr_indx = [i for i, memb in enumerate(expr_tar.getmembers())
                  if 'data.txt' in memb.get_info()['name']]
-   
+  
+    # ensures only one file in the tarball contains expression data
     if len(expr_indx) == 0:
         raise IOError("No expression files found in the tarball!")
     elif len(expr_indx) > 1:

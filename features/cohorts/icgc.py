@@ -18,20 +18,25 @@ class VariantCohort(BaseVarCohort):
                  samp_cutoff=None, mut_levels=('Gene', 'Form'),
                  cv_seed=None, cv_prop=2.0/3):
 
+        # load expression and mutation data for the given cohort from the
+        # directory where the data was downloaded
         expr = get_expr_icgc(cohort, data_dir)
         variants = get_variants_icgc(cohort, data_dir)
 
+        # if a list of mutated genes was given, load pathway information
+        # about the neighbourhood of those genes
         if mut_genes is None:
             self.path = None
         else:
             self.path = get_gene_neighbourhood(mut_genes)
 
+        # load annotation data for the genes in the expression dataset
         annot = get_gencode()
-        expr = log_norm_expr(expr.fillna(expr.min().min()))
-
         annot = {g: a for g, a in annot.items()
                  if g in expr.columns}
 
+        # get gene names from the annotation data for genes whose
+        # mutations we want to consider
         if mut_genes is None:
             annot_genes = {a['gene_name']: g for g, a in annot.items()}
 
@@ -39,12 +44,17 @@ class VariantCohort(BaseVarCohort):
             annot_genes = {a['gene_name']: g for g, a in annot.items()
                            if a['gene_name'] in mut_genes}
 
+        # save gene annotation data as attributes of the cohort
         self.annot = annot
         self.mut_annot = annot_genes
 
+        # match the samples in the expression dataset to the samples
+        # in the mutation dataset
         matched_samps = match_icgc_samples(expr.index, variants['Sample'],
                                            cohort, data_dir)
 
+        # get the names of the samples we will use and the corresponding
+        # sample names in the expression and mutation datasets
         use_samples = [samp for samp, _ in matched_samps]
         expr_samps = [samp for (_, (samp, _)) in matched_samps]
         var_samps = [samp for (_, (_, samp)) in matched_samps]
@@ -103,6 +113,7 @@ class VariantCohort(BaseVarCohort):
         variants['Sample'] = new_samps
         variants['Gene'] = new_gns
 
+        expr = log_norm_expr(expr.fillna(expr.min().min()))
         expr_mean = np.mean(expr)
         expr_var = np.var(expr)
         expr = expr.loc[:, ((expr_mean > np.percentile(expr_mean, 5))
