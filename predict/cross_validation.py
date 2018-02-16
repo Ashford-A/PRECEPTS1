@@ -1,38 +1,35 @@
 
-"""
-Hetman (Heterogeneity Manifold)
-Prediction of mutation sub-types using expression data.
-This file contains utility functions for use in performing cross-validation
-on multi-domain and multi-task prediction tasks.
-"""
+"""Applying cross-validation techniques in -omic prediction contexts.
 
-# Author: Michal Grzadkowski <grzadkow@ohsu.edu>
+This module contains utility functions that assist with cross-validation for
+use in gauging the efficacy of algorithms applied to predict -omic phenotypes.
+
+Author: Michal Grzadkowski <grzadkow@ohsu.edu>
+
+"""
 
 import numpy as np
 import pandas as pd
 import time
 
-import scipy.sparse as sp
-from scipy.stats import rankdata
-
-from sklearn.utils.validation import check_array, _num_samples
-from sklearn.model_selection import (
-    StratifiedShuffleSplit, StratifiedKFold)
-from sklearn.model_selection._split import (
-    _validate_shuffle_split, _approximate_mode)
-from sklearn.model_selection._validation import _fit_and_predict, _score
-from sklearn.model_selection import RandomizedSearchCV
-from sklearn.externals.joblib import Parallel, delayed, logger
-
 from collections import Sized, defaultdict
 from functools import partial, reduce
 
+import scipy.sparse as sp
+from scipy.stats import rankdata
+
 from sklearn.base import is_classifier, clone
-from sklearn.model_selection._split import check_cv
-from sklearn.model_selection._validation import (
-    _fit_and_score, _index_param_value)
 from sklearn.utils import check_random_state, indexable
+from sklearn.utils.validation import check_array, _num_samples
 from sklearn.metrics.scorer import check_scoring
+from sklearn.externals.joblib import Parallel, delayed, logger
+
+from sklearn.model_selection import (
+    StratifiedShuffleSplit, StratifiedKFold, RandomizedSearchCV)
+from sklearn.model_selection._split import (
+    _validate_shuffle_split, _approximate_mode, check_cv)
+from sklearn.model_selection._validation import (
+    _fit_and_predict, _score, _index_param_value)
 
 
 def cross_val_predict_omic(estimator, X, y=None, groups=None,
@@ -44,11 +41,10 @@ def cross_val_predict_omic(estimator, X, y=None, groups=None,
        cross-validation via repeated stratified K-fold sampling.
     """
 
-    # gets the number of K-fold repeats
     if (cv_count % cv_fold) != 0:
         raise ValueError("The number of folds should evenly divide the total"
                          "number of cross-validation splits.")
-    cv_rep = int(cv_count / cv_fold)
+
     X, y, groups = indexable(X, y, groups)
     y = y.reshape(-1)
 
@@ -61,11 +57,14 @@ def cross_val_predict_omic(estimator, X, y=None, groups=None,
         train_samps_indx = X.index.get_indexer_for(train_samps)
         test_samps_indx = X.index.get_indexer_for(force_test_samps)
 
-    # generates the training/prediction splits
+    cv_rep = int(cv_count / cv_fold)
     cv_iter = []
+
     for i in range(cv_rep):
-        cv = StratifiedKFold(n_splits=cv_fold, shuffle=True,
-                             random_state=(random_state ** i) % 12949671)
+        cv = StratifiedKFold(
+            n_splits=cv_fold, shuffle=True,
+            random_state=(random_state ** (i + 3)) % 12949671
+            )
 
         cv_iter += [
             (train_samps_indx[train],

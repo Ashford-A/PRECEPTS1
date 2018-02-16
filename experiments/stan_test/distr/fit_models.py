@@ -7,7 +7,8 @@ sys.path.extend([os.path.join(base_dir, '../../../..')])
 
 from HetMan.features.variants import MuType
 from HetMan.features.cohorts.mut import VariantCohort
-from HetMan.predict.stan_margins import *
+from HetMan.predict.stan_margins.base import StanPipe
+from HetMan.experiments.stan_test.distr.stan_models import *
 
 import synapseclient
 import dill as pickle
@@ -21,8 +22,11 @@ def main():
     """Runs the experiment."""
 
     parser = argparse.ArgumentParser(
-        description=("Find the signatures a classifier predicts for a list "
-                     "of sub-types.")
+        description=(
+            "Infer the distribution of mutation probability scores a given "
+            "Stan model assigns to the samples in a TCGA cohort using a "
+            "pre-determined four-fold cross-validation split."
+            )
         )
 
     parser.add_argument('model_name', type=str,
@@ -65,8 +69,9 @@ def main():
 
     infer_mat = np.array(clf_stan.infer_coh(
                 cdata, use_mtype, exclude_genes=set([args.gene]),
-                infer_splits=4, infer_folds=4, parallel_jobs=4
+                infer_splits=4, infer_folds=4, parallel_jobs=1
                 ))
+    print(infer_mat[:10,0])
 
     pickle.dump(infer_mat,
                 open(os.path.join(
@@ -75,32 +80,9 @@ def main():
                )
 
 
-base_model = '''
-    data {
-        int<lower=1> N;         // number of samples
-        int<lower=1> G;         // number of genetic features
-        matrix[N, G] expr;      // RNA-seq expression values
-        int<lower=0, upper=1> mut[N];   // mutation status
-    }
-
-    parameters {
-        real alpha;
-        vector[G] gn_wghts;
-    }
-
-    model {
-        alpha ~ normal(0, 1);
-        gn_wghts ~ normal(0, 1);
-        mut ~ bernoulli_logit(alpha + expr * gn_wghts);
-    }
-'''
-
-class LogitOptim(StanOptimizing, LogitStan):
-        pass
-
-
 model_dict = {
-    'base': StanPipe(LogitOptim(base_model))
+    'base': StanPipe(LogitOptim(base_model)),
+    'cauchy': StanPipe(LogitOptim(cauchy_model)),
     }
 
 
