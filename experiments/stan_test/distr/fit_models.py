@@ -69,7 +69,7 @@ def main():
 
     infer_mat = np.array(clf_stan.infer_coh(
                 cdata, use_mtype, exclude_genes=set([args.gene]),
-                infer_splits=4, infer_folds=4, parallel_jobs=1
+                infer_splits=4, infer_folds=4, parallel_jobs=4
                 ))
     print(infer_mat[:10,0])
 

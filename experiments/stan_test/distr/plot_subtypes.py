@@ -9,10 +9,12 @@ sys.path.extend([os.path.join(base_dir, '../../../..')])
 from HetMan.features.variants import MuType
 from HetMan.features.cohorts.mut import VariantCohort
 
+import numpy as np
+import pandas as pd
+
 import argparse
 import synapseclient
 import dill as pickle
-import numpy as np
 
 import matplotlib as mpl
 mpl.use('Agg')
@@ -70,6 +72,79 @@ def plot_label_stability(out_data, args, cdata):
     plt.close()
 
 
+def plot_label_variance(out_data, args, cdata):
+    fig, ax = plt.subplots(figsize=(13, 8))
+
+    wt_cmap = sns.light_palette('0.07', as_cmap=True)
+    mut_cmap = sns.light_palette(sns.hls_palette(1, l=.33, s=.95)[0],
+                                 as_cmap=True)
+
+    use_mtype = MuType({('Gene', args.gene): None})
+    mtype_stat = np.array(cdata.train_pheno(use_mtype))
+    out_means = np.mean(out_data, axis=1)
+    out_sds = np.std(out_data, axis=1)
+
+    ax = sns.kdeplot(out_means[~mtype_stat], out_sds[~mtype_stat],
+                     cmap=wt_cmap, linewidths=2.7, alpha=0.5,
+                     gridsize=1000, shade_lowest=False, n_levels=15,
+                     label='Wild-Type')
+
+    ax = sns.kdeplot(out_means[mtype_stat], out_sds[mtype_stat],
+                     cmap=mut_cmap, linewidths=2.7, alpha=0.5,
+                     gridsize=1000, shade_lowest=False, n_levels=15,
+                     label='{} Mutant'.format(args.gene))
+
+    plt.xlabel('Mutation Score CV Mean', fontsize=20)
+    plt.ylabel('Mutation Score CV SD', fontsize=20)
+
+    fig.savefig(os.path.join(plot_dir,
+                             'label_variance__{}-{}-{}.png'.format(
+                                 args.model_name, args.cohort, args.gene)),
+                dpi=400, bbox_inches='tight')
+    plt.close()
+
+
+def plot_subtype_violins(out_data, args, cdata, subtypes='Form_base'):
+    fig, ax = plt.subplots(figsize=(13, 8))
+    use_mtype = MuType({('Gene', args.gene): None})
+    out_meds = np.percentile(out_data, q=50, axis=1)
+
+    if subtypes is None:
+        type_lbl = 'all'
+
+        use_subtypes = reduce(
+            or_,
+            [cdata.train_mut.branchtypes(sub_levels=[tp])
+             for tp in cdata.train_mut.get_levels() - {'Gene'}]
+            )
+
+    elif isinstance(subtypes, str):
+        type_lbl = subtypes
+        use_subtypes = cdata.train_mut.branchtypes(sub_levels=[subtypes])
+
+    else:
+        raise ValueError("Unrecognized 'subtypes' argument!")
+
+    mtype_meds = [('Wild-Type',
+                   out_meds[~np.array(cdata.train_pheno(use_mtype))])]
+    mtype_meds += [(str(mtype),
+                    out_meds[np.array(cdata.train_pheno(mtype))])
+                   for mtype in use_subtypes]
+    mtype_meds = sorted(mtype_meds, key=lambda x: np.mean(x[1]))
+
+    med_df = pd.concat(pd.DataFrame({'Subtype': mtype, 'Score': meds})
+                       for mtype, meds in mtype_meds)
+
+    ax = sns.violinplot(data=med_df, x='Subtype', y='Score')
+
+    fig.savefig(os.path.join(plot_dir,
+                             'subtype_violins__{}__{}-{}-{}.png'.format(
+                                 type_lbl,
+                                 args.model_name, args.cohort, args.gene)),
+                dpi=400, bbox_inches='tight')
+    plt.close()
+
+
 def main():
     """Runs the experiment."""
 
@@ -88,8 +163,8 @@ def main():
 
     # logs into Synapse using locally-stored credentials
     syn = synapseclient.Synapse()
-    syn.cache.cache_root_dir = ('/home/exacloud/lustre1/share_your_data_here'
-                                '/precepts/synapse')
+    syn.cache.cache_root_dir = ('/home/exacloud/lustre1/CompBio'
+                                '/mgrzad/input-data/synapse')
     syn.login()
 
     cdata = VariantCohort(
@@ -98,7 +173,9 @@ def main():
         data_dir=firehose_dir, syn=syn, cv_prop=1.0
         )
 
+    plot_subtype_violins(infer_mat, args, cdata)
     plot_label_stability(infer_mat, args, cdata)
+    plot_label_variance(infer_mat, args, cdata)
 
 
 if __name__ == "__main__":
