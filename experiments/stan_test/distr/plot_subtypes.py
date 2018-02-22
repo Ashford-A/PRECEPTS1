@@ -173,9 +173,10 @@ def main():
         data_dir=firehose_dir, syn=syn, cv_prop=1.0
         )
 
-    plot_subtype_violins(infer_mat, args, cdata)
     plot_label_stability(infer_mat, args, cdata)
     plot_label_variance(infer_mat, args, cdata)
+    plot_subtype_violins(infer_mat, args, cdata, subtypes='Form_base')
+    plot_subtype_violins(infer_mat, args, cdata, subtypes='Exon')
 
 
 if __name__ == "__main__":

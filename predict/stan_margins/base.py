@@ -81,17 +81,23 @@ class MarginStan(BaseStan):
 
     model_name = 'MarginalPredict'
 
-    @staticmethod
-    def get_data_dict(X, y, **fit_params):
-        return {'Nw': np.sum(~y), 'Nm': np.sum(y), 'G': X.shape[1],
-                'expr_w': X[~y], 'expr_m': X[y]}
+    def __init__(self,
+                 model_code, wt_distr=(-1.0, 0.5), mut_distr=(1.0, 0.5)):
+        self.wt_distr = wt_distr
+        self.mut_distr = mut_distr
 
-    @staticmethod
-    def calc_pred_p(X, var_means):
+        super().__init__(model_code)
+
+    def get_data_dict(self, X, y, **fit_params):
+        return {'Nw': np.sum(~y), 'Nm': np.sum(y), 'G': X.shape[1],
+                'expr_w': X[~y], 'expr_m': X[y],
+                'wt_distr': self.wt_distr, 'mut_distr': self.mut_distr}
+
+    def calc_pred_p(self, X, var_means):
         pred_scores = np.dot(X, var_means['gn_wghts']) + var_means['alpha']
 
-        neg_logl = stats.norm.logpdf(pred_scores, -1, 0.1)
-        pos_logl = stats.norm.logpdf(pred_scores, 1, 0.1)
+        neg_logl = stats.norm.logpdf(pred_scores, *self.wt_distr)
+        pos_logl = stats.norm.logpdf(pred_scores, *self.mut_distr)
         pred_p = 1 / (1 + np.exp(np.clip(neg_logl - pos_logl, -100, 100)))
 
         return pred_scores

@@ -54,8 +54,8 @@ def main():
 
     # logs into Synapse using locally-stored credentials
     syn = synapseclient.Synapse()
-    syn.cache.cache_root_dir = ("/home/exacloud/lustre1/share_your_data_here/"
-                                "precepts/synapse/")
+    syn.cache.cache_root_dir = ('/home/exacloud/lustre1/CompBio'
+                                '/mgrzad/input-data/synapse')
     syn.login()
 
     # loads the expression data and gene mutation data for the given TCGA
@@ -83,6 +83,11 @@ def main():
 model_dict = {
     'base': StanPipe(LogitOptim(base_model)),
     'cauchy': StanPipe(LogitOptim(cauchy_model)),
+    'margin': StanPipe(MarginOptim(margin_model)),
+    'margin2': StanPipe(MarginOptim(margin_model,
+                                    wt_distr=(-1.5, 0.3), mut_distr=(1.5, 1.0))),
+    'margin3': StanPipe(MarginOptim(margin_model,
+                                    wt_distr=(-1.0, 0.1), mut_distr=(1.0, 1.0))),
     }
 
 

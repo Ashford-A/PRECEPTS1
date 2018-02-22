@@ -99,7 +99,6 @@ class VariantCohort(PresenceCohort, UniCohort):
 
         # loads the pathway neighbourhood of the variant genes, as well as
         # annotation data for all genes
-        self.path = get_gene_neighbourhood(mut_genes)
         annot = get_gencode()
 
         # gets the genes for which we have both expression and annotation data
@@ -120,12 +119,27 @@ class VariantCohort(PresenceCohort, UniCohort):
         expr.index = [use_samples[expr_samps.index(samp)]
                       for samp in expr.index]
 
-        # gets the subset of variant data for the shared samples with the
-        # genes whose mutations we want to consider
-        variants = variants.loc[variants['Gene'].isin(mut_genes)
-                                & variants['Sample'].isin(var_samps), :]
-        variants['Sample'] = [use_samples[var_samps.index(samp)]
-                              for samp in variants['Sample']]
+        if mut_genes is None:
+            var_df = variants.loc[variants['Sample'].isin(var_samps), :]
+            gn_counts = var_df.groupby(by='Gene').Sample.nunique()
+            gn_counts = gn_counts.loc[annot_genes]
+            gn_counts = gn_counts.sort_values(ascending=False)
+            gn_counts = gn_counts[gn_counts >= 20]
+            variants = var_df.loc[var_df['Gene'].isin(gn_counts.index), :]
+
+        else:
+            self.path = get_gene_neighbourhood(mut_genes)
+
+            # gets the subset of variant data for the shared samples with the
+            # genes whose mutations we want to consider
+            variants = variants.loc[variants['Gene'].isin(mut_genes)
+                                    & variants['Sample'].isin(var_samps), :]
+
+        new_samps = [use_samples[var_samps.index(samp)]
+                     for samp in variants['Sample']]
+        variants = variants.drop(labels=['Sample'], axis="columns",
+                                 inplace=False)
+        variants['Sample'] = new_samps
 
         # filters out genes that have both low levels of expression and low
         # variance of expression
@@ -138,8 +152,7 @@ class VariantCohort(PresenceCohort, UniCohort):
         # are under consideration
         annot_data = {a['gene_name']: {'ID': g, 'Chr': a['chr'],
                                        'Start': a['Start'], 'End': a['End']}
-                      for g, a in annot.items()
-                      if a['gene_name'] in mut_genes}
+                      for g, a in annot.items()}
         self.annot = annot
         self.mut_annot = annot_data
 
