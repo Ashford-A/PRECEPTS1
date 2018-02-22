@@ -6,7 +6,7 @@ import sys
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
 from HetMan.features.variants import MuType
-from HetMan.features.cohorts.icgc import VariantCohort as ICGCVarCohort
+from HetMan.features.cohorts.icgc import MutationCohort as ICGCVarCohort
 from HetMan.predict.basic.classifiers import *
 
 import argparse
@@ -79,7 +79,7 @@ def main():
     use_genes = sorted(set(gn for _, gn in cohort_genes))
     
     cdata_icgc = ICGCVarCohort(
-        icgc_data_dir, 'PACA-AU', samp_cutoff=[1/12, 11/12],
+        'PACA-AU', icgc_data_dir, mut_genes=None, samp_cutoff=[1/12, 11/12],
         cv_prop=0.75, cv_seed=(args.cv_id * 9999) + 3
         )
 

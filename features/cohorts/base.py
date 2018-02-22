@@ -32,22 +32,15 @@ class Cohort(object):
     used in such models. The nature of these -omic features as well as the
     phenotypes they will be used to predict are defined by children classes.
 
-    Attributes:
-        train_samps (:obj:`frozenset` of :obj:`str`)
-            Samples to be used for machine learning training.
-        test_samps (:obj:`frozenset` of :obj:`str`)
-            Samples to be used for machine learning testing.
-        genes: The genetic features included in the -omic dataset.
-        cohort_lbl (str): The source of the datasets.
-        cv_seed (int): A random seed used for sampling from the datasets.
+    Args:
+        genes (frozenset): The genetic features included in the -omic dataset.
+        cv_seed (:obj: `int`, optional)
+            A random seed used for sampling from the datasets.
 
     """
 
-    def __init__(self, genes, cohort_lbl, cv_seed):
-
-        # set the remaining attributes inherent to all cohorts
+    def __init__(self, genes, cv_seed=None):
         self.genes = genes
-        self.cohort_lbl = cohort_lbl
 
         if cv_seed is None:
             self.cv_seed = 0
@@ -124,7 +117,7 @@ class UniCohort(Cohort):
     """
 
     def __init__(self,
-                 omic_mat, train_samps, test_samps, cohort_lbl, cv_seed):
+                 omic_mat, train_samps, test_samps, cv_seed):
 
         # check that the samples listed in the training and testing
         # sub-cohorts are valid relative to the -omic dataset
@@ -157,7 +150,7 @@ class UniCohort(Cohort):
             self.samples = frozenset(train_samps) | frozenset(test_samps)
             self.test_samps = frozenset(test_samps)
 
-        super().__init__(frozenset(omic_mat.columns), cohort_lbl, cv_seed)
+        super().__init__(frozenset(omic_mat.columns), cv_seed)
 
         # remove duplicate features from the dataset as well as samples
         # not listed in either the training or testing sub-cohorts
