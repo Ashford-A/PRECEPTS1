@@ -1,30 +1,16 @@
 
-"""Consolidating -omic datasets for prediction of phenotypes.
-
-This module contains classes for grouping continuous -omic datasets such as
-expression or proteomic measurements with -omic phenotypic features such as
-variants, copy number alterations, or drug response data so that the former
-can be used to predict the latter using machine learning pipelines.
+"""Consolidating -omic datasets for the prediction of mutations and CNAs.
 
 Authors: Michal Grzadkowski <grzadkow@ohsu.edu>
-         Hannah Manning <manningh@ohsu.edu>
 
 """
 
 from .base import *
-
-from ..expression import *
-from ..variants import *
-from ..copies import get_copies_firehose
-
 from ..pathways import *
-from ..annot import get_gencode
-from ..utils import match_tcga_samples
+from ..variants import MuType, MuTree
 
 import numpy as np
 import pandas as pd
-
-from functools import reduce
 from itertools import cycle
 
 
@@ -61,7 +47,8 @@ class BaseMutationCohort(PresenceCohort, UniCohort):
         var_samps = [samp for (_, (_, samp)) in matched_samps]
 
         # gets the subset of expression data corresponding to the shared
-        # samples and annotated genes
+        # samples and annotated genes, renames expression samples to the
+        # shared sample names
         expr = expr.loc[expr_samps, feat_annot.keys()]
         expr.index = [use_samples[expr_samps.index(samp)]
                       for samp in expr.index]
@@ -69,7 +56,12 @@ class BaseMutationCohort(PresenceCohort, UniCohort):
         if mut_genes is None:
             self.path = None
 
-            var_df = variants.loc[variants['Sample'].isin(var_samps), :]
+            variants = variants.loc[variants['Sample'].isin(var_samps), :]
+            var_df = variants.loc[
+                ~variants['Form'].isin(
+                    ['HomDel', 'HetDel', 'HetGain', 'HomGain']),
+                :]
+
             gn_counts = var_df.groupby(by='Gene').Sample.nunique()
             gn_counts = gn_counts.loc[feat_annot.keys()]
 
@@ -99,7 +91,7 @@ class BaseMutationCohort(PresenceCohort, UniCohort):
                 raise ValueError("Unrecognized `samp_cutoff` argument!")
 
             gn_counts = gn_counts[cutoff_mask]
-            variants = var_df.loc[var_df['Gene'].isin(gn_counts.index), :]
+            variants = variants.loc[variants['Gene'].isin(gn_counts.index), :]
 
         else:
             self.path = get_gene_neighbourhood(mut_genes)
@@ -124,6 +116,8 @@ class BaseMutationCohort(PresenceCohort, UniCohort):
         train_samps, test_samps = self.split_samples(
             cv_seed, cv_prop, use_samples)
 
+        # if the cohort is to have a testing cohort, build the tree with info
+        # on which testing samples have which types of mutations
         if test_samps:
             self.test_mut = MuTree(
                 muts=variants.loc[variants['Sample'].isin(test_samps), :],
@@ -133,6 +127,8 @@ class BaseMutationCohort(PresenceCohort, UniCohort):
         else:
             test_samps = None
 
+        # likewise, build a representation of mutation types across
+        # training cohort samples
         self.train_mut = MuTree(
             muts=variants.loc[variants['Sample'].isin(train_samps), :],
             levels=mut_levels
@@ -144,8 +140,25 @@ class BaseMutationCohort(PresenceCohort, UniCohort):
         super().__init__(expr, train_samps, test_samps, cv_seed)
 
     def train_pheno(self, mtype, samps=None):
+        """Gets the mutation status of samples in the training cohort.
+
+        Args:
+            mtype (:obj:`MuType` or :obj:`list` of :obj:`MuType`)
+                A particular type of mutation or list of types.
+            samps (:obj:`list` of :obj:`str`, optional)
+                A list of samples, of which those not in the training cohort
+                will be ignored. Defaults to using all the training samples.
+
+        Returns:
+            stat_list (:obj:`list` of :obj:`bool`)
+
+        """
+
+        # uses all the training samples if no list of samples provided
         if samps is None:
             samps = self.train_samps
+
+        # filters out the provided samples not in the training cohort
         else:
             samps = set(samps) & self.train_samps
 
@@ -163,8 +176,25 @@ class BaseMutationCohort(PresenceCohort, UniCohort):
         return stat_list
 
     def test_pheno(self, mtype, samps=None):
+        """Gets the mutation status of samples in the testing cohort.
+
+        Args:
+            mtype (:obj:`MuType` or :obj:`list` of :obj:`MuType`)
+                A particular type of mutation or list of types.
+            samps (:obj:`list` of :obj:`str`, optional)
+                A list of samples, of which those not in the testing cohort
+                will be ignored. Defaults to using all the testing samples.
+
+        Returns:
+            stat_list (:obj:`list` of :obj:`bool`)
+
+        """
+
+        # uses all the testing samples if no list of samples provided
         if samps is None:
             samps = self.test_samps
+
+        # filters out the provided samples not in the testing cohort
         else:
             samps = set(samps) & self.test_samps
 
@@ -182,116 +212,7 @@ class BaseMutationCohort(PresenceCohort, UniCohort):
         return stat_list
 
 
-class MutCohort(BaseMutationCohort, UniCohort):
-    """An expression dataset used to predict mutations, including CNAs.
-
-    A MutCohort is constructed by first constructing a VariantCohort with the
-    same attributes, and then adding copy number alteration (CNA) data on top
-    of the variant mutation data.
-
-    Note that CNAs are split according to the 'Form' mutation level, with each
-    branch at this level corresponding to a type of CNA, eg. -2 for homozygous
-    loss, 1 for heterozygous amplification, etc. If further mutation levels
-    specified they will only be added to the branches of the mutation trees
-    corresponding to variants.
-
-    Examples:
-        >>> import synapseclient
-        >>> syn = synapseclient.Synapse()
-        >>> syn.login()
-        >>>
-        >>> cdata = MutCohort(
-        >>>     syn, cohort='TCGA-OV', mut_genes=['RB1', 'TTN'],
-        >>>     mut_levels=['Gene', 'Form', 'Protein']
-        >>>     )
-
-    """
-
-    def __init__(self,
-                 syn, cohort, mut_genes, mut_levels=('Gene', 'Form'),
-                 cv_seed=None, cv_prop=2.0 / 3):
-        if mut_levels[0] != 'Gene' or mut_levels[1] != 'Form':
-            raise ValueError("A cohort with CNA info must use 'Gene' as the"
-                             "first mutation level and 'Form' as the second!")
-
-        # initiates a cohort with expression and variant mutation data
-        super().__init__(syn, cohort, mut_genes, mut_levels, cv_seed, cv_prop)
-
-        # loads copy number data, gets list of samples with CNA info
-        copy_data = get_copies_firehose(cohort.split('-')[-1], mut_genes)
-        copy_samps = frozenset(
-            reduce(lambda x, y: x & y,
-                   set(tuple(copies.keys())
-                       for gn, copies in copy_data.items()))
-            )
-
-        # removes samples that don't have CNA info
-        self.samples = self.samples & copy_samps
-        self.train_samps = self.train_samps & copy_samps
-        if cv_prop < 1.0:
-            self.test_samps = self.test_samps & copy_samps
-
-        # removes expression data for samples with no CNA info, removes
-        # variant data for samples with no CNA info
-        self.omic_mat = self.omic_mat.loc[self.samples, :]
-        self.train_mut = self.train_mut.subtree(self.train_samps)
-        if cv_prop < 1.0:
-            self.test_mut = self.test_mut.subtree(self.test_samps)
-
-        # adds copy number alteration data to the mutation trees
-        for gn in mut_genes:
-            copy_vals = list(np.unique(list(copy_data[gn].values())))
-            copy_vals.remove(0)
-            val_labels = ['CNA_{}'.format(val) for val in copy_vals]
-
-            if gn not in self.train_mut._child:
-                self.train_mut._child[gn] = MuTree(
-                    muts=pd.DataFrame(
-                        {'Form': val_labels,
-                         'Sample': [None for _ in val_labels]}
-                        ),
-                    levels=['Form'])
-
-            if cv_prop < 1.0 and gn not in self.test_mut._child:
-                self.test_mut._child[gn] = MuTree(
-                    muts=pd.DataFrame(
-                        {'Form': val_labels,
-                         'Sample': [None for _ in val_labels]}
-                        ),
-                    levels=['Form'])
-
-            for val_lbl in val_labels:
-                self.train_mut[gn]._child[val_lbl] = set()
-                if cv_prop < 1.0:
-                    self.test_mut[gn]._child[val_lbl] = set()
-
-            for samp, val in copy_data[gn].items():
-                if val != 0:
-                    lbl_indx = copy_vals.index(val)
-
-                    if samp in self.train_samps:
-                        self.train_mut[gn]._child[val_labels[lbl_indx]].\
-                            update({samp})
-                    elif cv_prop < 1.0:
-                        self.test_mut[gn]._child[val_labels[lbl_indx]].\
-                            update({samp})
-
-            for val_lbl in val_labels:
-                if self.train_mut[gn]._child[val_lbl]:
-                    self.train_mut[gn]._child[val_lbl] = frozenset(
-                        self.train_mut[gn]._child[val_lbl])
-                else:
-                    del(self.train_mut[gn]._child[val_lbl])
-
-                if cv_prop < 1.0:
-                    if self.test_mut[gn]._child[val_lbl]:
-                        self.test_mut[gn]._child[val_lbl] = frozenset(
-                            self.test_mut[gn]._child[val_lbl])
-                    else:
-                        del(self.test_mut[gn]._child[val_lbl])
-
-
-class TransferVariantCohort(PresenceCohort, TransferCohort):
+class TransferMutationCohort(PresenceCohort, TransferCohort):
     """Sharing information across multiple cohorts to predict variants."""
 
     def __init__(self,

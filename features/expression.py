@@ -9,8 +9,6 @@ Author: Michal Grzadkowski <grzadkow@ohsu.edu>
 """
 
 from .utils import choose_bmeg_server
-
-import numpy as np
 import pandas as pd
 
 import os
@@ -21,33 +19,6 @@ from io import BytesIO
 
 import json
 from ophion import Ophion
-
-
-def log_norm_expr(expr):
-    """Log-normalizes expression data.
-
-    Puts a matrix of RNA-seq expression values into log-space after adding
-    a constant derived from the smallest non-zero value.
-
-    Args:
-        expr (:obj:`np.array` of :obj:`float`,
-              shape = [n_samples, n_features])
-
-    Returns:
-        norm_expr (:obj:`np.array` of :obj:`float`,
-                   shape = [n_samples, n_features])
-
-    Examples:
-        >>> norm_expr = log_norm_expr(np.array([[1.0, 0], [2.0, 8.0]]))
-        >>> print(norm_expr)
-                [[ 0.5849625 , -1.],
-                 [ 1.32192809,  3.08746284]]
-
-    """
-    log_add = np.nanmin(expr[expr > 0]) * 0.5
-    norm_expr = np.log2(expr + log_add)
-
-    return norm_expr
 
 
 def get_expr_bmeg(cohort):
@@ -94,12 +65,10 @@ def get_expr_bmeg(cohort):
                 dt['expression']['properties']['serializedExpressions'])
 
     # creates a sample x expression matrix and normalizes it
-    expr_mat = pd.DataFrame(expr_list).transpose().fillna(0.0)
-    gene_set = expr_mat.columns
+    expr_mat = pd.DataFrame(expr_list).transpose()
     expr_mat.index = [x[-1] for x in expr_mat.index.str.split(':')]
-    expr_data = log_norm_expr(expr_mat.loc[:, gene_set])
 
-    return expr_data
+    return expr_mat
 
 
 def get_expr_firehose(cohort, data_dir):
@@ -153,8 +122,7 @@ def get_expr_firehose(cohort, data_dir):
     expr_fl = expr_tar.extractfile(expr_tar.getmembers()[expr_indx[0]])
     expr_data = pd.read_csv(BytesIO(expr_fl.read()),
                             sep='\t', skiprows=[1], index_col=0,
-                            engine='python')
-    expr_data = log_norm_expr(expr_data.transpose().fillna(0.0))
+                            engine='python').transpose()
 
     expr_data.columns = [gn.split('|')[0] if isinstance(gn, str) else gn
                          for gn in expr_data.columns]
