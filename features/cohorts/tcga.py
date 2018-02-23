@@ -108,7 +108,7 @@ class MutationCohort(BaseMutationCohort):
                 {-2: 'HomDel', -1: 'HetDel', 1: 'HetGain', 2: 'HomGain'})
             variants = pd.concat([variants, copy_df])
 
-        else:
+        elif copy_source is not None:
             raise ValueError("Unrecognized source of CNA data!")
 
         # gets annotation data for each gene in the expression data, saves the
