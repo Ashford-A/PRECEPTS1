@@ -34,15 +34,38 @@ def get_copies_firehose(cohort, data_dir):
         >>> copy_data = get_copies_firehose('STAD', '../input-data')
 
     """
-    copy_tar = tarfile.open(glob.glob(os.path.join(
+    copy_tars = glob.glob(os.path.join(
         data_dir, "analyses__2016_01_28", cohort, "20160128",
         '*CopyNumber_Gistic2.Level_4.*tar.gz'
-        ))[0])
+        ))
 
-    copy_fl = copy_tar.extractfile(copy_tar.getmembers()[-5])
+    if len(copy_tars) > 1:
+        raise IOError("Multiple GISTIC copy number tarballs found "
+                      "for cohort {} in directory {} !".format(
+                          cohort, data_dir))
+
+    if len(copy_tars) == 0:
+        raise IOError("No normalized GISTIC copy number tarballs found "
+                      "for cohort {} in directory {} !".format(
+                          cohort, data_dir))
+
+    copy_tar = tarfile.open(copy_tars[0])
+    copy_indx = [i for i, memb in enumerate(copy_tar.getmembers())
+                 if 'all_thresholded.by_genes.txt' in memb.get_info()['name']]
+    
+    # ensures only one file in the tarball contains CNA data
+    if len(copy_indx) == 0:
+        raise IOError("No thresholded CNA files found in the tarball!")
+    elif len(copy_indx) > 1:
+        raise IOError("Multiple thresholded CNA files found in the tarball!")
+
+    copy_fl = copy_tar.extractfile(copy_tar.getmembers()[copy_indx[0]])
     copy_data = pd.read_csv(BytesIO(copy_fl.read()),
                             sep='\t', index_col=0, engine='python')
-    copy_data = copy_data.iloc[:, 2:].transpose().fillna(0.0)
+
+    copy_data = copy_data.iloc[:, 2:].transpose()
+    copy_data.index = ["-".join(x[:4])
+                       for x in copy_data.index.str.split('-')]
 
     return copy_data
 

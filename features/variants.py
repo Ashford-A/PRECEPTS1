@@ -332,7 +332,8 @@ class MuTree(object):
         """
         new_muts = {}
 
-        cnv_indx = muts['Form'].isin(['Gain', 'Loss'])
+        cnv_indx = muts['Form'].isin(
+            ['HomDel', 'HetDel', 'HetGain', 'HomGain'])
         point_indx = muts['Protein'].str.match(
             pat='^p\\.[A-Z][0-9]+[A-Z]$', as_indexer=True, na=False)
         frame_indx = muts['Protein'].str.match(
