@@ -33,14 +33,30 @@ class Cohort(object):
     phenotypes they will be used to predict are defined by children classes.
 
     Args:
-        genes (frozenset): The genetic features included in the -omic dataset.
+        genes (:obj:`iterable` of :obj:`str` or :obj:`tuple` of :obj:`str`)
+            The genetic features included in the -omic dataset.
+            If a list of tuples is given, assumed to be multiple annotation
+            fields for each gene, with the first field corresponding
+            to gene name.
         cv_seed (:obj: `int`, optional)
             A random seed used for sampling from the datasets.
 
     """
 
     def __init__(self, genes, cv_seed=None):
-        self.genes = genes
+        genes = tuple(genes)
+
+        if isinstance(genes[0], str):
+            self.genes = frozenset(genes)
+
+        elif isinstance(genes[0], tuple):
+            self.genes = frozenset(x[0] for x in genes)
+
+        else:
+            raise TypeError(
+                "`genes` argument is a list of type {}, must be either "
+                "strings or tuples!".format(type(genes[0]))
+                )
 
         if cv_seed is None:
             self.cv_seed = 0
@@ -150,7 +166,7 @@ class UniCohort(Cohort):
             self.samples = frozenset(train_samps) | frozenset(test_samps)
             self.test_samps = frozenset(test_samps)
 
-        super().__init__(frozenset(omic_mat.columns), cv_seed)
+        super().__init__(omic_mat.columns, cv_seed)
 
         # remove duplicate features from the dataset as well as samples
         # not listed in either the training or testing sub-cohorts
@@ -243,7 +259,7 @@ class UniCohort(Cohort):
         if genes is None:
             genes = self.genes.copy()
 
-        return self.omic_mat.loc[samps, genes]
+        return self.omic_mat.loc[samps, list(genes)]
 
     def train_data(self,
                    pheno,

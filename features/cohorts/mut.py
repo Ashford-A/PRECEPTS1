@@ -49,7 +49,7 @@ class BaseMutationCohort(PresenceCohort, UniCohort):
         # gets the subset of expression data corresponding to the shared
         # samples and annotated genes, renames expression samples to the
         # shared sample names
-        expr = expr.loc[expr_samps, feat_annot.keys()]
+        expr = expr.loc[expr_samps, list(feat_annot)]
         expr.index = [use_samples[expr_samps.index(samp)]
                       for samp in expr.index]
 

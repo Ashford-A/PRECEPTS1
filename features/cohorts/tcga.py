@@ -8,7 +8,7 @@ Authors: Michal Grzadkowski <grzadkow@ohsu.edu>
 import pandas as pd
 from .mut import BaseMutationCohort
 
-from ..expression import get_expr_firehose, get_expr_bmeg
+from ..expression import get_expr_firehose, get_expr_bmeg, get_expr_toil
 from ..variants import get_variants_mc3, get_variants_firehose
 from ..copies import get_copies_firehose
 
@@ -64,9 +64,15 @@ class MutationCohort(BaseMutationCohort):
         # loads gene expression data from the given source
         if expr_source == 'BMEG':
             expr_mat = get_expr_bmeg(cohort)
+            expr = log_norm(expr_mat.fillna(0.0))
 
         elif expr_source == 'Firehose':
             expr_mat = get_expr_firehose(cohort, coh_args['expr_dir'])
+            expr = log_norm(expr_mat.fillna(0.0))
+
+        elif expr_source == 'toil':
+            expr = get_expr_toil(cohort, coh_args['expr_dir'],
+                                 coh_args['collapse_txs'])
 
         else:
             raise ValueError("Unrecognized source of expression data!")
@@ -86,7 +92,6 @@ class MutationCohort(BaseMutationCohort):
 
         # log-normalizes expression data, matches samples in the expression
         # data to those in the mutation data
-        expr = log_norm(expr_mat.fillna(0.0))
         matched_samps = match_tcga_samples(expr.index, variants['Sample'])
 
         # loads copy number alteration data from the given source

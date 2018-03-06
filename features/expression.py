@@ -9,11 +9,13 @@ Author: Michal Grzadkowski <grzadkow@ohsu.edu>
 """
 
 from .utils import choose_bmeg_server
+import numpy as np
 import pandas as pd
 
 import os
 import glob
 
+import gzip
 import tarfile
 from io import BytesIO
 
@@ -188,6 +190,33 @@ def get_expr_icgc(cohort, data_dir):
     expr_df = pd.read_csv(expr_file, sep='\t')
     expr_data = expr_df.pivot(index='icgc_sample_id', columns='gene_id',
                               values='normalized_read_count')
+
+    return expr_data
+
+
+def get_expr_toil(cohort, data_dir, collapse_txs=False):
+    expr_file = os.path.join(data_dir, '{}.txt.gz'.format(cohort))
+    expr_data = pd.read_csv(expr_file, sep='\t', index_col=0).transpose()
+    expr_data.columns.name = None
+
+    # loads mapping between transcripts and the genes they are a part of
+    tx_file = ('/home/exacloud/lustre1/CompBio/mgrzad/input-data'
+               '/toil/gencode.v23.annotation.transcript.probemap.gz')
+    tx_annot = pd.read_csv(tx_file, sep='\t', index_col=0)
+
+    expr_data.columns = pd.MultiIndex.from_arrays(
+        [tx_annot.loc[expr_data.columns, 'gene'], expr_data.columns],
+        names=['Gene', 'Transcript']
+        )
+    
+    if collapse_txs:
+        expr_data = np.log2(
+            expr_data.rpow(2).subtract(0.001).groupby(
+                level=['Gene'], axis=1).sum().add(0.001)
+            )
+
+    else:
+        expr_data.sort_index(axis=1, level=['Gene'], inplace=True)
 
     return expr_data
 
