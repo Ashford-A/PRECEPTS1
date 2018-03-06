@@ -6,7 +6,7 @@ plot_dir = os.path.join(base_dir, 'plots', 'classif')
 import sys
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
-from HetMan.features.cohorts.icgc import VariantCohort as ICGCVarCohort
+from HetMan.features.cohorts.icgc import MutationCohort as ICGCcohort
 from HetMan.features.variants import MuType
 
 import argparse
@@ -121,8 +121,8 @@ def main():
     args = parser.parse_args()
 
     # load ICGC expression and mutation data, create directory to save plots
-    cdata_icgc = ICGCVarCohort(icgc_data_dir, 'PACA-AU',
-                               samp_cutoff=[1/12, 11/12], cv_prop=1.0)
+    cdata_icgc = ICGCcohort('PACA-AU', icgc_data_dir, mut_genes=None,
+                            samp_cutoff=[1/12, 11/12], cv_prop=1.0)
     os.makedirs(plot_dir, exist_ok=True)
 
     # load experiment data

@@ -6,7 +6,7 @@ import sys
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
 from HetMan.features.variants import MuType
-from HetMan.features.cohorts.icgc import MutationCohort as ICGCVarCohort
+from HetMan.features.cohorts.icgc import MutationCohort as ICGCcohort
 from HetMan.predict.basic.classifiers import *
 
 import argparse
@@ -75,10 +75,10 @@ def main():
     os.makedirs(out_path, exist_ok=True)
 
     cohort_genes = pickle.load(
-        open(os.path.join(base_dir, 'cohort_genes.p'), 'rb'))
+        open(os.path.join(base_dir, 'setup', 'cohort_genes.p'), 'rb'))
     use_genes = sorted(set(gn for _, gn in cohort_genes))
     
-    cdata_icgc = ICGCVarCohort(
+    cdata_icgc = ICGCcohort(
         'PACA-AU', icgc_data_dir, mut_genes=None, samp_cutoff=[1/12, 11/12],
         cv_prop=0.75, cv_seed=(args.cv_id * 9999) + 3
         )
@@ -102,7 +102,6 @@ def main():
         out_acc[gene] = mut_clf.eval_coh(cdata_icgc, use_mtype,
                                          exclude_genes={gene})
 
-    # save the list of found non-duplicate sub-types to file
     pickle.dump(
         out_acc,
         open(os.path.join(out_path,

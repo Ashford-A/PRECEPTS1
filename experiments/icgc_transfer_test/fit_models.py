@@ -16,16 +16,16 @@ from math import ceil
 import dill as pickle
 
 icgc_data_dir = '/home/exacloud/lustre1/share_your_data_here/precepts/ICGC'
-firehose_data_dir = ('/home/exacloud/lustre1/share_your_data_here'
-                     '/precepts/firehose/')
+toil_dir = "/home/exacloud/lustre1/CompBio/mgrzad/input-data/toil/processed"
 
 
 def main():
     """Runs the experiment."""
 
     parser = argparse.ArgumentParser(
-        description=("Test a classifier's ability to predict the presence "
-                     "of a list of sub-types.")
+        description=("Test a classifier's ability to create a mutation "
+                     "signature for a gene that can be transferred from a "
+                     "TCGA cohort to ICGC PACA-AU.")
         )
 
     parser.add_argument('classif', type=str,
@@ -33,7 +33,8 @@ def main():
     parser.add_argument('cv_id', type=int,
                         help='a random seed used for cross-validation')
     parser.add_argument('task_id', type=int,
-                        help='the subset of sub-types to assign to this task')
+                        help=('the subset of TCGA cohorts and mutated genes '
+                              'to assign to this task'))
 
     parser.add_argument(
         '--tune_splits', type=int, default=4,
@@ -58,7 +59,7 @@ def main():
                   args.classif, args.cv_id, args.task_id))
 
     cohort_genes = sorted(pickle.load(
-        open(os.path.join(base_dir, 'cohort_genes.p'), 'rb')))
+        open(os.path.join(base_dir, 'setup', 'cohort_genes.p'), 'rb')))
 
     test_count = ceil(len(cohort_genes) / 5)
     cohort_genes = [x for i, x in enumerate(cohort_genes)
@@ -81,15 +82,14 @@ def main():
 
         tcga_cdata = TCGAcohort(
             cohort=cohort, mut_genes=cur_genes, mut_levels=['Gene'],
-            expr_source='Firehose', expr_dir=firehose_data_dir,
-            cv_prop=0.75, cv_seed=(args.cv_id - 37) * 101, syn=syn
+            expr_source='toil', expr_dir=toil_dir, var_source='mc3', syn=syn,
+            collapse_txs=True, cv_prop=0.75, cv_seed=(args.cv_id - 37) * 101
             )
 
         if args.verbose:
             print("Loaded mutations for {} genes in cohort {} with "
-                  "{} samples.".format(
-                      len(cur_genes), cohort, len(tcga_cdata.samples))
-                    )
+                  "{} samples.".format(len(cur_genes), cohort,
+                                       len(tcga_cdata.samples)))
 
         for gene in cur_genes:
             if args.verbose:
@@ -119,9 +119,8 @@ def main():
                  'Info': {'TuneSplits': args.tune_splits,
                           'TestCount': args.test_count,
                           'ParallelJobs': args.parallel_jobs}},
-                 open(out_file, 'wb'))
+                open(out_file, 'wb'))
 
 
 if __name__ == "__main__":
     main()
-
