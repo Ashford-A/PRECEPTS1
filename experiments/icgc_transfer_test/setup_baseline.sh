@@ -28,7 +28,7 @@ sleep $(($SLURM_ARRAY_TASK_ID * 11));
 # find the expression effects for the training/testing cohort split defined
 # by the cross-validation ID and the sub-variant subset defined by the sub-task ID
 srun -p=exacloud \
-	--output=$BASEDIR/setup/slurm_${classif}_${SLURM_ARRAY_TASK_ID}.txt \
-	--error=$BASEDIR/setup/slurm_${classif}_${SLURM_ARRAY_TASK_ID}.err \
+	--output=$BASEDIR/setup/slurm_${classif}_base_${SLURM_ARRAY_TASK_ID}.txt \
+	--error=$BASEDIR/setup/slurm_${classif}_base_${SLURM_ARRAY_TASK_ID}.err \
 	python $BASEDIR/setup_baseline.py $classif $SLURM_ARRAY_TASK_ID -v
 

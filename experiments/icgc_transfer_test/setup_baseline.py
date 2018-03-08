@@ -10,7 +10,6 @@ from HetMan.features.cohorts.icgc import MutationCohort as ICGCcohort
 from HetMan.predict.basic.classifiers import *
 
 import argparse
-import synapseclient
 import dill as pickle
 import pandas as pd
 

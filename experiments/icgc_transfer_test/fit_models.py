@@ -73,8 +73,8 @@ def main():
                             samp_cutoff=[1/12, 11/12], cv_prop=1.0)
 
     syn = synapseclient.Synapse()
-    syn.cache.cache_root_dir = ("/home/exacloud/lustre1/CompBio/"
-                                "mgrzad/input-data/synapse")
+    syn.cache.cache_root_dir = ("/home/exacloud/lustre1/CompBio/mgrzad"
+                                "/input-data/synapse")
     syn.login()
     
     for cohort in use_cohorts:

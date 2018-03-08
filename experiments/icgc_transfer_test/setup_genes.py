@@ -26,13 +26,15 @@ def main():
 
     # logs into Synapse using locally-stored credentials
     syn = synapseclient.Synapse()
-    syn.cache.cache_root_dir = ('/home/exacloud/lustre1/'
-                                'share_your_data_here/precepts/synapse')
+    syn.cache.cache_root_dir = ("/home/exacloud/lustre1/CompBio/mgrzad/"
+                                "input-data/synapse")
     syn.login()
 
     # finds all the cohorts analyzed through Toil that have been downloaded
     use_cohorts = [os.path.basename(fl).replace('.txt.gz', '')
                    for fl in glob.glob(os.path.join(toil_dir, '*.txt.gz'))]
+    cohort_info = {coh: {'Samples': None, 'Genes': None}
+                   for coh in use_cohorts}
 
     # loads each TCGA Toil cohort, finds all the genes that are frequently
     # mutated both in it and the PACA-AU cohort
@@ -43,6 +45,10 @@ def main():
             collapse_txs=False, syn=syn, cv_prop=1.0
             )
 
+        # gets information about the cohort
+        cohort_info[cohort]['Samples'] = len(cdata_tcga.samples)
+        cohort_info[cohort]['Genes'] = len(cdata_tcga.genes)
+
         for gn, mut in cdata_tcga.train_mut:
             if 10 <= len(mut) <= (len(cdata_tcga.samples) - 10):
                 print('{} and {}'.format(cohort, gn))
@@ -52,6 +58,10 @@ def main():
     # potentially transfer signatures to PACA-AU
     pickle.dump(sorted(cohort_genes),
                 open(os.path.join(base_dir, 'setup', 'cohort_genes.p'), 'wb'))
+
+    # saves information about each cohort to file
+    pickle.dump(cohort_info,
+                open(os.path.join(base_dir, 'setup', 'cohort_info.p'), 'wb'))
 
 
 if __name__ == "__main__":
