@@ -16,9 +16,9 @@ from ..utils import log_norm, match_icgc_samples
 class MutationCohort(BaseMutationCohort):
 
     def __init__(self,
-                 cohort, data_dir, mut_genes, mut_levels=('Gene', 'Form'),
-                 top_genes=100, samp_cutoff=None,
-                 cv_prop=2.0/3, cv_seed=None):
+                 cohort, data_dir, mut_genes,
+                 mut_levels=('Gene', 'Form_base'), top_genes=100,
+                 samp_cutoff=None, cv_prop=2.0/3, cv_seed=None):
 
         # load ICGC expression and mutation data for the given cohort from
         # the given local directory
@@ -51,11 +51,27 @@ class MutationCohort(BaseMutationCohort):
         var_df = variants.loc[~variants['Gene'].isnull(), :]
         var_df = var_df.loc[var_df['Gene'].isin(annot.keys()), :]
 
-        # remove irrelevant mutation types
-        variants = var_df.loc[~var_df['Form'].isin(
-            ['intron_variant', 'upstream_gene_variant',
-             'downstream_gene_variant', 'intragenic_variant']
-            ), :]
+        # map mutation types to those used by MC3
+        var_df['Form'] = var_df['Form'].map(
+            {'missense_variant': 'Missense_Mutation', 
+             '3_prime_UTR_variant': "3'UTR", '5_prime_UTR_variant': "5'UTR",
+             'frameshift_variant': 'Frame_Shift',
+             'stop_gained': 'Nonsense_Mutation',
+             'disruptive_inframe_deletion': 'In_Frame',
+             'inframe_deletion': 'In_Frame', 'inframe_insertion': 'In_Frame',
+             'splice_donor_variant': 'Splice_Site',
+             'splice_acceptor_variant': 'Splice_Site',
+             'splice_region_variant': 'Splice_Site',
+             'synonymous_variant': 'Silent', 'exon_variant': 'Silent',
+             '5_prime_UTR_premature_start_codon_gain_variant': "5'Flank",
+             'start_lost': "5'UTR", 'stop_lost': "3'UTR",
+             'stop_retained_variant': "3'UTR",
+             'disruptive_inframe_insertion': 'In_Frame',
+             'initiator_codon_variant': "5'UTR"}
+            )
+
+        # remove mutations whose types couldn't be mapped 
+        variants = var_df.loc[~var_df['Form'].isnull(), :]
 
         # replace gene Ensembl IDs with gene names in the mutation data
         new_gns = [annot[gn]['gene_name'] for gn in variants['Gene']] 
