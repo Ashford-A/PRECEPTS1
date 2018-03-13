@@ -43,25 +43,80 @@ class Cohort(object):
 
     """
 
-    def __init__(self, genes, cv_seed=None):
-        genes = tuple(genes)
+    def __init__(self,
+                 omic_data, train_samps, test_samps, genes, cv_seed=None):
 
-        if isinstance(genes[0], str):
-            self.genes = frozenset(genes)
-
-        elif isinstance(genes[0], tuple):
-            self.genes = frozenset(x[0] for x in genes)
-
-        else:
-            raise TypeError(
-                "`genes` argument is a list of type {}, must be either "
-                "strings or tuples!".format(type(genes[0]))
-                )
+        self.omic_data = omic_data
+        self.train_samps = train_samps
+        self.test_samps = test_samps
+        self.genes = genes
 
         if cv_seed is None:
             self.cv_seed = 0
         else:
             self.cv_seed = cv_seed
+
+    def train_data(self,
+                   pheno,
+                   include_samps=None, exclude_samps=None,
+                   include_genes=None, exclude_genes=None):
+        """Retrieval of the training cohort from the -omic dataset."""
+
+        samps = self.subset_samps(include_samps, exclude_samps,
+                                  use_test=False)
+        genes = self.subset_genes(include_genes, exclude_genes)
+        pheno_mat = np.array(self.train_pheno(pheno, samps))
+
+        if pheno_mat.ndim == 1:
+            pheno_mat = pheno_mat.reshape(-1, 1)
+
+        elif pheno_mat.shape[1] == len(samps):
+            pheno_mat = np.transpose(pheno_mat)
+
+        elif pheno_mat.shape[0] != len(samps):
+            raise ValueError(
+                "Given phenotype(s) do not return a valid matrix of values "
+                "to predict from the training data!"
+                )
+
+        nan_stat = np.any(~np.isnan(pheno_mat), axis=1)
+        samps = np.array(samps)[nan_stat]
+
+        if pheno_mat.shape[1] == 1:
+            pheno_mat = pheno_mat.ravel()
+
+        return self.omic_loc(samps, genes), pheno_mat[nan_stat]
+
+    def test_data(self,
+                  pheno,
+                  include_samps=None, exclude_samps=None,
+                  include_genes=None, exclude_genes=None):
+        """Retrieval of the testing cohort from the -omic dataset."""
+
+        samps = self.subset_samps(include_samps, exclude_samps,
+                                  use_test=True)
+        genes = self.subset_genes(include_genes, exclude_genes)
+        pheno_mat = np.array(self.test_pheno(pheno, samps))
+
+        if pheno_mat.ndim == 1:
+            pheno_mat = pheno_mat.reshape(-1, 1)
+
+        elif pheno_mat.shape[1] == len(samps):
+            pheno_mat = np.transpose(pheno_mat)
+
+        elif pheno_mat.shape[0] != len(samps):
+            raise ValueError(
+                "Given phenotype(s) do not return a valid matrix of values "
+                "to predict from the training data!"
+                )
+
+        nan_stat = np.any(~np.isnan(pheno_mat), axis=1)
+        samps = np.array(samps)[nan_stat]
+
+        if pheno_mat.shape[1] == 1:
+            pheno_mat = pheno_mat.ravel()
+
+        return self.omic_loc(samps, genes), pheno_mat[nan_stat]
 
     @staticmethod
     def split_samples(cv_seed, cv_prop, samps):
@@ -102,26 +157,38 @@ class Cohort(object):
         return train_samps, test_samps
 
     @abstractmethod
-    def subset_samps(self, include_samps=None, exclude_samps=None):
+    def subset_samps(self,
+                     include_samps=None, exclude_samps=None, use_test=False):
         """Get a subset of the samples available in this cohort."""
+
+        if use_test:
+            return self.test_samps
+        else:
+            return self.train_samps
 
     @abstractmethod
     def subset_genes(self, include_genes=None, exclude_genes=None):
         """Get a subset of the genetic features available in this cohort."""
 
+        return self.genes
+
     @abstractmethod
     def omic_loc(self, samps=None, genes=None):
         """Retrieval of a subset of the -omic dataset."""
 
+        return self.omic_data
+
     @abstractmethod
     def train_pheno(self, pheno, samps=None):
         """Returns the values for a phenotype in the training sub-cohort."""
-        raise CohortError("Cannot use base Cohort class!")
+
+        return tuple()
 
     @abstractmethod
     def test_pheno(self, pheno, samps=None):
         """Returns the values for a phenotype in the testing sub-cohort."""
-        raise CohortError("Cannot use base Cohort class!")
+
+        return tuple()
 
 
 class UniCohort(Cohort):
@@ -132,8 +199,18 @@ class UniCohort(Cohort):
 
     """
 
-    def __init__(self,
-                 omic_mat, train_samps, test_samps, cv_seed):
+    def __init__(self, omic_mat, train_samps, test_samps, cv_seed=None):
+
+        if not isinstance(omic_mat, pd.DataFrame):
+            raise TypeError("`omic_mat` must be a pandas DataFrame, found "
+                            "{} instead!".format(type(omic_mat)))
+
+        genes = tuple(omic_mat.columns)
+        if isinstance(genes[0], str):
+            genes = frozenset(genes)
+
+        elif isinstance(genes[0], tuple):
+            genes = frozenset(x[0] for x in genes)
 
         # check that the samples listed in the training and testing
         # sub-cohorts are valid relative to the -omic dataset
@@ -148,7 +225,6 @@ class UniCohort(Cohort):
 
         # check that the samples listed in the training and testing
         # sub-cohorts are valid relative to each other
-        self.train_samps = frozenset(train_samps)
         if not train_samps:
             raise CohortError("There must be at least one training sample!")
 
@@ -158,20 +234,19 @@ class UniCohort(Cohort):
 
         # when we don't have a testing cohort, use entire the entire
         # dataset as the training cohort
+        train_samps = frozenset(train_samps)
         if test_samps is None:
-            self.samples = self.train_samps.copy()
+            self.samples = train_samps.copy()
 
         # when we have a training cohort and a testing cohort
         else:
             self.samples = frozenset(train_samps) | frozenset(test_samps)
-            self.test_samps = frozenset(test_samps)
-
-        super().__init__(omic_mat.columns, cv_seed)
+            test_samps = frozenset(test_samps)
 
         # remove duplicate features from the dataset as well as samples
         # not listed in either the training or testing sub-cohorts
-        self.omic_mat = omic_mat.loc[self.samples,
-                                     ~omic_mat.columns.duplicated()]
+        omic_mat = omic_mat.loc[self.samples, ~omic_mat.columns.duplicated()]
+        super().__init__(omic_mat, train_samps, test_samps, genes, cv_seed)
 
     def subset_samps(self,
                      include_samps=None, exclude_samps=None, use_test=False):
@@ -259,77 +334,19 @@ class UniCohort(Cohort):
         if genes is None:
             genes = self.genes.copy()
 
-        return self.omic_mat.loc[samps, list(genes)]
-
-    def train_data(self,
-                   pheno,
-                   include_samps=None, exclude_samps=None,
-                   include_genes=None, exclude_genes=None):
-        """Retrieval of the training cohort from the -omic dataset."""
-
-        samps = self.subset_samps(include_samps, exclude_samps,
-                                  use_test=False)
-        genes = self.subset_genes(include_genes, exclude_genes)
-        pheno_mat = np.array(self.train_pheno(pheno, samps))
-
-        if pheno_mat.ndim == 1:
-            pheno_mat = pheno_mat.reshape(-1, 1)
-
-        elif pheno_mat.shape[1] == len(samps):
-            pheno_mat = np.transpose(pheno_mat)
-
-        elif pheno_mat.shape[0] != len(samps):
-            raise ValueError(
-                "Given phenotype(s) do not return a valid matrix of values "
-                "to predict from the training data!"
-                )
-
-        nan_stat = np.any(~np.isnan(pheno_mat), axis=1)
-        samps = np.array(samps)[nan_stat]
-
-        if pheno_mat.shape[1] == 1:
-            pheno_mat = pheno_mat.ravel()
-
-        return self.omic_loc(samps, genes), pheno_mat[nan_stat]
-
-    def test_data(self,
-                  pheno,
-                  include_samps=None, exclude_samps=None,
-                  include_genes=None, exclude_genes=None):
-        """Retrieval of the testing cohort from the -omic dataset."""
-
-        samps = self.subset_samps(include_samps, exclude_samps,
-                                  use_test=True)
-        genes = self.subset_genes(include_genes, exclude_genes)
-        pheno_mat = np.array(self.test_pheno(pheno, samps))
-
-        if pheno_mat.ndim == 1:
-            pheno_mat = pheno_mat.reshape(-1, 1)
-
-        elif pheno_mat.shape[1] == len(samps):
-            pheno_mat = np.transpose(pheno_mat)
-
-        elif pheno_mat.shape[0] != len(samps):
-            raise ValueError(
-                "Given phenotype(s) do not return a valid matrix of values "
-                "to predict from the training data!"
-                )
-
-        nan_stat = np.any(~np.isnan(pheno_mat), axis=1)
-        samps = np.array(samps)[nan_stat]
-
-        if pheno_mat.shape[1] == 1:
-            pheno_mat = pheno_mat.ravel()
-
-        return self.omic_loc(samps, genes), pheno_mat[nan_stat]
+        return self.omic_data.loc[samps, list(genes)]
 
     @abstractmethod
     def train_pheno(self, pheno, samps=None):
         """Returns the values for a phenotype in the training sub-cohort."""
 
+        raise CohortError("Cannot use UniCohort class!")
+
     @abstractmethod
     def test_pheno(self, pheno, samps=None):
         """Returns the values for a phenotype in the testing sub-cohort."""
+
+        raise CohortError("Cannot use UniCohort class!")
 
 
 class TransferCohort(Cohort):
@@ -353,17 +370,33 @@ class TransferCohort(Cohort):
 
     """
     
-    def __init__(self,
-                 omic_mats, train_samps, test_samps,
-                 cohort_lbl, cv_seed):
+    def __init__(self, omic_mats, train_samps, test_samps, cv_seed=None):
 
         if not isinstance(omic_mats, dict):
             raise TypeError("`omic_mats` must be a dictionary, found {} "
                             "instead!".format(type(omic_mats)))
 
-        # check that the samples listed in the training and testing
-        # sub-cohorts are valid relative to the -omic datasets
+        omic_dict = dict()
+        genes = dict()
+        self.samples = dict()
+
         for coh, omic_mat in omic_mats.items():
+            if not isinstance(omic_mat, pd.DataFrame):
+                raise TypeError(
+                    "`omic_mats` must have pandas DataFrames as values, "
+                    "found {} instead for cohort {}!".format(
+                        type(omic_mat), coh)
+                    )
+
+            coh_genes = tuple(omic_mat.columns)
+            if isinstance(coh_genes[0], str):
+                genes[coh] = frozenset(coh_genes)
+
+            elif isinstance(coh_genes[0], tuple):
+                genes[coh] = frozenset(x[0] for x in coh_genes)
+
+            # check that the samples listed in the training and testing
+            # sub-cohorts are valid relative to the -omic datasets
             if not (set(train_samps[coh]) & set(omic_mat.index)):
                 raise CohortError(
                     "At least one training sample must be in the -omic "
@@ -377,15 +410,8 @@ class TransferCohort(Cohort):
                     "dataset for cohort {}!".format(coh)
                     )
 
-        # check that the samples listed in the training and testing
-        # sub-cohorts are valid relative to each other
-        self.samples = dict()
-        self.train_samps = dict()
-        self.test_samps = dict()
-
-        for coh in omic_mats:
-            self.train_samps[coh] = frozenset(train_samps[coh])
-
+            # check that the samples listed in the training and testing
+            # sub-cohorts are valid relative to each other
             if not train_samps[coh]:
                 raise CohortError("There must be at least one training "
                                   "sample in cohort {}!".format(coh))
@@ -399,22 +425,20 @@ class TransferCohort(Cohort):
 
             # when we don't have a testing cohort, use entire the entire
             # dataset as the training cohort
+            train_samps[coh] = frozenset(train_samps[coh])
             if test_samps[coh] is None:
-                self.samples[coh] = self.train_samps[coh].copy()
+                self.samples[coh] = train_samps[coh].copy()
 
             # when we have a training cohort and a testing cohort
             else:
                 self.samples[coh] = (frozenset(train_samps[coh])
                                      | frozenset(test_samps[coh]))
-                self.test_samps[coh] = frozenset(test_samps[coh])
+                test_samps[coh] = frozenset(test_samps[coh])
 
-        self.omic_mats = {coh: omic_mat.loc[self.samples[coh],
-                                            ~omic_mat.columns.duplicated()]
-                          for coh, omic_mat in omic_mats.items()}
+            omic_dict[coh] = omic_mats[coh].loc[
+                self.samples[coh], ~omic_mats[coh].columns.duplicated()]
 
-        super().__init__({coh: set(omic_mat.columns)
-                          for coh, omic_mat in omic_mats.items()},
-                         cohort_lbl, cv_seed)
+        super().__init__(omic_dict, train_samps, test_samps, genes, cv_seed)
 
     def subset_genes(self, include_genes=None, exclude_genes=None):
         """Gets a subset of the genes in the cohort's -omic datasets.
@@ -479,8 +503,8 @@ class TransferCohort(Cohort):
         if genes is None:
             genes = self.genes.copy()
 
-        return {lbl: self.omic_mats[lbl].loc[samps, genes[lbl]]
-                for lbl in self.omic_mats}
+        return {lbl: self.omic_data[lbl].loc[samps, genes[lbl]]
+                for lbl in self.omic_data}
 
     @abstractmethod
     def train_pheno(self, pheno, samps=None):
