@@ -11,11 +11,14 @@ from ..variants import MuType, MuTree
 
 import numpy as np
 import pandas as pd
+
 from itertools import cycle
+from functools import reduce
+from operator import and_
 
 
 class BaseMutationCohort(PresenceCohort, UniCohort):
-    """An expression dataset used to predict genes' mutations (variants).
+    """A single dataset used to predict mutations in genes.
 
     Args:
         expr (:obj:`pd.DataFrame`, shape = [n_samps, n_features])
@@ -212,142 +215,132 @@ class BaseMutationCohort(PresenceCohort, UniCohort):
         return stat_list
 
 
-class TransferMutationCohort(PresenceCohort, TransferCohort):
-    """Sharing information across multiple cohorts to predict variants."""
+class BaseTransferMutationCohort(PresenceCohort, TransferCohort):
+    """Mutiple datasets used to predict mutations using transfer learning.
+
+    Args:
+        expr_dict (:obj:`dict` of :obj:`pd.DataFrame`)
+        variant_dict (:obj:`dict` of :obj:`pd.DataFrame`)
+
+    """
 
     def __init__(self,
-                 cohorts, mut_genes, mut_levels=('Gene', 'Form'),
-                 expr_sources='BMEG', var_sources='mc3',
-                 cv_seed=None, cv_props=2.0/3, **coh_args):
+                 expr_dict, variant_dict, matched_samps, feat_annot,
+                 mut_genes=None, mut_levels=('Gene', 'Form'), top_genes=250,
+                 samp_cutoff=None, cv_prop=2.0/3, cv_seed=None):
 
-        if isinstance(expr_sources, str):
-            expr_sources = [expr_sources]
+        use_samples = {coh: [samp for samp, _ in mtchs]
+                       for coh, mtchs in matched_samps.items()}
+        expr_samps = {coh: [samp for (_, (samp, _)) in mtchs]
+                      for coh, mtchs in matched_samps.items()}
+        var_samps = {coh: [samp for (_, (_, samp)) in mtchs]
+                     for coh, mtchs in matched_samps.items()}
 
-        if var_sources is None:
-            var_sources = expr_sources
-        elif isinstance(var_sources, str):
-            var_sources = [var_sources]
-
-        if not isinstance(cv_props, list):
-            cv_props = [cv_props]
-
-        # loads gene expression data from the given source, log-normalizes it
-        # and removes missing values as necessary
-        expr = dict()
-        for coh, expr_source in zip(cohorts, cycle(expr_sources)):
-            if expr_source == 'BMEG':
-                expr_mat = get_expr_bmeg(coh)
-                expr[coh] = log_norm_expr(
-                    expr_mat.fillna(expr_mat.min().min()))
-
-            elif expr_source == 'Firehose':
-                expr_mat = get_expr_firehose(coh, coh_args['data_dir'])
-                expr[coh] = expr_mat.fillna(expr_mat.min().min())
-
-            else:
-                raise ValueError("Unrecognized source of expression data!")
-
-        # loads gene variant data from the given source
-        if 'mc3' in var_sources:
-            mc3_vars = get_variants_mc3(coh_args['syn'])
-
-        variants = dict()
-        for coh, var_source in zip(cohorts, cycle(var_sources)):
-
-            if var_source == 'mc3':
-                variants[coh] = mc3_vars.copy()
-
-            elif var_source == 'Firehose':
-                variants[coh] = get_variants_firehose(
-                    coh, coh_args['data_dir'])
-
-            else:
-                raise ValueError("Unrecognized source of variant data!")
-
-        # loads the pathway neighbourhood of the variant genes, as well as
-        # annotation data for all genes
-        self.path = get_gene_neighbourhood(mut_genes)
-        annot = get_gencode()
-
-        # gets the genes for which we have both expression and annotation data
-        annot = {coh: {g: a for g, a in annot.items()
-                       if a['gene_name'] in expr[coh].columns}
-                 for coh in cohorts}
-        annot_genes = {coh: [a['gene_name'] for g, a in annot[coh].items()]
-                       for coh in cohorts}
-
-        # gets the set of samples shared across the expression and mutation
-        # data that are also primary tumour samples
-        matched_samps = {
-            coh: match_tcga_samples(expr[coh].index, variants[coh]['Sample'])
-            for coh in cohorts
+        expr = {
+            coh: expr_dict[coh].loc[
+                expr_samps[coh], list(feat_annot[coh])]
+            for coh in expr_dict
             }
 
-        use_samples = {coh: [samp for samp, _ in matched_samps[coh]]
-                       for coh in cohorts}
-        expr_samps = {coh: [samp for (_, (samp, _)) in matched_samps[coh]]
-                      for coh in cohorts}
-        var_samps = {coh: [samp for (_, (_, samp)) in matched_samps[coh]]
-                     for coh in cohorts}
-
-        # gets the subset of expression data corresponding to the shared
-        # samples and annotated genes
-        expr = {coh: expr[coh].loc[expr[coh].index.isin(expr_samps[coh]),
-                                   annot_genes[coh]]
-                for coh in cohorts}
-
-        for coh in cohorts:
+        for coh in expr_dict:
             expr[coh].index = [use_samples[coh][expr_samps[coh].index(samp)]
                                for samp in expr[coh].index]
 
-        # gets the subset of variant data for the shared samples with the
-        # genes whose mutations we want to consider
-        variants = {coh: variants[coh].loc[
-                         variants[coh]['Gene'].isin(mut_genes)
-                         & variants[coh]['Sample'].isin(var_samps[coh]), :]
-                    for coh in cohorts}
+        if mut_genes is None:
+            self.path = None
 
-        for coh in cohorts:
-            variants[coh]['Sample'] = [
-                use_samples[coh][var_samps[coh].index(samp)]
-                for samp in variants[coh]['Sample']
-                ]
+            variants = {coh: var.loc[var['Sample'].isin(var_samps[coh]), :]
+                        for coh, var in variant_dict.items()}
+
+            var_df = {
+                coh: var.loc[~var['Form'].isin(['HomDel', 'HetDel',
+                                                'HetGain', 'HomGain']), :]
+                for coh, var in variants.items()
+                }
+
+            gn_counts = {
+                coh: var.groupby(by='Gene').Sample.nunique().loc[
+                    feat_annot[coh].keys()]
+                for coh, var in var_df.items()
+                }
+
+            if samp_cutoff is None:
+                use_counts = {
+                    coh: gn_cnts.sort_values(ascending=False)[:top_genes]
+                    for coh, gn_cnts in gn_counts.items()
+                    }
+
+            elif isinstance(samp_cutoff, int):
+                use_counts = {coh: gn_cnts[gn_cnts >= samp_cutoff]
+                              for coh, gn_cnts in gn_counts.items()}
+
+            elif isinstance(samp_cutoff, float):
+                use_counts = {
+                    coh: gn_cnts[
+                        gn_cnts >= samp_cutoff * len(use_samples[coh])]
+                    for coh, gn_cnts in gn_counts.items()
+                    }
+
+            elif hasattr(samp_cutoff, '__getitem__'):
+                if isinstance(samp_cutoff[0], int):
+                    use_counts = {
+                        coh: gn_cnts[(samp_cutoff[0] <= gn_cnts)
+                                     & (samp_cutoff[1] >= gn_cnts)]
+                        for coh, gn_cnts in gn_counts.items()
+                        }
+
+                elif isinstance(samp_cutoff[0], float):
+                    use_counts = {
+                        coh: gn_cnts[(samp_cutoff[0]
+                                      * len(use_samples[coh]) <= gn_cnts)
+                                     & (samp_cutoff[1]
+                                        * len(use_samples[coh]) >= gn_cnts)]
+                        for coh, gn_cnts in gn_counts.items()
+                        }
+
+            else:
+                raise ValueError("Unrecognized `samp_cutoff` argument!")
+
+            use_gns = reduce(and_,
+                             [cnts.index for cnts in use_counts.values()])
+            variants = {coh: var.loc[var['Gene'].isin(use_gns), :]
+                        for coh, var in variants.items()}
+
+        else:
+            self.path = get_gene_neighbourhood(mut_genes)
+            variants = {coh: var.loc[var['Gene'].isin(mut_genes)
+                                     & var['Sample'].isin(var_samps[coh]), :]
+                        for coh, var in variant_dict.items()}
+
+        for coh in variants:
+            new_samps = [use_samples[coh][var_samps[coh].index(samp)]
+                         for samp in variants[coh]['Sample']]
+
+            variants[coh] = variants[coh].drop(
+                labels=['Sample'], axis="columns", inplace=False)
+            variants[coh]['Sample'] = new_samps
 
         # filters out genes that have both low levels of expression and low
         # variance of expression
-        expr_mean = {coh: np.mean(expr[coh]) for coh in cohorts}
-        expr_var = {coh: np.var(expr[coh]) for coh in cohorts}
+        expr_mean = {coh: np.mean(expr[coh]) for coh in expr_dict}
+        expr_var = {coh: np.var(expr[coh]) for coh in expr_dict}
         expr = {coh: expr[coh].loc[
-                     :, ((expr_mean[coh] > np.percentile(expr_mean[coh], 5))
-                         | (expr_var[coh] > np.percentile(expr_var[coh], 5)))]
-                for coh in cohorts}
+                         :,
+                         ((expr_mean[coh] > np.percentile(expr_mean[coh], 5))
+                          | (expr_var[coh] > np.percentile(expr_var[coh],
+                                                           5)))]
+                    for coh in expr_dict}
 
-        # gets annotation data for the genes whose mutations
-        # are under consideration
-        annot_data = {
-            coh: {a['gene_name']: {'ID': g, 'Chr': a['chr'],
-                                   'Start': a['Start'], 'End': a['End']}
-                  for g, a in annot[coh].items()
-                  if a['gene_name'] in mut_genes}
-            for coh in cohorts
-            }
-
-        self.annot = annot
-        self.mut_annot = annot_data
-
-        # gets subset of samples to use for training, and split the expression
-        # and variant datasets accordingly into training/testing cohorts
-        split_samps = {
-            coh: self.split_samples(cv_seed, cv_prop, use_samples[coh])
-            for coh, cv_prop in zip(cohorts, cycle(cv_props))
-            }
+        split_samps = {coh: self.split_samples(cv_seed, cv_prop,
+                                               use_samples[coh])
+                       for coh in expr_dict}
 
         train_samps = {coh: samps[0] for coh, samps in split_samps.items()}
         test_samps = {coh: samps[1] for coh, samps in split_samps.items()}
 
         self.train_mut = dict()
         self.test_mut = dict()
-        for coh in cohorts:
+        for coh in expr_dict:
 
             if test_samps[coh]:
                 self.test_mut[coh] = MuTree(
@@ -366,10 +359,9 @@ class TransferMutationCohort(PresenceCohort, TransferCohort):
                 )
 
         self.mut_genes = mut_genes
-        self.cv_props = cv_props
+        self.cv_prop = cv_prop
 
-        super().__init__(expr, train_samps, test_samps,
-                         '_'.join(sorted(cohorts)), cv_seed)
+        super().__init__(expr, train_samps, test_samps, cv_seed)
 
     def train_pheno(self, mtype, samps=None):
         if samps is None:
@@ -384,3 +376,4 @@ class TransferMutationCohort(PresenceCohort, TransferCohort):
 
         return {coh: self.test_mut[coh].status(samps[coh], mtype)
                 for coh in samps}
+

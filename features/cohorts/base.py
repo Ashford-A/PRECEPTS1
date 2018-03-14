@@ -624,3 +624,4 @@ class ValueCohort(Cohort):
         Returns:
             pheno_vec (:obj:`list` of :obj:`float`)
         """
+
