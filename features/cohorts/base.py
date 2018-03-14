@@ -1,10 +1,10 @@
 
 """Consolidating -omic datasets for prediction of phenotypes.
 
-This module contains classes for grouping continuous -omic datasets such as
-expression or proteomic measurements with -omic phenotypic features such as
-variants, copy number alterations, or drug response data so that the former
-can be used to predict the latter using machine learning pipelines.
+This module contains abstract classes for grouping continuous -omic datasets
+such as expression or proteomic levels with -omic phenotypic features such as
+variants, copy number alterations, and drug response measurements so that the
+former can be used to predict the latter using machine learning pipelines.
 
 Authors: Michal Grzadkowski <grzadkow@ohsu.edu>
          Hannah Manning <manningh@ohsu.edu>
@@ -24,21 +24,20 @@ class CohortError(Exception):
 
 
 class Cohort(object):
-    """Base class for -omic datasets paired with phenotypes to predict.
+    """Base abstract class for -omic datasets used in machine learning.
 
-    This class consists of a cohort of samples which are split into training
-    and testing sub-cohorts used in the evaluation of machine learning
-    models, along with a list of genes for which -omic features will be
-    used in such models. The nature of these -omic features as well as the
-    phenotypes they will be used to predict are defined by children classes.
+    This class consists of a dataset of -omic measurements collected for a
+    collection of samples over a set of genetic features. The samples are
+    divided into training and testing sub-cohorts for use in the evaluation of
+    machine learning models. The nature of these -omic measurements and the
+    phenotypes the models will be used to predict are defined by
+    children classes.
 
     Args:
-        genes (:obj:`iterable` of :obj:`str` or :obj:`tuple` of :obj:`str`)
-            The genetic features included in the -omic dataset.
-            If a list of tuples is given, assumed to be multiple annotation
-            fields for each gene, with the first field corresponding
-            to gene name.
-        cv_seed (:obj: `int`, optional)
+        omic_data : An -omic dataset or collection thereof.
+        train_samps, test_samps : Subsets of samples in each -omic dataset.
+        genes : The genetic features included in each -omic dataset.
+        cv_seed (int, optional)
             A random seed used for sampling from the datasets.
 
     """
@@ -65,27 +64,11 @@ class Cohort(object):
         samps = self.subset_samps(include_samps, exclude_samps,
                                   use_test=False)
         genes = self.subset_genes(include_genes, exclude_genes)
-        pheno_mat = np.array(self.train_pheno(pheno, samps))
 
-        if pheno_mat.ndim == 1:
-            pheno_mat = pheno_mat.reshape(-1, 1)
+        pheno, samps = self.parse_pheno(
+            self.train_pheno(pheno, samps), samps)
 
-        elif pheno_mat.shape[1] == len(samps):
-            pheno_mat = np.transpose(pheno_mat)
-
-        elif pheno_mat.shape[0] != len(samps):
-            raise ValueError(
-                "Given phenotype(s) do not return a valid matrix of values "
-                "to predict from the training data!"
-                )
-
-        nan_stat = np.any(~np.isnan(pheno_mat), axis=1)
-        samps = np.array(samps)[nan_stat]
-
-        if pheno_mat.shape[1] == 1:
-            pheno_mat = pheno_mat.ravel()
-
-        return self.omic_loc(samps, genes), pheno_mat[nan_stat]
+        return self.omic_loc(samps, genes), pheno
 
     def test_data(self,
                   pheno,
@@ -96,27 +79,11 @@ class Cohort(object):
         samps = self.subset_samps(include_samps, exclude_samps,
                                   use_test=True)
         genes = self.subset_genes(include_genes, exclude_genes)
-        pheno_mat = np.array(self.test_pheno(pheno, samps))
 
-        if pheno_mat.ndim == 1:
-            pheno_mat = pheno_mat.reshape(-1, 1)
+        pheno, samps = self.parse_pheno(
+            self.test_pheno(pheno, samps), samps)
 
-        elif pheno_mat.shape[1] == len(samps):
-            pheno_mat = np.transpose(pheno_mat)
-
-        elif pheno_mat.shape[0] != len(samps):
-            raise ValueError(
-                "Given phenotype(s) do not return a valid matrix of values "
-                "to predict from the training data!"
-                )
-
-        nan_stat = np.any(~np.isnan(pheno_mat), axis=1)
-        samps = np.array(samps)[nan_stat]
-
-        if pheno_mat.shape[1] == 1:
-            pheno_mat = pheno_mat.ravel()
-
-        return self.omic_loc(samps, genes), pheno_mat[nan_stat]
+        return self.omic_loc(samps, genes), pheno
 
     @staticmethod
     def split_samples(cv_seed, cv_prop, samps):
@@ -182,20 +149,52 @@ class Cohort(object):
     def train_pheno(self, pheno, samps=None):
         """Returns the values for a phenotype in the training sub-cohort."""
 
-        return tuple()
+        return np.array([])
 
     @abstractmethod
     def test_pheno(self, pheno, samps=None):
         """Returns the values for a phenotype in the testing sub-cohort."""
 
-        return tuple()
+        return np.array([])
+
+    def parse_pheno(self, pheno, samps):
+        pheno = np.array(pheno)
+
+        if pheno.ndim == 1:
+            pheno_mat = pheno.reshape(-1, 1)
+
+        elif pheno.shape[1] == len(samps):
+            pheno_mat = np.transpose(pheno)
+
+        elif pheno.shape[0] != len(samps):
+            raise ValueError("Given phenotype(s) do not return a valid "
+                             "matrix of values to predict!")
+
+        else:
+            pheno_mat = pheno.copy()
+
+        nan_stat = np.any(~np.isnan(pheno_mat), axis=1)
+        samps_use = np.array(samps)[nan_stat]
+
+        if pheno_mat.shape[1] == 1:
+            pheno_mat = pheno_mat.ravel()
+
+        return pheno_mat[nan_stat], samps_use
 
 
 class UniCohort(Cohort):
-    """A single -omic dataset paired with phenotypes to predict.
+    """An -omic dataset from one source for use in predicting phenotypes.
 
-    Attributes:
-        omic_mat (pandas DataFrame), shape = [n_samples, n_genes]
+    This class consists of a dataset of -omic measurements collected for a
+    collection of samples coming from a single context, such as TCGA-BRCA
+    or ICGC PACA-AU.
+
+    Args:
+        omic_mat (:obj:`pd.DataFrame`, shape = [n_samps, n_genes])
+        train_samps, test_samps
+            Subsets of samples in the index of the -omic data frame.
+        cv_seed (int, optional)
+            A random seed used for sampling from the dataset.
 
     """
 
@@ -350,23 +349,18 @@ class UniCohort(Cohort):
 
 
 class TransferCohort(Cohort):
-    """Multiple -omic datasets paired with phenotypes to predict.
+    """Multiple -omic datasets for use in transfer learning of phenotypes.
 
-    Note that all datasets included in this class are to come from the same
-    cohort of samples for which the phenotypes are defined. Thus each -omic
-    dataset must have the same number of rows (samples), but can have
-    varying numbers of columns (genes) depending on the nature of the -omic
-    measurement in question.
-
-    For example, a `TransferCohort` could consist of RNA sequencing and copy
-    number alteration measurements taken from the same cohort of TCGA
-    samples.
+    This class consists of multiple datasets of -omic measurements, each for a
+    different set of samples coming from a unique context, which will
+    nevertheless be used to predict phenotypes common between the contexts.
 
     Args:
-        omic_mats (:obj:`list` or :obj:`dict` of :obj:`pd.DataFrame`)
-
-    Attributes:
         omic_mats (:obj:`dict` of :obj:`pd.DataFrame`)
+        train_samps, test_samps (dict)
+            Subsets of samples in the index of each -omic data frame.
+        cv_seed (int, optional)
+            A random seed used for sampling from the dataset.
 
     """
     
@@ -440,6 +434,25 @@ class TransferCohort(Cohort):
 
         super().__init__(omic_dict, train_samps, test_samps, genes, cv_seed)
 
+    def subset_samps(self,
+                     include_samps=None, exclude_samps=None, use_test=False):
+
+        if use_test:
+            coh_samps = self.test_samps.copy()
+        else:
+            coh_samps = self.train_samps.copy()
+
+        # decide what samples to use based on exclusion and inclusion criteria
+        if include_samps is not None:
+            coh_samps = {coh: samps & set(include_samps[coh])
+                         for coh, samps in coh_samps.items()}
+
+        if exclude_samps is not None:
+            coh_samps = {coh: samps - set(exclude_samps[coh])
+                         for coh, samps in coh_samps.items()}
+
+        return {coh: sorted(samps) for coh, samps in coh_samps.items()}
+
     def subset_genes(self, include_genes=None, exclude_genes=None):
         """Gets a subset of the genes in the cohort's -omic datasets.
 
@@ -503,7 +516,7 @@ class TransferCohort(Cohort):
         if genes is None:
             genes = self.genes.copy()
 
-        return {lbl: self.omic_data[lbl].loc[samps, genes[lbl]]
+        return {lbl: self.omic_data[lbl].loc[samps[lbl], genes[lbl]]
                 for lbl in self.omic_data}
 
     @abstractmethod
@@ -513,6 +526,17 @@ class TransferCohort(Cohort):
     @abstractmethod
     def test_pheno(self, pheno, samps=None):
         """Returns the values for a phenotype in the testing sub-cohort."""
+
+    def parse_pheno(self, pheno, samps):
+
+        parse_dict = {
+            coh: super(TransferCohort, self).parse_pheno(
+                pheno[coh], samps[coh])
+            for coh in pheno
+            }
+
+        return ({coh: phn for (coh, (phn, _)) in parse_dict.items()},
+                {coh: smps for (coh, (_, smps)) in parse_dict.items()})
 
 
 class PresenceCohort(Cohort):
@@ -600,4 +624,3 @@ class ValueCohort(Cohort):
         Returns:
             pheno_vec (:obj:`list` of :obj:`float`)
         """
-
