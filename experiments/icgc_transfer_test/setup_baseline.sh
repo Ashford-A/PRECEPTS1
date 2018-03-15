@@ -21,6 +21,7 @@ cd /home/exacloud/lustre1/CompBio/mgrzad/bergamot
 export OMP_NUM_THREADS=1
 echo $OUTDIR
 echo $classif
+echo $mtypes
 
 # pause between starting array jobs to ease load when downloading -omic datasets
 sleep $(($SLURM_ARRAY_TASK_ID * 11));
@@ -28,7 +29,7 @@ sleep $(($SLURM_ARRAY_TASK_ID * 11));
 # find the expression effects for the training/testing cohort split defined
 # by the cross-validation ID and the sub-variant subset defined by the sub-task ID
 srun -p=exacloud \
-	--output=$BASEDIR/setup/slurm_${classif}_base_${SLURM_ARRAY_TASK_ID}.txt \
-	--error=$BASEDIR/setup/slurm_${classif}_base_${SLURM_ARRAY_TASK_ID}.err \
-	python $BASEDIR/setup_baseline.py $classif $SLURM_ARRAY_TASK_ID -v
+	--output=$BASEDIR/setup/slurm_${classif}_${mtypes}_base_${SLURM_ARRAY_TASK_ID}.txt \
+	--error=$BASEDIR/setup/slurm_${classif}_${mtypes}_base_${SLURM_ARRAY_TASK_ID}.err \
+	python $BASEDIR/setup_baseline.py $classif $mtypes $SLURM_ARRAY_TASK_ID -v
 
