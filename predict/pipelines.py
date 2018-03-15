@@ -23,6 +23,7 @@ from abc import abstractmethod
 from numbers import Number
 from functools import reduce
 from operator import mul
+from copy import copy
 
 from sklearn.pipeline import Pipeline
 from sklearn.model_selection import cross_val_score
@@ -469,26 +470,86 @@ class TransferPipe(OmicPipe):
 
     """
 
+    def _fit(self, X_dict, y_dict=None, **fit_params):
+        if y_dict is None:
+            y_dict = {lbl: None for lbl in X_dict}
+
+        self._validate_steps()
+        step_names = [name for name, _ in self.steps]
+
+        fit_params_steps = {name: {} for name, step in self.steps
+                            if step is not None}
+
+        if 'fit' in fit_params_steps and self.fit_params_add:
+            for pname, pval in self.fit_params_add.items():
+                fit_params_steps['fit'][pname] = pval
+
+        for pname, pval in fit_params.items():
+            if '__' in pname:
+                step, param = pname.split('__', maxsplit=1)
+                fit_params_steps[step][param] = pval
+
+            else:
+                for step in fit_params_steps:
+                    step_indx = step_names.index(step)
+
+                    if (pname in self.steps[step_indx][1].fit
+                            .__code__.co_varnames):
+                        fit_params_steps[step][pname] = pval
+
+        self.lbl_steps = {lbl: [] for lbl in X_dict}
+        Xt_dict = {lbl: None for lbl in X_dict}
+
+        for lbl in X_dict:
+            Xt = X_dict[lbl]
+            
+            for name, transform in self.steps[:-1]:
+                if transform is None:
+                    pass
+                
+                elif hasattr(transform, "fit_transform"):
+                    Xt = transform.fit_transform(
+                        Xt, y_dict[lbl], **fit_params_steps[name])
+
+                else:
+                    Xt = transform.fit(
+                        Xt, y_dict[lbl],
+                        **fit_params_steps[name]
+                        ).transform(Xt)
+
+            self.lbl_steps[lbl] += [(name, copy(transform))]
+            Xt_dict[lbl] = Xt
+
+        if self._final_estimator is None:
+            final_params = {}
+        else:
+            final_params = fit_params_steps[self.steps[-1][0]]
+
+        return Xt_dict, final_params
+
     def fit(self, X, y=None, **fit_params):
         """Fits the steps of the pipeline in turn."""
 
-        Xt, final_params = self._fit(
-            X, y.ravel(),
-            **{**fit_params,
-               **{'expr_genes': [xcol.split('__')[-1]
-                                 for xcol in X.columns]}}
-            )
+        expr_genes = {lbl: [xcol.split('__')[-1] for xcol in X_mat.columns]
+                      for lbl, X_mat in X.items()}
+        Xt_dict, final_params = self._fit(
+            X, y, **{**fit_params, **{'expr_genes': expr_genes}})
 
         if 'feat' in self.named_steps:
-            self.genes = X.columns[
-                self.named_steps['feat']._get_support_mask()]
+            self.genes = {
+                lbl: X_mat.columns[
+                    self.named_steps['feat']._get_support_mask()]
+                for lbl, X_mat in X.items()
+                }
+
         else:
-            self.genes = X.columns
+            self.genes = {lbl: X_mat.columns for lbl, X_mat in X.items()}
 
         if 'genes' in final_params:
             final_params['genes'] = self.genes
+
         if self._final_estimator is not None:
-            self._final_estimator.fit(Xt, y.ravel(), **final_params)
+            self._final_estimator.fit(Xt_dict, y, **final_params)
 
         return self
 
@@ -527,93 +588,6 @@ class MultiPipe(OmicPipe):
     @staticmethod
     def score_each(y_true, y_pred):
         return pearsonr(y_true, y_pred)[0]
-
-
-class ParallelPipe(TransferPipe):
-    """A pipeline for predicting phenotypes in multiple cohorts at once.
-
-    """
-
-    def tune_coh(self,
-                 cohorts, pheno,
-                 tune_splits=2, test_count=8, parallel_jobs=16,
-                 include_samps=None, exclude_samps=None,
-                 include_genes=None, exclude_genes=None,
-                 verbose=False):
-        """Tunes the pipeline by sampling over the tuning parameters."""
-
-        train_data = [cohort.train_data(pheno,
-                                        include_samps, exclude_samps,
-                                        include_genes, exclude_genes)
-                      for cohort in cohorts]
-
-        # get internal cross-validation splits in the training set and use
-        # them to tune the classifier
-        tune_cvs = OmicShuffleSplit(
-            n_splits=tune_splits, test_size=0.2,
-            random_state=(cohort.cv_seed ** 2) % 42949672
-            )
-
-        # checks if the classifier has parameters to be tuned, and how many
-        # parameter combinations are possible
-        if self.tune_priors:
-            prior_counts = [len(x) if hasattr(x, '__len__') else float('Inf')
-                            for x in self.cur_tuning.values()]
-            max_tests = reduce(mul, prior_counts, 1)
-            test_count = min(test_count, max_tests)
-
-            # samples parameter combinations and tests each one
-            grid_test = OmicRandomizedCV(
-                estimator=self, param_distributions=self.cur_tuning,
-                n_iter=test_count, cv=tune_cvs, refit=False,
-                n_jobs=parallel_jobs, pre_dispatch='n_jobs'
-                )
-            grid_test.fit(X=[omics for omics, _ in train_data],
-                          y=[pheno for _, pheno in train_data],
-                          **self.extra_tune_params(cohort))
-
-            # finds the best parameter combination and updates the classifier
-            tune_scores = (grid_test.cv_results_['mean_test_score']
-                           - grid_test.cv_results_['std_test_score'])
-            self.set_params(
-                **grid_test.cv_results_['params'][tune_scores.argmax()])
-
-            if verbose:
-                print(self)
-
-        return self
-
-    def fit_coh(self,
-                cohorts, pheno,
-                include_samps=None, exclude_samps=None,
-                include_genes=None, exclude_genes=None):
-        """Fits a classifier."""
-
-        train_data = [cohort.train_data(pheno,
-                                        include_samps, exclude_samps,
-                                        include_genes, exclude_genes)
-                      for cohort in cohorts]
-
-        return self.fit(X=[omics for omics, _ in train_data],
-                        y=[pheno for _, pheno in train_data])
-
-    def eval_coh(self,
-                 cohorts, pheno,
-                 include_samps=None, exclude_samps=None,
-                 include_genes=None, exclude_genes=None):
-        """Evaluate the performance of a classifier."""
-
-        test_data = [cohort.test_data(pheno,
-                                      include_samps, exclude_samps,
-                                      include_genes, exclude_genes)
-                     for cohort in cohorts]
-
-        if all([len(pheno) < 5 for _, pheno in test_data]):
-            return float('nan')
-
-        else:
-            return self.score([omics for omics, _ in test_data],
-                              [pheno for _, pheno in test_data])
 
 
 class ProteinPipe(ValuePipe):
