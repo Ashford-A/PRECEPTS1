@@ -14,12 +14,14 @@ import time
 
 from collections import Sized, defaultdict
 from functools import partial, reduce
+from itertools import product
 
 import scipy.sparse as sp
 from scipy.stats import rankdata
 
 from sklearn.base import is_classifier, clone
-from sklearn.utils import check_random_state, indexable
+from sklearn.utils import check_random_state
+from sklearn.utils.fixes import MaskedArray
 from sklearn.utils.validation import check_array, _num_samples
 from sklearn.metrics.scorer import check_scoring
 from sklearn.externals.joblib import Parallel, delayed, logger
@@ -45,7 +47,7 @@ def cross_val_predict_omic(estimator, X, y=None, groups=None,
         raise ValueError("The number of folds should evenly divide the total"
                          "number of cross-validation splits.")
 
-    X, y, groups = indexable(X, y, groups)
+    X, y, groups = omic_indexable(X, y, groups)
     y = y.reshape(-1)
 
     if force_test_samps is None:
@@ -100,7 +102,8 @@ def cross_val_predict_omic(estimator, X, y=None, groups=None,
 
     return pred_mat
 
-def omic_indexable(expr, omic):
+
+def omic_indexable(omic, pheno):
     """Make arrays indexable for cross-validation.
 
     Checks consistent length, passes through None, and ensures that everything
@@ -113,29 +116,39 @@ def omic_indexable(expr, omic):
         List of objects to ensure sliceability.
     """
 
-    if sp.issparse(expr):
-        new_expr = expr.tocsr()
-    elif hasattr(expr, "__getitem__") or hasattr(expr, "iloc"):
-        new_expr = expr
-    elif expr is None:
-        new_expr = None
-    else:
-        new_expr = np.array(expr)
-
     if sp.issparse(omic):
         new_omic = omic.tocsr()
-    elif hasattr(omic, "__getitem__") or hasattr(omic, "iloc"):
-        new_omic = omic
-    elif omic is None:
-        new_omic = None
+
+    elif hasattr(omic, "iloc"):
+        new_omic = omic.values
+
+    elif isinstance(omic, dict):
+        new_omic = {lbl: np.array(x) for lbl, x in omic.items()}
+
     else:
         new_omic = np.array(omic)
 
-    # check_consistent_omic_length(new_expr, new_omic)
-    return new_expr, new_omic
+    if sp.issparse(pheno):
+        new_pheno = pheno.tocsr()
+
+    elif hasattr(pheno, "iloc"):
+        new_pheno = pheno.values
+
+    elif isinstance(pheno, dict):
+        new_pheno = {lbl: np.array(y) for lbl, y in pheno.items()}
+
+    elif pheno is None:
+        new_pheno = None
+
+    else:
+        new_pheno = np.array(pheno)
+
+    check_consistent_omic_length(new_omic, new_pheno)
+
+    return new_omic, new_pheno
 
 
-def check_consistent_omic_length(expr, omic):
+def check_consistent_omic_length(omic, pheno):
     """Check that all arrays have consistent first dimensions.
 
     Checks whether all objects in arrays have the same shape or length.
@@ -146,21 +159,32 @@ def check_consistent_omic_length(expr, omic):
         Objects that will be checked for consistent length.
     """
 
-    expr_lengths = _num_samples(expr)
-    omic_lengths = _num_samples(omic)
-
-    if len(np.unique(expr_lengths)):
+    if pheno is None:
         pass
 
-    if len(np.unique(omic_lengths)):
-        pass
+    elif hasattr(omic, "shape") and hasattr(pheno, "shape"):
+        if omic.shape[0] != pheno.shape[0]:
+            raise ValueError(
+                "Cannot use -omic dataset with {} samples to predict "
+                "phenotypes measured on {} samples!".format(
+                    omic.shape[0], pheno.shape[0])
+                )
 
-    if expr_lengths != omic_lengths:
-        pass
+    elif isinstance(omic, dict) and isinstance(pheno, dict):
+        if omic.keys() != pheno.keys():
+            raise ValueError("-omic datasets and phenotypes must be "
+                             "collected from the same contexts!")
 
-    #if len(uniques) > 1:
-    #    raise ValueError("Found input variables with inconsistent numbers of"
-    #                     " samples: %r" % [int(l) for l in omic_lengths])
+        else:
+            for lbl in omic:
+                if omic[lbl].shape[0] != pheno[lbl].shape[0]:
+                    raise ValueError(
+                        "In context {}, cannot use -omic dataset with {} "
+                        "samples to predict phenotypes measured on {} "
+                        "samples!".format(lbl, omic[lbl].shape[0],
+                                          pheno[lbl].shape[0])
+                        )
+
 
 def _omic_fit_and_predict(estimator, X, y, train, test, verbose, fit_params):
 
@@ -179,9 +203,9 @@ def _omic_fit_and_predict(estimator, X, y, train, test, verbose, fit_params):
     return estimator.predict_omic(X_test)
 
 def _omic_fit_and_score(estimator, X, y, scorer, train, test, verbose,
-                       parameters, fit_params, return_train_score=False,
-                       return_parameters=False, return_n_test_samples=False,
-                       return_times=False, error_score='raise'):
+                        parameters, return_train_score=False,
+                        return_parameters=False, return_n_test_samples=False,
+                        return_times=False, error_score='raise'):
     """Fit estimator and compute scores for a given dataset split.
 
     Parameters
@@ -218,9 +242,6 @@ def _omic_fit_and_score(estimator, X, y, scorer, train, test, verbose,
     parameters : dict or None
         Parameters to be set on the estimator.
 
-    fit_params : dict or None
-        Parameters that will be passed to ``estimator.fit``.
-
     return_train_score : boolean, optional, default: False
         Compute and return score on training set.
 
@@ -255,24 +276,23 @@ def _omic_fit_and_score(estimator, X, y, scorer, train, test, verbose,
                           for k, v in parameters.items()))
         print("[CV] %s %s" % (msg, (64 - len(msg)) * '.'))
 
-    # Adjust length of sample weights
-    fit_params = fit_params if fit_params is not None else {}
-    fit_params = dict([(k, _index_param_value(X, v, train))
-                      for k, v in fit_params.items()])
-
-    if parameters is not None:
-        estimator.set_params(**parameters)
-
     start_time = time.time()
-
     X_train, y_train = _omic_safe_split(estimator, X, y, train)
     X_test, y_test = _omic_safe_split(estimator, X, y, test, train)
+    est_params = estimator.get_params()
+
+    for par, val in parameters.items():
+        if par in est_params:
+            estimator.set_params(**{par: val})
+
+    for par in parameters.keys() & est_params.keys():
+        del parameters[par]
 
     try:
         if y_train is None:
-            estimator.fit(X_train, **fit_params)
+            estimator.fit(X_train, **parameters)
         else:
-            estimator.fit(X_train, y_train, **fit_params)
+            estimator.fit(X_train, y_train, **parameters)
 
     except Exception as e:
         # Note fit time as time until error
@@ -318,76 +338,42 @@ def _omic_fit_and_score(estimator, X, y, scorer, train, test, verbose,
 
 
 def _omic_safe_split(estimator, X, y, indices, train_indices=None):
-    """Create subset of dataset and properly handle kernels."""
-    from sklearn.gaussian_process.kernels import Kernel as GPKernel
+    """Create subset of dataset."""
 
-    if (hasattr(estimator, 'kernel') and callable(estimator.kernel) and
-            not isinstance(estimator.kernel, GPKernel)):
-        # cannot compute the kernel values with custom function
-        raise ValueError("Cannot use a custom kernel function. "
-                         "Precompute the kernel matrix instead.")
+    if hasattr(X, "iloc"):
+        X_subset = X.iloc[indices]
+
+    elif hasattr(X, "shape"):
+        X_subset = X[indices]
 
     elif isinstance(X, dict):
-        X_subset = {lbl: x.iloc[indices] for lbl, x in X.items()}
-
-    elif not hasattr(X, "shape"):
-        if getattr(estimator, "_pairwise", False):
-            raise ValueError("Precomputed kernels or affinity matrices have "
-                             "to be passed as arrays or sparse matrices.")
-        X_subset = [X[index] for index in indices]
+        X_subset = {lbl: x.iloc[indices[lbl]] for lbl, x in X.items()}
 
     else:
-        if getattr(estimator, "_pairwise", False):
-            # X is a precomputed square kernel matrix
-            if X.shape[0] != X.shape[1]:
-                raise ValueError("X should be a square kernel matrix")
-            if train_indices is None:
-                X_subset = X[np.ix_(indices, indices)]
-            else:
-                X_subset = X[np.ix_(indices, train_indices)]
-        else:
-            X_subset = omic_safe_indexing(X, indices)
+        raise TypeError("Cannot safely split -omic dataset of unsupported "
+                        "type {} !".format(type(X)))
 
     if y is not None:
-        y_subset = omic_safe_indexing(y, indices)
+        if hasattr(y, "shape"):
+            y_subset = y[indices]
+
+        elif isinstance(y, dict):
+            y_subset = {lbl: y[lbl][indices[lbl]] for lbl in X}
+
+        elif hasattr(y, "__getitem__"):
+            y_subset = [y[i] for i in indices]
+
+        elif hasattr(y, "__iter__"):
+            y_subset = [y_val for i, y_val in enumerate(y) if i in indices]
+
+        else:
+            raise TypeError("Cannot safely split phenotype values of "
+                            "unsupported type {} !".format(type(y)))
+
     else:
         y_subset = None
 
     return X_subset, y_subset
-
-
-def omic_safe_indexing(X, indices):
-    """Return items or rows from X using indices.
-
-    Allows simple indexing of lists or arrays.
-
-    Parameters
-    ----------
-    X : array-like, sparse-matrix, list.
-        Data from which to sample rows or items.
-
-    indices : array-like, list
-        Indices according to which X will be subsampled.
-    """
-    if hasattr(X, "iloc"):
-        # Pandas Dataframes and Series
-        #try:
-        #    return X.iloc[indices]
-        #except ValueError:
-            # Cython typed memoryviews internally used in pandas do not support
-            # readonly buffers.
-        #    warnings.warn("Copying input dataframe for slicing.",
-        #                  DataConversionWarning)
-            return X.copy().iloc[indices]
-    elif hasattr(X, "shape"):
-        if hasattr(X, 'take') and (hasattr(indices, 'dtype') and
-                                   indices.dtype.kind == 'i'):
-            # This is often substantially faster than X[indices]
-            return X.take(indices, axis=0)
-        else:
-            return X[indices]
-    else:
-        return [[x[idx] for x in X] for idx in indices]
 
 
 class OmicRandomizedCV(RandomizedSearchCV):
@@ -395,15 +381,20 @@ class OmicRandomizedCV(RandomizedSearchCV):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-    def _fit(self, X, y, groups=None, **tune_params):
+    def fit(self, X, y, groups=None, **tune_params):
         """Actual fitting,  performing the search over parameters."""
 
         estimator = self.estimator
         cv = check_cv(self.cv, y, classifier=is_classifier(estimator))
         self.scorer_ = check_scoring(self.estimator, scoring=self.scoring)
 
-        # X, y, groups = omic_indexable(X, y, groups)
         n_splits = cv.get_n_splits(X, y, groups)
+        candidate_params = list(self._get_param_iterator())
+        n_candidates = len(candidate_params)
+
+        for i in range(len(candidate_params)):
+            candidate_params[i].update(tune_params)
+
         if self.verbose > 0 and isinstance(tune_params, Sized):
             n_candidates = len(tune_params)
             print("Fitting {0} folds for each of {1} candidates, totalling"
@@ -413,19 +404,20 @@ class OmicRandomizedCV(RandomizedSearchCV):
         base_estimator = clone(self.estimator)
         pre_dispatch = self.pre_dispatch
 
-        cv_iter = list(cv.split(X, y, groups))
         out = Parallel(
             n_jobs=self.n_jobs, verbose=self.verbose,
             pre_dispatch=pre_dispatch
-        )(delayed(_omic_fit_and_score)(clone(base_estimator), X, y, self.scorer_,
-                                      train, test, self.verbose, parameters,
-                                      fit_params=tune_params,
-                                      return_train_score=self.return_train_score,
-                                      return_n_test_samples=True,
-                                      return_times=True, return_parameters=True,
-                                      error_score=self.error_score)
-          for parameters in tune_params
-          for train, test in cv_iter)
+            )(delayed(_omic_fit_and_score)(
+                clone(base_estimator), X, y, self.scorer_,
+                train, test, self.verbose, parameters,
+                return_train_score=self.return_train_score,
+                return_n_test_samples=True,
+                return_times=True, return_parameters=True,
+                error_score=self.error_score
+                )
+                for parameters, (train, test) in product(
+                    candidate_params, cv.split(X, y, groups))
+            )
 
         # if one choose to see train score, "out" will contain train score info
         if self.return_train_score:
@@ -434,9 +426,6 @@ class OmicRandomizedCV(RandomizedSearchCV):
         else:
             (test_scores, test_sample_counts,
              fit_time, score_time, parameters) = zip(*out)
-
-        candidate_params = parameters[::n_splits]
-        n_candidates = len(candidate_params)
 
         results = dict()
 
@@ -498,17 +487,6 @@ class OmicRandomizedCV(RandomizedSearchCV):
         self.cv_results_ = results
         self.best_index_ = best_index
         self.n_splits_ = n_splits
-
-        if self.refit:
-            # fit the best estimator using the entire dataset
-            # clone first to work around broken estimators
-            best_estimator = clone(base_estimator).set_params(
-                **best_parameters)
-            if y is not None:
-                best_estimator.fit(X, y, **self.fit_params)
-            else:
-                best_estimator.fit(X, **self.fit_params)
-            self.best_estimator_ = best_estimator
 
         return self
 
@@ -633,64 +611,75 @@ class OmicShuffleSplit(StratifiedShuffleSplit):
         else:
 
             # gets info about input
-            n_samples = [_num_samples(X) for X in expr]
-            n_train_test = [
-                _validate_shuffle_split(n_samps,
-                                        self.test_size, self.train_size)
-                for n_samps in n_samples]
-            class_info = [np.unique(y, return_inverse=True) for y in omic]
-            n_classes = [classes.shape[0] for classes, _ in class_info]
-            classes_counts = [np.bincount(y_indices)
-                              for _, y_indices in class_info]
+            n_samples = {lbl: _num_samples(X) for lbl, X in expr.items()}
+            n_train_test = {
+                lbl: _validate_shuffle_split(n_samps,
+                                             self.test_size, self.train_size)
+                for lbl, n_samps in n_samples.items()
+                }
+
+            class_info = {lbl: np.unique(y, return_inverse=True)
+                          for lbl, y in omic.items()}
+            n_classes = {lbl: classes.shape[0]
+                         for lbl, (classes, _) in class_info.items()}
+            classes_counts = {lbl: np.bincount(y_indices)
+                              for lbl, (_, y_indices) in class_info.items()}
 
             # ensure we have enough samples in each class for stratification
-            for i, (n_train, n_test) in enumerate(n_train_test):
-                if np.min(classes_counts[i]) < 2:
+            for lbl, (n_train, n_test) in n_train_test.items():
+                if np.min(classes_counts[lbl]) < 2:
                     raise ValueError(
-                        "The least populated class in y has only 1 "
-                        "member, which is too few. The minimum "
-                        "number of groups for any class cannot "
-                        "be less than 2.")
+                        "The least populated phenotype class in {} has only "
+                        "one member, which is too few. The minimum number of "
+                        "groups for any phenotypic feature to predict cannot "
+                        "be less than two.".format(lbl)
+                        )
 
-                if n_train < n_classes[i]:
+                if n_train < n_classes[lbl]:
                     raise ValueError(
-                        'The train_size = %d should be greater or '
-                        'equal to the number of classes = %d'
-                        % (n_train, n_classes[i]))
+                        "The number of training samples ({}) should be "
+                        "greater or equal to the number of "
+                        "phenotypes ({})".format(n_train, n_classes[lbl])
+                        )
 
-                if n_test < n_classes[i]:
+                if n_test < n_classes[lbl]:
                     raise ValueError(
-                        'The test_size = %d should be greater or '
-                        'equal to the number of classes = %d'
-                        % (n_test, n_classes[i]))
+                        "The number of testing samples ({}) should be "
+                        "greater or equal to the number of "
+                        "phenotypes ({})".format(n_test, n_classes[lbl])
+                        )
 
             # generates random training and testing cohorts
             rng = check_random_state(self.random_state)
             for _ in range(self.n_splits):
-                n_is = [_approximate_mode(class_counts, n_train, rng)
-                        for class_counts, (n_train, _)
-                        in zip(classes_counts, n_train_test)]
-                classes_counts_remaining = [class_counts - n_i
-                                            for class_counts, n_i
-                                            in zip(classes_counts, n_is)]
-                t_is = [_approximate_mode(class_counts_remaining, n_test, rng)
-                        for class_counts_remaining, (_, n_test)
-                        in zip(classes_counts_remaining, n_train_test)]
+                n_is = {lbl: _approximate_mode(classes_counts[lbl],
+                                               n_train_test[lbl][0], rng)
+                        for lbl in expr}
 
-                train = [[] for _ in expr]
-                test = [[] for _ in expr]
+                classes_counts_left = {lbl: classes_counts[lbl] - n_is[lbl]
+                                       for lbl in expr}
+                t_is = {lbl: _approximate_mode(classes_counts_left[lbl],
+                                               n_train_test[lbl][1], rng)
+                        for lbl in expr}
 
-                for i, (classes, _) in enumerate(class_info):
-                    for j, class_j in enumerate(classes):
-                        permutation = rng.permutation(classes_counts[i][j])
-                        perm_indices_class_j = np.where(
-                            (omic[i] == class_j))[0][permutation]
-                        train[i].extend(perm_indices_class_j[:n_is[i][j]])
-                        test[i].extend(
-                            perm_indices_class_j[n_is[i][j]:n_is[i][j]
-                                                            + t_is[i][j]])
-                    train[i] = rng.permutation(train[i])
-                    test[i] = rng.permutation(test[i])
+                train = {lbl: [] for lbl in expr}
+                test = {lbl: [] for lbl in expr}
+
+                for lbl, (classes, _) in class_info.items():
+                    for i, class_i in enumerate(classes):
+                        permutation = rng.permutation(classes_counts[lbl][i])
+
+                        perm_indices_class_i = np.where(
+                            (omic[lbl] == class_i))[0][permutation]
+                        train[lbl].extend(perm_indices_class_i[:n_is[lbl][i]])
+
+                        test[lbl].extend(
+                            perm_indices_class_i[n_is[lbl][i]:n_is[lbl][i]
+                                                 + t_is[lbl][i]]
+                            )
+
+                    train[lbl] = rng.permutation(train[lbl])
+                    test[lbl] = rng.permutation(test[lbl])
 
                 yield train, test
 
@@ -708,8 +697,8 @@ class OmicShuffleSplit(StratifiedShuffleSplit):
             omic = [check_array(y, ensure_2d=False, dtype=None) for y in omic]
 
         elif isinstance(omic, dict):
-            omic = [check_array(y, ensure_2d=False, dtype=None)
-                    for y in omic.values()]
+            omic = {lbl: check_array(y, ensure_2d=False, dtype=None)
+                    for lbl, y in omic.items()}
 
         else:
             raise ValueError("Output values must be either a list of features"

@@ -267,15 +267,19 @@ class OmicPipe(Pipeline):
 
             #TODO: figure out why passing extra_tune_params breaks in the new
             # scikit-learn code
-            grid_test.fit(X=train_omics, y=train_pheno,
-                          **self.extra_tune_params(cohort))
+            extra_params = self.extra_tune_params(cohort)
+            grid_test.fit(X=train_omics, y=train_pheno, **extra_params)
 
             # finds the best parameter combination and updates the classifier
             tune_scores = (grid_test.cv_results_['mean_test_score']
                            - grid_test.cv_results_['std_test_score'])
-            self.set_params(
-                **grid_test.cv_results_['params'][tune_scores.argmax()])
+            best_indx = tune_scores.argmax()
 
+            best_params = grid_test.cv_results_['params'][best_indx]
+            for par in best_params.keys() & extra_params.keys():
+                del best_params[par]
+
+            self.set_params(**best_params)
             if verbose:
                 print(self)
 
