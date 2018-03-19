@@ -170,11 +170,15 @@ def check_consistent_omic_length(omic, pheno):
                     omic.shape[0], pheno.shape[0])
                 )
 
+    # in the case of transfer learning, check that the input data and the
+    # output labels have matching context labels
     elif isinstance(omic, dict) and isinstance(pheno, dict):
         if omic.keys() != pheno.keys():
             raise ValueError("-omic datasets and phenotypes must be "
                              "collected from the same contexts!")
 
+        # also check that for each context, the input array has the same
+        # number of samples as the output labels
         else:
             for lbl in omic:
                 if omic[lbl].shape[0] != pheno[lbl].shape[0]:
@@ -384,14 +388,21 @@ class OmicRandomizedCV(RandomizedSearchCV):
     def fit(self, X, y, groups=None, **tune_params):
         """Actual fitting,  performing the search over parameters."""
 
+        # gets the prediction algorithm, checks the methods used to produce
+        # cross validation splits and to score the accuracy of the predictions
         estimator = self.estimator
         cv = check_cv(self.cv, y, classifier=is_classifier(estimator))
         self.scorer_ = check_scoring(self.estimator, scoring=self.scoring)
 
+        # finds how many splits of the data into training and testing sub-
+        # cohorts will be used, and which parameter values will be tested on
+        # each split
         n_splits = cv.get_n_splits(X, y, groups)
         candidate_params = list(self._get_param_iterator())
         n_candidates = len(candidate_params)
 
+        # updates the parameter values to be tested with parameter values
+        # specific to testing
         for i in range(len(candidate_params)):
             candidate_params[i].update(tune_params)
 
@@ -462,9 +473,6 @@ class OmicRandomizedCV(RandomizedSearchCV):
         _store('fit_time', fit_time)
         _store('score_time', score_time)
 
-        best_index = np.flatnonzero(results["rank_test_score"] == 1)[0]
-        best_parameters = candidate_params[best_index]
-
         # Use one MaskedArray and mask all the places where the param is not
         # applicable for that candidate. Use defaultdict as each candidate may
         # not contain all the params
@@ -481,11 +489,9 @@ class OmicRandomizedCV(RandomizedSearchCV):
 
         results.update(param_results)
 
-        # Store a list of param dicts at the key 'params'
+        # saves the results of tuning the estimator as attributes
         results['params'] = candidate_params
-
         self.cv_results_ = results
-        self.best_index_ = best_index
         self.n_splits_ = n_splits
 
         return self

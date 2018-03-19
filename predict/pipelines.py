@@ -579,15 +579,42 @@ class TransferPipe(OmicPipe):
 
         return self.steps[-1][-1].predict_proba(Xt_dict)
 
+    def eval_coh_each(self,
+                      cohort, pheno, use_train=False,
+                      include_samps=None, exclude_samps=None,
+                      include_genes=None, exclude_genes=None):
+
+        if use_train:
+            test_omics, test_pheno = cohort.train_data(
+                pheno,
+                include_samps, exclude_samps,
+                include_genes, exclude_genes
+                )
+
+        else:
+            test_omics, test_pheno = cohort.test_data(
+                pheno,
+                include_samps, exclude_samps,
+                include_genes, exclude_genes
+                )
+
+        return self.score_cohorts(test_omics, test_pheno)
+
     @staticmethod
     def parse_preds(preds):
         return {lbl: np.array(x).flatten() for lbl, x in preds.items()}
 
     def score_omic(self, actual_omic, pred_omic):
         """Parses and scores the predictions for a set of phenotypes."""
-        return np.min([self.score_pheno(actual_omic[lbl].flatten(),
-                                        pred_omic[lbl])
-                       for lbl in actual_omic])
+        return np.min(tuple(self.score_each(actual_omic, pred_omic).values()))
+
+    def score_cohorts(self, X, y=None, sample_weight=None):
+        return self.score_each(y, self.predict_omic(X))
+
+    def score_each(self, actual_omic, pred_omic):
+        return {lbl: self.score_pheno(actual_omic[lbl].flatten(),
+                                      pred_omic[lbl])
+                for lbl in actual_omic}
 
 
 class MultiPipe(OmicPipe):

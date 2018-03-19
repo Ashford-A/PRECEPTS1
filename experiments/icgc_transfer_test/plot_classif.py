@@ -56,7 +56,7 @@ def load_classif_output(classif, mtypes):
             open(os.path.join(base_dir, "output", classif, mtypes,
                               "out__cv-{}_task-{}.p".format(cv_id, task_id)
                              ), 'rb')
-            )['Acc'] for task_id in range(5)]
+            )['Acc'] for task_id in range(6)]
         for cv_id in range(10)
         ]
 

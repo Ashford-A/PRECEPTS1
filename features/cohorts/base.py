@@ -434,6 +434,50 @@ class TransferCohort(Cohort):
 
         super().__init__(omic_dict, train_samps, test_samps, genes, cv_seed)
 
+    @classmethod
+    def combine_cohorts(cls, *cohorts, **named_cohorts):
+
+        cohort_dict = dict()
+        omic_mats = dict()
+        train_samps = dict()
+        test_samps = dict()
+        cv_seed = None
+
+        for cohort in cohorts:
+            if not hasattr(cohort, 'cohort'):
+                raise TypeError(
+                    "Unnamed cohorts must have a `cohort` attribute so "
+                    "that they can be automatically labelled!"
+                    )
+
+            if cohort.cohort in cohort_dict:
+                raise CohortError(
+                    "Cannot pass two cohorts with the same `cohort` label, "
+                    "pass these as unique keyword arguments instead!"
+                    )
+
+            cohort_dict[cohort.cohort] = cohort
+
+        for lbl, cohort in named_cohorts.items():
+            if lbl in cohort_dict:
+                raise CohortError(
+                    "Cannot use custom cohort label <{}>, which the label of "
+                    "another cohort already used!".format(lbl)
+                    )
+
+            cohort_dict[lbl] = cohort
+
+        for lbl, cohort in cohort_dict.items():
+            omic_mats[lbl] = cohort.omic_data
+            train_samps[lbl] = cohort.train_samps
+            test_samps[lbl] = cohort.test_samps
+
+            if cohort.cv_seed is not None:
+                if cv_seed is None or cv_seed > cohort.cv_seed:
+                    cv_seed = cohort.cv_seed
+
+        return cls(omic_mats, train_samps, test_samps, cv_seed)
+
     def subset_samps(self,
                      include_samps=None, exclude_samps=None, use_test=False):
 

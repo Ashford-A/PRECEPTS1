@@ -363,6 +363,28 @@ class BaseTransferMutationCohort(PresenceCohort, TransferCohort):
 
         super().__init__(expr, train_samps, test_samps, cv_seed)
 
+    @classmethod
+    def combine_cohorts(cls, *cohorts, **named_cohorts):
+        new_cohort = TransferCohort.combine_cohorts(*cohorts, **named_cohorts)
+        new_cohort.__class__ = cls
+
+        new_cohort.train_mut = dict()
+        new_cohort.test_mut = dict()
+
+        for cohort in cohorts:
+            new_cohort.train_mut[cohort.cohort] = cohort.train_mut
+
+            if hasattr(cohort, "test_mut"):
+                new_cohort.test_mut[cohort.cohort] = cohort.test_mut
+
+        for lbl, cohort in named_cohorts.items():
+            new_cohort.train_mut[lbl] = cohort.train_mut
+
+            if hasattr(cohort, "test_mut"):
+                new_cohort.test_mut[lbl] = cohort.test_mut
+
+        return new_cohort
+
     def train_pheno(self, mtype, samps=None):
         if samps is None:
             samps = self.train_samps
@@ -376,4 +398,3 @@ class BaseTransferMutationCohort(PresenceCohort, TransferCohort):
 
         return {coh: self.test_mut[coh].status(samps[coh], mtype)
                 for coh in samps}
-
