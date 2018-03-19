@@ -20,28 +20,34 @@ then
 	export classif="Lasso"
 fi
 
+if [ -z ${mtypes+x} ]
+then
+	echo "no mutation types defined, defaulting to genes"
+	export mtypes="genes"
+fi
+
 export BASEDIR=HetMan/experiments/icgc_transfer_test
-export OUTDIR=$BASEDIR/output/$classif
+export OUTDIR=$BASEDIR/output/$classif/$mtypes
 
 echo $OUTDIR
 rm -rf $OUTDIR
 mkdir -p $OUTDIR/slurm
 
-if [ ! -e ${BASEDIR}/setup/cohort_genes.p ]
+if [ ! -e ${BASEDIR}/setup/cohort_${mtypes}.p ]
 then
-	echo "find genes to transfer..."
+	echo "find ${mtypes} to transfer..."
 
 	srun -p=exacloud \
-		--output=$BASEDIR/setup/slurm_genes.txt \
-		--error=$BASEDIR/setup/slurm_genes.err \
-		python $BASEDIR/setup_genes.py
+		--output=$BASEDIR/setup/slurm_${mtypes}.txt \
+		--error=$BASEDIR/setup/slurm_${mtypes}.err \
+		python $BASEDIR/setup_${mtypes}.py
 fi
 
-if [ $(find $BASEDIR/setup/${classif}__cv_*.p | wc -l) -lt 10 ]
+if [ $(find $BASEDIR/setup/${classif}_${mtypes}__cv_*.p | wc -l) -lt 10 ]
 then
 	base_job=$(sbatch -p exacloud \
-		--output=$BASEDIR/setup/slurm_${classif}.txt \
-		--error=$BASEDIR/setup/slurm_${classif}.err \
+		--output=$BASEDIR/setup/slurm_${classif}_${mtypes}.txt \
+		--error=$BASEDIR/setup/slurm_${classif}_${mtypes}.err \
 		$BASEDIR/setup_baseline.sh)
 	
 	job_id=${base_job#"Submitted batch job "}

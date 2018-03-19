@@ -49,11 +49,11 @@ def load_base_accuracies(classif):
     return out_data
 
 
-def load_classif_output(classif):
+def load_classif_output(classif, mtypes):
 
     out_lists = [
         [pickle.load(
-            open(os.path.join(base_dir, "output", classif,
+            open(os.path.join(base_dir, "output", classif, mtypes,
                               "out__cv-{}_task-{}.p".format(cv_id, task_id)
                              ), 'rb')
             )['Acc'] for task_id in range(5)]
@@ -147,7 +147,9 @@ def plot_auc_heatmap(out_data, args, cohort_info):
 
     # save the figure to file
     fig.savefig(os.path.join(plot_dir,
-                             "heatmap_absolute__{}.png".format(args.classif)),
+                             "heatmap_absolute__{}_{}.png".format(
+                                 args.classif, args.mtypes)
+                                ),
                 dpi=500, bbox_inches='tight')
 
     plt.close()
@@ -158,7 +160,9 @@ def main():
     # parses command line arguments
     parser = argparse.ArgumentParser(
         description='Plot experiment results for given mutation classifier.')
+
     parser.add_argument('classif', help='a mutation classifier')
+    parser.add_argument('mtypes', help='a set of mutations')
     args = parser.parse_args()
 
     # load ICGC expression and mutation data, create directory to save plots
@@ -168,11 +172,11 @@ def main():
 
     # load experiment data
     cohort_info = load_cohort_info()
-    base_df = load_base_accuracies(args.classif)
-    acc_df = load_classif_output(args.classif)
+    #base_df = load_base_accuracies(args.classif)
+    acc_df = load_classif_output(args.classif, args.mtypes)
 
     # create the plots
-    plot_auc_distributions(base_df, args, cdata_icgc)
+    #plot_auc_distributions(base_df, args, cdata_icgc)
     plot_auc_heatmap(acc_df, args, cohort_info)
 
 
