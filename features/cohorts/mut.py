@@ -6,13 +6,12 @@ Authors: Michal Grzadkowski <grzadkow@ohsu.edu>
 """
 
 from .base import *
-from ..pathways import *
-from ..variants import MuType, MuTree
+from HetMan.features.data.pathways import *
+from HetMan.features.mutations.branches import MuType
+from HetMan.features.mutations.trees import MuTree
 
 import numpy as np
-import pandas as pd
 
-from itertools import cycle
 from functools import reduce
 from operator import and_
 

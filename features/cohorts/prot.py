@@ -7,15 +7,10 @@ Authors: Michal Grzadkowski <grzadkow@ohsu.edu>
 
 from .base import *
 
-from ..expression import *
-from ..proteomics import *
-
-from ..pathways import *
-from ..annot import get_gencode
-from ..utils import match_tcga_samples
+from HetMan.features.data.expression import *
+from HetMan.features.data.proteomics import *
 
 import numpy as np
-import pandas as pd
 
 
 class ProtCohort(ValueCohort, UniCohort):

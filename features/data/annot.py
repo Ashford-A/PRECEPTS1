@@ -11,7 +11,7 @@ it into useful data structures.
 import numpy as np
 import pandas as pd
 
-from . import DATA_PATH
+from HetMan.features import DATA_PATH
 
 from re import sub as gsub
 

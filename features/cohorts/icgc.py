@@ -4,13 +4,56 @@
 Authors: Michal Grzadkowski <grzadkow@ohsu.edu>
 
 """
+import os
+
+import numpy as np
+import pandas as pd
 
 from .mut import BaseMutationCohort
-from ..expression import get_expr_icgc
-from ..variants import get_variants_icgc
+from HetMan.features.data.expression import get_expr_icgc
+from ..data.variants import get_variants_icgc
 
-from ..annot import get_gencode
-from ..utils import log_norm, match_icgc_samples
+from HetMan.features.data.annot import get_gencode
+from HetMan.features.cohorts.utils import log_norm
+
+
+def match_icgc_samples(samples1, samples2, cohort, data_dir):
+    """Matches tumour samples from two different files in an ICGC cohort.
+
+    Args:
+        samples1, samples2 (:obj:`list` of :obj:`str`)
+        cohort (str): The name of an ICGC cohort downloaded locally.
+        data_dir (str): The path where the ICGC data has been downloaded.
+
+    Returns:
+        samps_match (list)
+
+    """
+    samps1 = list(set(samples1))
+    samps2 = list(set(samples2))
+
+    # gets the sample annotation data for the given ICGC cohort
+    sampl_file = os.path.join(data_dir, cohort, 'sample.tsv.gz')
+    sampl_df = pd.read_csv(sampl_file, sep='\t')
+
+    # for each of the two sample lists, matches the samples to ICGC donors
+    donors1 = {
+        sampl_df['icgc_donor_id'][
+            np.where(sampl_df['icgc_sample_id'] == samp)[0][0]]: samp
+        for samp in samps1
+        }
+    donors2 = {
+        sampl_df['icgc_donor_id'][
+            np.where(sampl_df['icgc_sample_id'] == samp)[0][0]]: samp
+        for samp in samps2
+        }
+
+    # links the two sets of samples via common donors
+    samps_match = [(donor, (donors1[donor], donors2[donor]))
+                   for donor in set(sampl_df['icgc_donor_id'])
+                   if donor in donors1 and donor in donors2]
+
+    return samps_match
 
 
 class MutationCohort(BaseMutationCohort):
@@ -81,4 +124,3 @@ class MutationCohort(BaseMutationCohort):
 
         super().__init__(expr, variants, matched_samps, gene_annot, mut_genes,
                          mut_levels, top_genes, samp_cutoff, cv_prop, cv_seed)
-

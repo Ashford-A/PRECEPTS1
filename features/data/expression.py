@@ -8,7 +8,7 @@ Author: Michal Grzadkowski <grzadkow@ohsu.edu>
 
 """
 
-from .utils import choose_bmeg_server
+from HetMan.features.data.utils import choose_bmeg_server
 import numpy as np
 import pandas as pd
 

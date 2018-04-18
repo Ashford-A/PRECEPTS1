@@ -8,7 +8,7 @@ Author: Michal Grzadkowski <grzadkow@ohsu.edu>
 
 """
 
-from . import DATA_PATH
+from HetMan.features import DATA_PATH
 
 import pandas as pd
 from scipy import stats

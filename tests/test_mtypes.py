@@ -8,7 +8,7 @@ Author: Michal Grzadkowski <grzadkow@ohsu.edu>
 
 """
 
-from ..features.variants import MuType
+from ..features.mutations import MuType
 from .resources import *
 import pytest
 

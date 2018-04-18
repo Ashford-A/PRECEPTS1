@@ -11,7 +11,7 @@ Author: Michal Grzadkowski <grzadkow@ohsu.edu>
 import pandas as pd
 from itertools import groupby
 
-from . import DATA_PATH
+from HetMan.features import DATA_PATH
 path_file = DATA_PATH + '/PathwayCommons9.All.hgnc.sif.gz'
 
 

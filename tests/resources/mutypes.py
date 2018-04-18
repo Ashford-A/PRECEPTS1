@@ -3,7 +3,7 @@
 
 """
 
-from ...features.variants import MuType
+from ...features.mutations import MuType
 
 
 # .. basic subtypes

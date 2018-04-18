@@ -621,7 +621,7 @@ class PresenceCohort(Cohort):
                           on the pair of phenotypes in the training cohort.
 
         Examples:
-            >>> from HetMan.features.variants import MuType
+            >>> from HetMan.features.mutations.branches import MuType
             >>>
             >>> self.mutex_test(MuType({('Gene', 'TP53'): None}),
             >>>                 MuType({('Gene', 'CDH1'): None}))
