@@ -47,7 +47,7 @@ class MuType(object):
     mutations, as does passing any empty iterable such as [] or (,).
 
     Arguments:
-        type_dict (dict): The mutation sub-types included in this type.
+        type_dict (dict, list, tuple, None, or MuType)
 
     Attributes:
         cur_level (str): The mutation property level whose categories are
@@ -102,14 +102,14 @@ class MuType(object):
         # creates an expanded type dictionary where category labels that were
         # originally grouped together by subtype are given separate keys
         full_pairs = [
-            (lbl,
-             (sub_type if sub_type is None or isinstance(sub_type, MuType)
-              else MuType(sub_type)))
+            (lbl, sub_type)
             for lbls, sub_type in zip(level_lbls, type_dict.values())
             if not (isinstance(sub_type, MuType) and sub_type.is_empty())
             for lbl in lbls
             ]
 
+        # merges identical labels according to the union of their subtypes
+        # i.e. silent:Exon7, silent:Exon8 => silent:(Exon7 or Exon8)
         full_dict = {}
         for lbl, sub_type in full_pairs:
 
@@ -117,8 +117,14 @@ class MuType(object):
                 if sub_type is None or full_dict[lbl] is None:
                     full_dict[lbl] = None
 
+                elif isinstance(sub_type, dict):
+                    full_dict[lbl] |= MuType(sub_type)
+
                 else:
                     full_dict[lbl] |= sub_type
+
+            elif isinstance(sub_type, dict):
+                full_dict[lbl] = MuType(sub_type)
 
             else:
                 full_dict[lbl] = sub_type
@@ -595,9 +601,10 @@ class MuType(object):
            exactly one of the leaf properties."""
         mkeys = []
 
-        for lbls, tp in list(self._child.items()):
+        for lbls, tp in list(self.subtype_list()):
             if tp is None:
                 mkeys += [{(self.cur_level, lbl): None} for lbl in lbls]
+
             else:
                 mkeys += [{(self.cur_level, lbl): sub_tp}
                           for lbl in lbls for sub_tp in tp.subkeys()]
@@ -608,7 +615,7 @@ class MuType(object):
 class MutComb(object):
     """A class corresponding to the presence of multiple mutation sub-types.
 
-    Args:
+    Arguments:
         mtypes (:obj:`list` of :obj:`MuType`)
 
     Examples:
