@@ -1,19 +1,18 @@
 
 from .branches import MuType
+from ..data.domains import get_protein_domains
+
+import numpy as np
+import pandas as pd
 
 from functools import reduce
 from itertools import product
 from itertools import combinations as combn
 from operator import or_
 from re import sub as gsub
+
 from math import exp
-
-import numpy as np
-import pandas as pd
 from sklearn.cluster import MeanShift
-
-pfam_file = ('/home/exacloud/lustre1/CompBio/genomic_resources/'
-             'Pfam_to_gene.txt.gz')
 
 
 class MuTree(object):
@@ -89,12 +88,12 @@ class MuTree(object):
     # custom mutation levels
     mut_fields = {
         'Type': ('Form', 'Protein'),
-        'Pfam': ('Transcript', 'Protein'),
+        'Domain': ('Transcript', 'Protein'),
         'Location': ('Protein', ),
         }
 
     @classmethod
-    def split_muts(cls, muts, lvl_name, annot_dict):
+    def split_muts(cls, muts, lvl_name, **kwargs):
         """Splits mutations into tree branches for a given level.
 
         Args:
@@ -123,13 +122,13 @@ class MuTree(object):
 
         # if a parsing label is present, add the parsed level
         # to the table of mutations
-        elif len(lvl_info) == 2:
+        elif len(lvl_info) == 2 and lvl_info[0] != 'Domain':
             parse_lbl = lvl_info[1].lower()
             parse_fx = 'parse_{}'.format(parse_lbl)
-
+                
             if parse_fx in cls.__dict__:
                 muts = eval('cls.{}'.format(parse_fx))(muts, lvl_info[0])
-
+            
             else:
                 raise ValueError(
                     "Custom parse label {} must have a corresponding <{}> "
@@ -150,11 +149,16 @@ class MuTree(object):
 
         # if the specified level is not a column in the mutation table,
         # we assume it's a custom mutation level
+        elif 'Domain_' in lvl_name:
+            kwargs.update({'domain_lbl': lvl_info[1]})
+            split_muts = cls.muts_domain(muts, **kwargs)
+
         else:
             split_fx = 'muts_{}'.format(lvl_info[0].lower())
 
             if split_fx in cls.__dict__:
-                split_muts = eval('cls.{}'.format(split_fx))(muts, annot_dict)
+                split_muts = eval(
+                    'cls.{}'.format(split_fx))(muts)
 
             else:
                 raise ValueError(
@@ -178,7 +182,7 @@ class MuTree(object):
     """
 
     @staticmethod
-    def muts_type(muts, annot_dict=None):
+    def muts_type(muts):
         """Parses mutations according to Type, which can be 'CNV' (Gain or
            Loss), 'Point' (missense and silent mutations), or 'Frame' (indels,
            frameshifts, nonsense mutations).
@@ -206,39 +210,46 @@ class MuTree(object):
         return new_muts
 
     @staticmethod
-    def muts_pfam(muts, annot_dict):
+    def muts_domain(muts, **domain_args):
         """Parses mutations according to overlap with a protein binding
-           domain identified in the Pfam database.
+           domain identified in the given database.
 
         """
 
-        use_pfam = annot_dict['Pfam'].loc[
-            annot_dict['Pfam']['Transcript'].isin(muts['Transcript']), :]
+        # find the domains matched to the genes in the list of mutations
+        domain_data = domain_args[domain_args['domain_lbl']]
+        match_indx = domain_data['Transcript'].isin(muts['Transcript'])
+        use_domain = domain_data.loc[match_indx, :]
 
-        new_muts = {pfam: pd.DataFrame([])
-                    for pfam in set(use_pfam['PfamID'])}
+        # initialize the list of mutations matched to each domain as well as
+        # the list of mutations not matched to any domain
+        new_muts = {domain: pd.DataFrame([])
+                    for domain in set(use_domain['DomainID'])}
         none_indx = pd.Series([True] * muts.shape[0])
 
+        # for each mutation, get the location of the protein it affects
         loc_tbl = pd.to_numeric(
             muts['Protein'].str.extract('(^p\\.[A-Z])([0-9]+)',
-                                        expand=False).iloc[: ,1]
+                                        expand=False).iloc[:, 1]
             )
 
-        for _, _, pfam_id, start_pos, end_pos in use_pfam.values:
-            pfam_indx = loc_tbl.between(start_pos, end_pos).tolist()
+        # for each domain, find the mutations whose location falls within
+        # the boundaries of the domain
+        for _, _, domain_id, start_pos, end_pos in use_domain.values:
+            domain_indx = loc_tbl.between(start_pos, end_pos).tolist()
 
-            if any(pfam_indx):
-                none_indx.loc[pfam_indx] = False
-                new_muts[pfam_id] = pd.concat([new_muts[pfam_id],
-                                               muts.loc[pfam_indx, :]])
+            if any(domain_indx):
+                none_indx.loc[domain_indx] = False
+                new_muts[domain_id] = pd.concat([new_muts[domain_id],
+                                                 muts.loc[domain_indx, :]])
 
         if none_indx.any():
             new_muts['None'] = muts.loc[none_indx.tolist(), :]
 
-        return {pf: v for pf, v in new_muts.items() if v.shape[0]}
+        return {dom: v for dom, v in new_muts.items() if v.shape[0]}
 
     @staticmethod
-    def muts_location(muts, annot_dict=None):
+    def muts_location(muts):
         """Parses mutation according to protein location."""
         new_muts = {}
 
@@ -288,7 +299,7 @@ class MuTree(object):
                       + str(round(mshift.cluster_centers_[x, 0], 2)))
                      for x in mshift.labels_]
         new_muts = muts.copy()
-        new_muts[parse_lvl + '_clust'] = clust_vec
+        new_muts['{}_clust'.format(parse_lvl)] = clust_vec
 
         return new_muts
 
@@ -352,18 +363,15 @@ class MuTree(object):
     def __init__(self, muts, levels=('Gene', 'Form'), **kwargs):
         if 'depth' in kwargs:
             self.depth = kwargs['depth']
-            annot_dict = kwargs['annot_dict']
 
         else:
             self.depth = 0
-            annot_dict = dict()
 
-            if 'Pfam' in levels:
-                pfam_data = pd.read_csv(pfam_file, sep='\t')
-
-                pfam_data.columns = ["Gene", "Transcript",
-                                     "PfamID", "PfamStart", "PfamEnd"]
-                annot_dict['Pfam'] = pfam_data
+            for level in levels:
+                if 'Domain_' in level:
+                    domain_lbl = level.split('Domain_')[1]
+                    kwargs.update(
+                        {domain_lbl: get_protein_domains(domain_lbl)})
 
         # intializes mutation hierarchy construction variables
         lvls_left = list(levels)
@@ -377,7 +385,7 @@ class MuTree(object):
 
             # get the split of the mutations given the current level
             cur_lvl = lvls_left.pop(0)
-            splat_muts = self.split_muts(muts, cur_lvl, annot_dict)
+            splat_muts = self.split_muts(muts, cur_lvl, **kwargs)
 
             # if the mutations can be split, set the current mutation
             # level of the tree...
@@ -391,9 +399,7 @@ class MuTree(object):
 
                 # ...or a mixture of further MuTrees and leaf nodes
                 else:
-                    self._child = {nm: MuTree(mut, lvls_left,
-                                              depth=self.depth + 1,
-                                              annot_dict=annot_dict)
+                    self._child = {nm: MuTree(mut, lvls_left, **kwargs)
                                    for nm, mut in splat_muts.items()}
 
             # if the mutations cannot be split at this level, move on to the
@@ -1113,3 +1119,4 @@ class MuTree(object):
         stat_list = [s in samp_list for s in sorted(samples)]
 
         return stat_list
+
