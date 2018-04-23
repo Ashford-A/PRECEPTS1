@@ -14,6 +14,7 @@ import time
 
 from collections import Sized, defaultdict
 from functools import partial, reduce
+from operator import or_
 from itertools import product
 
 import scipy.sparse as sp
@@ -37,8 +38,7 @@ from sklearn.model_selection._validation import (
 def cross_val_predict_omic(estimator, X, y=None, groups=None,
                            force_test_samps=None,
                            cv_fold=4, cv_count=16, n_jobs=1, fit_params=None,
-                           pre_dispatch='2*n_jobs', random_state=None,
-                           verbose=0):
+                           random_state=None, verbose=0):
     """Generates predicted mutation states for samples using internal
        cross-validation via repeated stratified K-fold sampling.
     """
@@ -46,9 +46,6 @@ def cross_val_predict_omic(estimator, X, y=None, groups=None,
     if (cv_count % cv_fold) != 0:
         raise ValueError("The number of folds should evenly divide the total"
                          "number of cross-validation splits.")
-
-    X, y, groups = omic_indexable(X, y, groups)
-    y = y.reshape(-1)
 
     if force_test_samps is None:
         train_samps_indx = np.arange(X.shape[0])
@@ -59,27 +56,35 @@ def cross_val_predict_omic(estimator, X, y=None, groups=None,
         train_samps_indx = X.index.get_indexer_for(train_samps)
         test_samps_indx = X.index.get_indexer_for(force_test_samps)
 
+    #X, y = omic_indexable(X, y)
+    #y = y.reshape(-1)
+
     cv_rep = int(cv_count / cv_fold)
     cv_iter = []
+
+    if len(y.shape) > 1 and y.shape[1] > 1:
+        y_use = np.apply_along_axis(lambda x: reduce(or_, x), 1, y)
+
+    else:
+        y_use = y.reshape(-1)
 
     for i in range(cv_rep):
         cv = StratifiedKFold(
             n_splits=cv_fold, shuffle=True,
             random_state=(random_state ** (i + 3)) % 12949671
             )
-
+        
         cv_iter += [
             (train_samps_indx[train],
              np.append(train_samps_indx[test], test_samps_indx))
             for train, test in cv.split(X.iloc[train_samps_indx, :],
-                                        y[train_samps_indx],
+                                        y_use[train_samps_indx],
                                         groups)
             ]
 
     # for each split, fit on the training set and get predictions for
     # remaining cohort
-    parallel = Parallel(n_jobs=n_jobs, verbose=verbose,
-                        pre_dispatch=pre_dispatch)
+    parallel = Parallel(n_jobs=n_jobs, verbose=verbose, pre_dispatch='n_jobs')
     prediction_blocks = parallel(delayed(
         _omic_fit_and_predict)(clone(estimator), X, y,
                                train, test, verbose, fit_params)
@@ -388,9 +393,12 @@ class OmicRandomizedCV(RandomizedSearchCV):
     def fit(self, X, y, groups=None, **tune_params):
         """Actual fitting,  performing the search over parameters."""
 
-        # gets the prediction algorithm, checks the methods used to produce
-        # cross validation splits and to score the accuracy of the predictions
+        # gets and copies the prediction algorithm
         estimator = self.estimator
+        base_estimator = clone(self.estimator)
+
+        # checks the methods used to produce cross validation splits and to
+        # score the accuracy of the predictions
         cv = check_cv(self.cv, y, classifier=is_classifier(estimator))
         self.scorer_ = check_scoring(self.estimator, scoring=self.scoring)
 
@@ -412,12 +420,8 @@ class OmicRandomizedCV(RandomizedSearchCV):
                   " {2} fits".format(n_splits, n_candidates,
                                      n_candidates * n_splits))
 
-        base_estimator = clone(self.estimator)
-        pre_dispatch = self.pre_dispatch
-
         out = Parallel(
-            n_jobs=self.n_jobs, verbose=self.verbose,
-            pre_dispatch=pre_dispatch
+            n_jobs=self.n_jobs, pre_dispatch='n_jobs', verbose=self.verbose
             )(delayed(_omic_fit_and_score)(
                 clone(base_estimator), X, y, self.scorer_,
                 train, test, self.verbose, parameters,

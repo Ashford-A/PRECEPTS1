@@ -601,7 +601,7 @@ class MuType(object):
            exactly one of the leaf properties."""
         mkeys = []
 
-        for lbls, tp in list(self.subtype_list()):
+        for lbls, tp in list(self.child_iter()):
             if tp is None:
                 mkeys += [{(self.cur_level, lbl): None} for lbl in lbls]
 

@@ -624,11 +624,19 @@ class MultiPipe(OmicPipe):
 
     @staticmethod
     def parse_preds(preds):
-        pass
+        return np.array(preds)
 
     def score_omic(self, actual_omic, pred_omic):
-        return np.mean([self.score_pheno(act_omic, p_omic)
-                        for act_omic, p_omic in zip(actual_omic, pred_omic)])
+        """
+        Args:
+            actual_omic, pred_omic: np.array, shape: (n_samps, n_phenos)
+        """
+        return np.min(self.score_each(actual_omic, pred_omic))
+
+    def score_each(self, actual_omic, pred_omic):
+        return [self.score_pheno(act_omic, p_omic)
+                for act_omic, p_omic in zip(actual_omic.transpose(),
+                                            pred_omic.transpose())]
 
 
 class ProteinPipe(ValuePipe):

@@ -41,7 +41,7 @@ class Lasso(BasicPipe, LinearPipe):
     """
 
     tune_priors = (
-        ('fit__C', stats.lognorm(scale=exp(-1), s=exp(1))),
+        ('fit__C', stats.lognorm(scale=0.1, s=4)),
         )
 
     def __init__(self):
@@ -115,12 +115,13 @@ class GradBoost(BasicPipe, EnsemblePipe):
     """A class for classification using an additive ensemble of trees."""
     
     tune_priors = (
-        ('fit__max_depth', (2, 3, 4, 5, 8)),
+        ('fit__max_depth', (2, 3, 4, 5)),
         ('fit__min_samples_split', (0.005, 0.01, 0.02, 0.03, 0.04, 0.05)),
         )
 
     def __init__(self):
-        super().__init__(GradientBoostingClassifier(n_estimators=200))
+        super().__init__(GradientBoostingClassifier(n_estimators=40,
+                                                    learning_rate=0.2))
 
 
 class RandomForest(BasicPipe, EnsemblePipe):
@@ -144,7 +145,7 @@ class KNeigh(BasicPipe):
     """
     
     tune_priors = (
-        ('fit__n_neighbors', (4, 8, 16, 25, 40)),
+        ('fit__n_neighbors', (2, 3, 4, 5, 6, 8, 10, 15, 20, 25, 30, 40)),
         )
 
     def __init__(self):

@@ -11,7 +11,7 @@ from itertools import combinations as combn
 from operator import or_
 from re import sub as gsub
 
-from math import exp
+from math import log10, floor
 from sklearn.cluster import MeanShift
 
 
@@ -125,6 +125,17 @@ class MuTree(object):
         elif len(lvl_info) == 2 and lvl_info[0] != 'Domain':
             parse_lbl = lvl_info[1].lower()
             parse_fx = 'parse_{}'.format(parse_lbl)
+
+            if lvl_info[0] not in muts:
+                lvl_func = 'cls.muts_{}'.format(lvl_info[0].lower())
+                muts_dict = eval(lvl_func)(muts, **kwargs)
+                muts = pd.DataFrame([])
+
+                for lvl, muts_df in muts_dict.items():
+                    muts = pd.concat([
+                        muts, muts_df.join(pd.Series(lvl, index=muts_df.index,
+                                                     name=lvl_info[0]))
+                        ])
                 
             if parse_fx in cls.__dict__:
                 muts = eval('cls.{}'.format(parse_fx))(muts, lvl_info[0])
@@ -291,15 +302,40 @@ class MuTree(object):
 
     @staticmethod
     def parse_clust(muts, parse_lvl):
-        """Clusters continuous mutation scores into discrete levels."""
-        mshift = MeanShift(bandwidth=exp(-3))
-        mshift.fit(pd.DataFrame(muts[parse_lvl]))
+        """Clusters continuous mutation properties such as PolyPhen scores
+           and genomic locations into discrete levels.
+        """
 
-        clust_vec = [(parse_lvl + '_'
-                      + str(round(mshift.cluster_centers_[x, 0], 2)))
-                     for x in mshift.labels_]
+        # find the property values that can be interpreted as a numeric value
+        clust_vals = muts[parse_lvl].replace(['.'], np.nan)
+        skip_indx = pd.isnull(clust_vals)
+        clust_vals = pd.to_numeric(clust_vals[~skip_indx])
+
         new_muts = muts.copy()
-        new_muts['{}_clust'.format(parse_lvl)] = clust_vec
+        if len(clust_vals):
+
+            bw_val = (clust_vals.max() - clust_vals.min()) / 40
+            if bw_val > 4:
+                round_val = 0
+            else:
+                round_val = 1 - floor(log10(bw_val))
+
+            # find the clusters of property values
+            mshift = MeanShift(bandwidth=bw_val)
+            mshift.fit(clust_vals.values.reshape(-1, 1))
+            
+            # parse the clusters into a label for each mutation
+            clust_vec = [
+                '{}__{}'.format(
+                    parse_lvl,
+                    mshift.cluster_centers_[lbl, 0].round(round_val)
+                    )
+                for lbl in mshift.labels_
+                ]
+            
+            # add a new column to the mutations table with the cluster labels
+            new_muts['{}_clust'.format(parse_lvl)] = 'None'
+            new_muts.loc[~skip_indx, '{}_clust'.format(parse_lvl)] = clust_vec
 
         return new_muts
 
