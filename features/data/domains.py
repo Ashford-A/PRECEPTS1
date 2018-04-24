@@ -2,7 +2,8 @@
 import os
 import pandas as pd
 
-domain_dir = '/home/exacloud/lustre1/CompBio/genomic_resources/'
+domain_dir = ("/home/exacloud/lustre1/CompBio"
+              "/genomic_resources/Ensembl_gene_domains")
 
 
 def get_protein_domains(domain_lbl):
