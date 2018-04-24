@@ -301,6 +301,26 @@ class MuTree(object):
         return new_muts
 
     @staticmethod
+    def parse_bins(muts, parse_lvl):
+        """Arranges continuous mutation properties such as Exons and MutSig
+           scores into equally-spaced discrete bins.
+        """
+
+        bin_vals = muts[parse_lvl].replace(['.'], np.nan)
+        skip_indx = pd.isnull(bin_vals)
+        bin_vals = pd.to_numeric(bin_vals[~skip_indx])
+
+        new_muts = muts.copy()
+        if len(bin_vals):
+
+            new_lvl = '{}_bins'.format(parse_lvl)
+            new_muts[new_lvl] = 'None'
+            new_muts.loc[~skip_indx, new_lvl] = pd.cut(
+                bin_vals, bins=10).astype('str')
+
+        return new_muts
+
+    @staticmethod
     def parse_clust(muts, parse_lvl):
         """Clusters continuous mutation properties such as PolyPhen scores
            and genomic locations into discrete levels.
