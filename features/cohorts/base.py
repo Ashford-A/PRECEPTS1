@@ -56,7 +56,7 @@ class Cohort(object):
             self.cv_seed = cv_seed
 
     def train_data(self,
-                   pheno,
+                   pheno=None,
                    include_samps=None, exclude_samps=None,
                    include_genes=None, exclude_genes=None):
         """Retrieval of the training cohort from the -omic dataset."""
@@ -65,10 +65,14 @@ class Cohort(object):
                                   use_test=False)
         genes = self.subset_genes(include_genes, exclude_genes)
 
-        pheno, samps = self.parse_pheno(
-            self.train_pheno(pheno, samps), samps)
+        if pheno is None:
+            return self.omic_loc(samps, genes), None
 
-        return self.omic_loc(samps, genes), pheno
+        else:
+            pheno, samps = self.parse_pheno(
+                self.train_pheno(pheno, samps), samps)
+
+            return self.omic_loc(samps, genes), pheno
 
     def test_data(self,
                   pheno,

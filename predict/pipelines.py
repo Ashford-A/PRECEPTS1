@@ -17,7 +17,6 @@ from .cross_validation import (OmicRandomizedCV, cross_val_predict_omic,
                                OmicShuffleSplit)
 
 import numpy as np
-from abc import abstractmethod
 
 from numbers import Number
 from functools import reduce
@@ -225,9 +224,10 @@ class OmicPipe(Pipeline):
         return self.score_pheno(actual_omic.flatten(), pred_omic)
 
     @staticmethod
-    @abstractmethod
     def score_pheno(actual_pheno, pred_pheno):
         """Scores the predicted values for a single phenotype."""
+        raise NotImplementedError("An -omic pipeline used for prediction "
+                                  "must implement the <score_pheno> method!")
 
     def tune_coh(self,
                  cohort, pheno,
@@ -299,6 +299,20 @@ class OmicPipe(Pipeline):
         self.fit_params_add = self.extra_fit_params(cohort)
 
         return self.fit(X=train_omics, y=train_pheno)
+
+    def fit_transform_coh(self,
+                          cohort, pheno=None,
+                          include_samps=None, exclude_samps=None,
+                          include_genes=None, exclude_genes=None):
+
+        train_omics, train_pheno = cohort.train_data(
+            pheno,
+            include_samps, exclude_samps,
+            include_genes, exclude_genes
+            )
+        self.fit_params_add = self.extra_fit_params(cohort)
+
+        return self.fit_transform(X=train_omics, y=train_pheno)
 
     def score_coh(self,
                   cohort, pheno, score_splits=16, parallel_jobs=8,
