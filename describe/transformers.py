@@ -5,6 +5,8 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 
+from umap import UMAP
+
 
 class OmicPCA(OmicPipe):
 
@@ -16,4 +18,10 @@ class OmicTSNE(OmicPipe):
 
     def __init__(self):
         super().__init__([('norm', StandardScaler()), ('fit', TSNE())])
+
+
+class OmicUMAP(OmicPipe):
+
+    def __init__(self):
+        super().__init__([('norm', StandardScaler()), ('fit', UMAP())])
 
