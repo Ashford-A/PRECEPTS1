@@ -515,11 +515,15 @@ class OmicShuffleSplit(StratifiedShuffleSplit):
         # sampling, binning mutation values if they are continuous
         if hasattr(expr, 'shape') and hasattr(omic, 'shape'):
 
-            if len(np.unique(omic)) > 2:
-                omic = omic > np.percentile(omic, 50)
+            if len(omic.shape) > 1 and omic.shape[1] > 1:
+                omic_use = np.apply_along_axis(lambda x: reduce(or_, x),
+                                               1, omic)
+
+            elif len(np.unique(omic)) > 10:
+                omic_use = omic > np.percentile(omic, 50)
 
             for train, test in super()._iter_indices(
-                    X=expr, y=omic, groups=groups):
+                    X=expr, y=omic_use, groups=groups):
 
                 yield train, test
 
