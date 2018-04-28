@@ -1,5 +1,6 @@
 
 from .mut import *
+from .mut_freq import *
 
 from ..data.expression import get_expr_firehose, get_expr_bmeg, get_expr_toil
 from ..data.variants import get_variants_mc3, get_variants_firehose
@@ -12,6 +13,38 @@ from dryadic.features.cohorts.utils import (
 from functools import reduce
 from operator import and_
 from itertools import cycle
+
+
+def get_expr_data(cohort, expr_source, **expr_args):
+    if expr_source == 'BMEG':
+        expr_mat = get_expr_bmeg(cohort)
+        expr = log_norm(expr_mat.fillna(0.0))
+
+    elif expr_source == 'Firehose':
+        expr_mat = get_expr_firehose(cohort, expr_args['expr_dir'])
+        expr = log_norm(expr_mat.fillna(0.0))
+
+    elif expr_source == 'toil':
+        expr = get_expr_toil(cohort, expr_args['expr_dir'],
+                             expr_args['collapse_txs'])
+
+    else:
+        raise ValueError("Unrecognized source of expression data!")
+
+    return expr
+
+
+def get_variant_data(cohort, var_source, **var_args):
+    if var_source == 'mc3':
+        variants = get_variants_mc3(var_args['syn'])
+    
+    elif var_source == 'Firehose':
+        variants = get_variants_firehose(cohort, var_args['var_dir'])
+    
+    else:
+        raise ValueError("Unrecognized source of variant data!")
+
+    return variants
 
 
 class MutationCohort(BaseMutationCohort):
@@ -69,21 +102,11 @@ class MutationCohort(BaseMutationCohort):
                  cv_prop=2.0/3, cv_seed=None, **coh_args):
         self.cohort = cohort
 
-        # load gene RNA-seq expression data from the given source
-        if expr_source == 'BMEG':
-            expr_mat = get_expr_bmeg(cohort)
-            expr = log_norm(expr_mat.fillna(0.0))
+        if var_source is None:
+            var_source = expr_source
 
-        elif expr_source == 'Firehose':
-            expr_mat = get_expr_firehose(cohort, coh_args['expr_dir'])
-            expr = log_norm(expr_mat.fillna(0.0))
-
-        elif expr_source == 'toil':
-            expr = get_expr_toil(cohort, coh_args['expr_dir'],
-                                 coh_args['collapse_txs'])
-
-        else:
-            raise ValueError("Unrecognized source of expression data!")
+        expr = get_expr_data(cohort, expr_source, **coh_args)
+        variants = get_variant_data(cohort, var_source, **coh_args)
 
         # gets annotation data for each gene in the expression data
         annot_data = get_gencode(annot_file)
@@ -91,20 +114,6 @@ class MutationCohort(BaseMutationCohort):
                            for ens, at in annot_data.items()
                            if at['gene_name'] in expr.columns}
 
-        # load gene mutation call data from the given source
-        if var_source is None:
-            var_source = expr_source
-
-        if var_source == 'mc3':
-            variants = get_variants_mc3(coh_args['syn'])
-
-        elif var_source == 'Firehose':
-            variants = get_variants_firehose(cohort, coh_args['var_dir'])
-
-        else:
-            raise ValueError("Unrecognized source of variant data!")
-
-        # load copy number alteration data from the given source
         if copy_source == 'Firehose':
             if 'copy_dir' not in coh_args and expr_source == 'Firehose':
                 copy_dir = coh_args['expr_dir']
@@ -155,6 +164,50 @@ class MutationCohort(BaseMutationCohort):
 
         super().__init__(expr, variants, mut_genes, mut_levels,
                          top_genes, samp_cutoff, cv_prop, cv_seed)
+
+
+class MutFreqCohort(BaseMutFreqCohort):
+    """An expression dataset used to predict genes' mutations (variants).
+
+    Args:
+        cohort (str): The label for a cohort of samples.
+        expr_source (str): Where to load the expression data from.
+        var_source (str): Where to load the variant data from.
+        copy_source (:obj:`str`, optional)
+            Where to load the copy number alteration data from. The default
+            is to not use any CNA data.
+        cv_prop (float): Proportion of samples to use for cross-validation.
+        cv_seed (int): The random seed to use for cross-validation sampling.
+
+    Examples:
+        >>> import synapseclient
+        >>> syn = synapseclient.Synapse()
+        >>> syn.login()
+        >>>
+        >>> cdata = MutationCohort(
+        >>>     cohort='TCGA-BRCA', mut_genes=['TP53', 'PIK3CA'],
+        >>>     mut_levels=['Gene', 'Form', 'Exon'], syn=syn
+        >>>     )
+
+    """
+
+    def __init__(self,
+                 cohort, expr_source='BMEG', var_source='mc3',
+                 cv_prop=2.0/3, cv_seed=None, **coh_args):
+        self.cohort = cohort
+
+        if var_source is None:
+            var_source = expr_source
+
+        expr = get_expr_data(cohort, expr_source, **coh_args)
+        variants = get_variant_data(cohort, var_source, **coh_args)
+        matched_samps = match_tcga_samples(expr.index, variants['Sample'])
+
+        self.gene_annot = {at['gene_name']: {**{'Ens': ens}, **at}
+                           for ens, at in get_gencode().items()
+                           if at['gene_name'] in expr.columns}
+
+        super().__init__(expr, variants, matched_samps, cv_prop, cv_seed)
 
 
 class TransferMutationCohort(BaseTransferMutationCohort):
@@ -246,3 +299,4 @@ class TransferMutationCohort(BaseTransferMutationCohort):
             expr_dict, var_dict, matched_samps, gene_annot, mut_genes,
             mut_levels, top_genes, samp_cutoff, cv_prop, cv_seed
             )
+

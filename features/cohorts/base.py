@@ -217,13 +217,12 @@ class UniCohort(Cohort):
 
         # check that the samples listed in the training and testing
         # sub-cohorts are valid relative to the -omic dataset
-        if not (set(train_samps) & set(omic_mat.index)):
+        if not set(train_samps) & set(omic_mat.index):
             raise CohortError("At least one training sample must be in the "
                               "-omic dataset!")
 
-        if (test_samps is not None
-                and not set(test_samps) & set(omic_mat.index)):
-            raise CohortError("At least one testing sample must be in the"
+        if test_samps and not set(test_samps) & set(omic_mat.index):
+            raise CohortError("At least one testing sample must be in the "
                               "-omic dataset!")
 
         # check that the samples listed in the training and testing
@@ -231,14 +230,14 @@ class UniCohort(Cohort):
         if not train_samps:
             raise CohortError("There must be at least one training sample!")
 
-        if test_samps is not None and set(train_samps) & set(test_samps):
-            raise CohortError("Training sample set and testing sample"
-                              "set must be disjoint!")
+        if test_samps and set(train_samps) & set(test_samps):
+            raise CohortError("Training sample set and testing sample "
+                              "sets must be disjoint!")
 
         # when we don't have a testing cohort, use entire the entire
         # dataset as the training cohort
         train_samps = frozenset(train_samps)
-        if test_samps is None:
+        if not test_samps:
             self.samples = train_samps.copy()
 
         # when we have a training cohort and a testing cohort

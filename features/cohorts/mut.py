@@ -108,8 +108,8 @@ class BaseMutationCohort(PresenceCohort, UniCohort):
         train_samps, test_samps = self.split_samples(
             cv_seed, cv_prop, expr.index)
 
-        # if the cohort is to have a testing cohort, build the tree with info
-        # on which testing samples have which types of mutations
+        # if the cohort is to have a testing cohort, build the tree
+        # with info on which testing samples have which types of mutations
         if test_samps:
             self.test_mut = MuTree(
                 muts=variants.loc[variants['Sample'].isin(test_samps), :],
