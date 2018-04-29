@@ -82,7 +82,7 @@ class BaseMutFreqCohort(ValueCohort, UniCohort):
         else:
             samps = set(samps) & self.train_samps
 
-        return self.mut_freqs.loc[samps].tolist()
+        return self.mut_freqs.loc[sorted(samps)].tolist()
 
     def test_pheno(self, samps=None):
         """Gets the mutation frequency of samples in the testing cohort.
@@ -100,5 +100,5 @@ class BaseMutFreqCohort(ValueCohort, UniCohort):
         else:
             samps = set(samps) & self.test_samps
 
-        return self.mut_freqs.loc[samps].tolist()
+        return self.mut_freqs.loc[sorted(samps)].tolist()
 
