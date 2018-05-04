@@ -522,6 +522,9 @@ class OmicShuffleSplit(StratifiedShuffleSplit):
             elif len(np.unique(omic)) > 10:
                 omic_use = omic > np.percentile(omic, 50)
 
+            else:
+                omic_use = omic.copy()
+
             for train, test in super()._iter_indices(
                     X=expr, y=omic_use, groups=groups):
 

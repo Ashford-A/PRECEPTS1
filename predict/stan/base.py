@@ -69,6 +69,7 @@ class StanOptimizing(BaseStan):
 
     def run_model(self, **fit_params):
         self.fit_obj = self.stan_model.optimizing(data=self.data_dict,
+                                                  iter=1e6,
                                                   **fit_params)
 
 
@@ -120,8 +121,11 @@ class StanSampling(BaseStan):
         return var_means
 
     def run_model(self, **fit_params):
-        if 'n_chains' not in fit_params:
-            fit_params['n_chains'] = 1
+        if 'chains' not in fit_params:
+            fit_params['chains'] = 1
+
+        if 'iter' not in fit_params:
+            fit_params['iter'] = 50
 
         self.fit_obj = self.stan_model.sampling(data=self.data_dict,
                                                 **fit_params)
