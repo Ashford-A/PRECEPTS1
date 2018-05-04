@@ -68,8 +68,10 @@ class StanOptimizing(BaseStan):
         return var_means
 
     def run_model(self, **fit_params):
+        if 'iter' not in fit_params:
+            fit_params['iter'] = 5e4
+
         self.fit_obj = self.stan_model.optimizing(data=self.data_dict,
-                                                  iter=1e6,
                                                   **fit_params)
 
 
@@ -134,3 +136,4 @@ class StanSampling(BaseStan):
             print("Fitting has finished!")
 
         self.fit_summary = dict(self.fit_obj.summary())['summary']
+

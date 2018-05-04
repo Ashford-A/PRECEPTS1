@@ -89,7 +89,7 @@ def main():
         )
 
     clf_stan.tune_coh(cdata, use_mtype, exclude_genes={args.gene},
-                      tune_splits=4, test_count=60, parallel_jobs=8)
+                      tune_splits=4, test_count=32, parallel_jobs=8)
 
     infer_mat = clf_stan.infer_coh(
         cdata, use_mtype, exclude_genes={args.gene},
