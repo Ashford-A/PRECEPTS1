@@ -14,6 +14,10 @@ from functools import reduce
 from operator import and_
 from itertools import cycle
 
+import os
+from glob import glob
+from sklearn.preprocessing import scale
+
 
 def get_expr_data(cohort, expr_source, **expr_args):
     if expr_source == 'BMEG':
@@ -45,6 +49,48 @@ def get_variant_data(cohort, var_source, **var_args):
         raise ValueError("Unrecognized source of variant data!")
 
     return variants
+
+
+def get_copy_data(cohort, copy_source, **copy_args):
+    if copy_source == 'Firehose':
+        copy_data = get_copies_firehose(cohort, copy_args['copy_dir'])
+        
+        # reshapes the matrix of CNA values into the same long format
+        # mutation data is represented in
+        copy_df = pd.DataFrame(copy_data.stack())
+        copy_df = copy_df.reset_index(level=copy_df.index.names)
+        copy_df.columns = ['Sample', 'Gene', 'Form']
+        
+        # removes CNA values corresponding to an absence of a variant
+        copy_df = copy_df.loc[copy_df['Form'] != 0, :]
+        
+        # maps CNA integer values to their descriptions, appends
+        # CNA data to the mutation data
+        copy_df['Form'] = copy_df['Form'].map({-2: 'HomDel', -1: 'HetDel',
+                                               1: 'HetGain', 2: 'HomGain'})
+    
+    else:
+        raise ValueError("Unrecognized source of CNA data!")
+
+    return copy_df
+
+
+def list_cohorts(data_source, **data_args):
+    if data_source == 'BMEG':
+        pass
+
+    elif data_source == 'Firehose':
+        cohorts = {pth.split('/')[-1]
+                   for pth in glob(os.path.join(data_args['data_dir'],
+                                                'stddata__*/*'))}
+
+    elif data_source == 'toil':
+        pass
+
+    else:
+        raise ValueError("Unrecognized source of expression data!")
+
+    return cohorts
 
 
 class MutationCohort(BaseMutationCohort):
@@ -208,6 +254,81 @@ class MutFreqCohort(BaseMutFreqCohort):
                            if at['gene_name'] in expr.columns}
 
         super().__init__(expr, variants, matched_samps, cv_prop, cv_seed)
+
+
+class PanCancerMutCohort(BaseMutationCohort):
+
+    def __init__(self, 
+                 mut_genes, mut_levels=('Gene', 'Form'),
+                 expr_source='BMEG', var_source='mc3', copy_source=None,
+                 top_genes=100, samp_cutoff=None, cv_prop=2.0/3, cv_seed=None,
+                 **coh_args):
+        expr_args = dict()
+        if 'expr_dir' in coh_args:
+            expr_args['data_dir'] = coh_args['expr_dir']
+        expr_cohorts = list_cohorts(expr_source, **expr_args)
+
+        expr_dict = dict()
+        for cohort in expr_cohorts:
+            try:
+                expr_data = get_expr_data(cohort, expr_source, **coh_args)
+
+                expr_dict[cohort] = pd.DataFrame(scale(expr_data),
+                                                 index=expr_data.index,
+                                                 columns=expr_data.columns)
+
+            except:
+                print('no expression found for {}'.format(cohort))
+
+        expr = pd.concat(list(expr_dict.values()))
+
+        if var_source == 'mc3':
+            variants = get_variant_data(cohort=None, var_source='mc3',
+                                        **coh_args)
+
+        else:
+            if var_source is None:
+                var_source = expr_source
+                var_cohorts = expr_cohorts
+
+            else:
+                var_args = dict()
+                if 'var_dir' in coh_args:
+                    var_args['data_dir'] = coh_args['var_dir']
+                if 'syn' in coh_args:
+                    var_args['syn'] = coh_args['syn']
+
+                var_cohorts = list_cohorts(var_source, **var_args)
+                var_cohorts &= expr_dict
+
+            var_dict = dict()
+            for cohort in var_cohorts:
+                try:
+                    var_dict[cohort] = get_variant_data(cohort, expr_source,
+                                                        **coh_args)
+
+                    if copy_source is not None:
+                        var_dict[cohort] = pd.concat([
+                            var_dict[cohort],
+                            get_copy_data(cohort, copy_source, **coh_args)
+                            ])
+
+                except:
+                    print('no variants found for {}'.format(cohort))
+            
+            variants = pd.concat(list(var_dict.values()))
+
+        matched_samps = match_tcga_samples(expr.index, variants['Sample'])
+
+        # gets annotation data for each gene in the expression data, saves the
+        # label of the cohort used as an attribute
+        gene_annot = {at['gene_name']: {**{'Ens': ens}, **at}
+                      for ens, at in get_gencode().items()
+                      if at['gene_name'] in expr.columns}
+        self.cohort = cohort
+
+        super().__init__(expr, variants, matched_samps, gene_annot, mut_genes,
+                         mut_levels, top_genes, samp_cutoff, cv_prop, cv_seed)
 
 
 class TransferMutationCohort(BaseTransferMutationCohort):
