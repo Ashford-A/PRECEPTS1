@@ -6,8 +6,9 @@ plot_dir = os.path.join(base_dir, 'plots', 'subtypes')
 import sys
 sys.path.extend([os.path.join(base_dir, '../../../..')])
 
-from HetMan.features.variants import MuType
-from HetMan.features.cohorts.mut import VariantCohort
+from HetMan.features.cohorts.tcga import MutationCohort
+from HetMan.features.mutations import MuType
+from HetMan.experiments.stan_test.distr.fit_models import load_output
 
 import numpy as np
 import pandas as pd
@@ -18,24 +19,10 @@ import dill as pickle
 
 import matplotlib as mpl
 mpl.use('Agg')
-import seaborn as sns
 import matplotlib.pyplot as plt
 import seaborn as sns
 
 firehose_dir = '/home/exacloud/lustre1/share_your_data_here/precepts/firehose'
-
-
-def load_infer_mats(model_name, cohort, gene):
-
-    out_lists = [
-        pickle.load(open(os.path.join(
-            base_dir, "output", model_name, cohort, gene,
-            "out__cv-{}.p".format(cv_id)
-            ), 'rb'))
-        for cv_id in range(10)
-        ]
-
-    return np.concatenate(out_lists, axis=1)
 
 
 def plot_label_stability(out_data, args, cdata):
@@ -154,12 +141,14 @@ def main():
         )
 
     parser.add_argument('model_name', type=str, help='label of a model')
+    parser.add_argument('solve_method', type=str)
     parser.add_argument('cohort', type=str, help='a TCGA cohort')
     parser.add_argument('gene', type=str, help='a gene')
 
     args = parser.parse_args()
     os.makedirs(plot_dir, exist_ok=True)
-    infer_mat = load_infer_mats(args.model_name, args.cohort, args.gene)
+    infer_mat = load_output(args.model_name, args.solve_method,
+                            args.cohort, args.gene)
 
     # logs into Synapse using locally-stored credentials
     syn = synapseclient.Synapse()
@@ -167,16 +156,16 @@ def main():
                                 '/mgrzad/input-data/synapse')
     syn.login()
 
-    cdata = VariantCohort(
-        cohort=args.cohort, mut_genes=[args.gene],
-        mut_levels=['Gene', 'Form_base', 'Exon'], expr_source='Firehose',
-        data_dir=firehose_dir, syn=syn, cv_prop=1.0
+    cdata = MutationCohort(
+        cohort=args.cohort, mut_genes=[args.gene], mut_levels=['Gene'],
+        expr_source='Firehose', expr_dir=firehose_dir, var_source='mc3',
+        syn=syn, cv_prop=1.0
         )
 
     plot_label_stability(infer_mat, args, cdata)
     plot_label_variance(infer_mat, args, cdata)
-    plot_subtype_violins(infer_mat, args, cdata, subtypes='Form_base')
-    plot_subtype_violins(infer_mat, args, cdata, subtypes='Exon')
+    #plot_subtype_violins(infer_mat, args, cdata, subtypes='Form_base')
+    #plot_subtype_violins(infer_mat, args, cdata, subtypes='Exon')
 
 
 if __name__ == "__main__":

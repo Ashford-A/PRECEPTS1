@@ -8,16 +8,26 @@ from scipy.stats import lognorm
 from sklearn.preprocessing import StandardScaler
 
 
-class UseOptimizing(AsymMargins, StanOptimizing):
+class UseMargins(AsymMargins):
+
+    def predict_proba(self, X):
+        return self.calc_pred_labels(X)
+
+
+class UseOptimizing(UseMargins, StanOptimizing):
+ 
+    def run_model(self, **fit_params):
+        super().run_model(**{**fit_params, **{'iter': 5e3}})
+
+
+class UseVariational(UseMargins, StanVariational):
     pass
 
 
-class UseVariational(AsymMargins, StanVariational):
-    pass
+class UseSampling(UseMargins, StanSampling):
 
-
-class UseSampling(AsymMargins, StanSampling):
-    pass
+    def run_model(self, **fit_params):
+        super().run_model(**{**fit_params, **{'iter': 100}})
 
 
 class UsePipe(PresencePipe):

@@ -3,15 +3,15 @@
 #SBATCH --job-name=stan-distr
 #SBATCH --partition=exacloud
 
-#SBATCH --output=/home/exacloud/lustre1/CompBio/mgrzad/slurm/log-files/stan-distr_%j.out
-#SBATCH --error=/home/exacloud/lustre1/CompBio/mgrzad/slurm/log-files/stan-distr_%j.err
+#SBATCH --output=/home/exacloud/lustre1/CompBio/mgrzad/slurm/log-files/stan-distr_%A.out
+#SBATCH --error=/home/exacloud/lustre1/CompBio/mgrzad/slurm/log-files/stan-distr_%A.err
 #SBATCH --verbose
 
 #SBATCH --array=0-9
 #SBATCH --time=2150
 #SBATCH --ntasks=1
-#SBATCH --mem-per-cpu=8000
-#SBATCH --cpus-per-task=8
+#SBATCH --mem-per-cpu=5000
+#SBATCH --cpus-per-task=12
 
 
 # pause between starting array jobs to reduce disk stress when loading
@@ -51,9 +51,7 @@ fi
 export OMP_NUM_THREADS=1
 export BASEDIR=HetMan/experiments/stan_test/distr
 export OUTDIR=$BASEDIR/output/$model_name/$solver/$cohort/$gene
-
 echo $OUTDIR
-rm -rf $OUTDIR
 mkdir -p $OUTDIR/slurm
 
 srun -p=exacloud \

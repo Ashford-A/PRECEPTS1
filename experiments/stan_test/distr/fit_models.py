@@ -12,8 +12,21 @@ import argparse
 from importlib import import_module
 import synapseclient
 import dill as pickle
+import numpy as np
 
 firehose_dir = '/home/exacloud/lustre1/share_your_data_here/precepts/firehose'
+
+
+def load_output(model_name, solve_method, cohort, gene):
+    out_lists = [
+        pickle.load(open(os.path.join(
+            base_dir, "output", model_name, solve_method, cohort, gene,
+            "out__cv-{}.p".format(cv_id)
+            ), 'rb'))['Infer']
+        for cv_id in range(10)
+        ]
+
+    return np.concatenate(out_lists, axis=1)
 
 
 def main():
@@ -35,8 +48,8 @@ def main():
                         help='turns on diagnostic messages')
 
     args = parser.parse_args()
-    out_path = os.path.join(base_dir, 'output',
-                            args.model_name, args.cohort, args.gene)
+    out_path = os.path.join(base_dir, 'output', args.model_name,
+                            args.solve_method, args.cohort, args.gene)
 
     if args.verbose:
         print("Starting distribution testing for Stan model {} using "
@@ -89,15 +102,17 @@ def main():
         )
 
     clf_stan.tune_coh(cdata, use_mtype, exclude_genes={args.gene},
-                      tune_splits=4, test_count=32, parallel_jobs=8)
+                      tune_splits=4, test_count=24, parallel_jobs=12)
+    clf_stan.fit_coh(cdata, use_mtype, exclude_genes={args.gene})
 
     infer_mat = clf_stan.infer_coh(
         cdata, use_mtype, exclude_genes={args.gene},
-        infer_splits=4, infer_folds=4, parallel_jobs=8
+        infer_splits=12, infer_folds=4, parallel_jobs=12
         )
 
     pickle.dump(
-        {'Model': clf_stan.get_params(), 'Infer': infer_mat},
+        {'Model': clf_stan.get_params(), 'Infer': infer_mat,
+         'Vars': clf_stan.named_steps['fit'].get_var_means()},
         open(os.path.join(out_path, 'out__cv-{}.p'.format(args.cv_id)), 'wb')
         )
 

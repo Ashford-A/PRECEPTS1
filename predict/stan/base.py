@@ -43,7 +43,11 @@ class BaseStan(BaseEstimator):
 
 class StanClassifier(BaseStan, ClassifierMixin):
 
-    def calc_pred_p(self, omic):
+    def calc_pred_labels(self, omic):
+        raise NotImplementedError("Stan predictors must implement their "
+                                  "own <calc_pred_labels> method!")
+
+    def calc_pred_p(self, pred_labels):
         raise NotImplementedError("Stan predictors must implement their "
                                   "own <calc_pred_p> method!")
 
@@ -51,7 +55,7 @@ class StanClassifier(BaseStan, ClassifierMixin):
         if self.fit_obj is None:
             raise NotFittedError("Stan classifier has not been fit yet!")
 
-        return self.calc_pred_p(X, self.get_var_means())
+        return self.calc_pred_p(self.calc_pred_labels(X))
 
 
 class StanOptimizing(BaseStan):
@@ -69,7 +73,7 @@ class StanOptimizing(BaseStan):
 
     def run_model(self, **fit_params):
         if 'iter' not in fit_params:
-            fit_params['iter'] = 5e4
+            fit_params['iter'] = 1e4
 
         self.fit_obj = self.stan_model.optimizing(data=self.data_dict,
                                                   **fit_params)
