@@ -58,6 +58,7 @@ class BaseMutFreqCohort(ValueCohort, UniCohort):
         train_samps, test_samps = self.split_samples(
             cv_seed, cv_prop, use_samples)
 
+        # calculates the number of mutated genes each sample has
         self.mut_freqs = variants.loc[
             ~variants['Form'].isin(
                 ['HomDel', 'HetDel', 'HetGain', 'HomGain']),

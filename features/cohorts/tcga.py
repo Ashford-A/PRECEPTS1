@@ -20,6 +20,14 @@ from sklearn.preprocessing import scale
 
 
 def get_expr_data(cohort, expr_source, **expr_args):
+    """Loads RNA-seq expression data for a given TCGA cohort and data source.
+
+    Args:
+        cohort (str): A cohort in TCGA with expression data.
+        expr_source (str): A repository which contains TCGA datasets.
+
+    """
+
     if expr_source == 'BMEG':
         expr_mat = get_expr_bmeg(cohort)
         expr = log_norm(expr_mat.fillna(0.0))
@@ -39,6 +47,14 @@ def get_expr_data(cohort, expr_source, **expr_args):
 
 
 def get_variant_data(cohort, var_source, **var_args):
+    """Loads variant calls for a given TCGA cohort and data source.
+
+    Args:
+        cohort (str): A cohort in TCGA with variant call data.
+        var_source (str): A repository which contains TCGA datasets.
+
+    """
+
     if var_source == 'mc3':
         variants = get_variants_mc3(var_args['syn'])
     
@@ -76,6 +92,13 @@ def get_copy_data(cohort, copy_source, **copy_args):
 
 
 def list_cohorts(data_source, **data_args):
+    """Finds all the TCGA cohorts available in a given data repository.
+
+    Args:
+        data_source (str): A repository which contains TCGA datasets.
+
+    """
+
     if data_source == 'BMEG':
         pass
 

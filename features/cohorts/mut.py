@@ -42,24 +42,32 @@ class BaseMutationCohort(PresenceCohort, UniCohort):
                  mut_levels=('Gene', 'Form'), top_genes=100, samp_cutoff=None,
                  cv_prop=2.0/3, cv_seed=None):
 
+        # if a specific list of mutated genes is not given...
         if mut_genes is None:
             self.path = None
 
+            # finds the mutations associated with samples matched with samples
+            # found in the expression data, removes copy number calls
+            variants = variants.loc[variants['Sample'].isin(var_samps), :]
             var_df = variants.loc[
                 ~variants['Form'].isin(
                     ['HomDel', 'HetDel', 'HetGain', 'HomGain']),
                 :]
 
-            # find how many unique samples each gene is mutated in, filter for
-            # genes that appear in the annotation data
+            # counts the number of unique samples each gene is mutated in,
+            # removes the count data for genes with missing annotation data
             gn_counts = var_df.groupby(by='Gene').Sample.nunique()
             gn_counts = gn_counts.loc[gn_counts.index.isin(expr.columns)]
 
+            # if no sample frequency cutoff is given, use the top <n> genes
+            # according to the number of samples they are mutated in
             if samp_cutoff is None:
                 gn_counts = gn_counts.sort_values(ascending=False)
                 cutoff_mask = ([True] * min(top_genes, len(gn_counts))
                                + [False] * max(len(gn_counts) - top_genes, 0))
 
+            # if the given sample frequency is an integer, interpret it as the
+            # minimum number of unique samples a gene must be mutated in
             elif isinstance(samp_cutoff, int):
                 cutoff_mask = gn_counts >= samp_cutoff
 
