@@ -1151,6 +1151,43 @@ class MuTree(object):
 
         return tree_mtypes
 
+    def find_unique_subtypes(self,
+                             max_types=1000, max_combs=5, verbose=0,
+                             **comb_args):
+        use_mtypes = set()
+        use_sampsets = set()
+        use_combs = 0
+
+        while len(use_mtypes) <= max_types and use_combs <= max_combs:
+            use_combs += 1
+
+            cur_mtypes = self.combtypes(comb_sizes=(use_combs, ), **comb_args)
+            cur_sampsets = {mtype: frozenset(mtype.get_samples(self))
+                            for mtype in cur_mtypes - use_mtypes}
+
+            if verbose:
+                print("Found {} new sub-types!".format(len(cur_sampsets)))
+
+            if len(cur_sampsets) <= max_types:
+                for i, (mtype, sampset) in enumerate(cur_sampsets.items()):
+                    if verbose > 1:
+                        if (i % (max_types // 10)) == (max_types // 20):
+                            print("\t...checked {} sub-types...".format(i))
+                
+                    if sampset in use_sampsets:
+                        if verbose:
+                            print("\t\tRemoving functionally "
+                                  "duplicate MuType {}".format(mtype))
+
+                    else:
+                        use_mtypes.update({mtype})
+                        use_sampsets.update({sampset})
+
+            else:
+                break
+
+        return use_mtypes
+
     def status(self, samples, mtype=None):
         """Finds if each sample has a mutation of this type in the tree.
 
