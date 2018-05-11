@@ -16,7 +16,7 @@ cohort_clrs = {
     'PBCA': '#B0B0B0',
     'GBM': '#3D3D3D',
     'GBM-LGG': '#4A4A4A',
-    'LIHC', '#006400',
+    'LIHC': '#006400',
     'LGG': '#4A4A4A',
     'COCA': '#191970',
     'ESAD': '#1E90FF',

@@ -9,6 +9,7 @@ sys.path.extend([os.path.join(base_dir, '../../..')])
 from HetMan.features.cohorts.tcga import PanCancerMutCohort
 from HetMan.features.mutations import MuType
 from HetMan.describe.transformers import *
+from HetMan.experiments.utilities.pcawg_colours import cohort_clrs
 
 import synapseclient
 import argparse
@@ -50,7 +51,46 @@ def plot_all_clustering(trans_dict, args, cdata, use_comps=(0, 1)):
     fig.savefig(os.path.join(plot_dir,
                              "clustering_comps_{}-{}.png".format(
                                  use_comps[0], use_comps[1])),
-                dpi=200, bbox_inches='tight')
+                dpi=300, bbox_inches='tight')
+
+    plt.close()
+
+
+def plot_cohort_clustering(trans_dict, args, cdata, use_comps=(0, 1)):
+    fig, axarr = plt.subplots(nrows=1, ncols=len(trans_dict),
+                              figsize=(21, 7))
+    fig.tight_layout(pad=1.6)
+
+    samp_list = sorted(cdata.samples)
+    use_comps = np.array(use_comps)
+    trans_dict = [(trs_lbl, trans_expr[:, use_comps])
+                  for trs_lbl, trans_expr in trans_dict]
+
+    # turn off the axis tick labels
+    for ax in axarr.reshape(-1):
+        ax.set_xticklabels([])
+        ax.set_yticklabels([])
+
+    for i, (trs_lbl, trans_expr) in enumerate(trans_dict):
+        axarr[i].set_title(trs_lbl, size=24, weight='semibold')
+
+        for cohort, samps in cdata.cohort_samps.items():
+            samp_indx = np.array([samp_list.index(samp) for samp in samps])
+
+            if cohort in cohort_clrs:
+                use_clr = cohort_clrs[cohort]
+            else:
+                use_clr = '0.5'
+
+            axarr[i].scatter(
+                trans_expr[samp_indx, 0], trans_expr[samp_indx, 1],
+                marker='o', s=10, c=use_clr, alpha=0.16, edgecolor='none'
+                )
+
+    fig.savefig(os.path.join(plot_dir,
+                             "clustering-cohort_comps_{}-{}.png".format(
+                                 use_comps[0], use_comps[1])),
+                dpi=300, bbox_inches='tight')
 
     plt.close()
 
@@ -93,17 +133,22 @@ def plot_gene_clustering(trans_dict, args, cdata, use_comps=(0, 1)):
     fig.savefig(os.path.join(plot_dir,
                              "clustering-gene_{}__comps_{}-{}.png".format(
                                  args.gene, use_comps[0], use_comps[1])),
-                dpi=200, bbox_inches='tight')
+                dpi=300, bbox_inches='tight')
 
     plt.close()
 
 
 def main():
+    parser = argparse.ArgumentParser(
+        description=("Plots the clusters returned by running a set of "
+                     "unsupervised learning methods on all TCGA cohorts "
+                     "concatenated together.")
+        )
 
     # parses command line arguments, creates the directory where the
     # plots will be saved
-    parser = argparse.ArgumentParser()
-    parser.add_argument('gene', type=str, help='a gene mutated in TCGA')
+    parser.add_argument('--gene', type=str, default='TP53',
+                        help='a gene mutated in TCGA')
     args = parser.parse_args()
     os.makedirs(plot_dir, exist_ok=True)
 
@@ -128,6 +173,7 @@ def main():
                   for trs_lbl, trs in mut_trans]
 
     plot_all_clustering(trans_dict, args, cdata)
+    plot_cohort_clustering(trans_dict, args, cdata)
     plot_gene_clustering(trans_dict, args, cdata)
 
 

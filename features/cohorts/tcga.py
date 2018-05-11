@@ -17,6 +17,7 @@ from itertools import cycle
 import os
 from glob import glob
 from sklearn.preprocessing import scale
+from itertools import cycle, combinations
 
 
 def get_expr_data(cohort, expr_source, **expr_args):
@@ -303,7 +304,21 @@ class PanCancerMutCohort(BaseMutationCohort):
             except:
                 print('no expression found for {}'.format(cohort))
 
-        expr = pd.concat(list(expr_dict.values()))
+        # removes samples that appear in more than one cohort
+        for coh1, coh2 in combinations(expr_dict, 2):
+            if len(expr_dict[coh1].index & expr_dict[coh2].index):
+                ovlp1 = expr_dict[coh1].index.isin(expr_dict[coh2].index)
+                ovlp2 = expr_dict[coh2].index.isin(expr_dict[coh1].index)
+
+                if np.all(ovlp1):
+                    expr_dict[coh1] = pd.DataFrame([])
+                elif np.all(ovlp2):
+                    expr_dict[coh2] = pd.DataFrame([])
+
+                elif len(ovlp1) >= len(ovlp2):
+                    expr_dict[coh1] = expr_dict[coh1].loc[~ovlp1, :]
+                else:
+                    expr_dict[coh2] = expr_dict[coh2].loc[~ovlp2, :]
 
         if var_source == 'mc3':
             variants = get_variant_data(cohort=None, var_source='mc3',
@@ -341,14 +356,29 @@ class PanCancerMutCohort(BaseMutationCohort):
             
             variants = pd.concat(list(var_dict.values()))
 
+        expr = pd.concat(list(expr_dict.values()))
         matched_samps = match_tcga_samples(expr.index, variants['Sample'])
+        expr_samps = {samp_orig: samp_new
+                      for (samp_new, (samp_orig, _)) in matched_samps}
+
+        # for each expression cohort, find the samples that were matched to
+        # a sample in the mutation call data
+        cohort_samps = {
+            cohort: set(expr_samps[samp]
+                        for samp in expr_dict[cohort].index & expr_samps)
+            for cohort in expr_dict
+            }
+
+        # save a list of matched samples for each cohort as an attribute
+        self.cohort_samps = {cohort: samps
+                             for cohort, samps in cohort_samps.items()
+                             if samps}
 
         # gets annotation data for each gene in the expression data, saves the
         # label of the cohort used as an attribute
         gene_annot = {at['gene_name']: {**{'Ens': ens}, **at}
                       for ens, at in get_gencode().items()
                       if at['gene_name'] in expr.columns}
-        self.cohort = cohort
 
         super().__init__(expr, variants, matched_samps, gene_annot, mut_genes,
                          mut_levels, top_genes, samp_cutoff, cv_prop, cv_seed)
