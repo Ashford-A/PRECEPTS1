@@ -168,18 +168,24 @@ class MutationCohort(BaseMutationCohort):
         if copy_source == 'Firehose':
             copy_data = get_copies_firehose(cohort, coh_args['copy_dir'])
 
+            if 'Gene' in mut_levels:
+                copy_lvl = mut_levels[mut_levels.index('Gene') + 1]
+            else:
+                copy_lvl = mut_levels[0]
+
             # reshapes the matrix of CNA values into the same long format
             # mutation data is represented in
+            copy_lvl = copy_lvl.split('_')[0]
             copy_df = pd.DataFrame(copy_data.stack())
             copy_df = copy_df.reset_index(level=copy_df.index.names)
-            copy_df.columns = ['Sample', 'Gene', 'Form']
+            copy_df.columns = ['Sample', 'Gene', copy_lvl]
 
             # removes CNA values corresponding to an absence of a variant
-            copy_df = copy_df.loc[copy_df['Form'] != 0, :]
+            copy_df = copy_df.loc[copy_df[copy_lvl] != 0, :]
 
             # maps CNA integer values to their descriptions, appends
             # CNA data to the mutation data
-            copy_df['Form'] = copy_df['Form'].map(
+            copy_df[copy_lvl] = copy_df[copy_lvl].map(
                 {-2: 'HomDel', -1: 'HetDel', 1: 'HetGain', 2: 'HomGain'})
             variants = pd.concat([variants, copy_df])
 
