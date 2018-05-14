@@ -29,17 +29,31 @@ def plot_label_distribution(out_data, args, cdata):
 
     out_meds = np.percentile(out_data, q=50, axis=1)
     kern_bw = (np.max(out_meds) - np.min(out_meds)) / 38
+    plt_xmax = np.max(np.absolute(out_data)) * 1.1
 
     use_mtype = MuType({('Gene', args.gene): None})
     mtype_stat = np.array(cdata.train_pheno(use_mtype))
 
+    # calculates the classifier AUC for predicting mutation status based on
+    # its inferred labels for each cross-validation run
+    label_aucs = np.apply_along_axis(
+        lambda vals: np.greater.outer(
+            vals[mtype_stat], vals[~mtype_stat]).mean(),
+        axis=0, arr=out_data
+        )
+
+    # plots distribution of wild-type label medians
     ax = sns.kdeplot(out_meds[~mtype_stat], color=wt_clr, alpha=0.7,
                      shade=False, linewidth=3.4, bw=kern_bw, gridsize=1000,
                      label='Wild-Type')
+
+    # plots distribution of mutant label medians
     ax = sns.kdeplot(out_meds[mtype_stat], color=mut_clr, alpha=0.7,
                      shade=False, linewidth=3.4, bw=kern_bw, gridsize=1000,
                      label='{} Mutant'.format(args.gene))
 
+    # plots distribution of wild-type and mutant labels individually for
+    # each cross-validation run
     for i in range(out_data.shape[1]):
         ax = sns.kdeplot(out_data[~mtype_stat, i],
                          shade=True, alpha=0.04, linewidth=0, color=wt_clr,
@@ -48,6 +62,14 @@ def plot_label_distribution(out_data, args, cdata):
                          shade=True, alpha=0.04, linewidth=0, color=mut_clr,
                          bw=kern_bw, gridsize=1000)
 
+    # display interquartile range of cross-validation run AUCs
+    ax.text(-plt_xmax * 0.96, ax.get_ylim()[1] * 0.92,
+            "AUCs: {:.3f} - {:.3f}".format(
+                *np.percentile(label_aucs, q=(25, 75))),
+            size=15)
+
+    plt.legend(frameon=False, prop={'size': 17})
+    plt.xlim(-plt_xmax, plt_xmax)
     plt.xlabel('Inferred Mutation Score', fontsize=19, weight='semibold')
     plt.ylabel('Density', fontsize=19, weight='semibold')
 
@@ -73,21 +95,24 @@ def plot_label_stability(out_data, args, cdata):
     mtype_stat = np.array(cdata.train_pheno(use_mtype))
     out_means = np.mean(out_data, axis=1)
     out_sds = np.std(out_data, axis=1)
+    plt_xmax = np.max(np.absolute(out_means)) * 1.1
 
     ax = sns.kdeplot(out_means[~mtype_stat], out_sds[~mtype_stat],
                      cmap=wt_cmap, linewidths=2.1, alpha=0.8,
                      gridsize=1000, n_levels=34)
     ax.text(np.percentile(out_means[~mtype_stat], q=39),
-            np.percentile(out_sds[~mtype_stat], q=99),
+            np.percentile(out_sds[~mtype_stat], q=99.3),
             "Wild-Type", size=17, color=wt_clr)
 
     ax = sns.kdeplot(out_means[mtype_stat], out_sds[mtype_stat],
                      cmap=mut_cmap, linewidths=2.1, alpha=0.8,
                      gridsize=1000, n_levels=34)
     ax.text(np.percentile(out_means[mtype_stat], q=61),
-            np.percentile(out_sds[mtype_stat], q=99),
+            np.percentile(out_sds[mtype_stat], q=99.3),
             "{} Mutant".format(args.gene), size=17, color=mut_clr)
 
+    plt.xlim(-plt_xmax, plt_xmax)
+    plt.ylim(0, np.max(out_sds) * 1.05)
     plt.xlabel('Mutation Score CV Mean', fontsize=19, weight='semibold')
     plt.ylabel('Mutation Score CV SD', fontsize=19, weight='semibold')
 

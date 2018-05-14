@@ -15,10 +15,7 @@ import pandas as pd
 
 import argparse
 import synapseclient
-
 from itertools import chain, combinations
-from functools import reduce
-from operator import or_
 
 import matplotlib as mpl
 mpl.use('Agg')
@@ -28,31 +25,97 @@ import seaborn as sns
 firehose_dir = '/home/exacloud/lustre1/share_your_data_here/precepts/firehose'
 
 
-
 def plot_subtype_violins(out_data, args, cdata, use_levels):
-    fig, ax = plt.subplots(figsize=(9, 12))
+    use_phenos = {
+        mtype: np.array(cdata.train_pheno(mtype))
+        for mtype in cdata.train_mut.branchtypes(sub_levels=use_levels)
+        }
 
-    use_mtype = MuType({('Gene', args.gene): None})
-    use_types = cdata.train_mut.branchtypes(sub_levels=use_levels)
-    all_type = reduce(or_, use_types)
+    use_phenos = {mtype: use_pheno for mtype, use_pheno in use_phenos.items()
+                  if np.sum(use_pheno) >= 5}
+    subtype_cmap = sns.hls_palette(len(use_phenos), l=.57, s=.89)
+    fig, ax = plt.subplots(figsize=(1.55 + len(use_phenos) * 0.68, 8))
+
+    all_mtype = MuType(cdata.train_mut.allkey())
+    all_pheno = np.array(cdata.train_pheno(all_mtype))
 
     out_meds = np.percentile(out_data, q=50, axis=1)
-    mtype_meds = [('Wild-Type',
-                   out_meds[~np.array(cdata.train_pheno(all_type))])]
+    mtype_meds = [('Wild-Type ({} samples)'.format(np.sum(~all_pheno)),
+                   out_meds[~all_pheno])]
 
-    mtype_meds += [(str(mtype),
-                    out_meds[np.array(cdata.train_pheno(mtype))])
-                   for mtype in use_types]
+    mtype_meds += [('{} ({} samples)'.format(mtype, np.sum(use_pheno)),
+                    out_meds[use_pheno])
+                   for mtype, use_pheno in use_phenos.items()]
+
     mtype_meds = sorted(mtype_meds, key=lambda x: np.mean(x[1]))
-
     med_df = pd.concat(pd.DataFrame({'Subtype': mtype, 'Score': meds})
                        for mtype, meds in mtype_meds)
+    ax = sns.violinplot(data=med_df, x='Subtype', y='Score',
+                        palette=['0.5'] + subtype_cmap, width=0.96)
 
-    ax = sns.violinplot(data=med_df, x='Subtype', y='Score')
+    plt.xlabel('Mutation Type', size=28, weight='semibold')
+    plt.ylabel('Inferred Mutation Score', size=28, weight='semibold')
+    plt.xticks(rotation=45, ha='right', size=12)
+    plt.yticks(size=17)
 
     fig.savefig(
         os.path.join(plot_dir,
                      'violins__{}-{}_{}-{}__levels_{}.png'.format(
+                         args.model_name, args.solve_method,
+                         args.cohort, args.gene, '__'.join(use_levels)
+                        )),
+        dpi=250, bbox_inches='tight'
+        )
+
+    plt.close()
+
+
+def plot_subtype_stability(out_data, args, cdata, use_levels):
+    fig, ax = plt.subplots(figsize=(13, 8))
+
+    use_phenos = {
+        mtype: np.array(cdata.train_pheno(mtype))
+        for mtype in cdata.train_mut.branchtypes(sub_levels=use_levels)
+        }
+
+    use_phenos = {mtype: use_pheno for mtype, use_pheno in use_phenos.items()
+                  if np.sum(use_pheno) >= 15}
+    subtype_cmap = sns.hls_palette(len(use_phenos), l=.57, s=.89)
+
+    out_means = np.mean(out_data, axis=1)
+    out_sds = np.std(out_data, axis=1)
+    plt_xmax = np.max(np.absolute(out_means)) * 1.25
+
+    all_mtype = MuType(cdata.train_mut.allkey())
+    wt_pheno = ~np.array(cdata.train_pheno(all_mtype))
+
+    ax = sns.kdeplot(out_means[wt_pheno], out_sds[wt_pheno],
+                     cmap=sns.light_palette('0.5', as_cmap=True),
+                     linewidths=1.7, alpha=0.7, gridsize=500, n_levels=32)
+
+    ax.text(np.percentile(out_means[wt_pheno], q=0.4),
+            np.percentile(out_sds[wt_pheno], q=0.4),
+            'Wild-Type', size=15, color='0.5')
+
+    for (mtype, pheno), use_clr in zip(use_phenos.items(), subtype_cmap):
+        use_cmap = sns.light_palette(use_clr, as_cmap=True)
+
+        ax = sns.kdeplot(out_means[pheno], out_sds[pheno],
+                         cmap=use_cmap, linewidths=3.6, alpha=0.4,
+                         gridsize=500, n_levels=3)
+        
+        ax.text(np.percentile(out_means[pheno], q=99.1),
+                np.percentile(out_sds[pheno], q=99.1),
+                str(mtype), size=12, color=use_clr)
+
+    plt.xlim(-plt_xmax, plt_xmax)
+    plt.ylim(0, np.max(out_sds) * 1.03)
+    plt.xlabel('Mutation Score CV Mean', fontsize=19, weight='semibold')
+    plt.ylabel('Mutation Score CV SD', fontsize=19, weight='semibold')
+
+    fig.savefig(
+        os.path.join(plot_dir,
+                     'stability__{}-{}_{}-{}__levels_{}.png'.format(
                          args.model_name, args.solve_method,
                          args.cohort, args.gene, '__'.join(use_levels)
                         )),
@@ -102,6 +165,7 @@ def main():
                                           for r in range(
                                               1, len(args.mut_levels) + 1)):
         plot_subtype_violins(infer_mat, args, cdata, use_levels)
+        plot_subtype_stability(infer_mat, args, cdata, use_levels)
 
 
 if __name__ == "__main__":
