@@ -12,7 +12,10 @@ import argparse
 from importlib import import_module
 import synapseclient
 import dill as pickle
+
 import numpy as np
+from functools import reduce
+from operator import and_
 
 firehose_dir = '/home/exacloud/lustre1/share_your_data_here/precepts/firehose'
 
@@ -27,6 +30,32 @@ def load_output(model_name, solve_method, cohort, gene):
         ]
 
     return np.concatenate(out_lists, axis=1)
+
+
+def load_params(model_name, solve_method, cohort, gene):
+    out_lists = [
+        pickle.load(open(os.path.join(
+            base_dir, "output", model_name, solve_method, cohort, gene,
+            "out__cv-{}.p".format(cv_id)
+            ), 'rb'))['Params']
+        for cv_id in range(10)
+        ]
+
+    return {par: np.stack([ols[par] for ols in out_lists], axis=0).transpose()
+            for par in reduce(and_, [ols.keys() for ols in out_lists])}
+
+
+def load_vars(model_name, solve_method, cohort, gene):
+    out_lists = [
+        pickle.load(open(os.path.join(
+            base_dir, "output", model_name, solve_method, cohort, gene,
+            "out__cv-{}.p".format(cv_id)
+            ), 'rb'))['Vars']
+        for cv_id in range(10)
+        ]
+
+    return {var: np.stack([ols[var] for ols in out_lists], axis=0).transpose()
+            for var in reduce(and_, [ols.keys() for ols in out_lists])}
 
 
 def main():
@@ -104,6 +133,7 @@ def main():
     clf_stan.tune_coh(cdata, use_mtype, exclude_genes={args.gene},
                       tune_splits=4, test_count=24, parallel_jobs=12)
     clf_stan.fit_coh(cdata, use_mtype, exclude_genes={args.gene})
+    clf_params = clf_stan.get_params()
 
     infer_mat = clf_stan.infer_coh(
         cdata, use_mtype, exclude_genes={args.gene},
