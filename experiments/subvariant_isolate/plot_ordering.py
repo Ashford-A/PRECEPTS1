@@ -37,47 +37,44 @@ def get_similarities(iso_df, args, cdata):
                             dtype=np.float)
 
     for cur_mtype, other_mtype in product(iso_df.index, repeat=2):
+        none_vals = np.concatenate(iso_df.loc[
+            cur_mtype, ~base_pheno].values)
+
         cur_pheno = np.array(cdata.train_pheno(cur_mtype))
         other_pheno = np.array(cdata.train_pheno(other_mtype))
 
         if cur_mtype == other_mtype:
             rel_prob = 1.0
-
-            none_vals = np.concatenate(
-                iso_df.loc[cur_mtype, ~base_pheno].values)
             cur_vals = np.concatenate(iso_df.loc[cur_mtype, cur_pheno].values)
-
             auc_val = np.less.outer(none_vals, cur_vals).mean()
 
         else:
             auc_val = -1.0
-            none_vals = np.concatenate(iso_df.loc[
-                cur_mtype, ~cur_pheno & ~other_pheno & ~base_pheno].values)
             
             if not np.any(~cur_pheno & other_pheno):
+                cur_vals = np.concatenate(iso_df.loc[
+                    cur_mtype, cur_pheno & ~other_pheno].values)
                 other_vals = np.concatenate(iso_df.loc[
                     cur_mtype, other_pheno].values)
-                cur_vals = np.concatenate(iso_df.loc[
-                    cur_mtype, cur_pheno & ~other_pheno].values)
 
             elif not np.any(cur_pheno & ~other_pheno):
-                other_vals = np.concatenate(iso_df.loc[
-                    cur_mtype, ~cur_pheno & other_pheno].values)
                 cur_vals = np.concatenate(iso_df.loc[
                     cur_mtype, cur_pheno].values)
-
-            else:
                 other_vals = np.concatenate(iso_df.loc[
                     cur_mtype, ~cur_pheno & other_pheno].values)
+
+            else:
                 cur_vals = np.concatenate(iso_df.loc[
                     cur_mtype, cur_pheno & ~other_pheno].values)
+                other_vals = np.concatenate(iso_df.loc[
+                    cur_mtype, ~cur_pheno & other_pheno].values)
 
             other_none_prob = np.greater.outer(none_vals, other_vals).mean()
             other_cur_prob = np.greater.outer(other_vals, cur_vals).mean()
             cur_none_prob = np.greater.outer(none_vals, cur_vals).mean()
             
-            rel_prob = (
-                (other_cur_prob - other_none_prob) / (0.5 - cur_none_prob))
+            rel_prob = ((other_cur_prob - other_none_prob)
+                        / (0.5 - cur_none_prob))
 
         simil_df.loc[cur_mtype, other_mtype] = rel_prob
         annot_df.loc[cur_mtype, other_mtype] = auc_val
@@ -91,8 +88,8 @@ def plot_singleton_ordering(iso_df, args, cdata):
 
     fig, ax = plt.subplots(figsize=(2.1 + len(singl_types) * 0.84,
                                     1.0 + len(singl_types) * 0.81))
-    simil_df, annot_df = get_similarities(
-        iso_df.loc[singl_types, :], args, cdata)
+    simil_df, annot_df = get_similarities(iso_df.loc[singl_types, :],
+                                          args, cdata)
 
     annot_df = annot_df.applymap('{:.3f}'.format)
     annot_df[annot_df == '-1.000'] = ''
@@ -117,8 +114,10 @@ def plot_singleton_ordering(iso_df, args, cdata):
 
     plt.xticks(rotation=40, ha='right', size=17)
     plt.yticks(size=14)
-    plt.xlabel('Testing Mutation (# of samples)', size=20, weight='semibold')
-    plt.ylabel('Training Mutation', size=22, weight='semibold')
+
+    plt.xlabel('M2: Testing Mutation (# of samples)',
+               size=20, weight='semibold')
+    plt.ylabel('M1: Training Mutation', size=22, weight='semibold')
 
     plt.savefig(os.path.join(
         plot_dir, "singleton_ordering__{}_{}__{}__samps_{}__{}.png".format(
@@ -170,7 +169,8 @@ def main():
     parser.add_argument('cohort', help='a TCGA cohort')
     parser.add_argument('gene', help='a mutated gene')
     parser.add_argument('classif', help='a mutation classifier')
-    parser.add_argument('mut_levels', default='Form_base__Exon')
+    parser.add_argument('mut_levels', default='Form_base__Exon',
+                        help='a set of mutation annotation levels')
     parser.add_argument('--samp_cutoff', default=20)
 
     # parse command-line arguments, create directory where plots will be saved
