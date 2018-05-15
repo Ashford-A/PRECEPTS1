@@ -8,14 +8,13 @@ sys.path.extend([os.path.join(base_dir, '../../..')])
 
 from HetMan.features.cohorts.tcga import MutationCohort
 from HetMan.features.mutations import MuType
-from HetMan.experiments.utilities import iso_output
-from HetMan.experiments.subvariant_isolate import simil_cmap
-
-import argparse
-import synapseclient
+from HetMan.experiments.utilities import iso_output, simil_cmap
 
 import numpy as np
 import pandas as pd
+
+import argparse
+import synapseclient
 from itertools import product
 
 import matplotlib as mpl
@@ -39,6 +38,7 @@ def get_similarities(iso_df, args, cdata):
 
     for cur_mtype, other_mtype in product(iso_df.index, repeat=2):
         cur_pheno = np.array(cdata.train_pheno(cur_mtype))
+        other_pheno = np.array(cdata.train_pheno(other_mtype))
 
         if cur_mtype == other_mtype:
             rel_prob = 1.0
@@ -48,68 +48,36 @@ def get_similarities(iso_df, args, cdata):
             cur_vals = np.concatenate(iso_df.loc[cur_mtype, cur_pheno].values)
 
             auc_val = np.less.outer(none_vals, cur_vals).mean()
-    
-        elif cur_mtype.is_supertype(other_mtype):
-            auc_val = -1.0
-
-            other_pheno = np.array(cdata.train_pheno(other_mtype))
-            other_vals = np.concatenate(iso_df.loc[
-                cur_mtype, other_pheno].values)
-
-            none_vals = np.concatenate(iso_df.loc[
-                cur_mtype, ~cur_pheno & ~other_pheno & ~base_pheno].values)
-            cur_vals = np.concatenate(iso_df.loc[
-                cur_mtype, cur_pheno & ~other_pheno].values)
-
-            other_none_prob = np.greater.outer(none_vals, other_vals).mean()
-            other_cur_prob = np.greater.outer(other_vals, cur_vals).mean()
-            cur_none_prob = np.greater.outer(none_vals, cur_vals).mean()
-            
-            rel_prob = (
-                (other_cur_prob - other_none_prob) / (0.5 - cur_none_prob))
-
-        elif other_mtype.is_supertype(cur_mtype):
-            auc_val = -1.0
-
-            other_pheno = np.array(cdata.train_pheno(other_mtype))
-            other_vals = np.concatenate(iso_df.loc[
-                cur_mtype, ~cur_pheno & other_pheno].values)
-
-            none_vals = np.concatenate(iso_df.loc[
-                cur_mtype, ~cur_pheno & ~other_pheno & ~base_pheno].values)
-            cur_vals = np.concatenate(iso_df.loc[cur_mtype, cur_pheno].values)
-
-            other_none_prob = np.greater.outer(none_vals, other_vals).mean()
-            other_cur_prob = np.greater.outer(other_vals, cur_vals).mean()
-            cur_none_prob = np.greater.outer(none_vals, cur_vals).mean()
-            
-            rel_prob = (
-                (other_cur_prob - other_none_prob) / (0.5 - cur_none_prob))
 
         else:
             auc_val = -1.0
+            none_vals = np.concatenate(iso_df.loc[
+                cur_mtype, ~cur_pheno & ~other_pheno & ~base_pheno].values)
+            
+            if not np.any(~cur_pheno & other_pheno):
+                other_vals = np.concatenate(iso_df.loc[
+                    cur_mtype, other_pheno].values)
+                cur_vals = np.concatenate(iso_df.loc[
+                    cur_mtype, cur_pheno & ~other_pheno].values)
 
-            other_pheno = np.array(cdata.train_pheno(other_mtype))
-            try:
+            elif not np.any(cur_pheno & ~other_pheno):
+                other_vals = np.concatenate(iso_df.loc[
+                    cur_mtype, ~cur_pheno & other_pheno].values)
+                cur_vals = np.concatenate(iso_df.loc[
+                    cur_mtype, cur_pheno].values)
+
+            else:
                 other_vals = np.concatenate(iso_df.loc[
                     cur_mtype, ~cur_pheno & other_pheno].values)
                 cur_vals = np.concatenate(iso_df.loc[
                     cur_mtype, cur_pheno & ~other_pheno].values)
 
-            except ValueError:
-                print('{} against {}'.format(cur_mtype, other_mtype))
-                rel_prob = 1.0
-
-            else:
-                none_vals = np.concatenate(iso_df.loc[
-                    cur_mtype, ~cur_pheno & ~other_pheno & ~base_pheno].values)
-
-                other_none_prob = np.greater.outer(none_vals, other_vals).mean()
-                other_cur_prob = np.greater.outer(other_vals, cur_vals).mean()
-                cur_none_prob = np.greater.outer(none_vals, cur_vals).mean()
+            other_none_prob = np.greater.outer(none_vals, other_vals).mean()
+            other_cur_prob = np.greater.outer(other_vals, cur_vals).mean()
+            cur_none_prob = np.greater.outer(none_vals, cur_vals).mean()
             
-                rel_prob = (
-                    (other_cur_prob - other_none_prob) / (0.5 - cur_none_prob))
+            rel_prob = (
+                (other_cur_prob - other_none_prob) / (0.5 - cur_none_prob))
 
         simil_df.loc[cur_mtype, other_mtype] = rel_prob
         annot_df.loc[cur_mtype, other_mtype] = auc_val
@@ -142,6 +110,10 @@ def plot_singleton_ordering(iso_df, args, cdata):
     ax = sns.heatmap(simil_df, cmap=simil_cmap, vmin=-1.0, vmax=2.0,
                      xticklabels=xlabs, yticklabels=ylabs,
                      annot=annot_df, fmt='', annot_kws={'size': 16})
+
+    cbar = ax.collections[0].colorbar
+    cbar.set_ticks([-1.0, 0.0, 1.0, 2.0])
+    cbar.set_ticklabels(['M2 < WT', 'M2 = WT', 'M2 = M1', 'M2 > M1'])
 
     plt.xticks(rotation=40, ha='right', size=17)
     plt.yticks(size=14)
@@ -191,7 +163,9 @@ def plot_comb_ordering(iso_df, args, cdata, max_comb=2):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Plot experiment results for given mutation classifier.')
+        "Plot the ordering of a gene's subtypes in a given cohort based on "
+        "how their isolated expression signatures classify one another."
+        )
 
     parser.add_argument('cohort', help='a TCGA cohort')
     parser.add_argument('gene', help='a mutated gene')
@@ -199,6 +173,7 @@ def main():
     parser.add_argument('mut_levels', default='Form_base__Exon')
     parser.add_argument('--samp_cutoff', default=20)
 
+    # parse command-line arguments, create directory where plots will be saved
     args = parser.parse_args()
     os.makedirs(plot_dir, exist_ok=True)
 
@@ -207,7 +182,7 @@ def main():
         'samps_{}'.format(args.samp_cutoff), args.mut_levels
         ))
 
-    # logs into Synapse using locally-stored credentials
+    # log into Synapse using locally stored credentials
     syn = synapseclient.Synapse()
     syn.cache.cache_root_dir = ("/home/exacloud/lustre1/CompBio/"
                                 "mgrzad/input-data/synapse")

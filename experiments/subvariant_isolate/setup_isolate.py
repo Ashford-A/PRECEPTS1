@@ -40,14 +40,12 @@ def main():
     parser.add_argument('--verbose', '-v', action='store_true',
                         help='turns on diagnostic messages')
 
-    # parse the command line arguments, get the directory where found sub-types
-    # will be saved for future use
     args = parser.parse_args()
     out_path = os.path.join(base_dir, 'setup', args.cohort, args.gene)
     os.makedirs(out_path, exist_ok=True)
     use_lvls = args.mut_levels.split('__')
 
-    # log into Synapse using locally-stored credentials
+    # log into Synapse using locally stored credentials
     syn = synapseclient.Synapse()
     syn.cache.cache_root_dir = ("/home/exacloud/lustre1/CompBio/"
                                 "mgrzad/input-data/synapse")
@@ -66,57 +64,18 @@ def main():
                   args.gene, args.samp_cutoff, args.cohort, use_lvls)
              )
     
-    use_mtypes = set()
-    use_sampsets = set()
-    use_combs = 1
-
-    while len(use_mtypes) <= 2000 and use_combs <= 10:
-        cur_mtypes = cdata.train_mut.combtypes(
-            comb_sizes=(use_combs, ), sub_levels=use_lvls,
-            min_type_size=args.samp_cutoff
-            )
-        
-        # finds the samples belonging to each enumerated sub-type that
-        # hasn't already been found
-        cur_sampsets = {mtype: frozenset(mtype.get_samples(cdata.train_mut))
-                        for mtype in cur_mtypes - use_mtypes}
-        cur_sampsets = {
-            mtype: sampset for mtype, sampset in cur_sampsets.items()
-            if len(sampset) <= (len(cdata.samples) - args.samp_cutoff)
-            }
-
-        # ensures that when two sub-types have the same samples the one
-        # further down the sort order gets removed
-        if args.verbose:
-            print("Found {} new sub-types!\n".format(len(cur_sampsets)))
-
-        if len(cur_sampsets) <= 2000:
-            for i, (mtype, sampset) in enumerate(cur_sampsets.items()):
-                if args.verbose and (i % 200) == 100:
-                        print("\nchecked {} sub-types\n".format(i))
-
-                # ...we remove each one whose set of mutated samples is
-                # identical to that of a sub-type that was already found
-                if sampset in use_sampsets:
-                    if args.verbose:
-                        print("Removing functionally duplicate MuType {}"\
-                                .format(mtype))
-
-                else:
-                    use_mtypes.update({mtype})
-                    use_sampsets.update({sampset})
-
-            use_combs += 1
-
-        else:
-            use_combs = 20
+    iso_mtypes = cdata.train_mut.find_unique_subtypes(
+        max_types=2000, max_combs=10, verbose=2,
+        sub_levels=use_lvls, min_type_size=args.samp_cutoff
+        )
 
     if args.verbose:
-        print("\nFound {} total sub-types!".format(len(use_mtypes)))
+        print("\nFound {} total sub-types to isolate!".format(
+            len(iso_mtypes)))
 
     # save the list of found non-duplicate sub-types to file
     pickle.dump(sorted(MuType({('Gene', args.gene): mtype})
-                       for mtype in use_mtypes),
+                       for mtype in iso_mtypes),
                 open(os.path.join(
                     out_path, 'mtypes_list__samps_{}__levels_{}.p'.format(
                         args.samp_cutoff, args.mut_levels)
@@ -127,7 +86,7 @@ def main():
             'mtypes_count__samps_{}__levels_{}.txt'.format(
                 args.samp_cutoff, args.mut_levels)), 'w') as fl:
 
-        fl.write(str(len(use_mtypes)))
+        fl.write(str(len(iso_mtypes)))
 
 
 if __name__ == '__main__':
