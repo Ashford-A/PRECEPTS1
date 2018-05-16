@@ -28,8 +28,10 @@ gauss_model = '''
         stat_w = intercept + expr_w * gn_wghts;
         stat_m = intercept + expr_m * gn_wghts;
 
-        stat_w ~ normal(wt_distr[1], wt_distr[2]);
-        stat_m ~ normal(mut_distr[1], mut_distr[2]);
+        target += (normal_lpdf(stat_w | wt_distr[1], wt_distr[2])
+                   * ((Nm * 1.0) / Nw));
+        target += (normal_lpdf(stat_m | mut_distr[1], mut_distr[2])
+                   * ((Nw * 1.0) / Nm));
     }
 '''
 
@@ -63,8 +65,10 @@ cauchy_model = '''
         stat_w = intercept + expr_w * gn_wghts;
         stat_m = intercept + expr_m * gn_wghts;
 
-        stat_w ~ normal(wt_distr[1], wt_distr[2]);
-        stat_m ~ normal(mut_distr[1], mut_distr[2]);
+        target += (normal_lpdf(stat_w | wt_distr[1], wt_distr[2])
+                   * ((Nm * 1.0) / Nw));
+        target += (normal_lpdf(stat_m | mut_distr[1], mut_distr[2])
+                   * ((Nw * 1.0) / Nm));
     }
 '''
 

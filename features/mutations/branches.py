@@ -368,6 +368,9 @@ class MuType(object):
 
         return gsub('\\|+$', '', new_str)
 
+    def get_label(self):
+        return gsub('/|\.|:', '_', str(self))
+
     def __or__(self, other):
         """Returns the union of two MuTypes."""
         if not isinstance(other, MuType):
