@@ -27,10 +27,13 @@ mut_clr = sns.hls_palette(1, l=.51, s=.88)[0]
 def plot_label_distribution(out_data, args, cdata):
     fig, ax = plt.subplots(figsize=(13, 8))
 
+    # get the median mutation score for each sample across cross-validation
+    # runs, use the range of these scores to set plotting parameters
     out_meds = np.percentile(out_data, q=50, axis=1)
     kern_bw = (np.max(out_meds) - np.min(out_meds)) / 38
     plt_xmax = np.max(np.absolute(out_data)) * 1.1
 
+    # get mutation status for the given gene in the given TCGA cohort
     use_mtype = MuType({('Gene', args.gene): None})
     mtype_stat = np.array(cdata.train_pheno(use_mtype))
 
@@ -68,6 +71,7 @@ def plot_label_distribution(out_data, args, cdata):
                 *np.percentile(label_aucs, q=(25, 75))),
             size=15)
 
+    # set plot legend and axis characteristics
     plt.legend(frameon=False, prop={'size': 17})
     plt.xlim(-plt_xmax, plt_xmax)
     plt.xlabel('Inferred Mutation Score', fontsize=19, weight='semibold')
@@ -130,19 +134,25 @@ def plot_label_stability(out_data, args, cdata):
 
 def main():
     parser = argparse.ArgumentParser(
-        "Plot the distributions of output labels inferred by a given Stan "
-        "classifier trained to predict the mutation status of a gene in a "
-        "given TCGA cohort"
+        "Plot the distributions of perturbation scores separated by mutation "
+        "status as inferred by a Stan mutation classifier trained on a gene "
+        "in a given TCGA cohort."
         )
 
+    # positional command-line arguments regarding the Stan model used to
+    # obtain the sample mutation scores
     parser.add_argument('model_name', type=str, help="label of a Stan model")
     parser.add_argument('solve_method', type=str,
                         help=("method used to obtain estimates for the "
                               "parameters of the model"))
 
+    # positional command line arguments regarding the samples and the mutation
+    # classification task on which the model was trained
     parser.add_argument('cohort', type=str, help="a TCGA cohort")
     parser.add_argument('gene', type=str, help="a mutated gene")
 
+    # parse command line arguments, ensure directory where plots will be saved
+    # exists, load inferred mutation scores from each cross-validation run
     args = parser.parse_args()
     os.makedirs(plot_dir, exist_ok=True)
     infer_mat = load_output(args.model_name, args.solve_method,

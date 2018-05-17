@@ -19,8 +19,10 @@ from itertools import chain, combinations
 
 import matplotlib as mpl
 mpl.use('Agg')
+
 import matplotlib.pyplot as plt
 import seaborn as sns
+from matplotlib.lines import Line2D
 
 firehose_dir = '/home/exacloud/lustre1/share_your_data_here/precepts/firehose'
 
@@ -53,10 +55,10 @@ def plot_subtype_violins(out_data, args, cdata, use_levels):
     ax = sns.violinplot(data=med_df, x='Subtype', y='Score',
                         palette=['0.5'] + subtype_cmap, width=0.96)
 
-    plt.xlabel('Mutation Type', size=28, weight='semibold')
-    plt.ylabel('Inferred Mutation Score', size=28, weight='semibold')
-    plt.xticks(rotation=45, ha='right', size=12)
-    plt.yticks(size=17)
+    plt.xlabel('Mutation Type', size=18, weight='semibold')
+    plt.ylabel('Inferred Mutation Score', size=18, weight='semibold')
+    plt.xticks(rotation=45, ha='right', size=10)
+    plt.yticks(size=15)
 
     fig.savefig(
         os.path.join(plot_dir,
@@ -93,8 +95,7 @@ def plot_subtype_stability(out_data, args, cdata, use_levels):
                      cmap=sns.light_palette('0.5', as_cmap=True),
                      linewidths=1.7, alpha=0.7, gridsize=500, n_levels=32)
 
-    ax.text(np.percentile(out_means[wt_pheno], q=0.4),
-            np.percentile(out_sds[wt_pheno], q=0.4),
+    ax.text(np.min(out_means[wt_pheno]), np.min(out_sds[wt_pheno]),
             'Wild-Type', size=15, color='0.5')
 
     for (mtype, pheno), use_clr in zip(use_phenos.items(), subtype_cmap):
@@ -104,14 +105,15 @@ def plot_subtype_stability(out_data, args, cdata, use_levels):
                          cmap=use_cmap, linewidths=3.6, alpha=0.4,
                          gridsize=500, n_levels=3)
         
-        ax.text(np.percentile(out_means[pheno], q=99.1),
-                np.percentile(out_sds[pheno], q=99.1),
-                str(mtype), size=12, color=use_clr)
-
     plt.xlim(-plt_xmax, plt_xmax)
     plt.ylim(0, np.max(out_sds) * 1.03)
-    plt.xlabel('Mutation Score CV Mean', fontsize=19, weight='semibold')
-    plt.ylabel('Mutation Score CV SD', fontsize=19, weight='semibold')
+    plt.xlabel('Mutation Score CV Mean', fontsize=17, weight='semibold')
+    plt.ylabel('Mutation Score CV SD', fontsize=17, weight='semibold')
+    
+    plt.legend([Line2D([0], [0], color=use_clr, lw=6.8)
+                for use_clr in subtype_cmap],
+               [str(mtype) for mtype in use_phenos],
+               fontsize=11, ncol=2, frameon=False)
 
     fig.savefig(
         os.path.join(plot_dir,
@@ -127,16 +129,20 @@ def plot_subtype_stability(out_data, args, cdata, use_levels):
 
 def main():
     parser = argparse.ArgumentParser(
-        "Plot the distribution of labels by mutation subtype returned by a "
-        "Stan classifier trained to predict all the mutations for a given "
-        "gene in a TCGA cohort."
+        "Plot the distributions of perturbation scores separated by mutation "
+        "subtype status as inferred by a Stan mutation classifier trained on "
+        "a gene in a given TCGA cohort."
         )
 
+    # positional command-line arguments regarding the Stan model used to
+    # obtain the sample mutation scores
     parser.add_argument('model_name', type=str, help="label of a Stan model")
     parser.add_argument('solve_method', type=str,
                         help=("method used to obtain estimates for the "
                               "parameters of the model"))
 
+    # positional command line arguments regarding the samples and the mutation
+    # classification task on which the model was trained
     parser.add_argument('cohort', type=str, help="a TCGA cohort")
     parser.add_argument('gene', type=str, help="a mutated gene")
 
@@ -144,6 +150,8 @@ def main():
                         default=['Form_base', 'Exon'],
                         help="which mutation annotation levels to consider")
 
+    # parse command line arguments, ensure directory where plots will be saved
+    # exists, load inferred mutation scores from each cross-validation run
     args = parser.parse_args()
     os.makedirs(plot_dir, exist_ok=True)
     infer_mat = load_output(args.model_name, args.solve_method,
@@ -161,9 +169,11 @@ def main():
         syn=syn, cv_prop=1.0
         )
 
-    for use_levels in chain.from_iterable(combinations(args.mut_levels, r)
-                                          for r in range(
-                                              1, len(args.mut_levels) + 1)):
+    for use_levels in chain.from_iterable(
+            combinations(args.mut_levels, r)
+            for r in range(1, len(args.mut_levels) + 1)
+            ):
+
         plot_subtype_violins(infer_mat, args, cdata, use_levels)
         plot_subtype_stability(infer_mat, args, cdata, use_levels)
 

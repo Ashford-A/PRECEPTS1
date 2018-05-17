@@ -133,7 +133,11 @@ def main():
     clf_stan.tune_coh(cdata, use_mtype, exclude_genes={args.gene},
                       tune_splits=4, test_count=24, parallel_jobs=12)
     clf_stan.fit_coh(cdata, use_mtype, exclude_genes={args.gene})
-    clf_params = clf_stan.get_params()
+
+    if clf_stan.tune_priors:
+        clf_params = clf_stan.get_params()
+    else:
+        clf_params = None
 
     infer_mat = clf_stan.infer_coh(
         cdata, use_mtype, exclude_genes={args.gene},
@@ -141,7 +145,7 @@ def main():
         )
 
     pickle.dump(
-        {'Model': clf_stan.get_params(), 'Infer': infer_mat,
+        {'Params': clf_params, 'Infer': infer_mat,
          'Vars': clf_stan.named_steps['fit'].get_var_means()},
         open(os.path.join(out_path, 'out__cv-{}.p'.format(args.cv_id)), 'wb')
         )

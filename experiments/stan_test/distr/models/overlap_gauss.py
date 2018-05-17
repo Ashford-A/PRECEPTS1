@@ -1,17 +1,19 @@
 
 from .....predict.pipelines import PresencePipe
 from .....predict.stan.base import *
-from .....predict.stan.margins.sym import SymMargins
+from .....predict.stan.margins.classifiers import GaussLabels
 from .....predict.stan.margins.stan_models import gauss_model as use_model
 
 from scipy.stats import lognorm
 from sklearn.preprocessing import RobustScaler
 
 
-class UseOverlap(SymMargins):
+class UseOverlap(GaussLabels):
 
     def __init__(self, model_code, alpha=0.01):
-        super().__init__(model_code, lbl_var=1.0, alpha=alpha)
+        super().__init__(model_code,
+                         wt_distr=(-1.0, 1.0), mut_distr=(1.0, 1.0),
+                         alpha=alpha)
 
     def predict_proba(self, X):
         return self.calc_pred_labels(X)
@@ -30,7 +32,7 @@ class UseVariational(UseOverlap, StanVariational):
 class UseSampling(UseOverlap, StanSampling):
 
     def run_model(self, **fit_params):
-        super().run_model(**{**fit_params, **{'iter': 100}})
+        super().run_model(**{**fit_params, **{'iter': 150}})
 
 
 class UsePipe(PresencePipe):

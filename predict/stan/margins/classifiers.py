@@ -1,12 +1,12 @@
 
 from ..base import *
 import numpy as np
-from scipy.stats import norm
+from scipy.stats import norm, cauchy
 
 
-class AsymMargins(StanClassifier):
+class BaseMargin(StanClassifier):
 
-    model_name = "AsymmetricMarginClassifier"
+    model_name = "BaseMarginClassifier"
 
     def __init__(self,
                  model_code,
@@ -27,9 +27,21 @@ class AsymMargins(StanClassifier):
         var_means = self.get_var_means()
         return np.dot(omic, var_means['gn_wghts']) + var_means['intercept']
 
+
+class GaussLabels(BaseMargin):
+
     def calc_pred_p(self, pred_labels):
         neg_logl = norm.logpdf(pred_labels, *self.wt_distr)
         pos_logl = norm.logpdf(pred_labels, *self.mut_distr)
+
+        return 1 / (1 + np.exp(np.clip(neg_logl - pos_logl, -100, 100)))
+
+
+class CauchyLabels(BaseMargin):
+
+    def calc_pred_p(self, pred_labels):
+        neg_logl = cauchy.logpdf(pred_labels, *self.wt_distr)
+        pos_logl = cauchy.logpdf(pred_labels, *self.mut_distr)
 
         return 1 / (1 + np.exp(np.clip(neg_logl - pos_logl, -100, 100)))
 

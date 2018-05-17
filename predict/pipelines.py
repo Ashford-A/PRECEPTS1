@@ -237,19 +237,6 @@ class OmicPipe(Pipeline):
                  verbose=False):
         """Tunes the pipeline by sampling over the tuning parameters."""
 
-        train_omics, train_pheno = cohort.train_data(
-            pheno,
-            include_samps, exclude_samps,
-            include_genes, exclude_genes
-            )
-
-        # get internal cross-validation splits in the training set and use
-        # them to tune the classifier
-        tune_cvs = OmicShuffleSplit(
-            n_splits=tune_splits, test_size=0.2,
-            random_state=(cohort.cv_seed ** 2) % 42949672
-            )
-
         # checks if the classifier has parameters to be tuned, and how many
         # parameter combinations are possible
         if self.tune_priors:
@@ -257,6 +244,19 @@ class OmicPipe(Pipeline):
                             for x in self.cur_tuning.values()]
             max_tests = reduce(mul, prior_counts, 1)
             test_count = min(test_count, max_tests)
+
+            train_omics, train_pheno = cohort.train_data(
+                pheno,
+                include_samps, exclude_samps,
+                include_genes, exclude_genes
+                )
+
+            # get internal cross-validation splits in the training set and use
+            # them to tune the classifier
+            tune_cvs = OmicShuffleSplit(
+                n_splits=tune_splits, test_size=0.2,
+                random_state=(cohort.cv_seed ** 2) % 42949672
+                )
 
             # samples parameter combinations and tests each one
             grid_test = OmicRandomizedCV(
