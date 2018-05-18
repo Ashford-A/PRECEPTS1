@@ -10,8 +10,6 @@ import sys
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
 from HetMan.features.cohorts.tcga import MutationCohort
-from HetMan.features.mutations import MuType
-
 import argparse
 import synapseclient
 import dill as pickle
@@ -25,29 +23,32 @@ def main():
         "enumerating the subtypes to be tested."
         )
 
+    # create positional command line arguments
     parser.add_argument('cohort', type=str, help="which TCGA cohort to use")
     parser.add_argument('gene', type=str, help="which gene to consider")
-
     parser.add_argument('mut_levels', type=str,
                         help="the mutation property levels to consider")
 
+    # create optional command line arguments
     parser.add_argument('--samp_cutoff', type=int, default=20,
                         help='subtype sample frequency threshold')
-
     parser.add_argument('--verbose', '-v', action='store_true',
                         help='turns on diagnostic messages')
 
+    # parse command line arguments, create directory where found subtypes
+    # will be stored
     args = parser.parse_args()
+    use_lvls = args.mut_levels.split('__')
     out_path = os.path.join(base_dir, 'setup', args.cohort, args.gene)
     os.makedirs(out_path, exist_ok=True)
-    use_lvls = args.mut_levels.split('__')
 
     # log into Synapse using locally stored credentials
     syn = synapseclient.Synapse()
     syn.cache.cache_root_dir = ("/home/exacloud/lustre1/CompBio/"
                                 "mgrzad/input-data/synapse")
     syn.login()
-    
+
+    # load expression and variant call data for the given TCGA cohort
     cdata = MutationCohort(
         cohort=args.cohort, mut_genes=[args.gene], mut_levels=use_lvls,
         expr_source='Firehose', var_source='mc3', expr_dir=firehose_dir,
@@ -60,32 +61,33 @@ def main():
               "annotation levels {}.\n".format(
                   args.gene, args.samp_cutoff, args.cohort, use_lvls)
              )
-    
+
+    # find mutation subtypes present in enough samples in the TCGA cohort
     iso_mtypes = cdata.train_mut.find_unique_subtypes(
-        max_types=2000, max_combs=10, verbose=2,
+        max_types=1000, max_combs=5, verbose=2,
         sub_levels=use_lvls, min_type_size=args.samp_cutoff
         )
 
-    iso_mtypes = {mtype for mtype in iso_mtypes
+    # filter out the subtypes that appear in too many samples for there to
+    # be a wild-type class of sufficient size for classification
+    use_mtypes = {mtype for mtype in iso_mtypes
                   if (len(mtype.get_samples(cdata.train_mut))
                       <= (len(cdata.samples) - args.samp_cutoff))}
 
     if args.verbose:
         print("\nFound {} total sub-types to isolate!".format(
-            len(iso_mtypes)))
+            len(use_mtypes)))
 
-    use_mtypes = sorted(MuType({('Gene', args.gene): mtype})
-                        for mtype in iso_mtypes)
-
-    # save the list of found non-duplicate sub-types to file
+    # save the list of found non-duplicate subtypes to file
     pickle.dump(
-        use_mtypes,
+        sorted(use_mtypes),
         open(os.path.join(out_path,
                           'mtypes_list__samps_{}__levels_{}.p'.format(
                               args.samp_cutoff, args.mut_levels)),
              'wb')
         )
 
+    # save the number of found subtypes to file
     with open(os.path.join(out_path,
                            'mtypes_count__samps_{}__levels_{}.txt'.format(
                                args.samp_cutoff, args.mut_levels)),

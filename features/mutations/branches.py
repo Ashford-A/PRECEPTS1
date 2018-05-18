@@ -167,6 +167,22 @@ class MuType(object):
 
         return levels
 
+    def get_sorted_levels(self):
+        child_levels = set()
+
+        for tp in self._child.values():
+            if isinstance(tp, MuType):
+                child_levels |= {tp.get_sorted_levels()}
+
+        if child_levels:
+            sorted_levels = tuple([self.cur_level]
+                                  + list(sorted(child_levels, key=len)[-1]))
+
+        else:
+            sorted_levels = self.cur_level,
+
+        return sorted_levels
+
     def __hash__(self):
         """MuType hashes are defined in an analagous fashion to those of
            tuples, see for instance http://effbot.org/zone/python-hash.htm"""

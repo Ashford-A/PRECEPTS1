@@ -48,17 +48,22 @@ fi
 
 if [ -z ${test_max+x} ]
 then
-	echo "limiting maximum number of tests per node to fifty"
-	export test_max=50
+	echo "limiting maximum number of tests per node to twenty-five"
+	export test_max=25
 fi
 
+# get the directory containing the experiment and the sub-directory where the
+# subtypes enumareted during the setup step will be saved
 export BASEDIR=HetMan/experiments/subvariant_isolate
 mkdir -p $BASEDIR/setup/${cohort}/${gene}
 
+# get the directory where the experiment results will be saved, removing it
+# if it already exists
 export OUTDIR=$BASEDIR/output/$cohort/$gene/$classif/samps_${samp_cutoff}/$mut_levels
 rm -rf $OUTDIR
 mkdir -p $OUTDIR/slurm
 
+# setup the experiment by finding a list of mutation subtypes to be tested
 if [ ! -e ${BASEDIR}/setup/${cohort}/${gene}/mtypes_list__samps_${samp_cutoff}__levels_${mut_levels}.p ]
 then
 
@@ -69,15 +74,16 @@ then
 		$cohort $gene $mut_levels --samp_cutoff=$samp_cutoff
 fi
 
-# finds how large of a batch array to submit based on how many mutation types were
+# find how large of a batch array to submit based on how many mutation types were
 # found in the setup enumeration
 mtypes_count=$(cat ${BASEDIR}/setup/${cohort}/${gene}/mtypes_count__samps_${samp_cutoff}__levels_${mut_levels}.txt)
 export array_size=$(( $mtypes_count / $test_max ))
 
-if [ $array_size -gt 499 ]
+if [ $array_size -gt 199 ]
 then
-	export array_size=499
+	export array_size=199
 fi
 
+# run the subtype tests in parallel
 sbatch --array=0-$(( $array_size )) $BASEDIR/fit_isolate.sh
 
