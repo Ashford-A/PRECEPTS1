@@ -29,10 +29,9 @@ SETUP_DIR=$BASEDIR/setup/${cohort}/${gene}
 srun -p=exacloud \
 	--output=$OUTDIR/slurm/fit-${task_id}.txt \
 	--error=$OUTDIR/slurm/fit-${task_id}.err \
-	python HetMan/experiments/utilities/cross_cohort_mutypes.py -v \
+	python HetMan/experiments/utilities/cross_mutype_infer.py -v \
 	$SETUP_DIR/pairs_list__samps_${samp_cutoff}__levels_${mut_levels}.p \
-	$OUTDIR $cohort $classif $task_id \
-	--use_gene=$gene --mut_levels=$mut_levels \
-	--task_count=$(( $array_size + 1 )) --parallel_jobs=8 \
-	--tune_splits=8 --test_count=24
+	$OUTDIR $cohort $classif --use_genes $gene \
+	--task_count=$(( $array_size + 1 )) --task_id=$task_id \
+	--tune_splits=8 --test_count=32 --infer_splits=40 --parallel_jobs=8
 

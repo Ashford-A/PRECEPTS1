@@ -9,11 +9,9 @@ base_dir = os.path.dirname(__file__)
 import sys
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
-from HetMan.features.cohorts.tcga import MutationCohort
-from HetMan.features.mutations import MuType
-
 import argparse
 import synapseclient
+from HetMan.features.cohorts.tcga import MutationCohort
 from itertools import combinations as combn
 import dill as pickle
 
@@ -26,22 +24,24 @@ def main():
         "experiment by enumerating the pairs of subtypes to be tested."
         )
 
+    # create positional command line arguments
     parser.add_argument('cohort', type=str, help="which TCGA cohort to use")
     parser.add_argument('gene', type=str, help="which gene to consider")
-
     parser.add_argument('mut_levels', type=str,
                         help='the mutation property levels to consider')
 
+    # create optional command line arguments
     parser.add_argument('--samp_cutoff', type=int, default=25,
                         help='subtype sample frequency threshold')
-
     parser.add_argument('--verbose', '-v', action='store_true',
                         help='turns on diagnostic messages')
 
+    # parse command line arguments, create directory where found subtypes
+    # will be stored
     args = parser.parse_args()
+    use_lvls = args.mut_levels.split('__')
     out_path = os.path.join(base_dir, 'setup', args.cohort, args.gene)
     os.makedirs(out_path, exist_ok=True)
-    use_lvls = args.mut_levels.split('__')
 
     # log into Synapse using locally stored credentials
     syn = synapseclient.Synapse()
@@ -75,17 +75,16 @@ def main():
         print("\nFound {} total sub-types to cross!".format(
             len(cross_mtypes)))
 
-    use_pairs = sorted(
-        (mtype1, mtype2) for mtype1, mtype2 in combn(cross_mtypes, 2)
-        if (mtype1 & mtype2).is_empty()
-        )
+    use_pairs = {(mtype1, mtype2) for mtype1, mtype2 in combn(cross_mtypes, 2)
+                 if (mtype1 & mtype2).is_empty()}
 
     if args.verbose:
-        print("\nFound {} non-overlapping sub-type pairs!".format(len(use_pairs)))
+        print("\nFound {} non-overlapping sub-type pairs!".format(
+            len(use_pairs)))
 
     # save the list of found non-duplicate sub-types to file
     pickle.dump(
-        use_pairs,
+        sorted(use_pairs),
         open(os.path.join(out_path,
                           'pairs_list__samps_{}__levels_{}.p'.format(
                               args.samp_cutoff, args.mut_levels)),

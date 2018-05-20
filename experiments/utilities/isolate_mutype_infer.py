@@ -10,11 +10,12 @@ from HetMan.features.mutations import MuType
 from HetMan.predict.basic.classifiers import *
 
 import synapseclient
-import dill as pickle
-import pandas as pd
-
 import argparse
 from glob import glob
+import dill as pickle
+
+import pandas as pd
+from importlib import import_module
 from operator import or_
 from functools import reduce
 
@@ -47,7 +48,7 @@ def load_output(out_dir):
         pd.DataFrame.from_dict(pickle.load(open(fl, 'rb'))['Iso'],
                                orient='index')
         for fl in file_list
-        ]).applymap(lambda x: [y[0] for y in x])
+        ]).sort_index()
 
 
 def main():
@@ -73,7 +74,7 @@ def main():
                         help='a classifier in HetMan.predict.classifiers')
 
     parser.add_argument('--use_genes', type=str, default=None, nargs='+',
-                        help='specify which gene to isolate against')
+                        help='specify which gene(s) to isolate against')
 
     parser.add_argument(
         '--cv_id', type=int, default=6732,
@@ -116,6 +117,9 @@ def main():
                         help='turns on diagnostic messages')
 
     args = parser.parse_args()
+    out_file = os.path.join(args.out_dir,
+                            'out__task-{}.p'.format(args.task_id))
+
     if args.verbose:
         print("Starting isolation for sub-types in\n{}\nthe results of "
               "which will be stored in\n{}\nwith classifier <{}>.".format(
@@ -135,6 +139,7 @@ def main():
         if set(mtype.cur_level for mtype in mtype_list) == {'Gene'}:
             use_genes = reduce(or_, [set(gn for gn, _ in mtype.subtype_list())
                                      for mtype in mtype_list])
+
         else:
             raise ValueError(
                 "A gene to isolate against must be given or the subtypes "
@@ -148,9 +153,14 @@ def main():
         print("Subtypes at mutation annotation levels {} will be isolated "
               "against genes:\n{}".format(use_lvls, use_genes))
 
-    mut_clf = eval(args.classif)
-    out_file = os.path.join(args.out_dir,
-                            'out__task-{}.p'.format(args.task_id))
+    if args.classif[:6] == 'Stan__':
+        use_module = import_module('HetMan.experiments.utilities'
+                                   '.stan_models.{}'.format(
+                                       args.classif.split('Stan__')[1]))
+        mut_clf = getattr(use_module, 'UsePipe')
+
+    else:
+        mut_clf = eval(args.classif)
 
     # log into Synapse using locally stored credentials
     syn = synapseclient.Synapse()
@@ -212,7 +222,8 @@ def main():
                   'TuneSplits': args.tune_splits,
                   'TestCount': args.test_count,
                   'InferFolds': args.infer_folds}},
-        open(out_file, 'wb'))
+        open(out_file, 'wb')
+        )
 
 
 if __name__ == "__main__":

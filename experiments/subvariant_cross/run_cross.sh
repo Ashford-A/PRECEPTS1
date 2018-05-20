@@ -48,8 +48,8 @@ fi
 
 if [ -z ${test_max+x} ]
 then
-	echo "limiting maximum number of tests per node to fifty"
-	export test_max=25
+	echo "limiting maximum number of tests per node to twenty"
+	export test_max=20
 fi 
 
 export BASEDIR=HetMan/experiments/subvariant_cross

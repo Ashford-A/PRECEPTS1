@@ -1,6 +1,6 @@
 
 from .isolate_mutype_infer import load_output as iso_infer_output
-from .cross_cohort_mutypes import load_output as cross_output
+from .cross_mutype_infer import load_output as cross_infer_output
 
 from matplotlib.colors import LinearSegmentedColormap
 
@@ -28,5 +28,5 @@ cdict = {
 simil_cmap = LinearSegmentedColormap('SimilCmap', cdict)
 
 
-__all__ = ['iso_infer_output', 'cross_output', 'simil_cmap']
+__all__ = ['iso_infer_output', 'cross_infer_output', 'simil_cmap']
 

@@ -9,14 +9,13 @@ from HetMan.features.cohorts.tcga import MutationCohort
 from HetMan.features.mutations import MuType
 from HetMan.predict.basic.classifiers import *
 
-import numpy as np
-import pandas as pd
-
 import synapseclient
-import dill as pickle
-
 import argparse
 from glob import glob
+import dill as pickle
+
+import pandas as pd
+from importlib import import_module
 from operator import or_
 from functools import reduce
 
@@ -38,11 +37,6 @@ def load_output(out_dir):
     Args:
         out_dir (str): The directory where the results were saved.
 
-    Returns:
-        out_data (pd.DataFrame), shape = [n_MuTypes, n_cvs]
-            How well the given classifier was able to predict the presence
-            of each mutation sub-type in each cross-validation run.
-
     Examples:
         >>> out_data = test_output("HetMan/experiments/subvariant_detection/"
         >>>                        "output/PAAD/rForest/search")
@@ -50,34 +44,25 @@ def load_output(out_dir):
     """
     file_list, task_ids = get_output_files(out_dir)
 
-    return pd.concat([
+    out_df = pd.concat([
         pd.DataFrame.from_dict(pickle.load(open(fl, 'rb'))['Cross'],
                                orient='index')
         for fl in file_list
-        ]).applymap(lambda x: [[z[0] for z in y] for y in x])
+        ]).applymap(lambda x: [y[0] for y in x])
 
+    out_df.index = pd.MultiIndex.from_tuples(out_df.index)
+    out_df = out_df.sort_index()
 
-def load_parameters(out_dir):
-    file_list, cv_ids, _ = get_output_files(out_dir)
-
-    out_dict = {cv_id: pd.DataFrame([]) for cv_id in set(cv_ids)}
-    for cv_id, fl in zip(cv_ids, file_list):
-
-        out_dict[cv_id] = pd.concat([
-            out_dict[cv_id],
-            pd.DataFrame.from_dict(pickle.load(open(fl, 'rb'))['Par'],
-                                   orient='index')
-            ])
-
-    return pd.concat(out_dict, axis=1, join='outer')
+    return out_df
 
 
 def main():
     """Runs the experiment."""
 
     parser = argparse.ArgumentParser(
-        description=("Test a classifier's ability to predict the presence "
-                     "of a list of sub-types.")
+        "Isolate the expression signatures of pairs of mutation subtypes "
+        "against one another from their parent gene(s)' signature or that of "
+        "a list of genes in a given TCGA cohort."
         )
 
     # positional command line arguments for where input data and output
@@ -93,22 +78,20 @@ def main():
     parser.add_argument('classif', type=str,
                         help='a classifier in HetMan.predict.classifiers')
 
-    # positional arguments controlling CV and task selection
-    parser.add_argument('task_id', type=int,
-                        help='the subset of sub-types to assign to this task')
+    parser.add_argument('--use_genes', type=str, default=None, nargs='+',
+                        help='specify which gene(s) to isolate against')
 
-    parser.add_argument('--use_genes', type=str, default=None,
-                        help='specify which gene the mutations belong to')
+    parser.add_argument(
+        '--cv_id', type=int, default=4309,
+        help='the random seed to use for cross-validation draws'
+        )
 
     parser.add_argument(
         '--task_count', type=int, default=10,
         help='how many parallel tasks the list of types to test is split into'
         )
-
-    parser.add_argument(
-        '--mut_levels', type=str, default='Form_base__Exon',
-        help='a set of mutation levels to consider'
-        )
+    parser.add_argument('--task_id', type=int, default=0,
+                        help='the subset of subtypes to assign to this task')
 
     # optional arguments controlling how classifier tuning is to be performed
     parser.add_argument(
@@ -119,6 +102,17 @@ def main():
         '--test_count', type=int, default=16,
         help='how many hyper-parameter values to test in each tuning split'
         )
+
+    parser.add_argument(
+        '--infer_splits', type=int, default=20,
+        help='how many cohort splits to use for inference bootstrapping'
+        )
+    parser.add_argument(
+        '--infer_folds', type=int, default=4,
+        help=('how many parts to split the cohort into in each inference '
+              'cross-validation run')
+        )
+
     parser.add_argument(
         '--parallel_jobs', type=int, default=4,
         help='how many parallel CPUs to allocate the tuning tests across'
@@ -128,29 +122,53 @@ def main():
                         help='turns on diagnostic messages')
 
     args = parser.parse_args()
+    out_file = os.path.join(args.out_dir,
+                            'out__task-{}.p'.format(args.task_id))
+
     if args.verbose:
-        print("Starting testing for sub-types in\n{}\nwith "
-              "task ID {} ...".format(
-                  args.mtype_file, args.task_id))
+        print("Starting cross-isolation for sub-types in\n{}\nthe results "
+              "of which will be stored in\n{}\nin cohort {} with "
+              "classifier <{}>.".format(args.mtype_file, args.out_dir,
+                                        args.cohort, args.classif))
 
     pair_list = pickle.load(open(args.mtype_file, 'rb'))
-    out_file = os.path.join(args.out_dir,
-                            'out__task-{}.p'.format(
-                                args.task_id))
+    or_list = [mtype1 | mtype2 for mtype1, mtype2 in pair_list]
+    use_lvls = []
 
-    mut_clf = eval(args.classif)
+    for lvls in reduce(or_, [{mtype.get_sorted_levels()}
+                             for mtype in or_list]):
+        for lvl in lvls:
+            if lvl not in use_lvls:
+                use_lvls.append(lvl)
 
     if args.use_genes is None:
-        use_genes = reduce(
-            or_, [set(gn for gn, _ in mtype1.subtype_list())
-                  | set(gn for gn, _ in mtype2.subtype_list())
-                  for mtype1, mtype2 in pair_list]
-            )
+        if set(mtype.cur_level for mtype in or_list) == {'Gene'}:
+            use_genes = reduce(or_, [set(gn for gn, _ in mtype.subtype_list())
+                                     for mtype in or_list])
+
+        else:
+            raise ValueError(
+                "A gene to isolate against must be given or the pairs of "
+                "subtypes listed must each have <Gene> as their top level!"
+                )
 
     else:
-        use_genes = {args.use_genes}
+        use_genes = set(args.use_genes)
+ 
+    if args.verbose:
+        print("Subtypes at mutation annotation levels {} will be isolated "
+              "against genes:\n{}".format(use_lvls, use_genes))
 
-    # logs into Synapse using locally-stored credentials
+    if args.classif[:6] == 'Stan__':
+        use_module = import_module('HetMan.experiments.utilities'
+                                   '.stan_models.{}'.format(
+                                       args.classif.split('Stan__')[1]))
+        mut_clf = getattr(use_module, 'UsePipe')
+    
+    else:
+        mut_clf = eval(args.classif)
+
+    # log into Synapse using locally stored credentials
     syn = synapseclient.Synapse()
     syn.cache.cache_root_dir = ("/home/exacloud/lustre1/CompBio/"
                                 "mgrzad/input-data/synapse")
@@ -159,26 +177,25 @@ def main():
     # loads the expression data and gene mutation data for the given TCGA
     # cohort, with the training/testing cohort split defined by the
     # cross-validation id for this task
-    cdata = MutationCohort(cohort=args.cohort, mut_genes=list(use_genes),
-                           mut_levels=['Gene'] + args.mut_levels.split('__'),
-                           expr_source='Firehose', expr_dir=firehose_dir,
-                           syn=syn, cv_seed=9999, cv_prop=1.0)
+    cdata = MutationCohort(
+        cohort=args.cohort, mut_genes=list(use_genes), mut_levels=use_lvls,
+        expr_source='Firehose', expr_dir=firehose_dir,
+        syn=syn, cv_seed=9999, cv_prop=1.0
+        )
 
+    if args.verbose:
+        print("Loaded {} pairs of subtypes of which roughly {} will be "
+              "isolated in cohort {} with {} samples.".format(
+                  len(pair_list), len(pair_list) // args.task_count,
+                  args.cohort, len(cdata.samples)
+                ))
+
+    out_cross = {(mtype1, mtype2): None for mtype1, mtype2 in pair_list}
+    out_cross.update({(mtype2, mtype1): None for mtype1, mtype2 in pair_list})
     base_mtype = MuType({('Gene', tuple(use_genes)): None})
     base_samps = base_mtype.get_samples(cdata.train_mut)
 
-    if args.verbose:
-        print("Loaded {} sub-type pairs over {} genes which will be crossed "
-              "using classifier {} in cohort {} with {} samples.".format(
-                    len(pair_list), len(use_genes), args.classif,
-                    args.cohort, len(cdata.samples)
-                    ))
-
-    # initialize the dictionaries that will store classification
-    # performances and hyper-parameter values
-    out_cross = {mtypes: [None, None] for mtypes in pair_list}
-
-    # for each sub-variant, check if it has been assigned to this task
+    # for each subtype, check if it has been assigned to this task
     for i, (mtype1, mtype2) in enumerate(pair_list):
         if (i % args.task_count) == args.task_id:
             clf = mut_clf()
@@ -199,10 +216,11 @@ def main():
                                  test_count=args.test_count,
                                  parallel_jobs=args.parallel_jobs)
                     
-                    out_cross[(mtype1, mtype2)][0] = clf.infer_coh(
+                    out_cross[(mtype1, mtype2)] = clf.infer_coh(
                         cdata, mtype1, exclude_genes=use_genes,
                         force_test_samps=ex_samps,
-                        infer_splits=40, infer_folds=4,
+                        infer_splits=args.infer_splits,
+                        infer_folds=args.infer_folds,
                         parallel_jobs=args.parallel_jobs
                         )
 
@@ -213,24 +231,26 @@ def main():
                                  test_count=args.test_count,
                                  parallel_jobs=args.parallel_jobs)
                     
-                    out_cross[(mtype1, mtype2)][1] = clf.infer_coh(
+                    out_cross[(mtype2, mtype1)] = clf.infer_coh(
                         cdata, mtype2, exclude_genes=use_genes,
                         force_test_samps=ex_samps,
-                        infer_splits=40, infer_folds=4,
+                        infer_splits=args.infer_splits,
+                        infer_folds=args.infer_folds,
                         parallel_jobs=args.parallel_jobs
                         )
 
         else:
             del(out_cross[(mtype1, mtype2)])
+            del(out_cross[(mtype2, mtype1)])
 
-    # saves the performance measurements and tuned hyper-parameter values
-    # for each sub-type to file
-    pickle.dump({'Cross': out_cross,
-                 'Info': {'TunePriors': mut_clf.tune_priors,
-                          'TuneSplits': args.tune_splits,
-                          'TestCount': args.test_count,
-                          'ParallelJobs': args.parallel_jobs}},
-                 open(out_file, 'wb'))
+    pickle.dump(
+        {'Cross': out_cross,
+         'Info': {'TunePriors': mut_clf.tune_priors,
+                  'TuneSplits': args.tune_splits,
+                  'TestCount': args.test_count,
+                  'InferFolds': args.infer_folds}},
+        open(out_file, 'wb')
+        )
 
 
 if __name__ == "__main__":
