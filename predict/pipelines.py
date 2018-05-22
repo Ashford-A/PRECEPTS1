@@ -459,7 +459,14 @@ class PresencePipe(OmicPipe):
     def parse_preds(self, preds):
         if hasattr(self, 'classes_'):
             true_indx = [i for i, x in enumerate(self.classes_) if x]
-            parse_preds = [scrs[true_indx] for scrs in preds]
+
+            if len(true_indx) < 1:
+                raise PipelineError("Classifier doesn't have a <True> class!")
+
+            elif len(true_indx) > 1:
+                raise PipelineError("Classifier has multiple <True> classes!")
+
+            parse_preds = [scrs[true_indx[0]] for scrs in preds]
 
         else:
             parse_preds = preds
