@@ -127,6 +127,7 @@ class BaseMutationCohort(PresenceCohort, UniCohort):
             )
 
         self.copy_data = copy_data
+        self.feat_annot = feat_annot
         self.mut_genes = mut_genes
         self.cv_prop = cv_prop
 
