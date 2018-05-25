@@ -5,10 +5,9 @@ base_dir = os.path.dirname(__file__)
 import sys
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
-from HetMan.features.cohorts.tcga import MutationCohort
+from HetMan.experiments.SMMART_analysis.cohorts import CancerCohort
 from HetMan.features.mutations import MuType
 from HetMan.predict.basic.classifiers import *
-from HetMan.experiments.SMMART_analysis.utils import load_patient_expression
 
 from importlib import import_module
 from functools import reduce
@@ -17,7 +16,16 @@ import pandas as pd
 
 import synapseclient
 import argparse
+from pathlib import Path
 import dill as pickle
+
+
+def load_output(cohort, gene, classif):
+    out_dir = Path(os.path.join(base_dir, 'output', 'gene_models',
+                                cohort, gene))
+
+    return [pickle.load(open(str(out_fl), 'rb'))
+            for out_fl in out_dir.glob('{}__cv-*.p'.format(classif))]
 
 
 def main():
@@ -38,20 +46,31 @@ def main():
         help='directy where SMMART patient RNAseq abundances are stored'
         )
 
-    parser.add_argument('--cv_id', type=int, default=0)
     parser.add_argument(
-        '--tune_splits', type=int, default=8,
+        '--tune_splits', type=int, default=4,
         help='how many training cohort splits to use for tuning'
         )
     parser.add_argument(
-        '--test_count', type=int, default=32,
+        '--test_count', type=int, default=16,
         help='how many hyper-parameter values to test in each tuning split'
         )
+
+    parser.add_argument(
+        '--infer_splits', type=int, default=20,
+        help='how many cohort splits to use for inference bootstrapping'
+        )
+    parser.add_argument(
+        '--infer_folds', type=int, default=4,
+        help=('how many parts to split the cohort into in each inference '
+              'cross-validation run')
+        )
+
     parser.add_argument(
         '--parallel_jobs', type=int, default=4,
         help='how many parallel CPUs to allocate the tuning tests across'
         )
 
+    parser.add_argument('--cv_id', type=int, default=0)
     parser.add_argument('--verbose', '-v', action='store_true',
                         help='turns on diagnostic messages')
 
@@ -73,59 +92,37 @@ def main():
 
     base_mtype = MuType({('Gene', args.gene): None})
     clf = mut_clf()
-    expr_dict = load_patient_expression(args.patient_dir)
 
     # log into Synapse using locally stored credentials
     syn = synapseclient.Synapse()
     syn.cache.cache_root_dir = args.syn_root
     syn.login()
 
-    cdata = MutationCohort(
-        cohort=args.cohort, mut_genes=[args.gene], mut_levels=['Gene'],
-        expr_source='toil', expr_dir=args.toil_dir, syn=syn,
-        collapse_txs=True, cv_seed=(args.cv_id * 59) + 121, cv_prop=0.8
+    cdata = CancerCohort(
+        cancer=args.cohort, mut_genes=[args.gene], mut_levels=['Gene'],
+        tcga_dir=args.toil_dir, patient_dir=args.patient_dir, syn=syn,
+        collapse_txs=True, cv_seed=(args.cv_id * 59) + 121, cv_prop=1.0
         )
-
-    gene_ids = {
-        gn: cdata.feat_annot[gn]['gene_id'].replace('"', '').split('.')[0]
-        for gn in cdata.subset_genes(exclude_genes={args.gene})
-        }
-
-    use_ids = reduce(and_, [set(x) for x in expr_dict.values()])
-    use_ids &= set(gene_ids.values())
-    use_genes = {gn: gene_id for gn, gene_id in gene_ids.items()
-                 if gene_id in use_ids}
-
-    expr_df = pd.DataFrame.from_dict(
-        {patient: {gn: expr[gene_id] for gn, gene_id in use_genes.items()}
-         for patient, expr in expr_dict.items()},
-        orient='index'
-        ).loc[:, cdata.subset_genes(include_genes=set(use_genes))]
+    smrt_samps = {samp for samp in cdata.samples if samp[:4] != 'TCGA'}
 
     clf.tune_coh(
-        cdata, base_mtype, include_genes=set(use_genes),
+        cdata, base_mtype,
+        exclude_genes={args.gene}, exclude_samps=smrt_samps,
         tune_splits=args.tune_splits, test_count=args.test_count,
         parallel_jobs=args.parallel_jobs
         )
 
-    clf.fit_coh(cdata, base_mtype, include_genes=set(use_genes))
     clf_params = clf.get_params()
     tuned_params = {par: clf_params[par] for par, _ in mut_clf.tune_priors}
 
-    tcga_vals = {
-        samp: val for samp, val in zip(
-            sorted(cdata.test_samps),
-            clf.predict_test(cdata, base_mtype, include_genes=set(use_genes))
-            )
-        }
-
-    patient_vals = {
-        samp: val for samp, val in zip(expr_df.index,
-                                       clf.predict_omic(expr_df))
-        }
+    infer_mat = clf.infer_coh(
+        cdata, base_mtype,
+        force_test_samps=smrt_samps, exclude_genes={args.gene},
+        infer_splits=args.infer_splits, infer_folds=args.infer_folds
+        )
 
     pickle.dump(
-        {'TCGAvals': tcga_vals, 'SMMARTvals': patient_vals,
+        {'Infer': infer_mat,
          'Info': {'TunePriors': mut_clf.tune_priors,
                   'TuneSplits': args.tune_splits,
                   'TestCount': args.test_count,
