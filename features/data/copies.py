@@ -18,7 +18,7 @@ import tarfile
 from io import BytesIO
 
 
-def get_copies_firehose(cohort, data_dir):
+def get_copies_firehose(cohort, data_dir, discrete=True):
     """Loads gene-level copy number alteration data downloaded from Firehose.
 
     Args:
@@ -49,10 +49,15 @@ def get_copies_firehose(cohort, data_dir):
                       "for cohort {} in directory {} !".format(
                           cohort, data_dir))
 
+    if discrete:
+        fl_name = 'all_thresholded.by_genes.txt'
+    else:
+        fl_name = 'all_data_by_genes.txt'
+
     copy_tar = tarfile.open(copy_tars[0])
     copy_indx = [i for i, memb in enumerate(copy_tar.getmembers())
-                 if 'all_thresholded.by_genes.txt' in memb.get_info()['name']]
-    
+                 if fl_name in memb.get_info()['name']]
+
     # ensures only one file in the tarball contains CNA data
     if len(copy_indx) == 0:
         raise IOError("No thresholded CNA files found in the tarball!")
@@ -62,7 +67,7 @@ def get_copies_firehose(cohort, data_dir):
     copy_fl = copy_tar.extractfile(copy_tar.getmembers()[copy_indx[0]])
     copy_data = pd.read_csv(BytesIO(copy_fl.read()),
                             sep='\t', index_col=0, engine='python')
-
+ 
     copy_data = copy_data.iloc[:, 2:].transpose()
     copy_data.index = ["-".join(x[:4])
                        for x in copy_data.index.str.split('-')]

@@ -38,34 +38,22 @@ class BaseMutationCohort(PresenceCohort, UniCohort):
     """
 
     def __init__(self,
-                 expr, variants, matched_samps, feat_annot,
-                 mut_genes=None, mut_levels=('Gene', 'Form'), top_genes=100,
-                 samp_cutoff=None, cv_prop=2.0/3, cv_seed=None):
-
-        # gets the set of samples shared across the expression and mutation
-        # data that are also primary tumour samples
-        use_samples = [samp for samp, _ in matched_samps]
-        expr_samps = [samp for (_, (samp, _)) in matched_samps]
-        var_samps = [samp for (_, (_, samp)) in matched_samps]
-
-        # gets the subset of expression data corresponding to the shared
-        # samples and annotated genes, renames expression samples to the
-        # shared sample names
-        expr = expr.loc[expr_samps, list(feat_annot)]
-        expr.index = [use_samples[expr_samps.index(samp)]
-                      for samp in expr.index]
+                 expr, variants, copy_data, mut_genes=None,
+                 mut_levels=('Gene', 'Form'), top_genes=100, samp_cutoff=None,
+                 cv_prop=2.0/3, cv_seed=None):
 
         if mut_genes is None:
             self.path = None
 
-            variants = variants.loc[variants['Sample'].isin(var_samps), :]
             var_df = variants.loc[
                 ~variants['Form'].isin(
                     ['HomDel', 'HetDel', 'HetGain', 'HomGain']),
                 :]
 
+            # find how many unique samples each gene is mutated in, filter for
+            # genes that appear in the annotation data
             gn_counts = var_df.groupby(by='Gene').Sample.nunique()
-            gn_counts = gn_counts.loc[feat_annot.keys()]
+            gn_counts = gn_counts.loc[gn_counts.index.isin(expr.columns)]
 
             if samp_cutoff is None:
                 gn_counts = gn_counts.sort_values(ascending=False)
@@ -76,7 +64,7 @@ class BaseMutationCohort(PresenceCohort, UniCohort):
                 cutoff_mask = gn_counts >= samp_cutoff
 
             elif isinstance(samp_cutoff, float):
-                cutoff_mask = gn_counts >= samp_cutoff * len(use_samples)
+                cutoff_mask = gn_counts >= samp_cutoff * expr.shape[0]
 
             elif hasattr(samp_cutoff, '__getitem__'):
                 if isinstance(samp_cutoff[0], int):
@@ -85,8 +73,8 @@ class BaseMutationCohort(PresenceCohort, UniCohort):
 
                 elif isinstance(samp_cutoff[0], float):
                     cutoff_mask = (
-                            (samp_cutoff[0] * len(use_samples) <= gn_counts)
-                            & (samp_cutoff[1] * len(use_samples) >= gn_counts)
+                            (samp_cutoff[0] * expr.shape[0] <= gn_counts)
+                            & (samp_cutoff[1] * expr.shape[0] >= gn_counts)
                         )
 
             else:
@@ -95,16 +83,18 @@ class BaseMutationCohort(PresenceCohort, UniCohort):
             gn_counts = gn_counts[cutoff_mask]
             variants = variants.loc[variants['Gene'].isin(gn_counts.index), :]
 
+            if copy_data is not None:
+                copy_data = copy_data.loc[
+                    :, copy_data.columns.isin(gn_counts.index)]
+
         else:
             self.path = get_gene_neighbourhood(mut_genes)
-            variants = variants.loc[variants['Gene'].isin(mut_genes)
-                                    & variants['Sample'].isin(var_samps), :]
+            variants = variants.loc[variants['Gene'].isin(mut_genes), :]
 
-        new_samps = [use_samples[var_samps.index(samp)]
-                     for samp in variants['Sample']]
-        variants = variants.drop(labels=['Sample'], axis="columns",
-                                 inplace=False)
-        variants['Sample'] = new_samps
+            if copy_data is not None:
+                copy_data = copy_data.loc[
+                    :, copy_data.columns.isin(mut_genes)]
+
 
         # filters out genes that have both low levels of expression and low
         # variance of expression
@@ -116,7 +106,7 @@ class BaseMutationCohort(PresenceCohort, UniCohort):
         # gets subset of samples to use for training, and split the expression
         # and variant datasets accordingly into training/testing cohorts
         train_samps, test_samps = self.split_samples(
-            cv_seed, cv_prop, use_samples)
+            cv_seed, cv_prop, expr.index)
 
         # if the cohort is to have a testing cohort, build the tree with info
         # on which testing samples have which types of mutations
@@ -136,12 +126,38 @@ class BaseMutationCohort(PresenceCohort, UniCohort):
             levels=mut_levels
             )
 
+        self.copy_data = copy_data
         self.mut_genes = mut_genes
         self.cv_prop = cv_prop
 
         super().__init__(expr, train_samps, test_samps, cv_seed)
 
-    def train_pheno(self, mtype, samps=None):
+    def cna_pheno(self, cna_dict, samps):
+        if self.copy_data is None:
+            raise CohortError("Cannot retrieve copy number alteration "
+                              "phenotypes from a cohort not loaded with "
+                              "continuous CNA scores!")
+
+        copy_use = self.copy_data.loc[samps, cna_dict['Gene']]
+        
+        if cna_dict['CNA'] == 'Gain':
+            stat_list = copy_use > cna_dict['Cutoff']
+
+        elif cna_dict['CNA'] == 'Loss':
+            stat_list = copy_use < cna_dict['Cutoff']
+
+        elif cna_dict['CNA'] == 'Range':
+            stat_list = copy_use.between(*cna_dict['Cutoff'], inclusive=False)
+        
+        else:
+            raise ValueError(
+                'A dictionary representing a CNA phenotype must have "Gain", '
+                '"Loss", or "Range" as its `CNA` entry!'
+                )
+
+        return stat_list
+
+    def train_pheno(self, pheno, samps=None):
         """Gets the mutation status of samples in the training cohort.
 
         Args:
@@ -156,24 +172,32 @@ class BaseMutationCohort(PresenceCohort, UniCohort):
 
         """
 
-        # uses all the training samples if no list of samples provided
+        # use all the training samples if no list of samples is provided
         if samps is None:
-            samps = self.train_samps
+            samps = sorted(self.train_samps)
 
-        # filters out the provided samples not in the training cohort
+        # otherwise, filter out the provided samples
+        # not in the training cohort
         else:
-            samps = set(samps) & self.train_samps
+            samps = sorted(set(samps) & self.train_samps)
+        
+        if isinstance(pheno, MuType):
+            stat_list = self.train_mut.status(samps, pheno)
 
-        if isinstance(mtype, MuType):
-            stat_list = self.train_mut.status(samps, mtype)
+        elif isinstance(pheno, dict):
+            stat_list = self.cna_pheno(pheno, samps)
 
-        elif isinstance(tuple(mtype)[0], MuType):
-            stat_list = [self.train_mut.status(samps, mtp)
-                         for mtp in sorted(mtype)]
+        elif isinstance(tuple(pheno)[0], MuType):
+            stat_list = [self.train_mut.status(samps, phn) for phn in pheno]
+
+        elif isinstance(tuple(pheno)[0], dict):
+            stat_list = [self.cna_pheno(phn, samps) for phn in pheno]
 
         else:
-            raise TypeError("A VariantCohort accepts only MuTypes or lists "
-                            "of MuTypes as training phenotypes!")
+            raise TypeError(
+                "A VariantCohort accepts only MuTypes, CNA dictionaries, or "
+                "lists thereof as training phenotypes!"
+                )
 
         return stat_list
 
@@ -192,24 +216,31 @@ class BaseMutationCohort(PresenceCohort, UniCohort):
 
         """
 
-        # uses all the testing samples if no list of samples provided
+        # use all the testing samples if no list of samples is provided
         if samps is None:
-            samps = self.test_samps
+            samps = sorted(self.test_samps)
 
-        # filters out the provided samples not in the testing cohort
+        # otherwise, filter out the provided samples not in the testing cohort
         else:
-            samps = set(samps) & self.test_samps
+            samps = sorted(set(samps) & self.test_samps)
+        
+        if isinstance(pheno, MuType):
+            stat_list = self.test_mut.status(samps, pheno)
 
-        if isinstance(mtype, MuType):
-            stat_list = self.test_mut.status(samps, mtype)
+        elif isinstance(pheno, dict):
+            stat_list = self.cna_pheno(pheno, samps)
 
-        elif isinstance(tuple(mtype)[0], MuType):
-            stat_list = [self.test_mut.status(samps, mtp)
-                         for mtp in sorted(mtype)]
+        elif isinstance(tuple(pheno)[0], MuType):
+            stat_list = [self.test_mut.status(samps, phn) for phn in pheno]
+
+        elif isinstance(tuple(pheno)[0], dict):
+            stat_list = [self.cna_pheno(phn, samps) for phn in pheno]
 
         else:
-            raise TypeError("A VariantCohort accepts only MuTypes or lists "
-                            "of MuTypes as testing phenotypes!")
+            raise TypeError(
+                "A VariantCohort accepts only MuTypes, CNA dictionaries, or "
+                "lists thereof as testing phenotypes!"
+                )
 
         return stat_list
 

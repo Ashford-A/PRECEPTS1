@@ -1206,10 +1206,9 @@ class MuTree(object):
 
         """
         if mtype is None:
-            mtype = MuType(self.allkey())
+            samp_list = self.get_samples()
+        else:
+            samp_list = mtype.get_samples(self)
 
-        samp_list = mtype.get_samples(self)
-        stat_list = [s in samp_list for s in sorted(samples)]
-
-        return stat_list
+        return [s in samp_list for s in samples]
 
