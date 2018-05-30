@@ -22,35 +22,6 @@ from functools import reduce
 firehose_dir = "/home/exacloud/lustre1/share_your_data_here/precepts/firehose"
 
 
-def get_output_files(out_dir):
-    file_list = glob(os.path.join(out_dir, 'out__task-*.p'))
-
-    base_names = [os.path.basename(fl).split('out__')[1] for fl in file_list]
-    task_ids = [int(nm.split('task-')[1].split('.p')[0]) for nm in base_names]
-
-    return file_list, task_ids
-
-
-def load_output(out_dir):
-    """Gets the cross-validated AUCs of a set of tested MuTypes.
-
-    Args:
-        out_dir (str): The directory where the results were saved.
-
-    Examples:
-        >>> out_data = load_output("HetMan/experiments/subvariant_detection/"
-        >>>                        "output/PAAD/rForest/search")
-
-    """
-    file_list, task_ids = get_output_files(out_dir)
-
-    return pd.concat([
-        pd.DataFrame.from_dict(pickle.load(open(fl, 'rb'))['Iso'],
-                               orient='index')
-        for fl in file_list
-        ]).sort_index()
-
-
 def main():
     """Runs the experiment."""
 
@@ -214,10 +185,8 @@ def main():
         else:
             del(out_iso[mtype])
 
-    # saves the performance measurements and tuned hyper-parameter values
-    # for each sub-type to file
     pickle.dump(
-        {'Iso': out_iso,
+        {'Infer': out_iso,
          'Info': {'TunePriors': mut_clf.tune_priors,
                   'TuneSplits': args.tune_splits,
                   'TestCount': args.test_count,

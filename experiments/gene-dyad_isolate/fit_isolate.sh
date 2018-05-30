@@ -34,5 +34,5 @@ srun -p=exacloud \
 	python HetMan/experiments/utilities/pair_mutype_infer.py -v \
 	$SETUP_DIR/pairs_list__samps_${samp_cutoff}.p $OUTDIR $cohort $classif \
 	--task_count=$(( $array_size + 1 )) --task_id=$task_id \
-	--tune_splits=4 --test_count=24 --infer_splits=40 --parallel_jobs=8
+	--tune_splits=4 --test_count=32 --infer_splits=40 --parallel_jobs=8
 

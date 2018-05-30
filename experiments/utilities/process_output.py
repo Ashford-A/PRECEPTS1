@@ -21,18 +21,15 @@ def get_output_files(out_dir):
     return file_list, task_ids
 
 
-def load_infer_output(out_dir, out_key):
+def load_infer_output(out_dir):
     file_list, task_ids = get_output_files(out_dir)
 
     out_df = pd.concat([
-        pd.DataFrame.from_dict(pickle.load(open(fl, 'rb'))[out_key],
+        pd.DataFrame.from_dict(pickle.load(open(fl, 'rb'))['Infer'],
                                orient='index')
         for fl in file_list
         ])
  
-    if hasattr(out_df.iloc[0, 0][0], '__len__'):
-        out_df = out_df.applymap(lambda x: [y[0] for y in x])
-
     if all(isinstance(x, tuple) for x in out_df.index):
         out_df.index = pd.MultiIndex.from_tuples(out_df.index)
 

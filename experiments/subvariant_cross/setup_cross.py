@@ -67,16 +67,25 @@ def main():
         sub_levels=use_lvls, min_type_size=args.samp_cutoff
         )
 
-    cross_mtypes = {mtype for mtype in cross_mtypes
-                    if (len(mtype.get_samples(cdata.train_mut))
-                        <= (len(cdata.samples) - args.samp_cutoff))}
+    mtype_samps = {mtype: mtype.get_samples(cdata.train_mut)
+                   for mtype in cross_mtypes}
+    cross_mtypes = {
+        mtype for mtype in cross_mtypes
+        if len(mtype_samps[mtype]) <= (len(cdata.samples) - args.samp_cutoff)
+        }
 
     if args.verbose:
         print("\nFound {} total sub-types to cross!".format(
             len(cross_mtypes)))
 
     use_pairs = {(mtype1, mtype2) for mtype1, mtype2 in combn(cross_mtypes, 2)
-                 if (mtype1 & mtype2).is_empty()}
+                 if ((len(mtype_samps[mtype1] - mtype_samps[mtype2])
+                      >= args.samp_cutoff)
+                     and (len(mtype_samps[mtype2] - mtype_samps[mtype1])
+                          >= args.samp_cutoff)
+                     and (len(mtype_samps[mtype1] | mtype_samps[mtype2])
+                          <= (len(cdata.samples) - args.samp_cutoff))
+                     and (mtype1 & mtype2).is_empty())}
 
     if args.verbose:
         print("\nFound {} non-overlapping sub-type pairs!".format(

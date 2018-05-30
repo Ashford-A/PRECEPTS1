@@ -22,40 +22,6 @@ from functools import reduce
 firehose_dir = "/home/exacloud/lustre1/share_your_data_here/precepts/firehose"
 
 
-def get_output_files(out_dir):
-    file_list = glob(os.path.join(out_dir, 'out__task-*.p'))
-
-    base_names = [os.path.basename(fl).split('out__')[1] for fl in file_list]
-    task_ids = [int(nm.split('task-')[1].split('.p')[0]) for nm in base_names]
-
-    return file_list, task_ids
-
-
-def load_output(out_dir):
-    """Gets the cross-validated AUCs of a set of tested MuTypes.
-
-    Args:
-        out_dir (str): The directory where the results were saved.
-
-    Examples:
-        >>> out_data = test_output("HetMan/experiments/subvariant_detection/"
-        >>>                        "output/PAAD/rForest/search")
-
-    """
-    file_list, task_ids = get_output_files(out_dir)
-
-    out_df = pd.concat([
-        pd.DataFrame.from_dict(pickle.load(open(fl, 'rb'))['Cross'],
-                               orient='index')
-        for fl in file_list
-        ]).applymap(lambda x: [y[0] for y in x])
-
-    out_df.index = pd.MultiIndex.from_tuples(out_df.index)
-    out_df = out_df.sort_index()
-
-    return out_df
-
-
 def main():
     """Runs the experiment."""
 
@@ -127,9 +93,9 @@ def main():
 
     if args.verbose:
         print("Starting cross-isolation for sub-types in\n{}\nthe results "
-              "of which will be stored in\n{}\nin cohort {} with "
-              "classifier <{}>.".format(args.mtype_file, args.out_dir,
-                                        args.cohort, args.classif))
+              "of which will be stored in\n{}\nwith classifier <{}>.".format(
+                  args.mtype_file, args.out_dir, args.classif
+                ))
 
     pair_list = pickle.load(open(args.mtype_file, 'rb'))
     or_list = [mtype1 | mtype2 for mtype1, mtype2 in pair_list]
@@ -198,53 +164,48 @@ def main():
     # for each subtype, check if it has been assigned to this task
     for i, (mtype1, mtype2) in enumerate(pair_list):
         if (i % args.task_count) == args.task_id:
-            clf = mut_clf()
-
             if args.verbose:
                 print("Crossing {} and {} ...".format(mtype1, mtype2))
 
+            clf = mut_clf()
             samps1 = mtype1.get_samples(cdata.train_mut)
             samps2 = mtype2.get_samples(cdata.train_mut)
             ex_samps = base_samps - (samps1 | samps2)
+            
+            clf.tune_coh(
+                cdata, mtype1,
+                exclude_genes=use_genes, exclude_samps=ex_samps,
+                tune_splits=args.tune_splits, test_count=args.test_count,
+                parallel_jobs=args.parallel_jobs
+                )
+            
+            out_cross[(mtype1, mtype2)] = clf.infer_coh(
+                cdata, mtype1,
+                exclude_genes=use_genes, force_test_samps=ex_samps,
+                infer_splits=args.infer_splits, infer_folds=args.infer_folds,
+                parallel_jobs=args.parallel_jobs
+                )
 
-            if len(samps1 | samps2) <= (len(cdata.samples) - 10):
-
-                if 10 <= len(samps1 - samps2):
-                    clf.tune_coh(cdata, mtype1, exclude_genes=use_genes,
-                                 exclude_samps=ex_samps,
-                                 tune_splits=args.tune_splits,
-                                 test_count=args.test_count,
-                                 parallel_jobs=args.parallel_jobs)
-                    
-                    out_cross[(mtype1, mtype2)] = clf.infer_coh(
-                        cdata, mtype1, exclude_genes=use_genes,
-                        force_test_samps=ex_samps,
-                        infer_splits=args.infer_splits,
-                        infer_folds=args.infer_folds,
-                        parallel_jobs=args.parallel_jobs
-                        )
-
-                if 10 <= len(samps2 - samps1):
-                    clf.tune_coh(cdata, mtype2, exclude_genes=use_genes,
-                                 exclude_samps=ex_samps,
-                                 tune_splits=args.tune_splits,
-                                 test_count=args.test_count,
-                                 parallel_jobs=args.parallel_jobs)
-                    
-                    out_cross[(mtype2, mtype1)] = clf.infer_coh(
-                        cdata, mtype2, exclude_genes=use_genes,
-                        force_test_samps=ex_samps,
-                        infer_splits=args.infer_splits,
-                        infer_folds=args.infer_folds,
-                        parallel_jobs=args.parallel_jobs
-                        )
+            clf.tune_coh(
+                cdata, mtype2,
+                exclude_genes=use_genes, exclude_samps=ex_samps,
+                tune_splits=args.tune_splits, test_count=args.test_count,
+                parallel_jobs=args.parallel_jobs
+                )
+            
+            out_cross[(mtype2, mtype1)] = clf.infer_coh(
+                cdata, mtype2,
+                exclude_genes=use_genes, force_test_samps=ex_samps,
+                infer_splits=args.infer_splits, infer_folds=args.infer_folds,
+                parallel_jobs=args.parallel_jobs
+                )
 
         else:
             del(out_cross[(mtype1, mtype2)])
             del(out_cross[(mtype2, mtype1)])
 
     pickle.dump(
-        {'Cross': out_cross,
+        {'Infer': out_cross,
          'Info': {'TunePriors': mut_clf.tune_priors,
                   'TuneSplits': args.tune_splits,
                   'TestCount': args.test_count,

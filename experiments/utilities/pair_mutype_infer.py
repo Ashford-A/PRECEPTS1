@@ -194,8 +194,7 @@ def main():
         {'Infer': out_cross,
          'Info': {'TunePriors': mut_clf.tune_priors,
                   'TuneSplits': args.tune_splits,
-                  'TestCount': args.test_count,
-                  'InferFolds': args.infer_folds}},
+                  'TestCount': args.test_count}},
         open(out_file, 'wb')
         )
 

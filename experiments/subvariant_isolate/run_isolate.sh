@@ -48,8 +48,8 @@ fi
 
 if [ -z ${test_max+x} ]
 then
-	echo "limiting maximum number of tests per node to twenty-five"
-	export test_max=25
+	echo "limiting maximum number of tests per node to fifty"
+	export test_max=50
 fi
 
 # get the directory containing the experiment and the sub-directory where the

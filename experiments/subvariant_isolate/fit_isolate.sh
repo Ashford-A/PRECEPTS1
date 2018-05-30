@@ -6,7 +6,7 @@
 #SBATCH --time=2150
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem-per-cpu=4000
+#SBATCH --mem-per-cpu=5000
 
 #SBATCH --output=/home/exacloud/lustre1/CompBio/mgrzad/slurm/log-files/subv-isolate_fit_out-%A.txt
 #SBATCH --error=/home/exacloud/lustre1/CompBio/mgrzad/slurm/log-files/subv-isolate_fit_err-%A.txt
@@ -35,5 +35,5 @@ srun -p=exacloud \
 	$SETUP_DIR/mtypes_list__samps_${samp_cutoff}__levels_${mut_levels}.p \
 	$OUTDIR $cohort $classif --use_genes $gene \
 	--task_count=$(( $array_size + 1 )) --task_id=$task_id \
-	--tune_splits=8 --test_count=32 --infer_splits=40 --parallel_jobs=8
+	--tune_splits=4 --test_count=32 --infer_splits=40 --parallel_jobs=8
 
