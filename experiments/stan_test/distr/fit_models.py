@@ -118,7 +118,7 @@ def main():
         print('Using the following Stan model:\n\n{}'.format(
             clf_stan.named_steps['fit'].model_code))
 
-    # logs into Synapse using locally-stored credentials
+    # log into Synapse using locally stored credentials
     syn = synapseclient.Synapse()
     syn.cache.cache_root_dir = ('/home/exacloud/lustre1/CompBio'
                                 '/mgrzad/input-data/synapse')
