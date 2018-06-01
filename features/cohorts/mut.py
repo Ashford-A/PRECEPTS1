@@ -48,7 +48,6 @@ class BaseMutationCohort(PresenceCohort, UniCohort):
 
             # finds the mutations associated with samples matched with samples
             # found in the expression data, removes copy number calls
-            variants = variants.loc[variants['Sample'].isin(var_samps), :]
             var_df = variants.loc[
                 ~variants['Form'].isin(
                     ['HomDel', 'HetDel', 'HetGain', 'HomGain']),

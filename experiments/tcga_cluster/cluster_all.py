@@ -28,7 +28,6 @@ firehose_dir = "/home/exacloud/lustre1/share_your_data_here/precepts/firehose"
 def plot_all_clustering(trans_dict, args, cdata, use_comps=(0, 1)):
     fig, axarr = plt.subplots(nrows=1, ncols=len(trans_dict),
                               figsize=(21, 7))
-    fig.tight_layout(pad=1.6)
 
     # extracts the given pair of components from each transformed dataset
     use_comps = np.array(use_comps)
@@ -48,6 +47,7 @@ def plot_all_clustering(trans_dict, args, cdata, use_comps=(0, 1)):
                          marker='o', s=8, c='0.5', alpha=0.2,
                          edgecolor='none')
 
+    fig.tight_layout(w_pad=1.2)
     fig.savefig(os.path.join(plot_dir,
                              "clustering_comps_{}-{}.png".format(
                                  use_comps[0], use_comps[1])),
@@ -59,9 +59,8 @@ def plot_all_clustering(trans_dict, args, cdata, use_comps=(0, 1)):
 def plot_cohort_clustering(trans_dict, args, cdata, use_comps=(0, 1)):
     fig, axarr = plt.subplots(nrows=1, ncols=len(trans_dict),
                               figsize=(21, 7))
-    fig.tight_layout(pad=1.6)
 
-    samp_list = sorted(cdata.samples)
+    samp_list = cdata.subset_samps()
     use_comps = np.array(use_comps)
     trans_dict = [(trs_lbl, trans_expr[:, use_comps])
                   for trs_lbl, trans_expr in trans_dict]
@@ -72,7 +71,7 @@ def plot_cohort_clustering(trans_dict, args, cdata, use_comps=(0, 1)):
         ax.set_yticklabels([])
 
     for i, (trs_lbl, trans_expr) in enumerate(trans_dict):
-        axarr[i].set_title(trs_lbl, size=24, weight='semibold')
+        axarr[i].set_title(trs_lbl, size=22, weight='semibold')
 
         for cohort, samps in cdata.cohort_samps.items():
             samp_indx = np.array([samp_list.index(samp) for samp in samps])
@@ -87,6 +86,7 @@ def plot_cohort_clustering(trans_dict, args, cdata, use_comps=(0, 1)):
                 marker='o', s=10, c=use_clr, alpha=0.16, edgecolor='none'
                 )
 
+    fig.tight_layout(w_pad=0.6)
     fig.savefig(os.path.join(plot_dir,
                              "clustering-cohort_comps_{}-{}.png".format(
                                  use_comps[0], use_comps[1])),
@@ -98,7 +98,6 @@ def plot_cohort_clustering(trans_dict, args, cdata, use_comps=(0, 1)):
 def plot_gene_clustering(trans_dict, use_gene, cdata, use_comps=(0, 1)):
     fig, axarr = plt.subplots(nrows=1, ncols=len(trans_dict),
                               figsize=(21, 7))
-    fig.tight_layout(pad=1.6)
 
     # extracts the given pair of components from each transformed dataset
     use_comps = np.array(use_comps)
@@ -130,6 +129,7 @@ def plot_gene_clustering(trans_dict, use_gene, cdata, use_comps=(0, 1)):
             marker='o', s=10, c=mut_clr, alpha=0.3, edgecolor='none'
             )
 
+    fig.tight_layout(w_pad=1.1)
     fig.savefig(os.path.join(plot_dir,
                              "clustering-gene_{}__comps_{}-{}.png".format(
                                  use_gene, use_comps[0], use_comps[1])),
@@ -140,16 +140,18 @@ def plot_gene_clustering(trans_dict, use_gene, cdata, use_comps=(0, 1)):
 
 def plot_cohort_panels(trs_lbl, trans_expr, cdata, use_comps=(0, 1)):
     fig, axarr = plt.subplots(nrows=4, ncols=7, figsize=(14, 10))
-    fig.tight_layout(w_pad=-0.4, h_pad=1.6)
 
     trans_use = trans_expr[:, np.array(use_comps)]
     samp_list = sorted(cdata.samples)
 
-    for ax, (cohort, samps) in zip(axarr.reshape(-1),
-                                   cdata.cohort_samps.items()):
+    for ax, (cohort, samps) in zip(
+            axarr.reshape(-1),
+            sorted(cdata.cohort_samps.items(),
+                   key=lambda x: len(x[1]))[:28][::-1]
+            ):
         samp_indx = np.array([samp in samps for samp in samp_list])
 
-        ax.set_title(cohort, size=14, weight='semibold')
+        ax.set_title(cohort, size=13, weight='semibold')
         ax.set_xticklabels([])
         ax.set_yticklabels([])
  
@@ -159,10 +161,11 @@ def plot_cohort_panels(trs_lbl, trans_expr, cdata, use_comps=(0, 1)):
             use_clr = '0.5'
 
         ax.scatter(trans_use[samp_indx, 0], trans_use[samp_indx, 1],
-                   marker='o', s=13, c=use_clr, alpha=0.26, edgecolor='none')
+                   marker='o', s=11, c=use_clr, alpha=0.36, edgecolor='none')
         ax.scatter(trans_use[~samp_indx, 0], trans_use[~samp_indx, 1],
-                   marker='o', s=5, c='0.5', alpha=0.11, edgecolor='none')
+                   marker='o', s=4, c='0.5', alpha=0.07, edgecolor='none')
 
+    fig.tight_layout(w_pad=0.7, h_pad=1.2)
     fig.savefig(os.path.join(plot_dir,
                              "{}__panels-cohort_comps_{}-{}.png".format(
                                  trs_lbl, use_comps[0], use_comps[1])),
@@ -177,7 +180,7 @@ def main():
         "learning methods on all TCGA cohorts concatenated together."
         )
 
-    # parses command line arguments, creates the directory where the
+    # parse command line arguments, create the directory where the
     # plots will be saved
     parser.add_argument('--genes', type=str, nargs='+', default=['TP53'],
                         help='a list of genes mutated in TCGA')

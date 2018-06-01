@@ -21,30 +21,8 @@ class BaseMutFreqCohort(ValueCohort, UniCohort):
 
     """
 
-    def __init__(self,
-                 expr, variants, matched_samps, feat_annot,
-                 cv_prop=2.0/3, cv_seed=None):
-
-        # gets the set of samples shared across the expression and mutation
-        # data that are also primary tumour samples
-        use_samples = [samp for samp, _ in matched_samps]
-        expr_samps = [samp for (_, (samp, _)) in matched_samps]
-        var_samps = [samp for (_, (_, samp)) in matched_samps]
-
-        # gets the subset of expression data corresponding to the shared
-        # samples and annotated genes, renames expression samples to the
-        # shared sample names
-        expr = expr.loc[expr_samps, list(feat_annot)]
-        expr.index = [use_samples[expr_samps.index(samp)]
-                      for samp in expr.index]
-
-        variants = variants.loc[variants['Sample'].isin(var_samps), :]
-        new_samps = [use_samples[var_samps.index(samp)]
-                     for samp in variants['Sample']]
-
-        variants = variants.drop(labels=['Sample'], axis="columns",
-                                 inplace=False)
-        variants['Sample'] = new_samps
+    def __init__(self, expr, variants, cv_prop=2.0/3, cv_seed=None):
+        self.cv_prop = cv_prop
 
         # filters out genes that have both low levels of expression and low
         # variance of expression
@@ -56,7 +34,7 @@ class BaseMutFreqCohort(ValueCohort, UniCohort):
         # gets subset of samples to use for training, and split the expression
         # and variant datasets accordingly into training/testing cohorts
         train_samps, test_samps = self.split_samples(
-            cv_seed, cv_prop, use_samples)
+            cv_seed, cv_prop, expr.index)
 
         # calculates the number of mutated genes each sample has
         self.mut_freqs = variants.loc[
@@ -64,7 +42,6 @@ class BaseMutFreqCohort(ValueCohort, UniCohort):
                 ['HomDel', 'HetDel', 'HetGain', 'HomGain']),
                 :].groupby(by='Sample').Gene.nunique()
 
-        self.cv_prop = cv_prop
         super().__init__(expr, train_samps, test_samps, cv_seed)
 
     def train_pheno(self, samps=None):
