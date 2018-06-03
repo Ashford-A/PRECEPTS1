@@ -98,20 +98,24 @@ def plot_singleton_ordering(simil_df, auc_list, args, cdata):
     ylabs = [repr(mtype).replace(' WITH ', '\n')
              for mtype in simil_df.index]
 
+    # draw the heatmap
     ax = sns.heatmap(simil_df, cmap=simil_cmap, vmin=-1.0, vmax=2.0,
-                     xticklabels=xlabs, yticklabels=ylabs,
-                     annot=annot_df, fmt='', annot_kws={'size': 16})
+                     xticklabels=xlabs, yticklabels=ylabs, square=True,
+                     annot=annot_df, fmt='', annot_kws={'size': 14})
 
+    # configure the tick labels on the colourbar
     cbar = ax.collections[0].colorbar
     cbar.set_ticks([-1.0, 0.0, 1.0, 2.0])
     cbar.set_ticklabels(['M2 < WT', 'M2 = WT', 'M2 = M1', 'M2 > M1'])
+    cbar.ax.tick_params(labelsize=13) 
 
-    plt.xticks(rotation=40, ha='right', size=17)
-    plt.yticks(size=14)
+    # configure the tick labels on the heatmap proper
+    plt.xticks(rotation=40, ha='right', size=12)
+    plt.yticks(size=13)
 
     plt.xlabel('M2: Testing Mutation (# of samples)',
-               size=20, weight='semibold')
-    plt.ylabel('M1: Training Mutation', size=22, weight='semibold')
+               size=19, weight='semibold')
+    plt.ylabel('M1: Training Mutation', size=19, weight='semibold')
 
     plt.savefig(os.path.join(
         plot_dir, "singleton_ordering__{}_{}__{}__samps_{}__{}.png".format(
@@ -130,11 +134,11 @@ def plot_all_ordering(simil_df, auc_list, args, cdata):
 
     gr = sns.clustermap(
         simil_df, cmap=simil_cmap, figsize=(16, 13), vmin=-1.0, vmax=2.0,
-        row_linkage=row_linkage, col_linkage=row_linkage
+        row_linkage=row_linkage, col_linkage=row_linkage,
         )
 
-    ax = gr.ax_heatmap
-    ax.set_xticks([])
+    gr.ax_heatmap.set_xticks([])
+    gr.cax.set_visible(False)
 
     plt.savefig(os.path.join(
         plot_dir, "all_ordering__{}_{}__{}__samps_{}__{}.png".format(
