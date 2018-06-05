@@ -18,11 +18,11 @@ gene_list=()
 while getopts t:g:c:s:l:m: var
 do
 	case "$var" in
-		t)	cohort=$OPTARG;;
+		t)	export cohort=$OPTARG;;
 		g)	gene_list+=($OPTARG);;
-		c)	classif=$OPTARG;;
-		s)	samp_cutoff=$OPTARG;;
-		l)	mut_levels=$OPTARG;;
+		c)	export classif=$OPTARG;;
+		s)	export samp_cutoff=$OPTARG;;
+		l)	export mut_levels=$OPTARG;;
 		m)	test_max=$OPTARG;;
 		[?])	echo "Usage: $0 [-t] TCGA cohort [-g]...[-g] mutated genes [-c] classifier" \
 			     "[-s] sample cutoff [-l] mutation levels [-m] maximum tests per node";
