@@ -56,7 +56,8 @@ def main():
         (MuType({('Gene', gn1): None}), MuType({('Gene', gn2): None}))
         for (gn1, muts1), (gn2, muts2) in combn(cdata.train_mut, r=2)
         if (len(muts1 - muts2) >= args.samp_cutoff
-            and len(muts2 - muts1) >= args.samp_cutoff)
+            and len(muts2 - muts1) >= args.samp_cutoff
+            and len(muts1 | muts2) <= (len(cdata.samples) - args.samp_cutoff))
         }
 
     if args.verbose:

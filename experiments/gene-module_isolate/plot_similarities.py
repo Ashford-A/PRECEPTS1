@@ -83,12 +83,9 @@ def plot_gene_ordering(simil_df, auc_list, args, cdata):
     fig, ax = plt.subplots(figsize=(16, 14))
 
     simil_rank = simil_df.mean(axis=1) - simil_df.mean(axis=0)
-    simil_order = simil_rank.sort_values().index
-    simil_df = simil_df.loc[simil_order, reversed(simil_order)].fillna(1.0)
-    
-    gene_sorted = sorted(simil_df.index,
+    gene_sorted = sorted(simil_rank.sort_values().index,
                          key=lambda mtype: mtype.subtype_list()[0][0])
-    simil_df = simil_df.loc[gene_sorted, gene_sorted]
+    simil_df = simil_df.loc[gene_sorted, gene_sorted].fillna(1.0)
 
     annot_df = pd.DataFrame(-1.0,
                             index=simil_df.index, columns=simil_df.columns)

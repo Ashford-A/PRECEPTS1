@@ -24,59 +24,51 @@ plt.style.use('fivethirtyeight')
 firehose_dir = "/home/exacloud/lustre1/share_your_data_here/precepts/firehose"
 
 
-def get_similarities(iso_df, args, cdata):
-    use_mtypes = set(iso_df.index.levels[0]) | set(iso_df.index.levels[1])
+def get_pair_data(iso_df, args, cdata):
+    out_df = pd.DataFrame(index=iso_df.index,
+                          columns=['Mutex', 'Simil', 'AUC'])
 
-    simil_df = pd.DataFrame(index=use_mtypes, columns=use_mtypes,
-                            dtype=np.float)
-    mutex_df = pd.DataFrame(index=use_mtypes, columns=use_mtypes,
-                            dtype=np.float)
-    auc_df = pd.DataFrame(index=use_mtypes, columns=use_mtypes,
-                          dtype=np.float)
+    for mtype_pair, iso_vals in iso_df.iterrows():
+        if mtype_pair[0] < mtype_pair[1]:
+            out_df.loc[mtype_pair, 'Mutex'] = cdata.mutex_test(*mtype_pair)
 
-    for mtype1, mtype2 in combn(use_mtypes, 2):
-        if (mtype1, mtype2) in iso_df.index:
-            mutex_df.loc[mtype1, mtype2] = cdata.mutex_test(mtype1, mtype2)
-            mutex_df.loc[mtype2, mtype1] = cdata.mutex_test(mtype1, mtype2)
+        cur_pheno = np.array(cdata.train_pheno(mtype_pair[0]))
+        other_pheno = np.array(cdata.train_pheno(mtype_pair[1]))
+ 
+        none_vals = np.concatenate(iso_vals.values[~cur_pheno & ~other_pheno])
+        cur_vals = np.concatenate(iso_vals.values[cur_pheno & ~other_pheno])
+        other_vals = np.concatenate(iso_vals.values[~cur_pheno & other_pheno])
+ 
+        other_none_prob = np.greater.outer(none_vals, other_vals).mean()
+        other_cur_prob = np.greater.outer(other_vals, cur_vals).mean()
+        cur_none_prob = np.greater.outer(none_vals, cur_vals).mean()
+ 
+        out_df.loc[mtype_pair, 'Simil'] = (
+            (other_cur_prob - other_none_prob) / (0.5 - cur_none_prob))
+        out_df.loc[mtype_pair, 'AUC'] = 1 - cur_none_prob
 
-            pheno1 = np.array(cdata.train_pheno(mtype1))
-            pheno2 = np.array(cdata.train_pheno(mtype2))
-
-            use_vals1 = iso_df.loc[[(mtype1, mtype2)], :].values.flatten()
-            use_vals2 = iso_df.loc[[(mtype2, mtype1)], :].values.flatten()
-            
-            none_vals1 = np.concatenate(use_vals1[~pheno1 & ~pheno2])
-            cur_vals1 = np.concatenate(use_vals1[pheno1 & ~pheno2])
-            other_vals1 = np.concatenate(use_vals1[pheno2 & ~pheno1])
-            
-            none_vals2 = np.concatenate(use_vals2[~pheno1 & ~pheno2])
-            cur_vals2 = np.concatenate(use_vals2[pheno2 & ~pheno1])
-            other_vals2 = np.concatenate(use_vals2[pheno1 & ~pheno2])
-
-            other_none_prob1 = np.greater.outer(
-                none_vals1, other_vals1).mean()
-            other_cur_prob1 = np.greater.outer(other_vals1, cur_vals1).mean()
-            cur_none_prob1 = np.greater.outer(none_vals1, cur_vals1).mean()
-            
-            other_none_prob2 = np.greater.outer(
-                none_vals2, other_vals2).mean()
-            other_cur_prob2 = np.greater.outer(other_vals2, cur_vals2).mean()
-            cur_none_prob2 = np.greater.outer(none_vals2, cur_vals2).mean()
-            
-            simil_df.loc[mtype1, mtype2] = (
-                (other_cur_prob1 - other_none_prob1) / (0.5 - cur_none_prob1))
-            simil_df.loc[mtype2, mtype1] = (
-                (other_cur_prob2 - other_none_prob2) / (0.5 - cur_none_prob2))
-
-            auc_df.loc[mtype1, mtype2] = np.greater.outer(
-                cur_vals1, none_vals1).mean()
-            auc_df.loc[mtype2, mtype1] = np.greater.outer(
-                cur_vals2, none_vals2).mean()
-
-    return simil_df, mutex_df, auc_df
+    return out_df
 
 
-def plot_mutex_similarity(simil_df, annot_df, auc_df, args, cdata):
+def place_annot(x_vec, y_vec, size_vec, annot_vec, x_range, y_range):
+    placed_annot = []
+ 
+    for i, (xval, yval, size_val, annot) in enumerate(zip(
+            x_vec, y_vec, size_vec, annot_vec)):
+
+        if all((xs > (xval + x_range * 0.08)) | (xs < xval)
+               | (ys > (yval + y_range * 0.02))
+               | (ys < (yval - y_range * 0.02))
+               for xs, ys in zip(x_vec[:i] + x_vec[(i + 1):],
+                                 y_vec[:i] + y_vec[(i + 1):])):
+
+            lbl_gap = (size_val ** 0.5) / 235
+            placed_annot += [(xval + lbl_gap, yval + lbl_gap, annot)]
+
+    return placed_annot
+
+
+def plot_mutex_similarity(out_df, args, cdata):
     fig, ax = plt.subplots(figsize=(13, 8))
 
     x_vec = []
@@ -84,32 +76,23 @@ def plot_mutex_similarity(simil_df, annot_df, auc_df, args, cdata):
     annot_vec = []
     size_vec = []
 
-    for mtype1, mtype2 in combn(simil_df.index, 2):
-        if (not np.isnan(simil_df.loc[mtype1, mtype2])
-                and (auc_df.loc[mtype1, mtype2] > 0.6
-                     or auc_df.loc[mtype2, mtype1] > 0.6)):
-
-            size_val = ((len(mtype1.get_samples(cdata.train_mut))
-                         + len(mtype2.get_samples(cdata.train_mut)))
-                        / len(cdata.samples)) * 119
-
-            mutex_val = -np.log10(annot_df.loc[mtype1, mtype2])
-            alpha_val = np.max([auc_df.loc[mtype1, mtype2],
-                                auc_df.loc[mtype2, mtype1]]) ** 4 - 0.07
-
-            if auc_df.loc[mtype1, mtype2] > auc_df.loc[mtype2, mtype1]:
-                simil_val = simil_df.loc[mtype1, mtype2]
+    for mtype_pair, (mtx_val, sim_val, auc_val) in out_df.iterrows():
+        if auc_val > 0.65:
+            pair_size = len((mtype_pair[0] | mtype_pair[1]).get_samples(
+                cdata.train_mut))
+ 
+            if mtype_pair[0] > mtype_pair[1]:
+                x_vec += [-np.log10(out_df.loc[tuple(sorted(mtype_pair)),
+                                               'Mutex'])]
             else:
-                simil_val = simil_df.loc[mtype2, mtype1]
+                x_vec += [-np.log10(mtx_val)]
 
-            x_vec += [mutex_val]
-            y_vec += [simil_val]
-            annot_vec += ['{}+{}'.format(mtype1, mtype2)]
-            size_vec += [size_val]
+            size_vec += [127 * pair_size / len(cdata.samples)]
+            annot_vec += ['{}->{}'.format(*mtype_pair)]
+            y_vec += [sim_val]
 
-            ax.scatter(mutex_val, simil_val,
-                       c='#801515', s=size_val, alpha=alpha_val,
-                       edgecolors='none')
+            ax.scatter(x_vec[-1], y_vec[-1], c='#801515', s=size_vec[-1],
+                       alpha=auc_val ** 6, edgecolors='none')
 
     plt_xmin, plt_xmax = plt.xlim()
     plt_ymin, plt_ymax = plt.ylim()
@@ -127,18 +110,9 @@ def plot_mutex_similarity(simil_df, annot_df, auc_df, args, cdata):
     plt.xlim(plt_xmin, plt_xmax)
     plt.ylim(-y_bound, y_bound)
 
-    for i, (xval, yval, annot, size_val) in enumerate(zip(
-            x_vec, y_vec, annot_vec, size_vec)):
-
-        if all((xs > (xval + x_range * 0.08)) | (xs < xval)
-               | (ys > (yval + y_bound * 0.05))
-               | (ys < (yval - y_bound * 0.03))
-               for xs, ys in zip(x_vec[:i] + x_vec[(i + 1):],
-                                 y_vec[:i] + y_vec[(i + 1):])):
-
-            lbl_gap = (size_val ** 0.5) / 235
-            ax.text(xval + lbl_gap, yval + lbl_gap, annot,
-                    size=7, stretch='extra-condensed')
+    for annot_x, annot_y, annot in place_annot(
+            x_vec, y_vec, size_vec, annot_vec, x_range, y_bound * 2):
+        ax.text(annot_x, annot_y, annot, size=7, stretch='extra-condensed')
 
     plt.xlabel('Mutual Mutation Exclusivity', size=18, weight='semibold')
     plt.ylabel('Mutual Signature Similarity', size=18, weight='semibold')
@@ -147,15 +121,84 @@ def plot_mutex_similarity(simil_df, annot_df, auc_df, args, cdata):
 
     plt.savefig(
         os.path.join(plot_dir,
-                     "mutex-simil_{}-{}".format(args.cohort, args.classif)),
+                     "simil_{}-{}__samps_{}".format(
+                         args.cohort, args.classif, args.samp_cutoff)
+                    ),
         dpi=300, bbox_inches='tight'
         )
+
+    plt.close()
+
+
+def plot_mutex_pair_similarity(out_df, args, cdata):
+    fig, ax = plt.subplots(figsize=(13, 8))
+
+    x_vec = []
+    y_vec = []
+    annot_vec = []
+    size_vec = []
+
+    for mtype1, mtype2 in set(tuple(sorted(mtype_pair))
+                              for mtype_pair in out_df.index):
+        auc_vals = out_df.loc[[(mtype1, mtype2), (mtype2, mtype1)], 'AUC']
+
+        if min(auc_vals) > 0.6:
+            auc_adj = np.fmax(auc_vals - 0.5, 0)
+            pair_size = len((mtype1 | mtype2).get_samples(cdata.train_mut))
+
+            x_vec += [-np.log10(out_df.loc[(mtype1, mtype2), 'Mutex'])]
+            size_vec += [159 * pair_size / len(cdata.samples)]
+            annot_vec += ['{}+{}'.format(mtype1, mtype2)]
+ 
+            y_vec += [np.average(
+                out_df.loc[[(mtype1, mtype2), (mtype2, mtype1)], 'Simil'],
+                weights=auc_adj ** (18 / 13)
+                )]
+ 
+            ax.scatter(x_vec[-1], y_vec[-1], c='#801515', s=size_vec[-1],
+                       alpha=max(auc_adj) ** 0.5, edgecolors='none')
+
+    plt_xmin, plt_xmax = plt.xlim()
+    plt_ymin, plt_ymax = plt.ylim()
+
+    if plt_xmin > 0:
+        plt_xmin = 0
+
+    if plt_ymin > -1.0:
+        plt_ymin = -1.0
+    if plt_ymax < 1.0:
+        plt_ymax = 1.0
+
+    y_bound = np.max(np.absolute([plt_ymin, plt_ymax]))
+    x_range = plt_xmax - plt_xmin
+    plt.xlim(plt_xmin, plt_xmax)
+    plt.ylim(-y_bound, y_bound)
+
+    for annot_x, annot_y, annot in place_annot(
+            x_vec, y_vec, size_vec, annot_vec, x_range, y_bound * 2):
+        ax.text(annot_x, annot_y, annot, size=7, stretch='extra-condensed')
+
+    plt.xlabel('Mutual Mutation Exclusivity', size=18, weight='semibold')
+    plt.ylabel('Mutual Signature Similarity', size=18, weight='semibold')
+    plt.yticks([-1, 0, 1], ['M1 > WT > M2', 'M1 > M2 = WT', 'M1 = M2 > WT'],
+               size=12)
+
+    plt.savefig(
+        os.path.join(plot_dir,
+                     "paired-simil_{}-{}__samps_{}".format(
+                         args.cohort, args.classif, args.samp_cutoff)
+                    ),
+        dpi=300, bbox_inches='tight'
+        )
+
+    plt.close()
 
 
 def main():
     parser = argparse.ArgumentParser(
-        "Plot the ordering of a gene's subtypes in a given cohort based on "
-        "how their isolated expression signatures classify one another."
+        "Plot the similarities of the expression effects of each gene pair's "
+        "mutations based on how their signatures classify one other against "
+        "the mutual exclusivity of their occurence."
         )
 
     parser.add_argument('cohort', help='a TCGA cohort')
@@ -181,14 +224,14 @@ def main():
         samp_cutoff=args.samp_cutoff, syn=syn, cv_prop=1.0
         )
 
-    simil_df, annot_df, auc_df = get_similarities(load_infer_output(
+    out_df = get_pair_data(load_infer_output(
         os.path.join(base_dir, 'output', args.cohort, args.classif,
                      'samps_{}'.format(args.samp_cutoff)),
         ),
         args, cdata)
 
-    plot_mutex_similarity(simil_df.copy(), annot_df.copy(), auc_df.copy(),
-                          args, cdata)
+    plot_mutex_similarity(out_df.copy(), args, cdata)
+    plot_mutex_pair_similarity(out_df.copy(), args, cdata)
 
 
 if __name__ == '__main__':
