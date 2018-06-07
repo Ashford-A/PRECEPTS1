@@ -9,13 +9,10 @@ from HetMan.experiments.SMMART_analysis.cohorts import CancerCohort
 from HetMan.features.mutations import MuType
 from HetMan.predict.basic.classifiers import *
 
-from importlib import import_module
-from functools import reduce
-from operator import and_
-import pandas as pd
-
-import synapseclient
 import argparse
+import synapseclient
+from importlib import import_module
+
 from pathlib import Path
 import dill as pickle
 
