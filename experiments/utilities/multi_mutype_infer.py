@@ -81,7 +81,7 @@ def main():
 
     args = parser.parse_args()
     out_file = os.path.join(args.out_dir,
-                            'out_task-{}.p'.format(args.task_id))
+                            'out__task-{}.p'.format(args.task_id))
 
     if args.verbose:
         print("Starting multi-task isolation with Stan model <{}> for "
