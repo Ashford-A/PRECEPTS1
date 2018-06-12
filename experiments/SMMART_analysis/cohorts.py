@@ -1,6 +1,6 @@
 
 from ...features.cohorts.mut import BaseMutationCohort
-from .utils import load_patient_expression
+from .utils import load_patient_expression, load_patient_mutations
 from ...features.cohorts.tcga import match_tcga_samples
 
 from ...features.data.expression import get_expr_toil
@@ -10,6 +10,7 @@ from ...features.data.annot import get_gencode
 
 import numpy as np
 import pandas as pd
+import os
 
 from functools import reduce
 from operator import and_
@@ -22,13 +23,69 @@ class CancerCohort(BaseMutationCohort):
                  tcga_dir, patient_dir, var_source='mc3', copy_source=None,
                  top_genes=None, samp_cutoff=25, collapse_txs=False,
                  cv_prop=0.75, cv_seed=None, **coh_args):
-
         cancer_keys = {'BRCA': '1', 'PRAD': '2', 'PAAD': '3', 'LAML': '4'}
         if cancer not in cancer_keys:
             raise ValueError(
                 "SMMART samples are only available for breast (BRCA), "
                 "prostate (PRAD), pancreatic (PAAD), and AML cancers!"
                 )
+
+        smrt_expr = load_patient_expression(patient_dir)
+        smrt_mut = load_patient_mutations(patient_dir)
+
+        meta_data = pd.read_csv(
+            open(os.path.join(patient_dir, '..', 'metadata', 'metadata.tsv'),
+                 'r'),
+            sep='\t'
+            )
+
+        match_dict = dict()
+        for patient, out_dir in smrt_expr.keys():
+            pt_data = meta_data.loc[meta_data['patient_id'] == patient, :]
+            lib_match = np.array(
+                [lib_id in out_dir for lib_id in pt_data['library_id']])
+
+            bems_id = pt_data['sample_bems_id'][lib_match]
+            mut_id = np.unique(pt_data['library_id'][
+                pt_data['sample_bems_id'].isin(bems_id) & ~lib_match])
+
+            if len(mut_id) == 1:
+                mut_key = [(pt, out_fl) for pt, out_fl in smrt_mut.keys()
+                           if (pt == patient and mut_id[0] in str(out_fl)
+                               and '_sorted.maf' not in str(out_fl))]
+
+                if len(mut_key) == 1:
+                    match_dict[mut_key[0]] = patient, out_dir
+
+        smrt_mut = {match_dict[mut_key]: mut_vals
+                    for mut_key, mut_vals in smrt_mut.items()
+                    if mut_key in match_dict}
+
+        pt_tags = {patient: (patient[0].split('-'), patient[1].split('_'))
+                   for patient in smrt_expr}
+        pt_tags = {patient: tag for patient, tag in pt_tags.items()
+                   if tag[0][1][0] == cancer_keys[cancer]}
+
+        if len(set(tag[0][0] for pt, tag in pt_tags)) == 1:
+            pt_tags = {pt: (tag[0][1], tag[1]) for pt, tag in pt_tags.items()}
+
+        annot_rmv = [
+            len(set(lbls[i] for pt, (tag, lbls) in pt_tags.items())) == 1
+            for i in range(3)
+            ]
+
+        pt_tags = {
+            pt: '{} --- {}'.format(
+                tag, '_'.join([lbl for rmv, lbl in zip(annot_rmv, lbls[:3])
+                               if not rmv])
+                )
+            for pt, (tag, lbls) in pt_tags.items()
+            }
+
+        smrt_expr = {pt_tags[pt]: expr for pt, expr in smrt_expr.items()
+                     if pt in pt_tags}
+        smrt_mut = {pt_tags[pt]: mut for pt, mut in smrt_mut.items()
+                    if pt in pt_tags}
 
         tcga_expr = get_expr_toil(cohort=cancer, data_dir=tcga_dir,
                                   collapse_txs=False)
@@ -72,38 +129,17 @@ class CancerCohort(BaseMutationCohort):
         elif copy_source is not None:
             raise ValueError("Unrecognized source of CNA data!")
 
-        smrt_dict = {
-            (tuple(patient[0].split('-')), tuple(patient[1].split('_'))): expr
-            for patient, expr in load_patient_expression(patient_dir).items()
-            }
-        smrt_dict = {patient: expr for patient, expr in smrt_dict.items()
-                     if patient[0][1][0] == cancer_keys[cancer]}
-
-        if len(set(patient[0][0] for patient in smrt_dict)) == 1:
-            smrt_dict = {(patient[0][1], patient[1]): expr
-                         for patient, expr in smrt_dict.items()}
-
-        annot_rmv = [len(set(patient[1][i] for patient in smrt_dict)) == 1
-                     for i in range(3)]
-        smrt_dict = {
-            '{} --- {}'.format(
-                patient[0], '_'.join([x for i, x in enumerate(patient[1][:-1])
-                                      if i not in annot_rmv])
-                ): expr
-            for patient, expr in smrt_dict.items()
-            }
-
-        smrt_txs = reduce(and_, [expr.keys() for expr in smrt_dict.values()])
+        smrt_txs = reduce(and_, [expr.keys() for expr in smrt_expr.values()])
         smrt_expr = pd.DataFrame.from_dict(
             {patient: {tx: expr[tx, gn] for tx, gn in smrt_txs
                        if tx in tcga_expr.columns.levels[1]}
-             for patient, expr in smrt_dict.items()},
+             for patient, expr in smrt_expr.items()},
             orient='index'
             )
 
         matched_samps = match_tcga_samples(tcga_expr.index,
                                            variants['Sample'])
-        matched_samps += [(samp, (samp, None)) for samp in smrt_expr.index]
+        matched_samps += [(samp, (samp, samp)) for samp in smrt_expr.index]
 
         tcga_expr = tcga_expr.loc[:, [tx in smrt_expr.columns
                                       for gn, tx in tcga_expr.columns]]
@@ -122,6 +158,15 @@ class CancerCohort(BaseMutationCohort):
         if collapse_txs:
             expr = np.log2(expr.rpow(2).subtract(0.001).groupby(
                 level=['Gene'], axis=1).sum().add(0.001))
+
+        smrt_mut = pd.concat(
+            [muts.loc[:, ['Hugo_Symbol', 'Variant_Classification']]\
+                .drop_duplicates().assign(Sample=pt)
+             for pt, muts in smrt_mut.items()]
+            )
+
+        smrt_mut.columns = ['Gene', 'Form', 'Sample']
+        variants = pd.concat([variants, smrt_mut])
 
         gene_annot = {at['gene_name']: {**{'Ens': ens}, **at}
                       for ens, at in get_gencode().items()
