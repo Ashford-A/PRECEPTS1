@@ -29,3 +29,24 @@ def load_patient_expression(base_dir):
 
     return expr_dict
 
+
+def load_patient_mutations(base_dir):
+    base_path = Path(base_dir)
+    mut_dict = dict()
+
+    patient_dirs = {fl.name: fl for fl in base_path.iterdir()
+                    if fl.is_dir()}
+
+    for patient, patient_dir in patient_dirs.items():
+        out_fls = (patient_dir / 'output' / 'cancer_exome').glob(
+            '*SMMART_Cancer_Exome*/*.maf')
+
+        for out_fl in out_fls:
+            if out_fl.stat().st_size > 0:
+                mut_dict[patient, out_fl] = pd.read_csv(
+                    out_fl.open('r', encoding='latin_1'), sep='\t',
+                    comment='#', low_memory=False
+                    )
+
+    return mut_dict
+
