@@ -69,31 +69,29 @@ def main():
         gain_step, 1, gain_step)))[::-1]
 
     for low_ctf, high_ctf in combn(loss_ctfs, 2):
-        cna_stat = cdata.train_pheno({'Gene': args.gene, 'CNA': 'Loss',
-                                      'Cutoff': low_ctf})
+        cna_stat = (~mut_pheno
+                    & cdata.train_pheno({'Gene': args.gene, 'CNA': 'Loss',
+                                          'Cutoff': low_ctf}))
 
-        wt_stat = (
-            ~mut_pheno
-            & ~cdata.train_pheno({'Gene': args.gene, 'CNA': 'Range',
-                                  'Cutoff': (low_ctf, high_ctf)})
-            & ~cdata.train_pheno({'Gene': args.gene, 'CNA': 'Gain',
-                                  'Cutoff': -high_ctf})
-            )
+        wt_stat = (~mut_pheno
+                   & ~cdata.train_pheno({'Gene': args.gene, 'CNA': 'Range',
+                                         'Cutoff': (low_ctf, high_ctf)})
+                   & ~cdata.train_pheno({'Gene': args.gene, 'CNA': 'Gain',
+                                         'Cutoff': -high_ctf}))
 
         if (np.sum(cna_stat) >= 20) & (np.sum(wt_stat) >= 20):
             ctf_list += [(low_ctf, high_ctf)]
 
     for high_ctf, low_ctf in combn(gain_ctfs, 2):
-        cna_stat = cdata.train_pheno({'Gene': args.gene, 'CNA': 'Gain',
-                                      'Cutoff': high_ctf})
+        cna_stat = (~mut_pheno
+                    & cdata.train_pheno({'Gene': args.gene, 'CNA': 'Gain',
+                                         'Cutoff': high_ctf}))
 
-        wt_stat = (
-            ~mut_pheno
-            & ~cdata.train_pheno({'Gene': args.gene, 'CNA': 'Range',
-                                  'Cutoff': (low_ctf, high_ctf)})
-            & ~cdata.train_pheno({'Gene': args.gene, 'CNA': 'Loss',
-                                  'Cutoff': -low_ctf})
-            )
+        wt_stat = (~mut_pheno
+                   & ~cdata.train_pheno({'Gene': args.gene, 'CNA': 'Range',
+                                         'Cutoff': (low_ctf, high_ctf)})
+                   & ~cdata.train_pheno({'Gene': args.gene, 'CNA': 'Loss',
+                                         'Cutoff': -low_ctf}))
 
         if (np.sum(cna_stat) >= 20) & (np.sum(wt_stat) >= 20):
             ctf_list += [(low_ctf, high_ctf)]

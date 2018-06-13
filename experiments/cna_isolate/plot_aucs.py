@@ -9,6 +9,7 @@ sys.path.extend([os.path.join(base_dir, '../../..')])
 from HetMan.features.cohorts.tcga import MutationCohort
 from HetMan.features.mutations import MuType
 from HetMan.experiments.cna_isolate.fit_isolate import load_infer_output
+from HetMan.experiments.utilities import auc_cmap
 
 import numpy as np
 import pandas as pd
@@ -19,7 +20,10 @@ import synapseclient
 import matplotlib as mpl
 mpl.use('Agg')
 import seaborn as sns
+
 import matplotlib.pyplot as plt
+plt.style.use('fivethirtyeight')
+import matplotlib.ticker as ticker
 
 firehose_dir = "/home/exacloud/lustre1/share_your_data_here/precepts/firehose"
 copy_dir = '/home/users/grzadkow/compbio/input-data/firehose'
@@ -80,45 +84,45 @@ def plot_cutoff_aucs(loss_df, gain_df, args, cdata):
     fig, (loss_ax, gain_ax) = plt.subplots(
         figsize=(19, 9), ncols=2, gridspec_kw={'width_ratios': [1, 1.1]})
 
+
     loss_ctfs = loss_df.index.levels[0] | loss_df.index.levels[1]
-    loss_lbls = ['{:+.3f}'.format(ctf) for ctf in sorted(loss_ctfs)]
-    gain_ctfs = gain_df.index.levels[0] | gain_df.index.levels[1]
-    gain_lbls = ['{:+.3f}'.format(ctf) for ctf in sorted(gain_ctfs)]
-
-    use_cmap = sns.diverging_palette(11, 238, s=87, l=37, sep=57,
-                                     as_cmap=True)
-
     plt_loss = pd.DataFrame(0.0, index=loss_ctfs, columns=loss_ctfs)
     plt_loss.iloc[:-1, 1:] += loss_df['CNA'].unstack().fillna(0.0)
     plt_loss.iloc[1:, :-1] += loss_df['Mut'].unstack().transpose().fillna(0.0)
 
+    gain_ctfs = gain_df.index.levels[0] | gain_df.index.levels[1]
     plt_gain = pd.DataFrame(0.0, index=gain_ctfs, columns=gain_ctfs)
     plt_gain.iloc[1:, :-1] += gain_df['CNA'].unstack().transpose().fillna(0.0)
     plt_gain.iloc[:-1, 1:] += gain_df['Mut'].unstack().fillna(0.0)
-    plt_gain = plt_gain.iloc[::-1, ::-1]
 
     for i in range(plt_loss.shape[0]):
         plt_loss.iloc[i, i] = 0.5
     for i in range(plt_gain.shape[0]):
         plt_gain.iloc[i, i] = 0.5
 
-    sns.heatmap(plt_loss, cmap=use_cmap, vmin=0.0, vmax=1.0, center=0.5,
-                xticklabels=loss_lbls, yticklabels=loss_lbls,
+    for plt_df in [plt_loss, plt_gain]:
+        plt_df.index = ['{:+.3f}'.format(x) for x in plt_df.index]
+        plt_df.columns = ['{:+.3f}'.format(x) for x in plt_df.columns]
+
+    sns.heatmap(plt_loss, cmap=auc_cmap, vmin=0.0, vmax=1.0, center=0.5,
                 ax=loss_ax, cbar=False, square=True)
-    sns.heatmap(plt_gain, cmap=use_cmap, vmin=0.0, vmax=1.0, center=0.5,
-                xticklabels=gain_lbls, yticklabels=gain_lbls, ax=gain_ax,
+    sns.heatmap(plt_gain.iloc[::-1, ::-1],
+                cmap=auc_cmap, vmin=0.0, vmax=1.0, center=0.5, ax=gain_ax,
                 square=True, cbar_kws={'ticks': np.arange(0, 1.1, 0.1)})
 
     loss_ax.set_title('Loss CNAs', size=27, weight='semibold')
     gain_ax.set_title('Gain CNAs', size=27, weight='semibold')
 
-    loss_ax.set_xlabel('Wild-Type Cutoff', size=22, weight='semibold')
-    loss_ax.set_ylabel('CNA Cutoff', size=22, weight='semibold')
-    gain_ax.set_xlabel('Wild-Type Cutoff', size=22, weight='semibold')
-    gain_ax.set_ylabel('CNA Cutoff', size=22, weight='semibold')
+    for ax in [loss_ax, gain_ax]:
+        ax.set_xlabel('Wild-Type Cutoff', size=22, weight='semibold')
+        ax.set_ylabel('CNA Cutoff', size=22, weight='semibold')
 
-    loss_ax.tick_params(labelsize=13)
-    gain_ax.tick_params(labelsize=13)
+        ax.tick_params(labelsize=11)
+        ax.tick_params(axis='x', labelrotation=38)
+        ax.tick_params(axis='y', labelrotation=0)
+
+        for label in ax.get_xticklabels():
+            label.set_horizontalalignment('right')
 
     cbar = gain_ax.collections[0].colorbar
     cbar.ax.tick_params(labelsize=19)
