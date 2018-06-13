@@ -12,10 +12,12 @@ from HetMan.experiments.SMMART_analysis.fit_gene_models import load_output
 
 import numpy as np
 import pandas as pd
+from sklearn.metrics import average_precision_score
 from operator import itemgetter
 
 import argparse
 import synapseclient
+import subprocess
 
 import matplotlib as mpl
 mpl.use('Agg')
@@ -23,9 +25,11 @@ import seaborn as sns
 
 import matplotlib.pyplot as plt
 plt.style.use('fivethirtyeight')
+from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
 
 wt_clr = '0.29'
-mut_clr = sns.hls_palette(1, l=.51, s=.88)[0]
+mut_clrs = sns.light_palette('#C50000', reverse=True)
 
 
 def plot_label_distribution(infer_vals, args, cdata):
@@ -47,62 +51,136 @@ def plot_label_distribution(infer_vals, args, cdata):
         )
 
     if np.all(infer_means >= 0):
-        plt_ymin, plt_ymax = 0, max(np.max(infer_means), 1)
+        plt_ymin, plt_ymax = 0, max(np.max(infer_means) * 1.09, 1)
 
     else:
-        plt_ymax = np.max([np.max(np.absolute(infer_means)) * 1.05, 1.1])
+        plt_ymax = np.max([np.max(np.absolute(infer_means)) * 1.09, 1.1])
         plt_ymin = -plt_ymax
+
+    plt.ylim(plt_ymin, plt_ymax)
+    plt_xmin, plt_xmax = plt.xlim()
+    lbl_pad = (plt_ymax - plt_ymin) / 79
 
     use_mtype = MuType({('Gene', args.gene): None})
     mtype_stat = np.array(cdata.train_mut.status(tcga_means.index))
     kern_bw = (plt_ymax - plt_ymin) / 47
 
-    ax = sns.kdeplot(tcga_means[~mtype_stat], color=wt_clr, alpha=0.4,
-                     vertical=True, shade=True, linewidth=2.1, bw=kern_bw,
+    ax = sns.kdeplot(tcga_means[~mtype_stat], color=wt_clr, vertical=True,
+                     shade=True, alpha=0.36, linewidth=0, bw=kern_bw, cut=0,
                      gridsize=1000, label='Wild-Type')
 
-    ax = sns.kdeplot(tcga_means[mtype_stat], color=mut_clr, alpha=0.4,
-                     vertical=True, shade=True, linewidth=2.1, bw=kern_bw,
+    ax = sns.kdeplot(tcga_means[mtype_stat], color=mut_clrs[0], vertical=True,
+                     shade=True, alpha=0.36, linewidth=0, bw=kern_bw, cut=0,
                      gridsize=1000, label='{} Mutant'.format(args.gene))
 
-    plt_xmin, plt_xmax = plt.xlim()
-    lbl_pad = (plt_ymax - plt_ymin) / 79
-
+    # for each SMMART patient, check if they have a mutation of the given gene
     for i, (patient, val) in enumerate(smrt_means):
+        if patient in cdata.train_mut.get_samples():
+
+            mut_list = []
+            for lbl, muts in cdata.train_mut[args.gene]:
+                if patient in muts:
+                    mut_list += [lbl]
+
+            plt_str = '{} ({})'.format(patient, '+'.join(mut_list))
+            plt_clr = mut_clrs[1]
+            plt_lw = 3.1
+
+        # if the patient's RNAseq sample did not have any mutations, check all
+        # the samples associated with the patient
+        else:
+            mut_dir = os.path.join(
+                args.patient_dir, "16113-{}".format(patient.split(' ---')[0]),
+                'output', 'cancer_exome'
+                )
+
+            # check if any mutation calling was done for this patient
+            mut_files = subprocess.run(
+                'find {}'.format(mut_dir), shell=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                ).stdout.decode('utf-8')
+
+            # if calling was done for any sample associated with this patient,
+            # check for mutations of the given gene
+            if mut_files:
+                mut_grep = subprocess.run(
+                    'grep "^{}" {}'.format(
+                        args.gene, os.path.join(
+                            mut_dir, "*SMMART_Cancer_Exome*", "*.maf")
+                        ),
+                    shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                    ).stdout.decode('utf-8')
+
+                if mut_grep:
+                    mut_list = []
+                    for mut_match in mut_grep.split('\n'):
+                        if mut_match:
+                            mut_list += [mut_match.split('\t')[8]]
+
+                    plt_str = '{} ({})'.format(
+                        patient, '+'.join(np.unique(mut_list)))
+                    plt_clr = mut_clrs[3]
+                    plt_lw = 2.6
+
+                else:
+                    plt_str = '{}'.format(patient)
+                    plt_clr = wt_clr
+                    plt_lw = 1.7
+
+            else:
+                plt_str = '{}'.format(patient)
+                plt_clr = '#2E6AF3'
+                plt_lw = 1.7
+
         ax.axhline(y=val, xmin=0, xmax=plt_xmax * 0.22,
-                   ls=':', lw=3.9)
+                   c=plt_clr, ls='--', lw=plt_lw)
 
         if i > 0 and smrt_means[i - 1][1] > (val - lbl_pad):
-            ax.text(plt_xmax * 0.32, val, patient,
-                    size=10, ha='left', va='bottom')
+            txt_va = 'bottom'
 
         elif (i < (len(smrt_means) - 1)
               and smrt_means[i + 1][1] < (val + lbl_pad)):
-            ax.text(plt_xmax * 0.32, val, patient,
-                    size=10, ha='left', va='top')
+            txt_va = 'top'
 
         else:
-            ax.text(plt_xmax * 0.32, val, patient,
-                    size=10, ha='left', va='center')
+            txt_va = 'center'
 
+        ax.text(plt_xmax * 0.32, val, plt_str, size=9, ha='left', va=txt_va)
+
+    # calculate the accuracy of the mutation scores inferred across
+    # validation runs in predicting mutation status
+    tcga_f1 = average_precision_score(mtype_stat, tcga_means)
     tcga_auc = np.greater.outer(tcga_means[mtype_stat],
                                 tcga_means[~mtype_stat]).mean()
-    ax.text(ax.get_xlim()[1] * 0.56, plt_ymax * 0.83,
-            "TCGA AUC: {:.3f}".format(tcga_auc), size=21)
 
-    plt.legend(frameon=False, fontsize=18, loc=8, ncol=2)
-    plt.ylim(plt_ymin, plt_ymax)
+    # add annotation about the mutation scores' accuracy to the plot
+    ax.text(ax.get_xlim()[1] * 0.91, plt_ymax * 0.82, size=18, ha='right',
+            s="TCGA AUPR:{:8.3f}".format(tcga_f1))
+    ax.text(ax.get_xlim()[1] * 0.91, plt_ymax * 0.88, size=18, ha='right',
+            s="TCGA AUC:{:8.3f}".format(tcga_auc))
 
     plt.xlabel('TCGA-{} Density'.format(args.cohort),
-               fontsize=23, weight='semibold')
+               fontsize=21, weight='semibold')
     plt.ylabel('Inferred {} Mutation Score'.format(args.gene),
-               fontsize=23, weight='semibold')
+               fontsize=21, weight='semibold')
+
+    plt.legend([Line2D([0], [0], color=mut_clrs[1], lw=3.7, ls='--'),
+                Line2D([0], [0], color=mut_clrs[3], lw=3.7, ls='--'),
+                Patch(color=mut_clrs[0], alpha=0.36),
+                Line2D([0], [0], color=wt_clr, lw=3.7, ls='--'),
+                Line2D([0], [0], color='#2E6AF3', lw=3.7, ls='--'),
+                Patch(color=wt_clr, alpha=0.36)],
+               ["Sample {} Mutant".format(args.gene),
+                "Patient {} Mutant".format(args.gene),
+                "TCGA {} Mutants".format(args.gene), "SMMART Wild-Type",
+                "No Mutation Calls", "TCGA Wild-Types"],
+               fontsize=13, loc=8, ncol=2)
 
     fig.savefig(
         os.path.join(plot_dir,
                      'labels__{}-{}-{}.png'.format(
                          args.cohort, args.gene, args.classif)),
-        dpi=250, bbox_inches='tight'
+        dpi=300, bbox_inches='tight'
         )
 
     plt.close()
@@ -143,11 +221,10 @@ def main():
     syn.cache.cache_root_dir = args.syn_root
     syn.login()
 
-    cdata = CancerCohort(
-        cancer=args.cohort, mut_genes=[args.gene], mut_levels=['Gene'],
-        tcga_dir=args.toil_dir, patient_dir=args.patient_dir, syn=syn,
-        collapse_txs=True, cv_prop=1.0
-        )
+    cdata = CancerCohort(cancer=args.cohort, mut_genes=[args.gene],
+                         mut_levels=['Gene', 'Form'], tcga_dir=args.toil_dir,
+                         patient_dir=args.patient_dir, syn=syn,
+                         collapse_txs=True, cv_prop=1.0)
 
     plot_label_distribution(infer_vals, args, cdata)
 
