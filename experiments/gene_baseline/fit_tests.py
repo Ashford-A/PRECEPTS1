@@ -47,7 +47,7 @@ def load_output(expr_source, cohort, samp_cutoff, classif):
     acc_df = out_df.loc[:, ['AUC', 'AUPR']]
     par_list = out_df.Params.unstack()
     par_list.index = par_list.index.droplevel(0)
-    par_df = pd.DataFrame.from_items(tuple(par_list.iteritems())).stack()
+    par_df = pd.DataFrame.from_dict(dict(par_list.iteritems())).stack()
 
     return acc_df, out_df.Time, par_df, tuple(use_clf)[0]
 
