@@ -16,6 +16,7 @@ from HetMan.experiments.utilities import auc_cmap
 import argparse
 import synapseclient
 import numpy as np
+import pandas as pd
 
 import matplotlib as mpl
 mpl.use('Agg')
@@ -45,9 +46,9 @@ def plot_auc_distribution(acc_df, args, cdata):
 
     fig.savefig(
         os.path.join(plot_dir,
-                     'auc-distribution__{}-{}_{}-{}.png'.format(
-                         args.expr_source, args.cohort,
-                         args.cohort, args.model_name
+                     '{}__auc-distribution__{}-{}_samps-{}.png'.format(
+                         args.model_name, args.expr_source,
+                         args.cohort, args.samp_cutoff
                         )),
         dpi=250, bbox_inches='tight'
         )
@@ -78,9 +79,78 @@ def plot_aupr_quartile(acc_df, args, cdata):
 
     fig.savefig(
         os.path.join(plot_dir,
-                     'aupr-quartile__{}-{}_{}-{}.png'.format(
-                         args.expr_source, args.cohort,
-                         args.cohort, args.model_name
+                     '{}__aupr-quartile__{}-{}_samps-{}.png'.format(
+                         args.model_name, args.expr_source,
+                         args.cohort, args.samp_cutoff
+                        )),
+        dpi=250, bbox_inches='tight'
+        )
+
+    plt.close()
+
+
+def plot_tuning_distribution(par_df, acc_df, use_clf, args, cdata):
+    tune_priors = use_clf.tune_priors
+    fig = plt.figure(figsize=(11, 5 * len(tune_priors)))
+    plt_grid = plt.GridSpec(len(tune_priors), 4, wspace=0.1, hspace=0.3)
+    
+    for i, (par_name, tune_distr) in enumerate(tune_priors):
+        if isinstance(tune_distr, tuple):
+            main_ax = fig.add_subplot(plt_grid[i, :])
+
+            use_df = pd.DataFrame({'Acc': acc_df['AUC'].values.flatten(),
+                                   'Par': par_df[par_name].values.flatten()})
+            use_df['Acc'] += np.random.normal(loc=0.0, scale=1e-4,
+                                              size=use_df.shape[0])
+
+            sns.violinplot(data=use_df, x='Par', y='Acc', ax=main_ax,
+                           order=tune_distr, cut=0, scale='count',
+                           linewidth=1.7)
+ 
+            main_ax.axhline(y=0.5, xmin=-2, xmax=len(tune_distr),
+                            color='#550000', linewidth=2.9, alpha=0.32)
+
+            main_ax.tick_params(labelsize=13)
+            main_ax.set_xticklabels(['{:.1e}'.format(par)
+                                     for par in tune_distr])
+
+            main_ax.tick_params(axis='x', labelrotation=38)
+            for label in main_ax.get_xticklabels():
+                label.set_horizontalalignment('right')
+
+            main_ax.set_xlabel('Tuned Hyper-Parameter Value',
+                               size=17, weight='semibold')
+            main_ax.set_ylabel('AUC', size=17, weight='semibold')
+
+        elif tune_distr.dist.name == 'lognorm':
+            main_ax = fig.add_subplot(plt_grid[:-1, i])
+            plt.ylabel('AUC', size=16)
+
+            sns.kdeplot(np.log10(par_df[par_name].values.flatten()),
+                        acc_df['AUC'].values.flatten(),
+                        ax=main_ax, gridsize=250, n_levels=23,
+                        linewidths=0.9, alpha=0.5)
+
+            dist_ax = fig.add_subplot(plt_grid[-1, i])
+            dist_ax.hist(np.log10(tune_distr.rvs(100000)), bins=100,
+                         normed=True, histtype='stepfilled', alpha=0.6)
+            dist_ax.set_xlim(*np.log10(tune_distr.interval(0.9999)))
+            plt.ylabel('Density', size=16)
+
+            plt.xlabel('Hyper-Parameter Value', size=17)
+            dist_ax.set_xticklabels(["$10^{" + str(int(x)) + "}$"
+                                     for x in dist_ax.get_xticks()])
+
+            main_ax.set_xlim(*np.log10(tune_distr.interval(0.9999)))
+            main_ax.xaxis.set_ticklabels([])
+
+        main_ax.set_title(par_name, size=21, weight='semibold')
+
+    fig.savefig(
+        os.path.join(plot_dir,
+                     '{}__tuning-distribution__{}-{}_samps-{}.png'.format(
+                         args.model_name, args.expr_source,
+                         args.cohort, args.samp_cutoff
                         )),
         dpi=250, bbox_inches='tight'
         )
@@ -121,6 +191,7 @@ def main():
 
     plot_auc_distribution(acc_df, args, cdata)
     plot_aupr_quartile(acc_df, args, cdata)
+    plot_tuning_distribution(par_df, acc_df, mut_clf, args, cdata)
 
 
 if __name__ == "__main__":

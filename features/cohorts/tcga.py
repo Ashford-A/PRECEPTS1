@@ -199,11 +199,11 @@ class MutationCohort(BaseMutationCohort):
                     expr.index, variants['Sample'], copy_df['Sample'])
 
                 copy_df = copy_df.loc[
-                    copy_df.index.isin(matched_samps[2]),
-                    copy_df.columns.isin(list(self.gene_annot))
-                    ]
+                    copy_df['Sample'].isin(matched_samps[2])
+                    & copy_df['Gene'].isin(list(self.gene_annot))
+                    , :]
                 copy_df.index = [matched_samps[2][old_samp]
-                                 for old_samp in copy_df.index]
+                                 for old_samp in copy_df['Sample']]
 
                 # removes CNA values corresponding to an absence of a variant
                 copy_df = copy_df.loc[copy_df[copy_lvl] != 0, :]
@@ -212,7 +212,7 @@ class MutationCohort(BaseMutationCohort):
                 # CNA data to the mutation data
                 copy_df[copy_lvl] = copy_df[copy_lvl].map(
                     {-2: 'HomDel', -1: 'HetDel', 1: 'HetGain', 2: 'HomGain'})
-                variants = pd.concat([variants, copy_df])
+                variants = pd.concat([variants, copy_df], sort=True)
 
             else:
                 copy_data = get_copies_firehose(cohort, coh_args['copy_dir'],

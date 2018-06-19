@@ -201,7 +201,7 @@ class BaseMutationCohort(PresenceCohort, UniCohort):
 
         return stat_list
 
-    def test_pheno(self, mtype, samps=None):
+    def test_pheno(self, pheno, samps=None):
         """Gets the mutation status of samples in the testing cohort.
 
         Args:

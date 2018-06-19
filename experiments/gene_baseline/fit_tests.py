@@ -45,9 +45,10 @@ def load_output(expr_source, cohort, samp_cutoff, classif):
                          "with exactly one classifier!")
 
     acc_df = out_df.loc[:, ['AUC', 'AUPR']]
-    par_list = out_df.Params.unstack()
-    par_list.index = par_list.index.droplevel(0)
-    par_df = pd.DataFrame.from_dict(dict(par_list.iteritems())).stack()
+    par_df = pd.concat(dict(
+        out_df.Params.apply(
+            lambda gn_pars: pd.DataFrame.from_records(tuple(gn_pars)), axis=1)
+        ))
 
     return acc_df, out_df.Time, par_df, tuple(use_clf)[0]
 
