@@ -12,6 +12,7 @@ from HetMan.features.mutations import MuType
 from HetMan.experiments.gene_baseline.fit_tests import load_output
 from HetMan.experiments.gene_baseline.setup_tests import get_cohort_data
 from HetMan.experiments.utilities import auc_cmap
+from HetMan.experiments.utilities.scatter_plotting import place_annot
 
 import argparse
 import synapseclient
@@ -64,9 +65,17 @@ def plot_aupr_quartile(acc_df, args, cdata):
     
     mtype_sizes = [len(cdata.train_mut[gene]) / len(cdata.samples)
                    for gene in acc_df.index]
+    aupr_vals = acc_df['AUPR'].quantile(q=0.25, axis=1)
 
     ax.scatter(mtype_sizes, acc_df['AUPR'].quantile(q=0.25, axis=1),
-               s=21, c='black', alpha=0.32)
+               s=15, c='black', alpha=0.47)
+
+    annot_placed = place_annot(mtype_sizes, aupr_vals.values.tolist(),
+                               size_vec=[15 for _ in mtype_sizes],
+                               annot_vec=aupr_vals.index, x_range=1, y_range=1)
+
+    for annot_x, annot_y, annot, halign in annot_placed:
+        ax.text(annot_x, annot_y, annot, size=11, ha=halign)
 
     plt.plot([-1, 2], [-1, 2],
              linewidth=1.7, linestyle='--', color='#550000', alpha=0.6)
@@ -90,11 +99,11 @@ def plot_aupr_quartile(acc_df, args, cdata):
 
 
 def plot_tuning_distribution(par_df, acc_df, use_clf, args, cdata):
-    tune_priors = use_clf.tune_priors
-    fig = plt.figure(figsize=(11, 5 * len(tune_priors)))
-    plt_grid = plt.GridSpec(len(tune_priors), 4, wspace=0.1, hspace=0.3)
+    fig = plt.figure(figsize=(11, 5 * len(use_clf.tune_priors)))
+    plt_grid = plt.GridSpec(len(use_clf.tune_priors), 4,
+                            wspace=0.1, hspace=0.3)
     
-    for i, (par_name, tune_distr) in enumerate(tune_priors):
+    for i, (par_name, tune_distr) in enumerate(use_clf.tune_priors):
         if isinstance(tune_distr, tuple):
             main_ax = fig.add_subplot(plt_grid[i, :])
 
@@ -158,6 +167,54 @@ def plot_tuning_distribution(par_df, acc_df, use_clf, args, cdata):
     plt.close()
 
 
+def plot_tuning_gene(par_df, acc_df, use_clf, args, cdata):
+    fig, axarr = plt.subplots(figsize=(13, 12 * len(use_clf.tune_priors)),
+                              nrows=1, ncols=len(use_clf.tune_priors),
+                              squeeze=False)
+
+    for ax, (par_name, tune_distr) in zip(axarr.flatten(),
+                                          use_clf.tune_priors):
+
+        par_vals = np.log10(par_df[par_name].groupby(level=0).median())
+        acc_vals = acc_df['AUC'].quantile(q=0.25, axis=1)
+        size_vec = [1073 * len(cdata.train_mut[gene]) / len(cdata.samples)
+                    for gene in acc_vals.index]
+
+        plt_xmin = 2 * np.log10(tune_distr[0]) - np.log10(tune_distr[1])
+        plt_xmax = 2 * np.log10(tune_distr[-1]) - np.log10(tune_distr[-2])
+        par_vals += np.random.normal(
+            0, (plt_xmax - plt_xmin) / (len(tune_distr) * 19), acc_df.shape[0])
+
+        ax.scatter(par_vals, acc_vals, s=size_vec, c='black', alpha=0.23)
+        ax.set_xlim(plt_xmin, plt_xmax)
+        ax.set_ylim(0, 1)
+
+        ax.axhline(y=0.5, xmin=plt_xmin - 1, xmax=plt_xmax + 1,
+                   color='#550000', linewidth=3.1, linestyle='--', alpha=0.32)
+        annot_placed = place_annot(
+            par_vals, acc_vals.values.tolist(), size_vec=size_vec,
+            annot_vec=acc_vals.index, x_range=plt_xmax - plt_xmin, y_range=1
+            )
+ 
+        for annot_x, annot_y, annot, halign in annot_placed:
+            ax.text(annot_x, annot_y, annot, size=11, ha=halign)
+
+        ax.set_xlabel('Median Tuned {} Value'.format(par_name),
+                      fontsize=21, weight='semibold')
+        ax.set_ylabel('1st Quartile AUC', fontsize=21, weight='semibold')
+
+    fig.savefig(
+        os.path.join(plot_dir,
+                     '{}__tuning-gene__{}-{}_samps-{}.png'.format(
+                         args.model_name, args.expr_source,
+                         args.cohort, args.samp_cutoff
+                        )),
+        dpi=250, bbox_inches='tight'
+        )
+
+    plt.close()
+
+
 def main():
     parser = argparse.ArgumentParser(
         "Plots the performance and tuning characteristics of a model in "
@@ -192,6 +249,7 @@ def main():
     plot_auc_distribution(acc_df, args, cdata)
     plot_aupr_quartile(acc_df, args, cdata)
     plot_tuning_distribution(par_df, acc_df, mut_clf, args, cdata)
+    plot_tuning_gene(par_df, acc_df, mut_clf, args, cdata)
 
 
 if __name__ == "__main__":
