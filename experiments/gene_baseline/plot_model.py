@@ -61,14 +61,12 @@ def plot_aupr_quartile(acc_df, args, cdata):
     mpl.rcParams['axes.linewidth'] = 1.2
     mpl.rcParams['axes.edgecolor'] = '0.05'
 
-    fig, ax = plt.subplots(figsize=(13, 12))
-    
     mtype_sizes = [len(cdata.train_mut[gene]) / len(cdata.samples)
                    for gene in acc_df.index]
     aupr_vals = acc_df['AUPR'].quantile(q=0.25, axis=1)
 
-    ax.scatter(mtype_sizes, acc_df['AUPR'].quantile(q=0.25, axis=1),
-               s=15, c='black', alpha=0.47)
+    fig, ax = plt.subplots(figsize=(13, 12))
+    ax.scatter(mtype_sizes, aupr_vals, s=15, c='black', alpha=0.47)
 
     annot_placed = place_annot(mtype_sizes, aupr_vals.values.tolist(),
                                size_vec=[15 for _ in mtype_sizes],

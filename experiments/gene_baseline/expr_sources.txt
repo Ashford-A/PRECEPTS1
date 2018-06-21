@@ -1,0 +1,1 @@
+Firehose	/home/exacloud/lustre1/share_your_data_here/precepts/firehose
