@@ -140,7 +140,7 @@ def main():
             mtype = MuType({('Gene', mut_gene): None})
 
             clf.tune_coh(cdata, mtype, exclude_genes={mut_gene},
-                         tune_splits=4, test_count=24, parallel_jobs=12)
+                         tune_splits=4, test_count=24, parallel_jobs=16)
             out_params[mut_gene] = {par: clf.get_params()[par]
                                     for par, _ in mut_clf.tune_priors}
 
@@ -153,9 +153,15 @@ def main():
                 mtype, exclude_genes={mut_gene})
             pred_scores = clf.predict_omic(test_omics)
 
-            out_auc[mut_gene] = roc_auc_score(test_pheno, pred_scores)
-            out_aupr[mut_gene] = average_precision_score(
-                test_pheno, pred_scores)
+            if len(set(test_pheno)) == 2:
+                out_auc[mut_gene] = roc_auc_score(test_pheno, pred_scores)
+                out_aupr[mut_gene] = average_precision_score(
+                    test_pheno, pred_scores)
+
+            else:
+                out_auc[mut_gene] = 0.5
+                out_aupr[mut_gene] = len(mtype.get_samples(cdata.train_mut))
+                out_aupr[mut_gene] /= len(cdata.train_samps)
 
         else:
             del(out_auc[mut_gene])
