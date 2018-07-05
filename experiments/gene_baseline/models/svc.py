@@ -1,7 +1,6 @@
 
 from ....predict.pipelines import PresencePipe
 import numpy as np
-from scipy import stats
 
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
@@ -38,9 +37,20 @@ class Kernel_cubic(Base):
         ('fit__C', (1e-9, 1e-6, 1e-4, 1e-2, 1e0, 1e3)),
         ('fit__gamma', (1e-6, 1e-3, 1e-2, 1e1)),
         )
-    
+ 
     fit_inst = SVC(kernel='poly', degree=3, coef0=1, probability=True,
                    cache_size=500, class_weight='balanced')
+
+
+class Big_cache(Base):
+
+    tune_priors = (
+        ('fit__C', (1e-9, 1e-6, 1e-4, 1e-2, 1e0, 1e3)),
+        ('fit__gamma', (1e-6, 1e-3, 1e-2, 1e1)),
+        )
+ 
+    fit_inst = SVC(kernel='poly', degree=3, coef0=1, probability=True,
+                   cache_size=2000, class_weight='balanced')
 
 
 class Kernel_poly(Base):
@@ -59,7 +69,7 @@ class Kernel_radial(Base):
 
     tune_priors = (
         ('fit__C', (1e-9, 1e-6, 1e-3, 1e0, 1e3, 1e6)),
-        ('fit__gamma', (1e-8, 1e-4, 1e0, 1e4)),
+        ('fit__gamma', (1e-9, 1e-5, 1e-2, 1e2)),
         )
  
     fit_inst = SVC(kernel='rbf', probability=True,
