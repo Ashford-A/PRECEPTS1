@@ -9,7 +9,6 @@ Author: Michal Grzadkowski <grzadkow@ohsu.edu>
 """
 
 import pandas as pd
-from ophion import Ophion
 
 import os
 import glob

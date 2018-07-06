@@ -1,0 +1,11 @@
+*.pyc
+*.xml
+*.swp
+*scratch*
+.idea
+data/drugs/ioria/Cell_line_RMA_proc_basalExp.txt.gz
+experiments/old
+experiments/**/setup
+experiments/**/output
+experiments/**/plots
+
