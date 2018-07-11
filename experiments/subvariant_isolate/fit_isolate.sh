@@ -2,22 +2,18 @@
 
 #SBATCH --job-name=subv-isolate_fit
 #SBATCH --partition=exacloud
+#SBATCH --verbose
 
 #SBATCH --time=2150
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem-per-cpu=5000
 
-#SBATCH --output=/home/exacloud/lustre1/CompBio/mgrzad/slurm/log-files/subv-isolate_fit_out-%A.txt
-#SBATCH --error=/home/exacloud/lustre1/CompBio/mgrzad/slurm/log-files/subv-isolate_fit_err-%A.txt
-#SBATCH --verbose
-
 
 # disable threading on each CPU, print info about this array job
 export OMP_NUM_THREADS=1
-echo $array_size
-echo $BASEDIR
 echo $OUTDIR
+echo $array_size
 
 # pause between starting array jobs to ease I/O load
 sleep $(($SLURM_ARRAY_TASK_ID * 7));

@@ -9,8 +9,6 @@ from glob import glob
 import dill as pickle
 import pandas as pd
 
-firehose_dir = "/home/exacloud/lustre1/share_your_data_here/precepts/firehose"
-
 
 def get_output_files(out_dir):
     file_list = glob(os.path.join(out_dir, 'out__task-*.p'))
@@ -36,6 +34,24 @@ def load_infer_output(out_dir):
     return out_df.sort_index()
 
 
-if __name__ == "__main__":
-    main()
+def load_infer_tuning(out_dir):
+    file_list, task_ids = get_output_files(out_dir)
+
+    tune_df = pd.concat([
+        pd.DataFrame.from_dict(pickle.load(open(fl, 'rb'))['Tune'],
+                               orient='index')
+        for fl in file_list
+        ])
+
+    if all(isinstance(x, tuple) for x in tune_df.index):
+        tune_df.index = pd.MultiIndex.from_tuples(tune_df.index)
+
+    use_clf = set(pickle.load(open(fl, 'rb'))['Info']['Clf']
+                  for fl in file_list)
+
+    if len(use_clf) != 1:
+        raise ValueError("Each inference isolation experiment must be run "
+                         "with exactly one classifier!")
+
+    return tune_df, tuple(use_clf)[0]
 

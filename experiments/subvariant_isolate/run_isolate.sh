@@ -2,63 +2,34 @@
 
 #SBATCH --job-name=subv-isolate
 #SBATCH --partition=exacloud
+#SBATCH --verbose
+
 #SBATCH --mem=1000
 #SBATCH --time=500
 
-#SBATCH --output=/home/exacloud/lustre1/CompBio/mgrzad/slurm/log-files/subv-isolate_%j.out
-#SBATCH --error=/home/exacloud/lustre1/CompBio/mgrzad/slurm/log-files/subv-isolate_%j.err
-#SBATCH --verbose
-
-
-# move to working directory, load required packages and modules
-cd /home/exacloud/lustre1/CompBio/mgrzad/bergamot
-source activate precepts
-
-# check for environment variables controlling the experiment, if these
-# variables are not defined assign them default values
-if [ -z ${cohort+x} ]
-then
-	echo "no cohort given, defaulting to TCGA-BRCA"
-	export cohort="BRCA"
-fi
-
-if [ -z ${gene+x} ]
-then
-	echo "no gene given, defaulting to TP53"
-	export gene="TP53"
-fi
-
-if [ -z ${classif+x} ]
-then
-	echo "no classifier given, defaulting to Lasso"
-	export classif="Lasso"
-fi
-
-if [ -z ${samp_cutoff+x} ]
-then
-	echo "no mimimum sample size cutoff given, defaulting to twenty"
-	export samp_cutoff=20
-fi
-
-if [ -z ${mut_levels+x} ]
-then
-	echo "no mutation levels given, defaulting to Form_base+Exon"
-	export mut_levels="Form_base__Exon"
-fi
-
-if [ -z ${test_max+x} ]
-then
-	echo "limiting maximum number of tests per node to fifty"
-	export test_max=50
-fi
 
 # get the directory containing the experiment and the sub-directory where the
 # subtypes enumareted during the setup step will be saved
 export BASEDIR=HetMan/experiments/subvariant_isolate
-mkdir -p $BASEDIR/setup/${cohort}/${gene}
+source activate precepts
 
-# get the directory where the experiment results will be saved, removing it
-# if it already exists
+while getopts t:g:c:s:l:m: var
+do
+	case "$var" in
+		t)	export cohort=$OPTARG;;
+		g)	export gene=$OPTARG;;
+		c)	export classif=$OPTARG;;
+		s)	export samp_cutoff=$OPTARG;;
+		l)	export mut_levels=$OPTARG;;
+		m)	export test_max=$OPTARG;;
+		[?])    echo "Usage: $0 [-t] TCGA cohort [-g] mutated gene" \
+			     "[-c] mutation classifier [-s] minimum sample cutoff" \
+			     "[-l] mutation annotation levels" \
+			     "[-m] maximum tests per node";
+			exit 1;;
+	esac
+done
+
 export OUTDIR=$BASEDIR/output/$cohort/$gene/$classif/samps_${samp_cutoff}/$mut_levels
 rm -rf $OUTDIR
 mkdir -p $OUTDIR/slurm

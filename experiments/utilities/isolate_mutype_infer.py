@@ -7,7 +7,7 @@ sys.path.extend([os.path.join(base_dir, '../../..')])
 
 from HetMan.features.cohorts.tcga import MutationCohort
 from HetMan.features.mutations import MuType
-from HetMan.predict.basic.classifiers import *
+from HetMan.experiments.utilities.classifiers import *
 
 import synapseclient
 import argparse
@@ -124,15 +124,6 @@ def main():
         print("Subtypes at mutation annotation levels {} will be isolated "
               "against genes:\n{}".format(use_lvls, use_genes))
 
-    if args.classif[:6] == 'Stan__':
-        use_module = import_module('HetMan.experiments.utilities'
-                                   '.stan_models.{}'.format(
-                                       args.classif.split('Stan__')[1]))
-        mut_clf = getattr(use_module, 'UsePipe')
-
-    else:
-        mut_clf = eval(args.classif)
-
     # log into Synapse using locally stored credentials
     syn = synapseclient.Synapse()
     syn.cache.cache_root_dir = ("/home/exacloud/lustre1/CompBio/"
@@ -155,7 +146,11 @@ def main():
                   args.cohort, len(cdata.samples)
                 ))
 
+    mut_clf = eval(args.classif)
+    out_tune = {mtype: {par: None for par, _ in mut_clf.tune_priors}
+                for mtype in mtype_list}
     out_iso = {mtype: None for mtype in mtype_list}
+
     base_mtype = MuType({('Gene', tuple(use_genes)): None})
     base_samps = base_mtype.get_samples(cdata.train_mut)
 
@@ -174,7 +169,11 @@ def main():
                 tune_splits=args.tune_splits, test_count=args.test_count,
                 parallel_jobs=args.parallel_jobs
                 )
-            
+
+            clf_params = clf.get_params()
+            for par, _ in mut_clf.tune_priors:
+                out_tune[mtype][par] = clf_params[par]
+ 
             out_iso[mtype] = clf.infer_coh(
                 cdata, mtype,
                 exclude_genes=use_genes, force_test_samps=ex_samps,
@@ -184,10 +183,11 @@ def main():
 
         else:
             del(out_iso[mtype])
+            del(out_tune[mtype])
 
     pickle.dump(
-        {'Infer': out_iso,
-         'Info': {'TunePriors': mut_clf.tune_priors,
+        {'Infer': out_iso, 'Tune': out_tune,
+         'Info': {'Clf': mut_clf,
                   'TuneSplits': args.tune_splits,
                   'TestCount': args.test_count,
                   'InferFolds': args.infer_folds}},
