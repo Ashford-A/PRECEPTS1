@@ -23,7 +23,9 @@ class CancerCohort(BaseMutationCohort):
                  tcga_dir, patient_dir, var_source='mc3', copy_source=None,
                  top_genes=None, samp_cutoff=25, collapse_txs=False,
                  cv_prop=0.75, cv_seed=None, **coh_args):
+        self.cohort = cancer
         cancer_keys = {'BRCA': '1', 'PRAD': '2', 'PAAD': '3', 'LAML': '4'}
+
         if cancer not in cancer_keys:
             raise ValueError(
                 "SMMART samples are only available for breast (BRCA), "
@@ -89,6 +91,11 @@ class CancerCohort(BaseMutationCohort):
 
         tcga_expr = get_expr_toil(cohort=cancer, data_dir=tcga_dir,
                                   collapse_txs=False)
+        gn_vals = tcga_expr.columns.get_level_values('Gene')
+
+        self.gene_annot = {at['gene_name']: {**{'Ens': ens}, **at}
+                           for ens, at in get_gencode().items()
+                           if at['gene_name'] in gn_vals}
 
         if var_source is None:
             var_source = expr_source
@@ -97,37 +104,68 @@ class CancerCohort(BaseMutationCohort):
             variants = get_variants_mc3(coh_args['syn'])
 
         elif var_source == 'Firehose':
-            variants = get_variants_firehose(cohort, coh_args['var_dir'])
+            variants = get_variants_firehose(cancer, coh_args['var_dir'])
 
         else:
             raise ValueError("Unrecognized source of variant data!")
 
+        # load copy number alteration data from the given source if necessary
+        copy_data = None
         if copy_source == 'Firehose':
-            copy_data = get_copies_firehose(cohort, coh_args['copy_dir'])
+            if coh_args['copy_discrete']:
+                copy_data = get_copies_firehose(cancer, coh_args['copy_dir'],
+                                                discrete=True)
 
-            if 'Gene' in mut_levels:
-                copy_lvl = mut_levels[mut_levels.index('Gene') + 1]
+                if 'Gene' in mut_levels:
+                    copy_lvl = mut_levels[mut_levels.index('Gene') + 1]
+                else:
+                    copy_lvl = mut_levels[0]
+
+                # reshapes the matrix of CNA values into the same long format
+                # mutation data is represented in
+                copy_lvl = copy_lvl.split('_')[0]
+                copy_df = pd.DataFrame(copy_data.stack())
+                copy_df = copy_df.reset_index(level=copy_df.index.names)
+
+                copy_df.columns = ['Sample', 'Gene', copy_lvl]
+                matched_samps = match_tcga_samples(
+                    tcga_expr.index, variants['Sample'], copy_df['Sample'])
+
+                copy_df = copy_df.loc[
+                    copy_df['Sample'].isin(matched_samps[2])
+                    & copy_df['Gene'].isin(list(self.gene_annot))
+                    , :]
+                copy_df.index = [matched_samps[2][old_samp]
+                                 for old_samp in copy_df['Sample']]
+
+                # removes CNA values corresponding to an absence of a variant
+                copy_df = copy_df.loc[copy_df[copy_lvl] != 0, :]
+
+                # maps CNA integer values to their descriptions, appends
+                # CNA data to the mutation data
+                copy_df[copy_lvl] = copy_df[copy_lvl].map(
+                    {-2: 'HomDel', -1: 'HetDel', 1: 'HetGain', 2: 'HomGain'})
+                variants = pd.concat([variants, copy_df], sort=True)
+
             else:
-                copy_lvl = mut_levels[0]
+                copy_data = get_copies_firehose(cancer, coh_args['copy_dir'],
+                                                discrete=False)
+                matched_samps = match_tcga_samples(
+                    tcga_expr.index, variants['Sample'], copy_data.index)
 
-            # reshapes the matrix of CNA values into the same long format
-            # mutation data is represented in
-            copy_lvl = copy_lvl.split('_')[0]
-            copy_df = pd.DataFrame(copy_data.stack())
-            copy_df = copy_df.reset_index(level=copy_df.index.names)
-            copy_df.columns = ['Sample', 'Gene', copy_lvl]
-
-            # removes CNA values corresponding to an absence of a variant
-            copy_df = copy_df.loc[copy_df[copy_lvl] != 0, :]
-
-            # maps CNA integer values to their descriptions, appends
-            # CNA data to the mutation data
-            copy_df[copy_lvl] = copy_df[copy_lvl].map(
-                {-2: 'HomDel', -1: 'HetDel', 1: 'HetGain', 2: 'HomGain'})
-            variants = pd.concat([variants, copy_df])
+                copy_data = copy_data.loc[
+                    copy_data.index.isin(matched_samps[2]),
+                    copy_data.columns.isin(list(self.gene_annot))
+                    ]
+                copy_data.index = [matched_samps[2][old_samp]
+                                   for old_samp in copy_data.index]
 
         elif copy_source is not None:
             raise ValueError("Unrecognized source of CNA data!")
+
+        else:
+            matched_samps = match_tcga_samples(tcga_expr.index,
+                                               variants['Sample'])
 
         smrt_txs = reduce(and_, [expr.keys() for expr in smrt_expr.values()])
         smrt_expr = pd.DataFrame.from_dict(
@@ -136,14 +174,18 @@ class CancerCohort(BaseMutationCohort):
              for patient, expr in smrt_expr.items()},
             orient='index'
             )
+            
+        tcga_expr = tcga_expr.loc[tcga_expr.index.isin(matched_samps[0]),
+                                  [tx in smrt_expr.columns
+                                   for gn, tx in tcga_expr.columns]]
 
-        matched_samps = match_tcga_samples(tcga_expr.index,
-                                           variants['Sample'])
-        matched_samps += [(samp, (samp, samp)) for samp in smrt_expr.index]
-
-        tcga_expr = tcga_expr.loc[:, [tx in smrt_expr.columns
-                                      for gn, tx in tcga_expr.columns]]
+        tcga_expr.index = [matched_samps[0][old_samp]
+                           for old_samp in tcga_expr.index]
         tcga_expr.columns = tcga_expr.columns.remove_unused_levels()
+
+        variants = variants.loc[variants['Sample'].isin(matched_samps[1]), :]
+        variants['Sample'] = [matched_samps[1][old_samp]
+                              for old_samp in variants['Sample']]
 
         tx_vals = tcga_expr.columns.get_level_values('Transcript')
         smrt_expr = smrt_expr.iloc[:, [smrt_expr.columns.get_loc(tx)
@@ -152,7 +194,6 @@ class CancerCohort(BaseMutationCohort):
         smrt_expr.columns = pd.MultiIndex.from_arrays(
             [tcga_expr.columns.get_level_values('Gene'), smrt_expr.columns])
         expr = pd.concat([tcga_expr, smrt_expr])
-        gn_vals = expr.columns.get_level_values('Gene')
 
         # reduce transcription-level expression values into gene-level values
         if collapse_txs:
@@ -168,11 +209,6 @@ class CancerCohort(BaseMutationCohort):
         smrt_mut.columns = ['Gene', 'Form', 'Sample']
         variants = pd.concat([variants, smrt_mut])
 
-        gene_annot = {at['gene_name']: {**{'Ens': ens}, **at}
-                      for ens, at in get_gencode().items()
-                      if at['gene_name'] in gn_vals}
-        self.cohort = cancer
-
-        super().__init__(expr, variants, matched_samps, gene_annot, mut_genes,
-                         mut_levels, top_genes, samp_cutoff, cv_prop, cv_seed)
+        super().__init__(expr, variants, copy_data, mut_genes, mut_levels,
+                         top_genes, samp_cutoff, cv_prop, cv_seed)
 
