@@ -25,9 +25,9 @@ class Base(PresencePipe):
 class Norm_robust(Base):
 
     tune_priors = (
-        ('fit__C', tuple(10 ** np.linspace(-3.75, 7.75, 24))),
+        ('fit__C', tuple(10 ** np.linspace(-4, 7.5, 24))),
         )
-    
+
     norm_inst = RobustScaler()
 
 

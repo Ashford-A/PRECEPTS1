@@ -9,7 +9,7 @@ class Base(PresencePipe):
  
     tune_priors = (
         ('fit__max_features', tuple(10 ** np.linspace(-3.5, -1, 6))),
-        ('fit__min_samples_leaf', (1, 4, 8, 12)),
+        ('fit__min_samples_leaf', (1, 3, 6, 10)),
         )
 
     norm_inst = StandardScaler()

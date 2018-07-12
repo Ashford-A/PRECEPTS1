@@ -5,11 +5,12 @@ base_dir = os.path.dirname(__file__)
 import sys
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
-import pandas as pd
 from HetMan.features.cohorts.tcga import MutationCohort
+from HetMan.experiments.gene_baseline import expr_sources
 
 import argparse
 import synapseclient
+import pandas as pd
 import dill as pickle
 
 
@@ -18,15 +19,10 @@ def get_cohort_data(expr_source, syn_root, cohort, samp_cutoff):
     syn.cache.cache_root_dir = syn_root
     syn.login()
 
-    expr_dir = pd.read_csv(
-        open(os.path.join(base_dir, 'expr_sources.txt'), 'r'),
-        sep='\t', header=None, index_col=0
-        ).loc[expr_source].iloc[0]
- 
     cdata = MutationCohort(
         cohort=cohort, mut_genes=None, mut_levels=['Gene'], cv_prop=1.0,
-        expr_source=expr_source, expr_dir=expr_dir, var_source='mc3',
-        syn=syn, samp_cutoff=samp_cutoff
+        expr_source=expr_source, expr_dir=expr_sources[expr_source],
+        var_source='mc3', syn=syn, samp_cutoff=samp_cutoff
         )
 
     return cdata

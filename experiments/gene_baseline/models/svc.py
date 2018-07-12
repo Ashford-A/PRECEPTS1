@@ -23,8 +23,8 @@ class Base(PresencePipe):
 class Kernel_quad(Base):
 
     tune_priors = (
-        ('fit__C', (5e-7, 1e-5, 1e-3, 1e-2, 1e0, 5e2)),
-        ('fit__gamma', (1e-7, 1e-4, 1e-3, 1e0)),
+        ('fit__C', (1e-6, 1e-4, 1e-2, 1e0, 1e2, 1e4)),
+        ('fit__gamma', (1e-8, 1e-5, 1e-4, 1e-1)),
         )
     
     fit_inst = SVC(kernel='poly', degree=2, coef0=1, probability=True,

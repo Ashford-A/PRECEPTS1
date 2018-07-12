@@ -14,6 +14,7 @@ from HetMan.experiments.utilities.scatter_plotting import place_annot
 import argparse
 import numpy as np
 import pandas as pd
+from itertools import combinations as combn
 
 import matplotlib as mpl
 mpl.use('Agg')
@@ -163,14 +164,14 @@ def plot_tuning_gene(par_df, acc_df, use_clf, args, cdata):
     fig, axarr = plt.subplots(figsize=(13, 12 * len(use_clf.tune_priors)),
                               nrows=len(use_clf.tune_priors), ncols=1,
                               squeeze=False)
+    
+    acc_vals = acc_df['AUC'].quantile(q=0.25, axis=1)
+    size_vec = [1073 * len(cdata.train_mut[gene]) / len(cdata.samples)
+                for gene in acc_vals.index]
 
     for ax, (par_name, tune_distr) in zip(axarr.flatten(),
                                           use_clf.tune_priors):
-
         par_vals = par_df[par_name].groupby(level=0).median()
-        acc_vals = acc_df['AUC'].quantile(q=0.25, axis=1)
-        size_vec = [1073 * len(cdata.train_mut[gene]) / len(cdata.samples)
-                    for gene in acc_vals.index]
 
         if detect_log_distr(tune_distr):
             par_vals = np.log10(par_vals)
@@ -206,6 +207,109 @@ def plot_tuning_gene(par_df, acc_df, use_clf, args, cdata):
     fig.savefig(
         os.path.join(plot_dir, args.model_name.split('__')[0],
                      '{}__tuning-gene__{}-{}_samps-{}.png'.format(
+                         args.model_name.split('__')[1], args.expr_source,
+                         args.cohort, args.samp_cutoff
+                        )),
+        dpi=250, bbox_inches='tight'
+        )
+
+    plt.close()
+
+
+def plot_tuning_gene_grid(par_df, acc_df, use_clf, args, cdata):
+    par_count = len(use_clf.tune_priors)
+    fig, axarr = plt.subplots(figsize=(7 * par_count, 7 * par_count),
+                              nrows=par_count, ncols=par_count)
+
+    acc_vals = acc_df['AUC'].quantile(q=0.25, axis=1)
+    acc_clrs = acc_vals.apply(auc_cmap)
+    size_vec = [493 * len(cdata.train_mut[gene]) /
+                (len(cdata.samples) * par_count)
+                for gene in acc_vals.index]
+
+    for i, (par_name, tune_distr) in enumerate(use_clf.tune_priors):
+        axarr[i, i].grid(False)
+
+        if detect_log_distr(tune_distr):
+            use_distr = [np.log10(par_val) for par_val in tune_distr]
+        else:
+            use_distr = tune_distr
+
+        plt_min = 2 * use_distr[0] - use_distr[1]
+        plt_max = 2 * use_distr[-1] - use_distr[-2]
+        axarr[i, i].set_xlim(plt_min, plt_max)
+        axarr[i, i].set_ylim(plt_min, plt_max)
+
+        title_pos = (max(use_distr) + min(use_distr)) / 2
+        axarr[i, i].text(title_pos, title_pos, par_name,
+                         ha='center', fontsize=28, weight='semibold')
+
+        for par_val in use_distr:
+            axarr[i, i].axhline(y=par_val, color='#550000',
+                                ls='--', linewidth=4.1, alpha=0.27)
+            axarr[i, i].axvline(x=par_val, color='#550000',
+                                ls='--', linewidth=4.1, alpha=0.27)
+
+    for (i, (par_name1, tn_distr1)), (j, (par_name2, tn_distr2)) in combn(
+            enumerate(use_clf.tune_priors), 2):
+
+        if detect_log_distr(tn_distr1):
+            par_meds1 = np.log10(par_df[par_name1]).groupby(level=0).median()
+            par_means1 = np.log10(par_df[par_name1]).groupby(level=0).mean()
+            plt_ymin = 2 * np.log10(tn_distr1[0]) - np.log10(tn_distr1[1])
+            plt_ymax = 2 * np.log10(tn_distr1[-1]) - np.log10(tn_distr1[-2])
+
+        else:
+            par_meds1 = par_df[par_name1].groupby(level=0).median()
+            par_means1 = par_df[par_name1].groupby(level=0).mean()
+            plt_ymin = 2 * tn_distr1[0] - tn_distr1[1]
+            plt_ymax = 2 * tn_distr1[-1] - tn_distr1[-2]
+
+        if detect_log_distr(tn_distr2):
+            par_meds2 = np.log10(par_df[par_name2]).groupby(level=0).median()
+            par_means2 = np.log10(par_df[par_name2]).groupby(level=0).mean()
+            plt_xmin = 2 * np.log10(tn_distr2[0]) - np.log10(tn_distr2[1])
+            plt_xmax = 2 * np.log10(tn_distr2[-1]) - np.log10(tn_distr2[-2])
+
+        else:
+            par_meds2 = par_df[par_name2].groupby(level=0).median()
+            par_means2 = par_df[par_name2].groupby(level=0).mean()
+            plt_xmin = 2 * tn_distr2[0] - tn_distr2[1]
+            plt_xmax = 2 * tn_distr2[-1] - tn_distr2[-2]
+
+        par_meds1 += np.random.normal(
+            0, (plt_ymax - plt_ymin) / (len(tn_distr1) * 19), acc_df.shape[0])
+        par_meds2 += np.random.normal(
+            0, (plt_xmax - plt_xmin) / (len(tn_distr2) * 19), acc_df.shape[0])
+
+        par_means1 += np.random.normal(
+            0, (plt_ymax - plt_ymin) / (len(tn_distr1) * 19), acc_df.shape[0])
+        par_means2 += np.random.normal(
+            0, (plt_xmax - plt_xmin) / (len(tn_distr2) * 19), acc_df.shape[0])
+
+        axarr[i, j].scatter(par_meds2, par_meds1, s=size_vec, c=acc_clrs,
+                            alpha=0.29, edgecolor='black')
+        axarr[i, j].set_xlim(plt_xmin, plt_xmax)
+        axarr[i, j].set_ylim(plt_ymin, plt_ymax)
+
+        axarr[j, i].scatter(par_means1, par_means2, s=size_vec, c=acc_clrs,
+                            alpha=0.29, edgecolor='black')
+        axarr[j, i].set_ylim(plt_xmin, plt_xmax)
+        axarr[j, i].set_xlim(plt_ymin, plt_ymax)
+
+        annot_placed = place_annot(par_meds2, par_meds1,
+                                   size_vec=size_vec,
+                                   annot_vec=acc_vals.index,
+                                   x_range=plt_xmax - plt_xmin,
+                                   y_range=plt_ymax - plt_ymin)
+ 
+        for annot_x, annot_y, annot, halign in annot_placed:
+            axarr[i, j].text(annot_x, annot_y, annot, size=11, ha=halign)
+
+    plt.tight_layout()
+    fig.savefig(
+        os.path.join(plot_dir, args.model_name.split('__')[0],
+                     '{}__tuning-gene-grid__{}-{}_samps-{}.png'.format(
                          args.model_name.split('__')[1], args.expr_source,
                          args.cohort, args.samp_cutoff
                         )),
@@ -251,6 +355,9 @@ def main():
     plot_acc_quartiles(acc_df, args, cdata)
     plot_tuning_distribution(par_df, acc_df, mut_clf, args, cdata)
     plot_tuning_gene(par_df, acc_df, mut_clf, args, cdata)
+
+    if len(mut_clf.tune_priors) > 1:
+        plot_tuning_gene_grid(par_df, acc_df, mut_clf, args, cdata)
 
 
 if __name__ == "__main__":

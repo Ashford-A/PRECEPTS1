@@ -7,11 +7,12 @@ sys.path.extend([os.path.join(base_dir, '../../..')])
 
 from HetMan.features.cohorts.tcga import MutationCohort
 from HetMan.features.mutations import MuType
-import pandas as pd
+from HetMan.experiments.gene_baseline import expr_sources
 
 import argparse
 import synapseclient
 from importlib import import_module
+import pandas as pd
 import dill as pickle
 
 import time
@@ -110,15 +111,11 @@ def main():
     syn.cache.cache_root_dir = args.syn_root
     syn.login()
  
-    expr_dir = pd.read_csv(
-        open(os.path.join(base_dir, 'expr_sources.txt'), 'r'),
-        sep='\t', header=None, index_col=0
-        ).loc[args.expr_source].iloc[0]
-
     cdata = MutationCohort(
         cohort=args.cohort, mut_genes=gene_list, mut_levels=['Gene'],
-        expr_source=args.expr_source, expr_dir=expr_dir, var_source='mc3',
-        syn=syn, cv_prop=0.75, cv_seed=2079 + 57 * args.cv_id
+        expr_source=args.expr_source, expr_dir=expr_sources[args.expr_source],
+        var_source='mc3', syn=syn, cv_prop=0.75,
+        cv_seed=2079 + 57 * args.cv_id
         )
 
     clf_info = args.classif.split('__')
