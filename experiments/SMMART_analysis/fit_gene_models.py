@@ -7,7 +7,7 @@ sys.path.extend([os.path.join(base_dir, '../../..')])
 
 from HetMan.experiments.SMMART_analysis.cohorts import CancerCohort
 from HetMan.features.mutations import MuType
-from HetMan.predict.basic.classifiers import *
+from HetMan.experiments.utilities.classifiers import *
 
 import argparse
 import synapseclient
@@ -119,11 +119,10 @@ def main():
         )
 
     pickle.dump(
-        {'Infer': infer_mat,
-         'Info': {'TunePriors': mut_clf.tune_priors,
+        {'Infer': infer_mat, 'Tune': tuned_params,
+         'Info': {'Clf': mut_clf,
                   'TuneSplits': args.tune_splits,
-                  'TestCount': args.test_count,
-                  'TunedParams': tuned_params}},
+                  'TestCount': args.test_count}},
         open(out_file, 'wb')
         )
 
