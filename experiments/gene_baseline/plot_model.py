@@ -45,9 +45,10 @@ def plot_auc_distribution(acc_df, args, cdata):
                 flierprops=flier_props)
  
     plt.axhline(color='#550000', y=0.5, linewidth=3.7, alpha=0.32)
+    plt.ylabel('AUC', fontsize=26, weight='semibold')
     plt.xticks(rotation=90, ha='right', size=12)
     plt.yticks(np.linspace(0, 1, 11), size=17)
-    plt.ylabel('AUC', fontsize=26, weight='semibold')
+    ax.tick_params(axis='y', length=11, width=2)
 
     fig.savefig(
         os.path.join(plot_dir, args.model_name.split('__')[0],
@@ -87,6 +88,7 @@ def plot_acc_quartiles(acc_df, args, cdata):
         ax_aupr.text(annot_x, annot_y, annot, size=11, ha=halign)
 
     for ax in (ax_auc, ax_aupr):
+        ax.tick_params(pad=3.9)
         ax.set_xlim(0, 1)
         ax.set_ylim(0, 1)
 
@@ -161,49 +163,82 @@ def plot_tuning_distribution(par_df, acc_df, use_clf, args, cdata):
 
 
 def plot_tuning_gene(par_df, acc_df, use_clf, args, cdata):
-    fig, axarr = plt.subplots(figsize=(13, 12 * len(use_clf.tune_priors)),
-                              nrows=len(use_clf.tune_priors), ncols=1,
-                              squeeze=False)
-    
+    fig, axarr = plt.subplots(figsize=(1 + 9 * len(use_clf.tune_priors), 13),
+                              nrows=3, ncols=len(use_clf.tune_priors),
+                              gridspec_kw={'height_ratios': [1, 0.3, 1]},
+                              squeeze=False, sharex=False, sharey=True)
+
     acc_vals = acc_df['AUC'].quantile(q=0.25, axis=1)
-    size_vec = [1073 * len(cdata.train_mut[gene]) / len(cdata.samples)
+    size_vec = [653 * len(cdata.train_mut[gene]) / len(cdata.samples)
                 for gene in acc_vals.index]
 
-    for ax, (par_name, tune_distr) in zip(axarr.flatten(),
-                                          use_clf.tune_priors):
-        par_vals = par_df[par_name].groupby(level=0).median()
+    for i, (par_name, tune_distr) in enumerate(use_clf.tune_priors):
+        axarr[1, i].set_axis_off()
+        axarr[2, i].tick_params(length=6)
 
         if detect_log_distr(tune_distr):
-            par_vals = np.log10(par_vals)
-            plt_xmin = 2 * np.log10(tune_distr[0]) - np.log10(tune_distr[1])
-            plt_xmax = 2 * np.log10(tune_distr[-1]) - np.log10(tune_distr[-2])
+            med_vals = np.log10(par_df[par_name]).groupby(level=0).median()
+            mean_vals = np.log10(par_df[par_name]).groupby(level=0).mean()
+            use_distr = [np.log10(par_val) for par_val in tune_distr]
+            par_lbl = par_name + '\n(log-scale)'
 
         else:
-            plt_xmin = 2 * tune_distr[0] - tune_distr[1]
-            plt_xmax = 2 * tune_distr[-1] - tune_distr[-2]
+            med_vals = par_df[par_name].groupby(level=0).median()
+            mean_vals = par_df[par_name].groupby(level=0).mean()
+            use_distr = tune_distr
+            par_lbl = par_name
 
-        par_vals += np.random.normal(
-            0, (plt_xmax - plt_xmin) / (len(tune_distr) * 19), acc_df.shape[0])
-        ax.scatter(par_vals, acc_vals, s=size_vec, c='black', alpha=0.23)
+        med_vals = med_vals[acc_vals.index]
+        mean_vals = mean_vals[acc_vals.index]
+        distr_diff = np.mean(np.array(use_distr[1:])
+                             - np.array(use_distr[:-1]))
 
-        ax.set_xlim(plt_xmin, plt_xmax)
-        ax.set_ylim(0, 1)
-        ax.axhline(y=0.5, color='#550000',
-                   linewidth=3.1, linestyle='--', alpha=0.32)
+        for j in range(3):
+            axarr[j, i].set_xlim(use_distr[0] - distr_diff / 2,
+                                 use_distr[-1] + distr_diff / 2)
+
+        axarr[1, i].text((use_distr[0] + use_distr[-1]) / 2, 0.5, par_lbl,
+                         ha='center', va='center', fontsize=25,
+                         weight='semibold')
+
+        med_vals += np.random.normal(0,
+                                     (use_distr[-1] - use_distr[0])
+                                     / (len(tune_distr) * 17),
+                                     acc_df.shape[0])
+        mean_vals += np.random.normal(0,
+                                     (use_distr[-1] - use_distr[0])
+                                      / (len(tune_distr) * 23),
+                                      acc_df.shape[0])
+
+        axarr[0, i].scatter(med_vals, acc_vals,
+                            s=size_vec, c='black', alpha=0.23)
+        axarr[2, i].scatter(mean_vals, acc_vals,
+                            s=size_vec, c='black', alpha=0.23)
+
+        axarr[0, i].set_ylim(0, 1)
+        axarr[2, i].set_ylim(0, 1)
+        axarr[0, i].set_ylabel("1st Quartile AUC", size=19, weight='semibold')
+        axarr[2, i].set_ylabel("1st Quartile AUC", size=19, weight='semibold')
+
+        axarr[0, i].axhline(y=0.5, color='#550000',
+                            linewidth=2.3, linestyle='--', alpha=0.32)
+        axarr[2, i].axhline(y=0.5, color='#550000',
+                            linewidth=2.3, linestyle='--', alpha=0.32)
+
+        for par_val in use_distr:
+            axarr[1, i].axvline(x=par_val, color='#116611',
+                                ls='--', linewidth=3.4, alpha=0.27)
 
         annot_placed = place_annot(
-            par_vals, acc_vals.values.tolist(), size_vec=size_vec,
-            annot_vec=acc_vals.index, x_range=plt_xmax - plt_xmin, y_range=1
+            med_vals, acc_vals.values.tolist(),
+            size_vec=size_vec, annot_vec=acc_vals.index,
+            x_range=use_distr[-1] - use_distr[0] + 2 * distr_diff, y_range=1
             )
  
         for annot_x, annot_y, annot, halign in annot_placed:
-            ax.text(annot_x, annot_y, annot, size=11, ha=halign)
-
-        ax.set_xlabel('Median Tuned {} Value'.format(par_name),
-                      fontsize=26, weight='semibold')
-        ax.set_ylabel('1st Quartile AUC', fontsize=26, weight='semibold')
-
-    plt.tight_layout()
+            axarr[0, i].text(annot_x, annot_y, annot, size=8, ha=halign)
+ 
+    plt.tight_layout(h_pad=0)
     fig.savefig(
         os.path.join(plot_dir, args.model_name.split('__')[0],
                      '{}__tuning-gene__{}-{}_samps-{}.png'.format(
@@ -218,12 +253,12 @@ def plot_tuning_gene(par_df, acc_df, use_clf, args, cdata):
 
 def plot_tuning_gene_grid(par_df, acc_df, use_clf, args, cdata):
     par_count = len(use_clf.tune_priors)
-    fig, axarr = plt.subplots(figsize=(7 * par_count, 7 * par_count),
+    fig, axarr = plt.subplots(figsize=(0.5 + 7 * par_count, 7 * par_count),
                               nrows=par_count, ncols=par_count)
 
     acc_vals = acc_df['AUC'].quantile(q=0.25, axis=1)
     acc_clrs = acc_vals.apply(auc_cmap)
-    size_vec = [493 * len(cdata.train_mut[gene]) /
+    size_vec = [461 * len(cdata.train_mut[gene]) /
                 (len(cdata.samples) * par_count)
                 for gene in acc_vals.index]
 
@@ -232,22 +267,28 @@ def plot_tuning_gene_grid(par_df, acc_df, use_clf, args, cdata):
 
         if detect_log_distr(tune_distr):
             use_distr = [np.log10(par_val) for par_val in tune_distr]
+            par_lbl = par_name + '\n(log-scale)'
+
         else:
             use_distr = tune_distr
+            par_lbl = par_name
 
-        plt_min = 2 * use_distr[0] - use_distr[1]
-        plt_max = 2 * use_distr[-1] - use_distr[-2]
+        distr_diff = np.mean(np.array(use_distr[1:])
+                             - np.array(use_distr[:-1]))
+        plt_min = use_distr[0] - distr_diff / 2
+        plt_max = use_distr[-1] + distr_diff / 2
+
         axarr[i, i].set_xlim(plt_min, plt_max)
         axarr[i, i].set_ylim(plt_min, plt_max)
-
-        title_pos = (max(use_distr) + min(use_distr)) / 2
-        axarr[i, i].text(title_pos, title_pos, par_name,
-                         ha='center', fontsize=28, weight='semibold')
+        axarr[i, i].text(
+            (plt_min + plt_max) / 2, (plt_min + plt_max) / 2, par_lbl,
+            ha='center', fontsize=28, weight='semibold'
+            )
 
         for par_val in use_distr:
-            axarr[i, i].axhline(y=par_val, color='#550000',
+            axarr[i, i].axhline(y=par_val, color='#116611',
                                 ls='--', linewidth=4.1, alpha=0.27)
-            axarr[i, i].axvline(x=par_val, color='#550000',
+            axarr[i, i].axvline(x=par_val, color='#116611',
                                 ls='--', linewidth=4.1, alpha=0.27)
 
     for (i, (par_name1, tn_distr1)), (j, (par_name2, tn_distr2)) in combn(
@@ -256,44 +297,61 @@ def plot_tuning_gene_grid(par_df, acc_df, use_clf, args, cdata):
         if detect_log_distr(tn_distr1):
             par_meds1 = np.log10(par_df[par_name1]).groupby(level=0).median()
             par_means1 = np.log10(par_df[par_name1]).groupby(level=0).mean()
-            plt_ymin = 2 * np.log10(tn_distr1[0]) - np.log10(tn_distr1[1])
-            plt_ymax = 2 * np.log10(tn_distr1[-1]) - np.log10(tn_distr1[-2])
+            
+            distr_diff = np.mean(np.log10(np.array(tn_distr1[1:]))
+                                 - np.log10(np.array(tn_distr1[:-1])))
+            plt_ymin = np.log10(tn_distr1[0]) - distr_diff / 2
+            plt_ymax = np.log10(tn_distr1[-1]) + distr_diff / 2
 
         else:
             par_meds1 = par_df[par_name1].groupby(level=0).median()
             par_means1 = par_df[par_name1].groupby(level=0).mean()
-            plt_ymin = 2 * tn_distr1[0] - tn_distr1[1]
-            plt_ymax = 2 * tn_distr1[-1] - tn_distr1[-2]
+
+            distr_diff = np.mean(np.array(tn_distr1[1:])
+                                 - np.array(tn_distr1[:-1]))
+            plt_ymin = tn_distr1[0] - distr_diff / 2
+            plt_ymax = tn_distr1[-1] + distr_diff / 2
 
         if detect_log_distr(tn_distr2):
             par_meds2 = np.log10(par_df[par_name2]).groupby(level=0).median()
             par_means2 = np.log10(par_df[par_name2]).groupby(level=0).mean()
-            plt_xmin = 2 * np.log10(tn_distr2[0]) - np.log10(tn_distr2[1])
-            plt_xmax = 2 * np.log10(tn_distr2[-1]) - np.log10(tn_distr2[-2])
+
+            distr_diff = np.mean(np.log10(np.array(tn_distr2[1:]))
+                                 - np.log10(np.array(tn_distr2[:-1])))
+            plt_xmin = np.log10(tn_distr2[0]) - distr_diff / 2
+            plt_xmax = np.log10(tn_distr2[-1]) + distr_diff / 2
 
         else:
             par_meds2 = par_df[par_name2].groupby(level=0).median()
             par_means2 = par_df[par_name2].groupby(level=0).mean()
-            plt_xmin = 2 * tn_distr2[0] - tn_distr2[1]
-            plt_xmax = 2 * tn_distr2[-1] - tn_distr2[-2]
+
+            distr_diff = np.mean(np.array(tn_distr2[1:])
+                                 - np.array(tn_distr2[:-1]))
+            plt_xmin = tn_distr2[0] - distr_diff / 2
+            plt_xmax = tn_distr2[-1] + distr_diff / 2
 
         par_meds1 += np.random.normal(
-            0, (plt_ymax - plt_ymin) / (len(tn_distr1) * 19), acc_df.shape[0])
+            0, (plt_ymax - plt_ymin) / (len(tn_distr1) * 17), acc_df.shape[0])
         par_meds2 += np.random.normal(
-            0, (plt_xmax - plt_xmin) / (len(tn_distr2) * 19), acc_df.shape[0])
+            0, (plt_xmax - plt_xmin) / (len(tn_distr2) * 17), acc_df.shape[0])
 
         par_means1 += np.random.normal(
-            0, (plt_ymax - plt_ymin) / (len(tn_distr1) * 19), acc_df.shape[0])
+            0, (plt_ymax - plt_ymin) / (len(tn_distr1) * 23), acc_df.shape[0])
         par_means2 += np.random.normal(
-            0, (plt_xmax - plt_xmin) / (len(tn_distr2) * 19), acc_df.shape[0])
+            0, (plt_xmax - plt_xmin) / (len(tn_distr2) * 23), acc_df.shape[0])
 
-        axarr[i, j].scatter(par_meds2, par_meds1, s=size_vec, c=acc_clrs,
-                            alpha=0.29, edgecolor='black')
+        axarr[i, j].scatter(
+            par_meds2[acc_clrs.index], par_meds1[acc_clrs.index],
+            s=size_vec, c=acc_clrs, alpha=0.36, edgecolor='black'
+            )
+
+        axarr[j, i].scatter(
+            par_means1[acc_clrs.index], par_means2[acc_clrs.index],
+            s=size_vec, c=acc_clrs, alpha=0.36, edgecolor='black'
+            )
+
         axarr[i, j].set_xlim(plt_xmin, plt_xmax)
         axarr[i, j].set_ylim(plt_ymin, plt_ymax)
-
-        axarr[j, i].scatter(par_means1, par_means2, s=size_vec, c=acc_clrs,
-                            alpha=0.29, edgecolor='black')
         axarr[j, i].set_ylim(plt_xmin, plt_xmax)
         axarr[j, i].set_xlim(plt_ymin, plt_ymax)
 

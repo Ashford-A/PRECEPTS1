@@ -8,8 +8,8 @@ from sklearn.ensemble import RandomForestClassifier
 class Base(PresencePipe):
  
     tune_priors = (
-        ('fit__max_features', tuple(10 ** np.linspace(-3.5, -1, 6))),
-        ('fit__min_samples_leaf', (1, 3, 6, 10)),
+        ('fit__max_features', tuple(10 ** np.linspace(-3.25, -0.75, 6))),
+        ('fit__min_samples_leaf', (1, 2, 4, 8)),
         )
 
     norm_inst = StandardScaler()

@@ -41,7 +41,7 @@ def plot_acc_highlights(out_dict, args, cdata):
     for gene, auc_vals in plot_df.iterrows():
         best_stat = plot_df.columns == auc_vals.idxmax()
         annot_values.loc[gene, ~best_stat] = ''
-        
+ 
     ax = sns.heatmap(plot_df, cmap=auc_cmap,
                      vmin=0, vmax=1, center=0.5, yticklabels=True,
                      annot=annot_values, fmt='', annot_kws={'size': 13})
@@ -51,8 +51,8 @@ def plot_acc_highlights(out_dict, args, cdata):
                                   size=31, weight='semibold')
 
     ax.figure.axes[0].tick_params(axis='x', length=8, width=3)
-    plt.xticks(rotation=38, ha='right', size=23)
-    plt.yticks(size=17)
+    plt.xticks(size=23, rotation=38, ha='right')
+    plt.yticks(size=17, rotation=0)
     plt.xlabel('Model', size=34, weight='semibold')
 
     fig.savefig(

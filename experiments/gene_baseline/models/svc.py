@@ -9,7 +9,7 @@ from sklearn.svm import SVC
 class Base(PresencePipe):
 
     tune_priors = (
-        ('fit__C', tuple(10 ** np.linspace(-7, -1.25, 24))),
+        ('fit__C', tuple(10 ** np.linspace(-6.8, -2.2, 24))),
         )
 
     norm_inst = StandardScaler()
@@ -23,8 +23,8 @@ class Base(PresencePipe):
 class Kernel_quad(Base):
 
     tune_priors = (
-        ('fit__C', (1e-6, 1e-4, 1e-2, 1e0, 1e2, 1e4)),
-        ('fit__gamma', (1e-8, 1e-5, 1e-4, 1e-1)),
+        ('fit__C', (1e-5, 1e-3, 1e-1, 1e1, 1e3, 1e5)),
+        ('fit__gamma', (1e-9, 1e-7, 1e-5, 1e-3)),
         )
     
     fit_inst = SVC(kernel='poly', degree=2, coef0=1, probability=True,
@@ -68,8 +68,8 @@ class Kernel_poly(Base):
 class Kernel_radial(Base):
 
     tune_priors = (
-        ('fit__C', (1e-9, 1e-6, 1e-3, 1e0, 1e3, 1e6)),
-        ('fit__gamma', (1e-9, 1e-5, 1e-2, 1e2)),
+        ('fit__C', (1e-5, 1e-2, 1e0, 1e2, 1e3, 1e5, 1e7, 1e10)),
+        ('fit__gamma', (1e-9, 1e-7, 1e-5)),
         )
  
     fit_inst = SVC(kernel='rbf', probability=True,
