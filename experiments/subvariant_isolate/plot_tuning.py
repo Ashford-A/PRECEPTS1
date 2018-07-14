@@ -54,11 +54,11 @@ def plot_tuning_auc(tune_df, auc_vals, use_clf, args, cdata):
 
     gene_vec = [[gn for gn, _ in mtype.subtype_list()][0]
                 for mtype in auc_vals.index]
-    size_vec = [(578 * len(mtype.get_samples(cdata.train_mut))
+    size_vec = [(463 * len(mtype.get_samples(cdata.train_mut))
                  / len(cdata.samples))
                 for mtype in auc_vals.index]
 
-    use_genes = tuple(set(gene_vec))
+    use_genes = sorted(set(gene_vec))
     gene_clrs = sns.color_palette("muted", n_colors=len(use_genes))
     clr_vec = [gene_clrs[use_genes.index(gn)] for gn in gene_vec]
 
@@ -76,21 +76,21 @@ def plot_tuning_auc(tune_df, auc_vals, use_clf, args, cdata):
             plt_xmax = 2 * tune_distr[-1] - tune_distr[-2]
 
         par_vals += np.random.normal(
-            0, (plt_xmax - plt_xmin) / (len(tune_distr) * 11), len(auc_vals))
-        ax.scatter(par_vals, auc_vals, s=size_vec, c=clr_vec, alpha=0.23)
+            0, (plt_xmax - plt_xmin) / (len(tune_distr) * 7), len(auc_vals))
+        ax.scatter(par_vals, auc_vals, s=size_vec, c=clr_vec, alpha=0.21)
 
         ax.set_xlim(plt_xmin, plt_xmax)
         ax.set_ylim(0.48, 1.02)
         ax.tick_params(labelsize=19)
         ax.set_xlabel('Tuned {} Value'.format(par_name),
-                      fontsize=28, weight='semibold')
+                      fontsize=27, weight='semibold')
 
         ax.axhline(y=1.0, color='black', linewidth=2.1, alpha=0.37)
         ax.axhline(y=0.5, color='#550000',
-                   linewidth=2.9, linestyle='--', alpha=0.29)
+                   linewidth=2.7, linestyle='--', alpha=0.29)
 
     fig.text(-0.01, 0.5, 'Aggregate AUC', ha='center', va='center',
-             fontsize=26, weight='semibold', rotation='vertical')
+             fontsize=27, weight='semibold', rotation='vertical')
 
     plt.tight_layout(h_pad=1.7)
     fig.savefig(
@@ -122,19 +122,21 @@ def main():
 
     out_dirs = [
         out_dir.parent for out_dir in out_path.glob(
-            '*/{}/**/out__task-0.p'.format(args.classif))
-        if (len(tuple(out_dir.parent.glob('out__*.p'))) > 0
-            and (len(tuple(out_dir.parent.glob('out__*.p')))
-                 == len(tuple(out_dir.parent.glob('slurm/fit-*.txt')))))
+            "*/{}/**/out__task-0.p".format(args.classif))
+        if (len(tuple(out_dir.parent.glob("out__*.p"))) > 0
+            and (len(tuple(out_dir.parent.glob("out__*.p")))
+                 == len(tuple(out_dir.parent.glob("slurm/fit-*.txt")))))
         ]
 
-    mut_data = [(str(out_dir).split('/')[4], str(out_dir).split('/')[7],
-                 str(out_dir).split('/')[6])
-                for out_dir in out_dirs]
+    out_paths = [
+        str(out_dir).split("/output/{}/".format(args.cohort))[1].split('/')
+        for out_dir in out_dirs
+        ]
 
-    for gene, mut_levels in set(x[:2] for x in mut_data):
-        use_data = [x for x in enumerate(mut_data)
-                    if x[1][:2] == (gene, mut_levels)]
+    for gene, mut_levels in set((out_path[0], out_path[3])
+                                for out_path in out_paths):
+        use_data = [(i, out_path) for i, out_path in enumerate(out_paths)
+                    if out_path[0] == gene and out_path[3] == mut_levels]
 
         if len(use_data) > 1:
             use_samps = np.argmin(int(x[1][2].split('samps_')[-1])
@@ -152,30 +154,33 @@ def main():
                          "with exactly one classifier!")
 
     mut_clf = tuple(mut_clf)[0]
+    out_genes = [
+        str(out_dir).split("/output/{}/".format(args.cohort))[1].split('/')[0]
+        for out_dir in out_dirs
+        ]
+
     tune_dict = {out_dir: tune_df
                  for out_dir, (tune_df, _) in tune_dict.items()}
     iso_dict = {out_dir: load_infer_output(str(out_dir))
                 for out_dir in out_dirs}
 
-    for out_dir in out_dirs:
-        tune_dict[out_dir].index = [
-            MuType({('Gene', str(out_dir).split('/')[4]): mtype})
-            for mtype in tune_dict[out_dir].index
-            ]
-        iso_dict[out_dir].index = [
-            MuType({('Gene', str(out_dir).split('/')[4]): mtype})
-            for mtype in iso_dict[out_dir].index
-            ]
+    for out_dir, out_gene in zip(out_dirs, out_genes):
+        tune_dict[out_dir].index = [MuType({('Gene', out_gene): mtype})
+                                    for mtype in tune_dict[out_dir].index]
+        iso_dict[out_dir].index = [MuType({('Gene', out_gene): mtype})
+                                   for mtype in iso_dict[out_dir].index]
 
     tune_df = pd.concat(tune_dict.values())
-    use_genes = list({str(out_dir).split('/')[4] for out_dir in out_dirs})
     use_lvls = ['Gene']
+    mut_lvls = list(set(
+        tuple(str(out_dir).split(
+            "/output/{}/".format(args.cohort))[1].split('/')[3].split('__'))
+        for out_dir in out_dirs
+        ))
 
-    mut_lvls = list(set(tuple(str(out_dir).split('/')[7].split('__'))
-                        for out_dir in out_dirs))
     seq_match = SequenceMatcher(a=mut_lvls[0], b=mut_lvls[1])
-
     for (op, start1, end1, start2, end2) in seq_match.get_opcodes():
+
         if op == 'equal' or op=='delete':
             use_lvls += mut_lvls[0][start1:end1]
 
@@ -191,10 +196,9 @@ def main():
     syn.cache.cache_root_dir = args.syn_root
     syn.login()
 
-    cdata = MutationCohort(
-        cohort=args.cohort, mut_genes=use_genes, mut_levels=use_lvls,
-        expr_source='Firehose', expr_dir=firehose_dir, syn=syn, cv_prop=1.0
-        )
+    cdata = MutationCohort(cohort=args.cohort, mut_genes=list(set(out_genes)),
+                           mut_levels=use_lvls, expr_source='Firehose',
+                           expr_dir=firehose_dir, syn=syn, cv_prop=1.0)
     auc_vals = get_aucs(pd.concat(iso_dict.values()), cdata)
 
     plot_tuning_auc(tune_df, auc_vals, mut_clf, args, cdata)
