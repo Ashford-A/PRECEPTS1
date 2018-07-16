@@ -75,7 +75,7 @@ def main():
     parser = argparse.ArgumentParser(
         "Plot how well expression signatures separate isolated mutation "
         "subtypes from non-mutated samples relative to how they separate "
-        "mutated samples non belonging to the subtype."
+        "mutated samples not belonging to the subtype."
         )
 
     parser.add_argument('cohort', help='a TCGA cohort')

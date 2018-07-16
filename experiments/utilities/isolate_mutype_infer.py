@@ -188,6 +188,7 @@ def main():
     pickle.dump(
         {'Infer': out_iso, 'Tune': out_tune,
          'Info': {'Clf': mut_clf,
+                  'TunePriors': mut_clf.tune_priors,
                   'TuneSplits': args.tune_splits,
                   'TestCount': args.test_count,
                   'InferFolds': args.infer_folds}},

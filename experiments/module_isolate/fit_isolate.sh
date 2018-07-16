@@ -2,22 +2,19 @@
 
 #SBATCH --job-name=module-isolate_fit
 #SBATCH --partition=exacloud
+#SBATCH --verbose
 
 #SBATCH --time=2150
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem-per-cpu=5000
 
-#SBATCH --output=/home/exacloud/lustre1/CompBio/mgrzad/slurm/log-files/module-isolate_fit_out-%A.txt
-#SBATCH --error=/home/exacloud/lustre1/CompBio/mgrzad/slurm/log-files/module-isolate_fit_err-%A.txt
-#SBATCH --verbose
-
 
 export OMP_NUM_THREADS=1
-sleep $(($SLURM_ARRAY_TASK_ID * 7));
-echo $array_size
-echo $BASEDIR
 echo $OUTDIR
+echo $array_size
+
+sleep $(($SLURM_ARRAY_TASK_ID * 7));
 SETUP_DIR=$BASEDIR/setup/${cohort}/${gene_lbl}
 
 # test the subtypes corresponding to the given sub-task ID

@@ -2,16 +2,13 @@
 
 #SBATCH --job-name=module-isolate
 #SBATCH --partition=exacloud
+#SBATCH --verbose
+
 #SBATCH --mem=1000
 #SBATCH --time=500
 
-#SBATCH --output=/home/exacloud/lustre1/CompBio/mgrzad/slurm/log-files/module-isolate_%j.out
-#SBATCH --error=/home/exacloud/lustre1/CompBio/mgrzad/slurm/log-files/module-isolate_%j.err
-#SBATCH --verbose
 
-
-# move to working directory, load required packages and modules
-cd /home/exacloud/lustre1/CompBio/mgrzad/bergamot
+export BASEDIR=HetMan/experiments/module_isolate
 source activate precepts
 
 gene_list=()
@@ -24,8 +21,10 @@ do
 		s)	export samp_cutoff=$OPTARG;;
 		l)	export mut_levels=$OPTARG;;
 		m)	test_max=$OPTARG;;
-		[?])	echo "Usage: $0 [-t] TCGA cohort [-g]...[-g] mutated genes [-c] classifier" \
-			     "[-s] sample cutoff [-l] mutation levels [-m] maximum tests per node";
+		[?])	echo "Usage: $0 [-t] TCGA cohort [-g]...[-g] mutated genes" \
+			     "[-c] mutation classifier [-s] minimum sample cutoff" \
+			     "[-l] mutation annotation levels" \
+			     "[-m] maximum tests per node";
 			exit 1;;
 	esac
 done
@@ -39,11 +38,6 @@ IFS=$'\n'
 export sorted_genes=($(sort <<<"${gene_list[*]}"))
 unset IFS
 export gene_lbl=$(IFS='_'; echo "${sorted_genes[*]}")
-
-# get the directory containing the experiment and the sub-directory where the
-# subtypes enumareted during the setup step will be saved
-export BASEDIR=HetMan/experiments/gene-module_isolate
-mkdir -p $BASEDIR/setup/${cohort}/${gene_lbl}
 
 # get the directory where the experiment results will be saved, removing it
 # if it already exists
@@ -73,5 +67,7 @@ then
 fi
 
 # run the subtype tests in parallel
-sbatch --array=0-$(( $array_size )) $BASEDIR/fit_isolate.sh
+sbatch --output=${slurm_dir}/module-iso_fit.out \
+	--error=${slurm_dir}/module-iso_fit.err \
+	--array=0-$(( $array_size )) $BASEDIR/fit_isolate.sh
 
