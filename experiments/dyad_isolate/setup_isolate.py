@@ -4,6 +4,7 @@ base_dir = os.path.dirname(__file__)
 
 import sys
 sys.path.extend([os.path.join(base_dir, '../../..')])
+from HetMan.experiments.dyad_isolate import *
 
 from HetMan.features.cohorts.tcga import MutationCohort
 from HetMan.features.mutations import MuType
@@ -12,8 +13,6 @@ import argparse
 import synapseclient
 from itertools import combinations as combn
 import dill as pickle
-
-firehose_dir = "/home/exacloud/lustre1/share_your_data_here/precepts/firehose"
 
 
 def main():
@@ -36,8 +35,7 @@ def main():
 
     # log into Synapse using locally stored credentials
     syn = synapseclient.Synapse()
-    syn.cache.cache_root_dir = ("/home/exacloud/lustre1/CompBio/"
-                                "mgrzad/input-data/synapse")
+    syn.cache.cache_root_dir = syn_root
     syn.login()
     
     cdata = MutationCohort(

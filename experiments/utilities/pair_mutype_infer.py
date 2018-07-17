@@ -6,7 +6,7 @@ import sys
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
 from HetMan.features.cohorts.tcga import MutationCohort
-from HetMan.predict.basic.classifiers import *
+from HetMan.experiments.utilities.classifiers import *
 
 import synapseclient
 import argparse
@@ -140,6 +140,11 @@ def main():
     out_cross = {(mtype1, mtype2): None for mtype1, mtype2 in pair_list}
     out_cross.update({(mtype2, mtype1): None for mtype1, mtype2 in pair_list})
 
+    out_tune = {
+        (mtype1, mtype2): {par: None for par, _ in mut_clf.tune_priors}
+        for mtype1, mtype2 in out_cross
+        }
+
     # for each subtype, check if it has been assigned to this task
     for i, (mtype1, mtype2) in enumerate(pair_list):
         if (i % args.task_count) == args.task_id:
@@ -162,7 +167,11 @@ def main():
                                  tune_splits=args.tune_splits,
                                  test_count=args.test_count,
                                  parallel_jobs=args.parallel_jobs)
-                    
+ 
+                    clf_params = clf.get_params()
+                    for par, _ in mut_clf.tune_priors:
+                        out_tune[(mtype1, mtype2)][par] = clf_params[par]
+ 
                     out_cross[(mtype1, mtype2)] = clf.infer_coh(
                         cdata, mtype1, exclude_genes=ex_genes,
                         force_test_samps=samps2,
@@ -177,7 +186,11 @@ def main():
                                  tune_splits=args.tune_splits,
                                  test_count=args.test_count,
                                  parallel_jobs=args.parallel_jobs)
-                    
+ 
+                    clf_params = clf.get_params()
+                    for par, _ in mut_clf.tune_priors:
+                        out_tune[(mtype2, mtype1)][par] = clf_params[par]
+ 
                     out_cross[(mtype2, mtype1)] = clf.infer_coh(
                         cdata, mtype2, exclude_genes=ex_genes,
                         force_test_samps=samps1,
@@ -189,12 +202,16 @@ def main():
         else:
             del(out_cross[(mtype1, mtype2)])
             del(out_cross[(mtype2, mtype1)])
+            del(out_tune[(mtype1, mtype2)])
+            del(out_tune[(mtype2, mtype1)])
 
     pickle.dump(
-        {'Infer': out_cross,
-         'Info': {'TunePriors': mut_clf.tune_priors,
+        {'Infer': out_cross, 'Tune': out_tune,
+         'Info': {'Clf': mut_clf,
+                  'TunePriors': mut_clf.tune_priors,
                   'TuneSplits': args.tune_splits,
-                  'TestCount': args.test_count}},
+                  'TestCount': args.test_count,
+                  'InferFolds': args.infer_folds}},
         open(out_file, 'wb')
         )
 

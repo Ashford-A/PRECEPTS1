@@ -151,8 +151,12 @@ def main():
                 for mtype in mtype_list}
     out_iso = {mtype: None for mtype in mtype_list}
 
-    base_mtype = MuType({('Gene', tuple(use_genes)): None})
-    base_samps = base_mtype.get_samples(cdata.train_mut)
+    if 'Gene' in use_lvls:
+        base_mtype = MuType({('Gene', tuple(use_genes)): None})
+        base_samps = base_mtype.get_samples(cdata.train_mut)
+
+    else:
+        base_samps = cdata.train_mut.get_samples()
 
     # for each subtype, check if it has been assigned to this task
     for i, mtype in enumerate(mtype_list):
@@ -173,7 +177,7 @@ def main():
             clf_params = clf.get_params()
             for par, _ in mut_clf.tune_priors:
                 out_tune[mtype][par] = clf_params[par]
- 
+
             out_iso[mtype] = clf.infer_coh(
                 cdata, mtype,
                 exclude_genes=use_genes, force_test_samps=ex_samps,

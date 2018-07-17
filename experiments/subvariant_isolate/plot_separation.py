@@ -5,7 +5,7 @@ plot_dir = os.path.join(base_dir, 'plots', 'separation')
 
 import sys
 sys.path.extend([os.path.join(base_dir, '../../..')])
-from HetMan.experiments.subvariant_isolate import firehose_dir
+from HetMan.experiments.subvariant_isolate import *
 
 from HetMan.features.cohorts.tcga import MutationCohort
 from HetMan.features.mutations import MuType
@@ -25,20 +25,29 @@ plt.style.use('fivethirtyeight')
 def get_separation(iso_df, args, cdata):
     base_pheno = np.array(cdata.train_pheno(MuType(cdata.train_mut.allkey())))
 
-    auc_list = pd.Series(index=iso_df.index, dtype=np.float)
-    sep_list = pd.Series(index=iso_df.index, dtype=np.float)
-    prop_list = pd.Series(index=iso_df.index, dtype=np.float)
+    # get the mutation status of the samples in the cohort for each of the
+    # tested subtypes, remove subtypes that include all mutated samples
+    mtype_phenos = {
+        mtype: np.array(cdata.train_pheno(mtype)) for mtype in iso_df.index
+        if len(mtype.get_samples(cdata.train_mut)) < np.sum(base_pheno)
+        }
 
-    for mtype, iso_vals in iso_df.iterrows():
-        cur_pheno = np.array(cdata.train_pheno(mtype))
+    prop_list = pd.Series(index=mtype_phenos.keys(), dtype=np.float)
+    auc_list = pd.Series(index=mtype_phenos.keys(), dtype=np.float)
+    sep_list = pd.Series(index=mtype_phenos.keys(), dtype=np.float)
 
-        none_vals = np.concatenate(iso_vals[~base_pheno].values)
-        cur_vals = np.concatenate(iso_vals[cur_pheno].values)
-        rest_vals = np.concatenate(iso_vals[base_pheno & ~cur_pheno].values)
+    for mtype, cur_pheno in mtype_phenos.items():
+        prop_list[mtype] = np.sum(cur_pheno) / np.sum(base_pheno)
+
+        none_vals = np.concatenate(iso_df.loc[mtype, ~base_pheno].values)
+        cur_vals = np.concatenate(iso_df.loc[mtype, cur_pheno].values)
+        rest_vals = np.concatenate(
+            iso_df.loc[mtype, base_pheno & ~cur_pheno].values)
 
         auc_list[mtype] = np.less.outer(none_vals, cur_vals).mean()
+        auc_list[mtype] += np.equal.outer(none_vals, cur_vals).mean() / 2
         sep_list[mtype] = np.less.outer(none_vals, rest_vals).mean()
-        prop_list[mtype] = np.sum(cur_pheno) / np.sum(base_pheno)
+        sep_list[mtype] += np.equal.outer(none_vals, rest_vals).mean() / 2
 
     return auc_list, sep_list, prop_list
 
@@ -48,7 +57,7 @@ def plot_separation(auc_vals, sep_vals, prop_vals, args, cdata):
     mpl.rcParams['axes.edgecolor'] = '0.05'
 
     fig, ax = plt.subplots(figsize=(15, 14))
-    ax.scatter(auc_vals, sep_vals, s=prop_vals * 131, c='black', alpha=0.19)
+    ax.scatter(auc_vals, sep_vals, s=prop_vals * 103, c='black', alpha=0.19)
     ax.plot([-1, 2], [-1, 2],
             linewidth=1.7, linestyle='--', color='#550000', alpha=0.6)
 
@@ -81,21 +90,17 @@ def main():
     parser.add_argument('cohort', help='a TCGA cohort')
     parser.add_argument('gene', help='a mutated gene')
     parser.add_argument('classif', help='a mutation classifier')
+
     parser.add_argument('mut_levels', default='Form_base__Exon',
                         help='a set of mutation annotation levels')
-    parser.add_argument('samp_cutoff', default=20)
-    
-    parser.add_argument(
-        'syn_root', type=str,
-        help="the root cache directory for data downloaded from Synapse"
-        )
+    parser.add_argument('--samp_cutoff', type=int, default=20)
 
     args = parser.parse_args()
     os.makedirs(plot_dir, exist_ok=True)
 
     # log into Synapse using locally stored credentials
     syn = synapseclient.Synapse()
-    syn.cache.cache_root_dir = args.syn_root
+    syn.cache.cache_root_dir = syn_root
     syn.login()
 
     cdata = MutationCohort(cohort=args.cohort, mut_genes=[args.gene],
