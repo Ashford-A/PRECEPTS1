@@ -2,16 +2,14 @@
 
 #SBATCH --job-name=cna-isolate
 #SBATCH --partition=exacloud
+#SBATCH --verbose
+
 #SBATCH --mem=1000
 #SBATCH --time=500
 
-#SBATCH --output=/home/exacloud/lustre1/CompBio/mgrzad/slurm/log-files/cna-isolate_%j.out
-#SBATCH --error=/home/exacloud/lustre1/CompBio/mgrzad/slurm/log-files/cna-isolate_%j.err
-#SBATCH --verbose
-
 
 # move to working directory, load required packages and modules
-cd /home/exacloud/lustre1/CompBio/mgrzad/bergamot
+export BASEDIR=HetMan/experiments/cna_isolate
 source activate precepts
 
 while getopts t:g:c:m: var
@@ -27,7 +25,6 @@ do
 	esac
 done
 
-export BASEDIR=HetMan/experiments/cna_isolate
 export OUTDIR=$BASEDIR/output/$cohort/$gene/$classif
 rm -rf $OUTDIR
 mkdir -p $OUTDIR/slurm
