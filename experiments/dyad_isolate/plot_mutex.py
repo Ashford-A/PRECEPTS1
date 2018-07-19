@@ -5,6 +5,7 @@ plot_dir = os.path.join(base_dir, 'plots', 'mutex')
 
 import sys
 sys.path.extend([os.path.join(base_dir, '../../..')])
+from HetMan.experiments.dyad_isolate import *
 
 from HetMan.features.cohorts.tcga import MutationCohort
 from HetMan.experiments.utilities import load_infer_output, simil_cmap
@@ -20,8 +21,6 @@ import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
 plt.style.use('fivethirtyeight')
-
-firehose_dir = "/home/exacloud/lustre1/share_your_data_here/precepts/firehose"
 
 
 def get_pair_data(iso_df, args, cdata):
@@ -214,8 +213,7 @@ def main():
 
     # log into Synapse using locally stored credentials
     syn = synapseclient.Synapse()
-    syn.cache.cache_root_dir = ("/home/exacloud/lustre1/CompBio/"
-                                "mgrzad/input-data/synapse")
+    syn.cache.cache_root_dir = syn_root
     syn.login()
 
     cdata = MutationCohort(
