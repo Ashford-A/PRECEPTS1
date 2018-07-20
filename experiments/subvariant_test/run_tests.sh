@@ -54,5 +54,7 @@ then
 fi
 
 # run the subtype tests in parallel
-sbatch --array=0-$(( $array_size )) $BASEDIR/fit_tests.sh
+sbatch --output=${slurm_dir}/subvariant-test.out \
+	--error=${slurm_dir}/subvariant-test.err \
+	--array=0-$(( $array_size )) $BASEDIR/fit_tests.sh
 
