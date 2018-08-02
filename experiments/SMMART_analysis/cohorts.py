@@ -1,7 +1,7 @@
 
-from ...features.cohorts.mut import BaseMutationCohort
+from dryadic.features.cohorts.mut import BaseMutationCohort
 from .utils import load_patient_expression, load_patient_mutations
-from ...features.cohorts.tcga import match_tcga_samples
+from dryadic.features.cohorts.utils import match_tcga_samples
 
 from ...features.data.expression import get_expr_toil
 from ...features.data.variants import get_variants_mc3, get_variants_firehose
@@ -209,6 +209,6 @@ class CancerCohort(BaseMutationCohort):
         smrt_mut.columns = ['Gene', 'Form', 'Sample']
         variants = pd.concat([variants, smrt_mut])
 
-        super().__init__(expr, variants, copy_data, mut_genes, mut_levels,
+        super().__init__(expr, variants, mut_genes, mut_levels,
                          top_genes, samp_cutoff, cv_prop, cv_seed)
 

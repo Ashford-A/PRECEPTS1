@@ -1,6 +1,6 @@
 
-from ....predict.pipelines import PresencePipe
-from ....predict.stan.base import StanOptimizing
+from dryadic.learning.utilities.pipelines import PresencePipe
+from dryadic.learning.stan.base import StanOptimizing
 from ....predict.stan.margins.classifiers import GaussLabels
 from ....predict.stan.margins.stan_models import gauss_model as use_model
 

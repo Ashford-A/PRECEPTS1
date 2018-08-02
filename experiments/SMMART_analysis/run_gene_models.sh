@@ -15,7 +15,7 @@
 # scripts and packages
 export OMP_NUM_THREADS=1
 sleep $(($SLURM_ARRAY_TASK_ID * 7));
-source activate precepts
+source activate HetMan
 
 while getopts t:g:c: var
 do
