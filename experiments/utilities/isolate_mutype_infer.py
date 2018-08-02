@@ -6,7 +6,7 @@ import sys
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
 from HetMan.features.cohorts.tcga import MutationCohort
-from HetMan.features.mutations import MuType
+from dryadic.features.mutations import *
 from HetMan.experiments.utilities.classifiers import *
 
 import synapseclient
@@ -16,7 +16,7 @@ import dill as pickle
 
 import pandas as pd
 from importlib import import_module
-from operator import or_
+from operator import or_, and_
 from functools import reduce
 
 firehose_dir = "/home/exacloud/lustre1/share_your_data_here/precepts/firehose"
@@ -97,19 +97,23 @@ def main():
                   args.mtype_file, args.out_dir, args.classif
                 ))
 
-    mtype_list = pickle.load(open(args.mtype_file, 'rb'))
     use_lvls = []
+    mtype_list = pickle.load(open(args.mtype_file, 'rb'))
+    lvl_mtypes = [
+        mtypes if isinstance(mtypes, MuType) else reduce(or_, mtypes)
+        for mtypes in mtype_list
+        ]
 
     for lvls in reduce(or_, [{mtype.get_sorted_levels()}
-                             for mtype in mtype_list]):
+                             for mtype in lvl_mtypes]):
         for lvl in lvls:
-            if lvl not in use_lvls:
+            if lvl not in ['Scale', 'Copy'] and lvl not in use_lvls:
                 use_lvls.append(lvl)
 
     if args.use_genes is None:
-        if set(mtype.cur_level for mtype in mtype_list) == {'Gene'}:
+        if set(mtype.cur_level for mtype in lvl_mtypes) == {'Gene'}:
             use_genes = reduce(or_, [set(gn for gn, _ in mtype.subtype_list())
-                                     for mtype in mtype_list])
+                                     for mtype in lvl_mtypes])
 
         else:
             raise ValueError(
@@ -135,8 +139,10 @@ def main():
     # cross-validation ID for this task
     cdata = MutationCohort(
         cohort=args.cohort, mut_genes=list(use_genes), mut_levels=use_lvls,
-        expr_source='Firehose', expr_dir=firehose_dir,
-        syn=syn, cv_seed=args.cv_id, cv_prop=1.0
+        expr_source='Firehose', var_source='mc3', copy_source='Firehose',
+        annot_file=('/home/exacloud/lustre1/CompBio/mgrzad/input-data/'
+                    'gencode/gencode.v22.annotation.gtf.gz'),
+        expr_dir=firehose_dir, syn=syn, cv_seed=args.cv_id, cv_prop=1.0
         )
 
     if args.verbose:
@@ -151,6 +157,7 @@ def main():
                 for mtype in mtype_list}
     out_iso = {mtype: None for mtype in mtype_list}
 
+    all_mtype = MuType(cdata.train_mut.allkey())
     if 'Gene' in use_lvls:
         base_mtype = MuType({('Gene', tuple(use_genes)): None})
         base_samps = base_mtype.get_samples(cdata.train_mut)
@@ -158,36 +165,56 @@ def main():
     else:
         base_samps = cdata.train_mut.get_samples()
 
-    # for each subtype, check if it has been assigned to this task
-    for i, mtype in enumerate(mtype_list):
-        if (i % args.task_count) == args.task_id:
-            if args.verbose:
-                print("Isolating {} ...".format(mtype))
+    use_chrs = {cdata.gene_annot[gene]['chr'] for gene in use_genes}
+    ex_genes = {gene for gene, annot in cdata.gene_annot.items()
+                if annot['chr'] in use_chrs}
 
+    # for each subtype, check if it has been assigned to this task
+    for i, mtypes in enumerate(mtype_list):
+        if (i % args.task_count) == args.task_id:
             clf = mut_clf()
-            ex_samps = base_samps - mtype.get_samples(cdata.train_mut)
+
+            if args.verbose:
+                print("Isolating {} ...".format(mtypes))
+
+            if isinstance(mtypes, MuType):
+                ex_samps = base_samps - mtypes.get_samples(cdata.train_mut)
+                use_mtype = mtypes
+
+            else:
+                rest_mtype = all_mtype - reduce(or_, mtypes)
+                ex_samps = rest_mtype.get_samples(cdata.train_mut)
+
+                cur_samps = [mtype.get_samples(cdata.train_mut)
+                             for mtype in mtypes]
+                ex_samps |= reduce(or_, cur_samps) - reduce(and_, cur_samps)
+
+                if len(mtypes) == 1:
+                    use_mtype = mtypes[0]
+                else:
+                    use_mtype = MutComb(*mtypes)
 
             clf.tune_coh(
-                cdata, mtype,
-                exclude_genes=use_genes, exclude_samps=ex_samps,
+                cdata, use_mtype,
+                exclude_genes=ex_genes, exclude_samps=ex_samps,
                 tune_splits=args.tune_splits, test_count=args.test_count,
                 parallel_jobs=args.parallel_jobs
                 )
 
             clf_params = clf.get_params()
             for par, _ in mut_clf.tune_priors:
-                out_tune[mtype][par] = clf_params[par]
+                out_tune[mtypes][par] = clf_params[par]
 
-            out_iso[mtype] = clf.infer_coh(
-                cdata, mtype,
-                exclude_genes=use_genes, force_test_samps=ex_samps,
+            out_iso[mtypes] = clf.infer_coh(
+                cdata, use_mtype,
+                exclude_genes=ex_genes, force_test_samps=ex_samps,
                 infer_splits=args.infer_splits, infer_folds=args.infer_folds,
                 parallel_jobs=args.parallel_jobs
                 )
 
         else:
-            del(out_iso[mtype])
-            del(out_tune[mtype])
+            del(out_iso[mtypes])
+            del(out_tune[mtypes])
 
     pickle.dump(
         {'Infer': out_iso, 'Tune': out_tune,

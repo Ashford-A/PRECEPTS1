@@ -12,14 +12,12 @@ from HetMan.features.data.utils import choose_bmeg_server
 import numpy as np
 import pandas as pd
 
+import aql
 import os
 import glob
 
-import gzip
 import tarfile
 from io import BytesIO
-
-import json
 
 
 def get_expr_bmeg(cohort):
@@ -36,40 +34,21 @@ def get_expr_bmeg(cohort):
         >>> expr_data = get_expr_bmeg('TCGA-PCPG')
 
     """
-    oph = Ophion(choose_bmeg_server(verbose=True))
-    expr_list = {}
+    conn = aql.Connection("http://bmeg.io")
+    O = conn.graph("bmeg")
 
-    # TODO: filter on gene chromosome when BMEG is updated
-    expr_query = ('oph.query().has("gid", "project:" + cohort)'
-                  '.outgoing("hasMember").incoming("biosampleOfIndividual")'
-                  '.mark("sample").incoming("expressionForSample")'
-                  '.mark("expression").select(["sample", "expression"])')
-    samp_count = eval(expr_query).count().execute()[0]
+    c = O.query().V().where(aql.eq("_label", "Individual"))
+    c = c.where(aql.and_(aql.eq("source", "tcga"),
+                         aql.eq("disease_code", cohort)))
+    
+    c = c.in_("sampleOf").in_("expressionFor")
+    c = c.render(["$.biosampleId", "$.expressions"])
 
-    # ensures BMEG is running
-    if not samp_count.isnumeric():
-        raise IOError("BMEG could not process query, returned error:\n"
-                      + samp_count)
+    data = {}
+    for row in c:
+        data[row[0]] = row[1]
 
-    # ensures the query returns data
-    if samp_count == '0':
-        raise ValueError("No samples found in BMEG for cohort "
-                         + cohort + " !")
-
-    # parses expression data and loads it into a list
-    for qr in eval(expr_query).execute():
-        dt = json.loads(qr)
-        if ('expression' in dt and 'properties' in dt['expression']
-                and 'serializedExpressions'
-                in dt['expression']['properties']):
-            expr_list[dt['sample']['gid']] = json.loads(
-                dt['expression']['properties']['serializedExpressions'])
-
-    # creates a sample x expression matrix and normalizes it
-    expr_mat = pd.DataFrame(expr_list).transpose()
-    expr_mat.index = [x[-1] for x in expr_mat.index.str.split(':')]
-
-    return expr_mat
+    return pd.DataFrame(data).transpose().fillna(0.0)
 
 
 def get_expr_firehose(cohort, data_dir):

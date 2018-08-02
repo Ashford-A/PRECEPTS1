@@ -11,7 +11,7 @@
 # get the directory containing the experiment and the sub-directory where the
 # subtypes enumareted during the setup step will be saved
 export BASEDIR=HetMan/experiments/subvariant_isolate
-source activate precepts
+source activate HetMan
 
 while getopts t:g:c:s:l:m: var
 do

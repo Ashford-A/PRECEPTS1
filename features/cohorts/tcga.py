@@ -1,89 +1,17 @@
 
-"""Consolidating datasets from The Cancer Genome Atlas for use in learning.
-
-Authors: Michal Grzadkowski <grzadkow@ohsu.edu>
-
-"""
-
 from .mut import *
 
 from ..data.expression import get_expr_firehose, get_expr_bmeg, get_expr_toil
 from ..data.variants import get_variants_mc3, get_variants_firehose
 from ..data.copies import get_copies_firehose
 
-from ..data.annot import get_gencode
-from ..cohorts.utils import log_norm
+from dryadic.features.cohorts import BaseMutationCohort
+from dryadic.features.cohorts.utils import (
+    match_tcga_samples, get_gencode, log_norm)
 
 from functools import reduce
 from operator import and_
 from itertools import cycle
-
-
-def match_tcga_samples(*samples):
-    """Finds the tumour samples common between lists of TCGA barcodes.
-
-    Args:
-        samples (:obj:`list` of :obj:`str`)
-
-    Returns:
-        samps_match (:obj:`list` of :obj:`tuple`)
-
-    """
-    samp_lists = [sorted(set(samps)) for samps in samples]
-
-    # parse the sample barcodes into their constituent parts
-    parsed_samps = [[samp.split('-') for samp in samps]
-                    for samps in samp_lists]
-
-    # get the names of the individuals associated with each sample
-    partics = [['-'.join(prs[:3]) for prs in parsed]
-               for parsed in parsed_samps]
-
-    # get the type of each sample (tumour, control, etc.) and the
-    # vial it was tested in
-    types = [np.array([int(prs[3][:2]) for prs in parsed])
-             for parsed in parsed_samps]
-    vials = [[prs[3][-1] for prs in parsed] for parsed in parsed_samps]
-
-    # find the individuals with primary tumour samples in both lists
-    partic_use = sorted(reduce(
-        and_,
-        [set(prt for prt, tp in zip(partic, typ) if tp < 10)
-         for partic, typ in zip(partics, types)]
-        ))
-
-    # find the positions of the samples associated with these shared
-    # individuals in the original lists of samples
-    partics_indx = [[[i for i, prt in enumerate(partic) if prt == use_prt]
-                     for partic in partics]
-                    for use_prt in partic_use]
-
-    # match the samples of the individuals with only one sample in each list
-    samps_match = [
-        (partics[0][indx[0][0]],
-         tuple(samp_list[ix[0]] for samp_list, ix in zip(samp_lists, indx)))
-         for indx in partics_indx if all(len(ix) == 1 for ix in indx)
-        ]
-
-    # for individuals with more than one sample in at least one of the two
-    # lists, find the sample in each list closest to the primary tumour type
-    if len(partics_indx) > len(samps_match):
-        choose_indx = [
-            tuple(ix[np.argmin(typ)] for ix, typ in zip(indx, types))
-            for indx in partics_indx if any(len(ix) > 1 for ix in indx)
-            ]
-
-        samps_match += [
-            (partics[0][chs[0]],
-             tuple(samp_list[ix] for samp_list, ix in zip(samp_lists, chs)))
-            for chs in choose_indx
-            ]
-
-    match_dict = [{old_samps[i]: new_samp
-                   for new_samp, old_samps in samps_match}
-                  for i in range(len(samples))]
-
-    return match_dict
 
 
 class MutationCohort(BaseMutationCohort):
@@ -136,10 +64,9 @@ class MutationCohort(BaseMutationCohort):
     """
 
     def __init__(self,
-                 cohort, mut_genes, mut_levels=('Gene', 'Form'),
-                 expr_source='BMEG', var_source='mc3', copy_source=None,
-                 top_genes=100, samp_cutoff=None, cv_prop=2.0/3, cv_seed=None,
-                 **coh_args):
+                 cohort, mut_genes, mut_levels, expr_source, var_source,
+                 copy_source, annot_file, top_genes=100, samp_cutoff=None,
+                 cv_prop=2.0/3, cv_seed=None, **coh_args):
         self.cohort = cohort
 
         # load gene RNA-seq expression data from the given source
@@ -159,8 +86,9 @@ class MutationCohort(BaseMutationCohort):
             raise ValueError("Unrecognized source of expression data!")
 
         # gets annotation data for each gene in the expression data
+        annot_data = get_gencode(annot_file)
         self.gene_annot = {at['gene_name']: {**{'Ens': ens}, **at}
-                           for ens, at in get_gencode().items()
+                           for ens, at in annot_data.items()
                            if at['gene_name'] in expr.columns}
 
         # load gene mutation call data from the given source
@@ -176,62 +104,23 @@ class MutationCohort(BaseMutationCohort):
         else:
             raise ValueError("Unrecognized source of variant data!")
 
-        # load copy number alteration data from the given source if necessary
-        copy_data = None
+        # load copy number alteration data from the given source
         if copy_source == 'Firehose':
-            if coh_args['copy_discrete']:
-                copy_data = get_copies_firehose(cohort, coh_args['copy_dir'],
-                                                discrete=True)
-
-                if 'Gene' in mut_levels:
-                    copy_lvl = mut_levels[mut_levels.index('Gene') + 1]
-                else:
-                    copy_lvl = mut_levels[0]
-
-                # reshapes the matrix of CNA values into the same long format
-                # mutation data is represented in
-                copy_lvl = copy_lvl.split('_')[0]
-                copy_df = pd.DataFrame(copy_data.stack())
-                copy_df = copy_df.reset_index(level=copy_df.index.names)
-
-                copy_df.columns = ['Sample', 'Gene', copy_lvl]
-                matched_samps = match_tcga_samples(
-                    expr.index, variants['Sample'], copy_df['Sample'])
-
-                copy_df = copy_df.loc[
-                    copy_df['Sample'].isin(matched_samps[2])
-                    & copy_df['Gene'].isin(list(self.gene_annot))
-                    , :]
-                copy_df.index = [matched_samps[2][old_samp]
-                                 for old_samp in copy_df['Sample']]
-
-                # removes CNA values corresponding to an absence of a variant
-                copy_df = copy_df.loc[copy_df[copy_lvl] != 0, :]
-
-                # maps CNA integer values to their descriptions, appends
-                # CNA data to the mutation data
-                copy_df[copy_lvl] = copy_df[copy_lvl].map(
-                    {-2: 'HomDel', -1: 'HetDel', 1: 'HetGain', 2: 'HomGain'})
-                variants = pd.concat([variants, copy_df], sort=True)
-
+            if 'copy_dir' not in coh_args and expr_source == 'Firehose':
+                copy_dir = coh_args['expr_dir']
             else:
-                copy_data = get_copies_firehose(cohort, coh_args['copy_dir'],
-                                                discrete=False)
-                matched_samps = match_tcga_samples(
-                    expr.index, variants['Sample'], copy_data.index)
+                copy_dir = coh_args['copy_dir']
 
-                copy_data = copy_data.loc[
-                    copy_data.index.isin(matched_samps[2]),
-                    copy_data.columns.isin(list(self.gene_annot))
-                    ]
-                copy_data.index = [matched_samps[2][old_samp]
-                                   for old_samp in copy_data.index]
-
-        elif copy_source is not None:
-            raise ValueError("Unrecognized source of CNA data!")
+            copy_data = get_copies_firehose(cohort, copy_dir, discrete=True)
 
         else:
-            matched_samps = match_tcga_samples(expr.index, variants['Sample'])
+            raise ValueError("Unrecognized source of copy number data!")
+
+        copy_df = pd.DataFrame(copy_data.stack())
+        copy_df = copy_df.reset_index(level=copy_df.index.names)
+        copy_df.columns = ['Sample', 'Gene', 'Copy']
+        matched_samps = match_tcga_samples(
+            expr.index, variants['Sample'], copy_df['Sample'])
 
         expr = expr.loc[expr.index.isin(matched_samps[0]),
                         expr.columns.isin(list(self.gene_annot))]
@@ -241,7 +130,28 @@ class MutationCohort(BaseMutationCohort):
         variants['Sample'] = [matched_samps[1][old_samp]
                               for old_samp in variants['Sample']]
 
-        super().__init__(expr, variants, copy_data, mut_genes, mut_levels,
+        copy_df = copy_df.loc[(copy_df['Copy'] != 0)
+                              & copy_df['Sample'].isin(matched_samps[2])
+                              & copy_df['Gene'].isin(list(self.gene_annot))
+                              , :]
+
+        copy_df['Sample'] = [matched_samps[2][old_samp]
+                             for old_samp in copy_df['Sample']]
+        copy_df['Copy'] = copy_df['Copy'].map({-2: 'HomDel', -1: 'HetDel',
+                                               1: 'HetGain', 2: 'HomGain'})
+
+        if 'Gene' in mut_levels:
+            scale_lvl = mut_levels.index('Gene') + 1
+        else:
+            scale_lvl = 0
+
+        mut_levels.insert(scale_lvl, 'Scale')
+        mut_levels.insert(scale_lvl + 1, 'Copy')
+        variants['Scale'] = 'Point'
+        copy_df['Scale'] = 'Copy'
+        variants = pd.concat([variants, copy_df], sort=True)
+
+        super().__init__(expr, variants, mut_genes, mut_levels,
                          top_genes, samp_cutoff, cv_prop, cv_seed)
 
 

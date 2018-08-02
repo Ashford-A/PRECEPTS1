@@ -27,9 +27,11 @@ def load_infer_output(out_dir):
                                orient='index')
         for fl in file_list
         ])
- 
+
     if all(isinstance(x, tuple) for x in out_df.index):
-        out_df.index = pd.MultiIndex.from_tuples(out_df.index)
+        indx_lens = {len(x) for x in out_df.index}
+        if indx_lens == {2}:
+            out_df.index = pd.MultiIndex.from_tuples(out_df.index)
 
     return out_df.sort_index()
 
@@ -44,7 +46,9 @@ def load_infer_tuning(out_dir):
         ])
 
     if all(isinstance(x, tuple) for x in tune_df.index):
-        tune_df.index = pd.MultiIndex.from_tuples(tune_df.index)
+        indx_lens = {len(x) for x in tune_df.index}
+        if indx_lens == {2}:
+            tune_df.index = pd.MultiIndex.from_tuples(tune_df.index)
 
     use_clf = set(pickle.load(open(fl, 'rb'))['Info']['Clf']
                   for fl in file_list)
