@@ -39,7 +39,7 @@ def load_patient_mutations(base_dir):
 
     for patient, patient_dir in patient_dirs.items():
         out_fls = (patient_dir / 'output' / 'cancer_exome').glob(
-            '*SMMART_Cancer_Exome*/*.maf')
+            '*SMMART_Cancer_Exome*/*Mutect*.maf')
 
         for out_fl in out_fls:
             if out_fl.stat().st_size > 0:

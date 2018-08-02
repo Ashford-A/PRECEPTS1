@@ -7,7 +7,7 @@ import sys
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
 from HetMan.experiments.SMMART_analysis.cohorts import CancerCohort
-from HetMan.features.mutations import MuType
+from dryadic.features.mutations import MuType
 from HetMan.experiments.SMMART_analysis.fit_gene_models import load_output
 
 import numpy as np
