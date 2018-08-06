@@ -123,16 +123,18 @@ class MutationCohort(BaseMutationCohort):
             expr.index, variants['Sample'], copy_df['Sample'])
 
         expr = expr.loc[expr.index.isin(matched_samps[0]),
-                        expr.columns.isin(list(self.gene_annot))]
+                        expr.columns.isin(self.gene_annot)]
         expr.index = [matched_samps[0][old_samp] for old_samp in expr.index]
 
-        variants = variants.loc[variants['Sample'].isin(matched_samps[1]), :]
+        variants = variants.loc[variants['Sample'].isin(matched_samps[1])
+                                & variants['Gene'].isin(self.gene_annot)
+                                , :]
         variants['Sample'] = [matched_samps[1][old_samp]
                               for old_samp in variants['Sample']]
 
         copy_df = copy_df.loc[(copy_df['Copy'] != 0)
                               & copy_df['Sample'].isin(matched_samps[2])
-                              & copy_df['Gene'].isin(list(self.gene_annot))
+                              & copy_df['Gene'].isin(self.gene_annot)
                               , :]
 
         copy_df['Sample'] = [matched_samps[2][old_samp]
