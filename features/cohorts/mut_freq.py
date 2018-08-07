@@ -5,11 +5,11 @@ Authors: Michal Grzadkowski <grzadkow@ohsu.edu>
 
 """
 
-from .base import *
+from dryadic.features.cohorts.base import *
 import numpy as np
 
 
-class BaseMutFreqCohort(ValueCohort, UniCohort):
+class BaseMutFreqCohort(UniCohort):
     """A single dataset used to predict sample mutation frequencies.
 
     Args:

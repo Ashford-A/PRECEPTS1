@@ -1,12 +1,11 @@
 
-from .mut import *
 from .mut_freq import *
-
 from ..data.expression import get_expr_firehose, get_expr_bmeg, get_expr_toil
 from ..data.variants import get_variants_mc3, get_variants_firehose
 from ..data.copies import get_copies_firehose
 
 from dryadic.features.cohorts import BaseMutationCohort
+from dryadic.features.cohorts.mut import BaseTransferMutationCohort
 from dryadic.features.cohorts.utils import (
     match_tcga_samples, get_gencode, log_norm)
 
@@ -14,8 +13,7 @@ from functools import reduce
 from operator import and_
 from itertools import cycle, combinations
 
-import os
-from glob import glob
+from pathlib import Path
 from sklearn.preprocessing import scale
 
 
@@ -60,7 +58,10 @@ def add_variant_data(cohort, var_source, copy_source, expr, gene_annot,
 
     """
 
-    if var_source == 'mc3':
+    if 'mc3' in var_args:
+        variants = var_args['mc3']
+
+    elif var_source == 'mc3':
         variants = get_variants_mc3(var_args['syn'])
     
     elif var_source == 'Firehose':
@@ -70,7 +71,7 @@ def add_variant_data(cohort, var_source, copy_source, expr, gene_annot,
         raise ValueError("Unrecognized source of variant data!")
 
     if copy_source == 'Firehose':
-        if 'copy_dir' not in var_args and expr_source == 'Firehose':
+        if 'copy_dir' not in var_args:
             copy_dir = var_args['expr_dir']
         else:
             copy_dir = var_args['copy_dir']
@@ -83,7 +84,7 @@ def add_variant_data(cohort, var_source, copy_source, expr, gene_annot,
     copy_df = pd.DataFrame(copy_data.stack())
     copy_df = copy_df.reset_index(level=copy_df.index.names)
     copy_df.columns = ['Sample', 'Gene', 'Copy']
- 
+
     matched_samps = match_tcga_samples(
         expr.index, variants['Sample'], copy_df['Sample'])
     
@@ -107,17 +108,7 @@ def add_variant_data(cohort, var_source, copy_source, expr, gene_annot,
     copy_df['Copy'] = copy_df['Copy'].map({-2: 'HomDel', -1: 'HetDel',
                                            1: 'HetGain', 2: 'HomGain'})
 
-    if 'Gene' in mut_levels:
-        scale_lvl = mut_levels.index('Gene') + 1
-    else:
-        scale_lvl = 0
-
-    mut_levels.insert(scale_lvl, 'Scale')
-    mut_levels.insert(scale_lvl + 1, 'Copy')
-    variants['Scale'] = 'Point'
-    copy_df['Scale'] = 'Copy'
-
-    return expr, pd.concat([variants, copy_df], sort=True)
+    return expr, variants, copy_df
 
 
 def list_cohorts(data_source, **data_args):
@@ -132,9 +123,13 @@ def list_cohorts(data_source, **data_args):
         pass
 
     elif data_source == 'Firehose':
-        cohorts = {pth.split('/')[-1]
-                   for pth in glob(os.path.join(data_args['data_dir'],
-                                                'stddata__*/*'))}
+        cohorts = {pth.parent.parent.name
+                   for pth in Path(data_args['expr_dir']).glob(
+                       "stddata__*/**/*__RSEM_genes_normalized__*")}
+
+        cohorts &= {pth.parent.parent.name
+                    for pth in Path(data_args['copy_dir']).glob(
+                        "analyses__*/**/*CopyNumber_Gistic2.Level_4*")}
 
     elif data_source == 'toil':
         pass
@@ -205,11 +200,24 @@ class MutationCohort(BaseMutationCohort):
                            for ens, at in annot_data.items()
                            if at['gene_name'] in expr.columns}
 
-        expr, variants = add_variant_data(cohort, var_source, copy_source,
-                                          expr, self.gene_annot, **coh_args)
+        expr, variants, copy_df = add_variant_data(
+            cohort, var_source, copy_source, expr,
+            self.gene_annot, **coh_args
+            )
+ 
+        if 'Gene' in mut_levels:
+            scale_lvl = mut_levels.index('Gene') + 1
+        else:
+            scale_lvl = 0
+ 
+        mut_levels.insert(scale_lvl, 'Scale')
+        mut_levels.insert(scale_lvl + 1, 'Copy')
+        variants['Scale'] = 'Point'
+        copy_df['Scale'] = 'Copy'
 
-        super().__init__(expr, variants, mut_genes, mut_levels,
-                         top_genes, samp_cutoff, cv_prop, cv_seed)
+        super().__init__(expr, pd.concat([variants, copy_df], sort=True),
+                         mut_genes, mut_levels, top_genes, samp_cutoff,
+                         cv_prop, cv_seed)
 
 
 class MutFreqCohort(BaseMutFreqCohort):
@@ -359,10 +367,10 @@ class PanCancerMutCohort(BaseMutationCohort):
 class TransferMutationCohort(BaseTransferMutationCohort):
 
     def __init__(self,
-                 cohorts, mut_genes, mut_levels=('Gene', 'Form'),
-                 expr_sources='BMEG', var_sources='mc3', copy_sources=None,
-                 top_genes=250, samp_cutoff=None, cv_prop=2.0/3, cv_seed=None,
-                 **coh_args):
+                 cohorts, mut_genes, mut_levels, expr_sources, var_sources,
+                 copy_sources, annot_file, top_genes=100, samp_cutoff=None,
+                 cv_prop=2.0/3, cv_seed=None, **coh_args):
+        self.cohorts = cohorts
 
         if isinstance(expr_sources, str):
             expr_sources = [expr_sources]
@@ -370,79 +378,51 @@ class TransferMutationCohort(BaseTransferMutationCohort):
         if var_sources is None:
             var_sources = expr_sources
 
-        if isinstance(var_sources, str):
-            var_sources = [var_sources]
+        elif 'mc3' in var_sources:
+            coh_args = {**coh_args,
+                        **{'mc3': get_variants_mc3(coh_args['syn'])}}
 
-        if 'mc3' in var_sources:
-            mc3_vars = get_variants_mc3(coh_args['syn'])
-        else:
-            mc3_vars = None
+        elif isinstance(var_sources, str):
+            var_sources = [var_sources]
 
         if isinstance(copy_sources, str):
             copy_sources = [copy_sources]
 
-        expr_dict = dict()
-        for coh, expr_source in zip(cohorts, cycle(expr_sources)):
-            if expr_source == 'BMEG':
-                expr_mat = get_expr_bmeg(coh)
-                expr_dict[coh] = log_norm(expr_mat.fillna(0.0))
+        expr_raw = {coh: get_expr_data(coh, expr_src, **coh_args)
+                    for coh, expr_src in zip(cohorts, cycle(expr_sources))}
+        annot_data = get_gencode(annot_file)
 
-            elif expr_source == 'Firehose':
-                expr_mat = get_expr_firehose(coh, coh_args['expr_dir'])
-                expr_dict[coh] = log_norm(expr_mat.fillna(0.0))
+        self.gene_annot = {
+            at['gene_name']: {**{'Ens': ens}, **at}
+            for ens, at in annot_data.items()
+            if at['gene_name'] in reduce(
+                and_, [expr.columns for expr in expr_raw.values()])
+            }
 
-            elif expr_source == 'toil':
-                expr_dict[coh] = get_expr_toil(coh, coh_args['expr_dir'],
-                                               coh_args['collapse_txs'])
+        expr_dict = {cohort: None for cohort in cohorts}
+        var_dict = {cohort: None for cohort in cohorts}
+        for cohort, var_source, copy_source in zip(
+                cohorts, cycle(var_sources), cycle(copy_sources)):
 
-            else:
-                raise ValueError("Unrecognized source of expression data!")
+            expr_dict[cohort], var_dict[cohort], copy_df = add_variant_data(
+                cohort, var_source, copy_source, expr_raw[cohort],
+                self.gene_annot, **coh_args
+                )
+ 
+            var_dict[cohort]['Scale'] = 'Point'
+            copy_df['Scale'] = 'Copy'
+            var_dict[cohort] = pd.concat([var_dict[cohort], copy_df],
+                                         sort=True)
+ 
+        if 'Gene' in mut_levels:
+            scale_lvl = mut_levels.index('Gene') + 1
+        else:
+            scale_lvl = 0
+ 
+        mut_levels.insert(scale_lvl, 'Scale')
+        mut_levels.insert(scale_lvl + 1, 'Copy')
 
-        var_dict = dict()
-        for coh, var_source in zip(cohorts, cycle(var_sources)):
-
-            if var_source == 'mc3':
-                var_dict[coh] = mc3_vars.copy()
-
-            elif var_source == 'Firehose':
-                var_dict[coh] = get_variants_firehose(
-                    coh, coh_args['var_dir'])
-
-            else:
-                raise ValueError("Unrecognized source of variant data!")
-
-        matched_samps = {coh: match_tcga_samples(expr_dict[coh].index,
-                                                 var_dict[coh]['Sample'])
-                         for coh in cohorts}
-
-        if copy_sources is not None:
-            for coh, copy_source in zip(cohorts, cycle(copy_sources)):
-                if copy_source == 'Firehose':
-                    copy_data = get_copies_firehose(coh, coh_args['copy_dir'])
-
-                    # reshapes the matrix of CNA values into the same long
-                    # format mutation data is represented in
-                    copy_df = pd.DataFrame(copy_data.stack())
-                    copy_df = copy_df.reset_index(level=copy_df.index.names)
-                    copy_df.columns = ['Sample', 'Gene', 'Form']
-                    copy_df = copy_df.loc[copy_df['Form'] != 0, :]
-
-                    # maps CNA integer values to their descriptions, appends
-                    # CNA data to the mutation data
-                    copy_df['Form'] = copy_df['Form'].map(
-                        {-2: 'HomDel', -1: 'HetDel', 1: 'HetGain',
-                         2: 'HomGain'})
-                    var_dict[coh] = pd.concat([var_dict[coh], copy_df])
-
-        annot_data = get_gencode()
-        gene_annot = {coh: {at['gene_name']: {**{'Ens': ens}, **at}
-                            for ens, at in annot_data.items()
-                            if at['gene_name'] in expr_dict[coh].columns}
-                      for coh in cohorts}
-        self.cohorts = cohorts
-
-        super().__init__(
-            expr_dict, var_dict, matched_samps, gene_annot, mut_genes,
-            mut_levels, top_genes, samp_cutoff, cv_prop, cv_seed
-            )
+        super().__init__(expr_dict, var_dict,
+                         mut_genes, mut_levels, top_genes, samp_cutoff,
+                         cv_prop, cv_seed)
 
