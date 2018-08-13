@@ -57,10 +57,11 @@ def get_variants_mc3(syn):
     # and PolyPhen scores
     muts = pd.read_csv(mc3.path, usecols=use_cols, sep='\t', header=None,
                        names=use_names, comment='#', skiprows=1)
-    muts['Sample'] = [reduce(lambda x, y: x + '-' + y, s.split('-', 4)[:4])
-                      for s in muts['Sample']]
-    muts['PolyPhen'] = [gsub('\)$', '', gsub('^.*\(', '', x))
-                        if x != '.' else 0 for x in muts['PolyPhen']]
+    muts.Sample = muts.Sample.apply(lambda smp: "-".join(smp.split("-")[:4]))
+    muts.PolyPhen = muts.PolyPhen.apply(
+        lambda phen: (gsub('\)$', '', gsub('^.*\(', '', phen))
+                      if phen != '.' else 0)
+        )
 
     return muts
 
@@ -96,9 +97,8 @@ def get_variants_firehose(cohort, data_dir):
         except:
             print("Skipping mutations for {}".format(mut_fl))
         
-    mut_data = pd.concat(mut_list)
-    mut_data['Sample'] = ["-".join(x[:4])
-                          for x in mut_data['Sample'].str.split('-')]
+    muts = pd.concat(mut_list)
+    muts.Sample = muts.Sample.apply(lambda smp: "-".join(smp.split("-")[:4]))
 
     return mut_data
 

@@ -85,30 +85,28 @@ def add_variant_data(cohort, var_source, copy_source, expr, gene_annot,
     copy_df = copy_df.reset_index(level=copy_df.index.names)
     copy_df.columns = ['Sample', 'Gene', 'Copy']
 
-    matched_samps = match_tcga_samples(
-        expr.index, variants['Sample'], copy_df['Sample'])
-    
-    expr = expr.loc[expr.index.isin(matched_samps[0]),
-                    expr.columns.isin(gene_annot)]
-    expr.index = [matched_samps[0][old_samp] for old_samp in expr.index]
- 
-    variants = variants.loc[variants['Sample'].isin(matched_samps[1])
-                            & variants['Gene'].isin(gene_annot)
-                            , :]
-    variants['Sample'] = [matched_samps[1][old_samp]
-                          for old_samp in variants['Sample']]
- 
-    copy_df = copy_df.loc[(copy_df['Copy'] != 0)
-                          & copy_df['Sample'].isin(matched_samps[2])
-                          & copy_df['Gene'].isin(gene_annot)
-                          , :]
- 
-    copy_df['Sample'] = [matched_samps[2][old_samp]
-                         for old_samp in copy_df['Sample']]
-    copy_df['Copy'] = copy_df['Copy'].map({-2: 'HomDel', -1: 'HetDel',
-                                           1: 'HetGain', 2: 'HomGain'})
+    expr_match, var_match, copy_match = match_tcga_samples(
+        expr.index, variants.loc[:, 'Sample'], copy_df.loc[:, 'Sample'])
 
-    return expr, variants, copy_df
+    new_expr = expr.loc[expr.index.isin(expr_match),
+                        expr.columns.isin(gene_annot)]
+    new_expr.index = [expr_match[old_samp] for old_samp in new_expr.index]
+
+    new_vars = variants[variants.isin({
+        'Sample': var_match.keys(), 'Gene': gene_annot.keys()}).loc[
+            :, ['Gene', 'Sample']].all(axis=1)].copy()
+    new_vars.Sample = new_vars.Sample.apply(lambda samp: var_match[samp])
+ 
+    new_copy = copy_df.loc[(copy_df.Copy != 0)
+                           & copy_df.Sample.isin(copy_match)
+                           & copy_df.Gene.isin(gene_annot)
+                           , :].copy()
+
+    new_copy.Sample = new_copy.Sample.apply(lambda samp: copy_match[samp])
+    new_copy.Copy = new_copy.Copy.map({-2: 'HomDel', -1: 'HetDel',
+                                       1: 'HetGain', 2: 'HomGain'})
+
+    return new_expr, new_vars, new_copy
 
 
 def list_cohorts(data_source, **data_args):
@@ -388,6 +386,7 @@ class TransferMutationCohort(BaseTransferMutationCohort):
         if isinstance(copy_sources, str):
             copy_sources = [copy_sources]
 
+        # load expression data for each cohort, get gene annotation
         expr_raw = {coh: get_expr_data(coh, expr_src, **coh_args)
                     for coh, expr_src in zip(cohorts, cycle(expr_sources))}
         annot_data = get_gencode(annot_file)
@@ -409,8 +408,8 @@ class TransferMutationCohort(BaseTransferMutationCohort):
                 self.gene_annot, **coh_args
                 )
  
-            var_dict[cohort]['Scale'] = 'Point'
-            copy_df['Scale'] = 'Copy'
+            var_dict[cohort].loc[:, 'Scale'] = 'Point'
+            copy_df.loc[:, 'Scale'] = 'Copy'
             var_dict[cohort] = pd.concat([var_dict[cohort], copy_df],
                                          sort=True)
  
