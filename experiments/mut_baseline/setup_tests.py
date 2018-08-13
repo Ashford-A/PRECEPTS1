@@ -24,10 +24,14 @@ def get_cohort_data(expr_source, cohort, samp_cutoff,
     syn.cache.cache_root_dir = syn_root
     syn.login()
 
-    gene_df = pd.read_csv(gene_list, sep='\t', skiprows=2, header=None)
-    use_genes = gene_df[0][gene_df[1] >= 4].tolist()
+    gene_df = pd.read_csv(gene_list, sep='\t', skiprows=1, index_col=0)
+    use_genes = gene_df.index[
+        (gene_df.loc[
+            :, ['Vogelstein', 'Sanger CGC', 'Foundation One', 'MSK-IMPACT']]
+            == 'Yes').sum(axis=1) > 1
+        ]
 
-    cdata = MutationCohort(cohort=cohort, mut_genes=use_genes,
+    cdata = MutationCohort(cohort=cohort, mut_genes=use_genes.tolist(),
                            mut_levels=['Gene', 'Form_base', 'Protein'],
                            expr_source=expr_source, var_source='mc3',
                            copy_source='Firehose', annot_file=annot_file,
