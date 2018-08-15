@@ -142,7 +142,7 @@ dependencies:
   - pip:
     - aql==0.2.0
     - backports.csv==1.0.6
-    - dryad==0.3a0
+    - dryad==0.3a1
     - future==0.16.0
     - jeepney==0.3.1
     - keyring==13.2.1
