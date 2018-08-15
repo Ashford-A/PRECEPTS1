@@ -101,7 +101,7 @@ def main():
         )
 
     cdata = get_cohort_data(args.expr_source, args.cohort, args.samp_cutoff,
-                            cv_prop=0.75, cv_seed=args.cv_id)
+                            cv_prop=0.75, cv_seed=2079 + 57 * args.cv_id)
 
     clf_info = args.classif.split('__')
     clf_module = import_module(
