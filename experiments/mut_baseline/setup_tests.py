@@ -5,8 +5,8 @@ base_dir = os.path.dirname(__file__)
 import sys
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
-from HetMan.features.cohorts.tcga import MutationCohort
 from HetMan.experiments.mut_baseline import *
+from HetMan.features.cohorts.tcga import MutationCohort
 from dryadic.features.mutations import MuType
 
 import argparse
@@ -31,12 +31,13 @@ def get_cohort_data(expr_source, cohort, samp_cutoff,
             == 'Yes').sum(axis=1) > 1
         ]
 
-    cdata = MutationCohort(cohort=cohort, mut_genes=use_genes.tolist(),
-                           mut_levels=['Gene', 'Form_base', 'Protein'],
-                           expr_source=expr_source, var_source='mc3',
-                           copy_source='Firehose', annot_file=annot_file,
-                           expr_dir=expr_sources[expr_source],
-                           syn=syn, cv_prop=cv_prop, cv_seed=cv_seed)
+    cdata = MutationCohort(
+        cohort=cohort, mut_genes=use_genes.tolist(),
+        mut_levels=['Gene', 'Form_base', 'Protein'], expr_source=expr_source,
+        var_source='mc3', copy_source='Firehose', annot_file=annot_file,
+        expr_dir=expr_sources[expr_source], copy_dir=copy_dir,
+        syn=syn, cv_prop=cv_prop, cv_seed=cv_seed
+        )
 
     return cdata
 
