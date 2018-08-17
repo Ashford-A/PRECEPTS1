@@ -33,6 +33,7 @@ done
 export OUTDIR=$BASEDIR/output/$cohort/$gene/$classif/samps_${samp_cutoff}/$mut_levels
 rm -rf $OUTDIR
 mkdir -p $OUTDIR/slurm
+mkdir -p $BASEDIR/setup
 
 # setup the experiment by finding a list of mutation subtypes to be tested
 if [ ! -e ${BASEDIR}/setup/${cohort}/${gene}/mtypes_list__samps_${samp_cutoff}__levels_${mut_levels}.p ]
@@ -56,5 +57,7 @@ then
 fi
 
 # run the subtype tests in parallel
-sbatch --array=0-$(( $array_size )) $BASEDIR/fit_isolate.sh
+sbatch --output=${slurm_dir}/subv-iso-fit.out \
+	--error=${slurm_dir}/subv-iso-fit.err \
+	--array=0-$(( $array_size )) $BASEDIR/fit_isolate.sh
 

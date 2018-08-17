@@ -97,8 +97,8 @@ def main():
                             >= args.samp_cutoff))}
 
     if args.verbose:
-        print("\nFound {} total sub-types to isolate!".format(
-            len(use_mtypes)))
+        print("\nFound {} exclusive sub-types and {} combination sub-types "
+              "to isolate!".format(len(only_mtypes), len(comb_mtypes)))
 
     # save the list of found non-duplicate subtypes to file
     pickle.dump(
