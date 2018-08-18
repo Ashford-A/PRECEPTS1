@@ -180,16 +180,21 @@ def get_expr_toil(cohort, data_dir, collapse_txs=False):
     expr_data.columns.name = None
 
     # loads mapping between transcripts and the genes they are a part of
-    tx_file = ('/home/exacloud/lustre1/CompBio/mgrzad/input-data'
-               '/toil/gencode.v23.annotation.transcript.probemap.gz')
-    tx_annot = pd.read_csv(tx_file, sep='\t', index_col=0)
+    tx_annot = pd.read_csv(
+        os.path.join(data_dir, "..",
+                     "gencode.v23.annotation.transcript.probemap.gz"),
+        sep='\t', index_col=0
+        )
 
+    # removes transcripts for which annotation is unavailable
     expr_data = expr_data.loc[:, expr_data.columns.isin(tx_annot.index)]
+
+    # reshapes the expression index to include genes matched to transcripts
     expr_data.columns = pd.MultiIndex.from_arrays(
         [tx_annot.loc[expr_data.columns, 'gene'].values, expr_data.columns],
         names=['Gene', 'Transcript']
         )
-    
+ 
     if collapse_txs:
         expr_data = np.log2(
             expr_data.rpow(2).subtract(0.001).groupby(
