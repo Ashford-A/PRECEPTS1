@@ -54,7 +54,7 @@ class CancerCohort(BaseMutationCohort):
             variants['Scale'] = 'Point'
             copy_df['Scale'] = 'Copy'
 
-        super().__init__(pd.concat([expr, bcc_expr], sort=True),
+        super().__init__(pd.concat([expr, bcc_expr], sort=True).fillna(0.0),
                          pd.concat([variants, copy_df], sort=True),
                          mut_genes, mut_levels, top_genes, samp_cutoff,
                          cv_prop, cv_seed)
