@@ -32,7 +32,13 @@ def plot_acc_highlights(out_dict, args, cdata):
     use_mtypes = auc_quarts.max(axis=1).sort_values()[-40:].index
     use_models = auc_quarts.loc[use_mtypes, :].max() > 0.7
     plot_df = auc_quarts.loc[use_mtypes, use_models]
-    fig, ax = plt.subplots(figsize=(2 + plot_df.shape[1] * 0.7, 18))
+
+    # set the size of the plot and the base label size based on the number
+    # of data points that will be shown in the heatmap
+    fig_width = 5.1 + plot_df.shape[1] * 0.29
+    fig_height = 1.9 + plot_df.shape[0] * 0.19
+    fig_size = (fig_width * fig_height) ** 0.37
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
 
     time_vals = {mdl: time_df.quantile(q=0.75, axis=1).mean()
                  for mdl, (_, _, time_df, _, _) in out_dict.items()}
@@ -44,23 +50,24 @@ def plot_acc_highlights(out_dict, args, cdata):
         best_stat = plot_df.columns == auc_vals.idxmax()
         annot_values.loc[mtype, ~best_stat] = ''
  
-    ax = sns.heatmap(plot_df, cmap=auc_cmap,
-                     vmin=0, vmax=1, center=0.5, yticklabels=True,
-                     annot=annot_values, fmt='', annot_kws={'size': 13})
+    ax = sns.heatmap(plot_df, cmap=auc_cmap, vmin=0, vmax=1, center=0.5,
+                     yticklabels=True, annot=annot_values, fmt='',
+                     annot_kws={'size': fig_size * 1.63})
 
-    ax.figure.axes[-1].tick_params(labelsize=24)
+    ax.figure.axes[-1].tick_params(labelsize=fig_size * 2.76)
     ax.figure.axes[-1].set_ylabel('AUC (25-fold CV 1st quartile)',
-                                  size=31, weight='semibold')
+                                  size=fig_size * 3.4, weight='semibold')
 
-    ax.figure.axes[0].tick_params(axis='x', length=8, width=3)
-    plt.xticks(size=23, rotation=38, ha='right')
-    plt.yticks(size=17, rotation=0)
-    plt.xlabel('Model', size=34, weight='semibold')
+    ax.figure.axes[0].tick_params(
+        axis='x', length=fig_size * 0.71, width=fig_size * 0.23)
+    plt.xticks(size=fig_size * 2.13, rotation=34, ha='right')
+    plt.yticks(size=fig_size * 1.81, rotation=0)
+    plt.xlabel('Model', size=fig_size * 3.7, weight='semibold')
 
     fig.savefig(
         os.path.join(plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
                      "auc-highlights.png"),
-        dpi=200, bbox_inches='tight'
+        dpi=250, bbox_inches='tight'
         )
     plt.close()
 
