@@ -15,15 +15,12 @@ from operator import and_
 class CancerCohort(BaseMutationCohort):
  
     def __init__(self,
-                 mut_genes, mut_levels, toil_dir, patient_dir, syn, copy_dir,
+                 mut_genes, mut_levels, toil_dir, sample_data, syn, copy_dir,
                  annot_file, top_genes=None, samp_cutoff=25,
                  cv_prop=0.75, cv_seed=None, **coh_args):
 
-        bcc_expr = pd.read_csv(os.path.join(patient_dir, "tatlow_kallisto",
-                                            "BCC_gene-level_tpm.tsv"),
-                               sep='\t', index_col=0)
-
-        tcga_expr = get_expr_toil(cohort='PAAD', data_dir=toil_dir,
+        ellen_expr = pd.read_csv(sample_data, sep='\t', index_col=0)
+        tcga_expr = get_expr_toil(cohort='BRCA', data_dir=toil_dir,
                                   collapse_txs=True)
 
         annot_data = get_gencode(annot_file)
@@ -32,20 +29,17 @@ class CancerCohort(BaseMutationCohort):
                            if at['gene_name'] in tcga_expr.columns}
 
         expr, variants, copy_df = add_variant_data(
-            cohort='PAAD', var_source='mc3', copy_source='Firehose', syn=syn,
+            cohort='BRCA', var_source='mc3', copy_source='Firehose', syn=syn,
             expr=tcga_expr, copy_dir=copy_dir, gene_annot=self.gene_annot,
             )
 
-        gene_ids = [self.gene_annot[gn]['gene_id'].split('.')[0]
-                    for gn in expr.columns]
-        bcc_expr.index = [gn.split('.')[0] for gn in bcc_expr.index]
-        bcc_expr = bcc_expr.loc[bcc_expr.index.isin(gene_ids), :]
-        bcc_expr = log_norm(bcc_expr.loc[gene_ids, :].transpose())
-        bcc_expr.columns = expr.columns
+        use_genes = sorted(set(ellen_expr.index) & set(expr.columns))
+        expr = expr.loc[:, use_genes]
+        ellen_expr = log_norm(ellen_expr.transpose()).loc[:, use_genes]
 
-        expr = expr.apply(lambda x: (x - x.min()) / (x.max() - x.min()))
-        bcc_expr = bcc_expr.apply(
+        ellen_expr = ellen_expr.apply(
             lambda x: (x - x.min()) / (x.max() - x.min()))
+        expr = expr.apply(lambda x: (x - x.min()) / (x.max() - x.min()))
 
         if len(mut_levels) > 1 or mut_levels[0] != 'Gene':
             if 'Gene' in mut_levels:
@@ -58,7 +52,7 @@ class CancerCohort(BaseMutationCohort):
             variants['Scale'] = 'Point'
             copy_df['Scale'] = 'Copy'
 
-        super().__init__(pd.concat([expr, bcc_expr], sort=True).fillna(0.0),
+        super().__init__(pd.concat([expr, ellen_expr], sort=True).fillna(0.0),
                          pd.concat([variants, copy_df], sort=True),
                          mut_genes, mut_levels, top_genes, samp_cutoff,
                          cv_prop, cv_seed)
