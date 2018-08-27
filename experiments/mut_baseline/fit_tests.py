@@ -140,8 +140,11 @@ def main():
             test_omics, pheno_list['test'] = cdata.test_data(
                 mtype, exclude_genes=ex_genes)
 
-            pred_scores = {'train': clf.predict_omic(train_omics),
-                           'test': clf.predict_omic(test_omics)}
+            pred_scores = {
+                'train': clf.parse_preds(clf.predict_omic(train_omics)),
+                'test': clf.parse_preds(clf.predict_omic(test_omics))
+                }
+
             samp_sizes = {'train': (len(mtype.get_samples(cdata.train_mut))
                                     / len(cdata.train_samps)),
                           'test': (len(mtype.get_samples(cdata.test_mut))
