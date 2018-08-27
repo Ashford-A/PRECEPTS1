@@ -22,6 +22,18 @@ class Base(PresencePipe):
                           ('fit', self.fit_inst)])
 
 
+class Meanvar(Base):
+
+    tune_priors = (
+        ('feat__mean_perc', (50, 80, 90, 95, 99, 100)),
+        ('feat__var_perc', (50, 80, 90, 95, 99, 100)),
+        )
+
+    feat_inst = SelectMeanVar()
+    fit_inst = LogisticRegression(C=0.002,
+                                  penalty='l2', class_weight='balanced')
+
+
 class Norm_robust(Base):
 
     norm_inst = RobustScaler()
