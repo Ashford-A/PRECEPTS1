@@ -45,5 +45,6 @@ fi
 
 sbatch --output=${slurm_dir}/mut-baseline-fit.out \
 	--error=${slurm_dir}/mut-baseline-fit.err \
+	--exclude=$ex_nodes --no-requeue \
 	--array=0-$((array_size)) $BASEDIR/fit_tests.sh
 
