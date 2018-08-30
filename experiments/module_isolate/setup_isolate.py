@@ -4,13 +4,14 @@ base_dir = os.path.dirname(__file__)
 
 import sys
 sys.path.extend([os.path.join(base_dir, '../../..')])
-from HetMan.experiments.module_isolate import firehose_dir, syn_root
 
+from HetMan.experiments.module_isolate import *
 from HetMan.features.cohorts.tcga import MutationCohort
-from HetMan.features.mutations import MuType
+from dryadic.features.mutations import MuType
 
 import argparse
 import synapseclient
+from itertools import combinations as combn
 import dill as pickle
 
 
@@ -49,6 +50,7 @@ def main():
     cdata = MutationCohort(cohort=args.cohort, mut_genes=args.genes,
                            mut_levels=['Gene'] + use_lvls,
                            expr_source='Firehose', var_source='mc3',
+                           copy_source='Firehose', annot_file=annot_file,
                            expr_dir=firehose_dir, cv_prop=1.0, syn=syn)
 
     iso_mtypes = set()
@@ -60,20 +62,48 @@ def main():
                       gene, args.samp_cutoff, args.cohort, use_lvls)
                     )
 
-        gene_mtypes = cdata.train_mut[gene].find_unique_subtypes(
-            max_types=1500 / len(args.genes), max_combs=4, verbose=2,
+        pnt_mtypes = cdata.train_mut[gene]['Point'].find_unique_subtypes(
+            max_types=500, max_combs=2, verbose=2,
             sub_levels=use_lvls, min_type_size=args.samp_cutoff
             )
 
-        if args.verbose:
-            print("\nFound {} subtypes of gene {} to isolate!".format(
-                len(gene_mtypes), gene))
+        # filter out the subtypes that appear in too many samples for there to
+        # be a wild-type class of sufficient size for classification
+        pnt_mtypes = {MuType({('Scale', 'Point'): mtype}) for mtype in pnt_mtypes
+                      if (len(mtype.get_samples(cdata.train_mut[gene]['Point']))
+                          <= (len(cdata.samples) - args.samp_cutoff))}
 
-        iso_mtypes |= {
-            MuType({('Gene', gene): mtype}) for mtype in gene_mtypes
-            if (len(mtype.get_samples(cdata.train_mut[gene]))
-                <= (len(cdata.samples) - args.samp_cutoff))
+        cna_mtypes = cdata.train_mut[gene]['Copy'].branchtypes(min_size=5)
+        cna_mtypes = {MuType({('Scale', 'Copy'): mtype}) for mtype in cna_mtypes
+                      if (len(mtype.get_samples(cdata.train_mut[gene]['Copy']))
+                          <= (len(cdata.samples) - args.samp_cutoff))}
+
+        all_mtype = MuType(cdata.train_mut[gene].allkey())
+        use_mtypes = pnt_mtypes | cna_mtypes
+
+        only_mtypes = {
+            (MuType({('Gene', gene): mtype}), ) for mtype in use_mtypes
+            if (len(mtype.get_samples(cdata.train_mut[gene])
+                    - (all_mtype - mtype).get_samples(cdata.train_mut[gene]))
+                >= args.samp_cutoff)
             }
+
+        comb_mtypes = {
+            (MuType({('Gene', gene): mtype1}),
+             MuType({('Gene', gene): mtype2}))
+            for mtype1, mtype2 in combn(use_mtypes, 2)
+            if ((mtype1 & mtype2).is_empty()
+                and (len((mtype1.get_samples(cdata.train_mut[gene])
+                          & mtype2.get_samples(cdata.train_mut[gene]))
+                         - (all_mtype - mtype1 - mtype2).get_samples(
+                             cdata.train_mut[gene]))
+                     >= args.samp_cutoff))
+            }
+
+        iso_mtypes |= only_mtypes | comb_mtypes
+        if args.verbose:
+            print("\nFound {} exclusive sub-types and {} combination sub-types "
+                  "to isolate!".format(len(only_mtypes), len(comb_mtypes)))
 
     if args.verbose:
         print("\nFound {} total sub-types to isolate!".format(

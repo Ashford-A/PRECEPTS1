@@ -59,5 +59,6 @@ fi
 # run the subtype tests in parallel
 sbatch --output=${slurm_dir}/subv-iso-fit.out \
 	--error=${slurm_dir}/subv-iso-fit.err \
+	--exclude=$ex_nodes --no-requeue \
 	--array=0-$(( $array_size )) $BASEDIR/fit_isolate.sh
 

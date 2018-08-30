@@ -1,5 +1,5 @@
 
-from .data_dirs import firehose_dir, syn_root
+from .data_dirs import firehose_dir, syn_root, annot_file
 
-__all__ = ['firehose_dir', 'syn_root']
+__all__ = ['firehose_dir', 'syn_root', 'annot_file']
 

@@ -9,7 +9,7 @@
 
 
 export BASEDIR=HetMan/experiments/module_isolate
-source activate precepts
+source activate HetMan
 
 gene_list=()
 while getopts t:g:c:s:l:m: var
@@ -69,5 +69,6 @@ fi
 # run the subtype tests in parallel
 sbatch --output=${slurm_dir}/module-iso_fit.out \
 	--error=${slurm_dir}/module-iso_fit.err \
+	--exclude=$ex_nodes --no-requeue \
 	--array=0-$(( $array_size )) $BASEDIR/fit_isolate.sh
 
