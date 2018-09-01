@@ -11,8 +11,12 @@ from dryadic.features.mutations import MuType
 
 import argparse
 import synapseclient
-from itertools import combinations as combn
 import dill as pickle
+
+from functools import reduce
+from operator import or_
+from itertools import combinations as combn
+from itertools import chain
 
 
 def main():
@@ -29,7 +33,7 @@ def main():
                         help="a list of mutated genes")
 
     # create optional command line arguments
-    parser.add_argument('--samp_cutoff', type=int, default=25,
+    parser.add_argument('--samp_cutoff', type=int, default=20,
                         help='subtype sample frequency threshold')
     parser.add_argument('--verbose', '-v', action='store_true',
                         help='turns on diagnostic messages')
@@ -55,6 +59,9 @@ def main():
 
     iso_mtypes = set()
     for gene in args.genes:
+        other_samps = reduce(or_, [cdata.train_mut[other_gn].get_samples()
+                                   for other_gn in set(args.genes) - {gene}])
+
         if args.verbose:
             print("Looking for combinations of subtypes of mutations in gene "
                   "{} present in at least {} of the samples in TCGA cohort "
@@ -84,7 +91,8 @@ def main():
         only_mtypes = {
             (MuType({('Gene', gene): mtype}), ) for mtype in use_mtypes
             if (len(mtype.get_samples(cdata.train_mut[gene])
-                    - (all_mtype - mtype).get_samples(cdata.train_mut[gene]))
+                    - (all_mtype - mtype).get_samples(cdata.train_mut[gene])
+                    - other_samps)
                 >= args.samp_cutoff)
             }
 
@@ -95,8 +103,11 @@ def main():
             if ((mtype1 & mtype2).is_empty()
                 and (len((mtype1.get_samples(cdata.train_mut[gene])
                           & mtype2.get_samples(cdata.train_mut[gene]))
+                         - (mtype1.get_samples(cdata.train_mut[gene])
+                            ^ mtype2.get_samples(cdata.train_mut[gene]))
                          - (all_mtype - mtype1 - mtype2).get_samples(
-                             cdata.train_mut[gene]))
+                             cdata.train_mut[gene])
+                         - other_samps)
                      >= args.samp_cutoff))
             }
 
@@ -104,6 +115,17 @@ def main():
         if args.verbose:
             print("\nFound {} exclusive sub-types and {} combination sub-types "
                   "to isolate!".format(len(only_mtypes), len(comb_mtypes)))
+
+    for cur_genes in chain.from_iterable(combn(args.genes, r)
+                                         for r in range(1, len(args.genes))):
+        gene_mtype = MuType({('Gene', cur_genes): None})
+        rest_mtype = MuType({('Gene',
+                              tuple(set(args.genes) - set(cur_genes))): None})
+ 
+        if (args.samp_cutoff <= len(gene_mtype.get_samples(cdata.train_mut)
+                                    - rest_mtype.get_samples(cdata.train_mut))
+                <= (len(cdata.samples) - args.samp_cutoff)):
+            iso_mtypes |= {(gene_mtype, )}
 
     if args.verbose:
         print("\nFound {} total sub-types to isolate!".format(

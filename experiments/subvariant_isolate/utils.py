@@ -8,8 +8,8 @@ from operator import or_, and_
 
 
 def compare_scores(iso_df, cdata, get_similarities=True):
-    simil_df = pd.DataFrame(index=iso_df.index, columns=iso_df.index,
-                            dtype=np.float)
+    simil_df = pd.DataFrame(
+        0.0, index=iso_df.index, columns=iso_df.index, dtype=np.float)
 
     pheno_dict = {mtypes: None for mtypes in iso_df.index}
     size_list = pd.Series(index=iso_df.index, dtype=np.int)
@@ -41,13 +41,17 @@ def compare_scores(iso_df, cdata, get_similarities=True):
 
         if get_similarities:
             cur_diff = np.subtract.outer(cur_vals, none_vals).mean()
- 
-            for other_mtypes in set(iso_df.index) - {cur_mtypes}:
-                other_vals = np.concatenate(
-                    iso_vals[pheno_dict[other_mtypes]].values)
-                
-                other_diff = np.subtract.outer(other_vals, none_vals).mean()
-                simil_df.loc[cur_mtypes, other_mtypes] = other_diff / cur_diff
+
+            if cur_diff != 0:
+                for other_mtypes in set(iso_df.index) - {cur_mtypes}:
+
+                    other_vals = np.concatenate(
+                        iso_vals[pheno_dict[other_mtypes]].values)
+                    other_diff = np.subtract.outer(
+                        other_vals, none_vals).mean()
+
+                    simil_df.loc[cur_mtypes, other_mtypes] = other_diff
+                    simil_df.loc[cur_mtypes, other_mtypes] /= cur_diff
 
     return simil_df, auc_list, size_list
 

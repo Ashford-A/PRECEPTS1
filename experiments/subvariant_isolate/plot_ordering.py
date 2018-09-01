@@ -41,14 +41,14 @@ def plot_singleton_ordering(simil_df, auc_list, size_list, args):
         )
  
     xlabs = [str(mtypes[0]) if len(mtypes) == 1
-             else ' & '.join(str(mtype) for mtype in mtypes)
+             else ' & '.join(str(mtype) for mtype in sorted(mtypes))
              for mtypes in singl_mtypes]
     xlabs = ['{}  ({})'.format(xlab, size_list[mtypes])
              for xlab, mtypes in zip(xlabs, singl_mtypes)]
 
     ylabs = ['ONLY\n{}'.format(repr(mtypes[0])).replace(' WITH ', '\nWITH ')
              if len(mtypes) == 1
-             else '\nAND '.join(repr(mtype) for mtype in mtypes)
+             else '\nAND '.join(repr(mtype) for mtype in sorted(mtypes))
              for mtypes in singl_mtypes]
 
     xlabs = [xlab.replace('Point:', '') for xlab in xlabs]
@@ -89,8 +89,8 @@ def plot_singleton_ordering(simil_df, auc_list, size_list, args):
     plt.close()
 
 
-def plot_all_ordering(simil_df, auc_list, args, cdata):
-    fig, ax = plt.subplots(figsize=(16, 14))
+def plot_all_ordering(simil_df, auc_list, args):
+    fig, ax = plt.subplots(figsize=(13, 12))
 
     ax = sns.heatmap(simil_df, cmap=simil_cmap, vmin=-0.5, vmax=1.5,
                      xticklabels=False, square=True)
@@ -115,13 +115,22 @@ def plot_all_ordering(simil_df, auc_list, args, cdata):
     plt.close()
 
 
-def plot_all_clustering(simil_df, auc_list, args, cdata):
+def plot_all_clustering(simil_df, auc_list, args):
+    use_mtypes = auc_list[auc_list > 0.7].index
+
+    simil_df = simil_df.loc[use_mtypes, use_mtypes]
+    simil_df.index = [str(mtypes[0]) if len(mtypes) == 1
+                      else ' & '.join(str(mtype) for mtype in sorted(mtypes))
+                      for mtypes in simil_df.index]
+
+    simil_df.index = [xlab.replace('Point:', '') for xlab in simil_df.index]
+    simil_df.index = [xlab.replace('Copy:', '') for xlab in simil_df.index]
+
     row_linkage = hierarchy.linkage(
         distance.pdist(simil_df, metric='cityblock'), method='centroid')
-
     gr = sns.clustermap(
-        simil_df, cmap=simil_cmap, figsize=(16, 14), vmin=-0.5, vmax=1.5,
-        row_linkage=row_linkage, col_linkage=row_linkage,
+        simil_df, cmap=simil_cmap, figsize=(12, 11), vmin=-0.5, vmax=1.5,
+        row_linkage=row_linkage, col_linkage=row_linkage, square=True
         )
 
     gr.ax_heatmap.set_xticks([])
@@ -180,8 +189,8 @@ def main():
 
     plot_singleton_ordering(
         simil_df.copy(), auc_list.copy(), size_list.copy(), args)
-    plot_all_ordering(simil_df.copy(), auc_list.copy(), args, cdata)
-    plot_all_clustering(simil_df.copy(), auc_list.copy(), args, cdata)
+    plot_all_ordering(simil_df.copy(), auc_list.copy(), args)
+    plot_all_clustering(simil_df.copy(), auc_list.copy(), args)
 
 
 if __name__ == '__main__':

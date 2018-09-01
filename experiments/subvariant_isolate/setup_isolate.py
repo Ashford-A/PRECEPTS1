@@ -92,6 +92,8 @@ def main():
                    if ((mtype1 & mtype2).is_empty()
                        and (len((mtype1.get_samples(cdata.train_mut)
                                  & mtype2.get_samples(cdata.train_mut))
+                                - (mtype1.get_samples(cdata.train_mut)
+                                   ^ mtype2.get_samples(cdata.train_mut))
                                 - (all_mtype - mtype1 - mtype2).get_samples(
                                     cdata.train_mut))
                             >= args.samp_cutoff))}

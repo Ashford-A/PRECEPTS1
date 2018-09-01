@@ -205,12 +205,15 @@ def main():
             for par, _ in mut_clf.tune_priors:
                 out_tune[mtypes][par] = clf_params[par]
 
-            out_iso[mtypes] = clf.infer_coh(
-                cdata, use_mtype,
-                exclude_genes=ex_genes, force_test_samps=ex_samps,
-                infer_splits=args.infer_splits, infer_folds=args.infer_folds,
-                parallel_jobs=args.parallel_jobs
-                )
+            out_iso[mtypes] = [
+                clf.parse_preds(vals).tolist() for vals in clf.infer_coh(
+                    cdata, use_mtype,
+                    exclude_genes=ex_genes, force_test_samps=ex_samps,
+                    infer_splits=args.infer_splits,
+                    infer_folds=args.infer_folds,
+                    parallel_jobs=args.parallel_jobs
+                    )
+                ]
 
         else:
             del(out_iso[mtypes])

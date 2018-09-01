@@ -8,19 +8,15 @@ sys.path.extend([os.path.join(base_dir, '../../..')])
 
 from HetMan.experiments.module_isolate import *
 from HetMan.features.cohorts.tcga import MutationCohort
-from dryadic.features.mutations import MuType
 from HetMan.experiments.subvariant_isolate.utils import compare_scores
 from HetMan.experiments.utilities import load_infer_output, simil_cmap
 
-import numpy as np
+import argparse
+import synapseclient
 import pandas as pd
 
 from scipy.spatial import distance
 from scipy.cluster import hierarchy
-
-import argparse
-import synapseclient
-from itertools import product
 
 import matplotlib as mpl
 mpl.use('Agg')
@@ -45,14 +41,14 @@ def plot_singleton_ordering(simil_df, auc_list, size_list, args):
         )
 
     xlabs = [str(mtypes[0]) if len(mtypes) == 1
-             else ' & '.join(str(mtype) for mtype in mtypes)
+             else ' & '.join(str(mtype) for mtype in sorted(mtypes))
              for mtypes in singl_mtypes]
     xlabs = ['{}  ({})'.format(xlab, size_list[mtypes])
              for xlab, mtypes in zip(xlabs, singl_mtypes)]
  
     ylabs = ['ONLY\n{}'.format(repr(mtypes[0])).replace(' WITH ', '\nWITH ')
              if len(mtypes) == 1
-             else '\nAND '.join(repr(mtype) for mtype in mtypes)
+             else '\nAND '.join(repr(mtype) for mtype in sorted(mtypes))
              for mtypes in singl_mtypes]
  
     xlabs = [xlab.replace('Point:', '') for xlab in xlabs]
@@ -78,6 +74,7 @@ def plot_singleton_ordering(simil_df, auc_list, size_list, args):
     plt.xticks(rotation=26, ha='right', size=12)
     plt.yticks(size=9)
 
+    # configure the titles of the axes
     plt.xlabel('M2: Testing Mutation (# of samples)',
                size=23, weight='semibold')
     plt.ylabel('M1: Training Mutation', size=23, weight='semibold')
@@ -93,20 +90,30 @@ def plot_singleton_ordering(simil_df, auc_list, size_list, args):
     plt.close()
 
 
-def plot_all_ordering(simil_df, auc_list, args, cdata):
+def plot_all_clustering(simil_df, auc_list, args):
+    use_mtypes = auc_list[auc_list > 0.7].index
+
+    simil_df = simil_df.loc[use_mtypes, use_mtypes]
+    simil_df.index = [str(mtypes[0]) if len(mtypes) == 1
+                      else ' & '.join(str(mtype) for mtype in sorted(mtypes))
+                      for mtypes in simil_df.index]
+
+    simil_df.index = [xlab.replace('Point:', '') for xlab in simil_df.index]
+    simil_df.index = [xlab.replace('Copy:', '') for xlab in simil_df.index]
+
+    # cluster the subtypes based on similarity, plot the clustering
     row_linkage = hierarchy.linkage(
         distance.pdist(simil_df, metric='cityblock'), method='centroid')
-
     gr = sns.clustermap(
-        simil_df, cmap=simil_cmap, figsize=(16, 13), vmin=-1.0, vmax=2.0,
-        row_linkage=row_linkage, col_linkage=row_linkage,
+        simil_df, cmap=simil_cmap, figsize=(12, 11), vmin=-0.5, vmax=1.5,
+        row_linkage=row_linkage, col_linkage=row_linkage, square=True
         )
 
     gr.ax_heatmap.set_xticks([])
     gr.cax.set_visible(False)
 
     plt.savefig(os.path.join(
-        plot_dir, "all_ordering__{}__{}__{}__samps_{}__{}.png".format(
+        plot_dir, "all_clustering__{}__{}__{}__samps_{}__{}.png".format(
             args.cohort, '_'.join(sorted(args.genes)), args.classif,
             args.samp_cutoff, args.mut_levels
             )),
@@ -118,8 +125,9 @@ def plot_all_ordering(simil_df, auc_list, args, cdata):
 
 def main():
     parser = argparse.ArgumentParser(
-        "Plot the ordering of a gene's subtypes in a given cohort based on "
-        "how their isolated expression signatures classify one another."
+        "Plot the ordering of the subtypes of a module of genes in a given "
+        "cohort based on how their isolated expression signatures classify "
+        "one another."
         )
 
     parser.add_argument('cohort', help='a TCGA cohort')
@@ -128,7 +136,7 @@ def main():
                         help='a set of mutation annotation levels')
     parser.add_argument('genes', type=str, nargs='+',
                         help='a list of mutated genes')
-    parser.add_argument('--samp_cutoff', type=int, default=25)
+    parser.add_argument('--samp_cutoff', type=int, default=20)
 
     # parse command-line arguments, create directory where plots will be saved
     args = parser.parse_args()
@@ -150,15 +158,19 @@ def main():
                      '_'.join(sorted(args.genes)), args.classif,
                      'samps_{}'.format(args.samp_cutoff), args.mut_levels)
         ), cdata)
-    print(simil_df.shape)
 
     simil_rank = simil_df.mean(axis=1) - simil_df.mean(axis=0)
-    simil_order = simil_rank.sort_values().index
-    simil_df = simil_df.loc[simil_order, simil_order[::-1]]
+    simil_order = [
+        mtypes for mtypes, _ in sorted(
+            tuple(simil_rank.iteritems()),
+            key=lambda k: (k[0][0].subtype_list()[0][0], k[1])
+            )
+        ]
 
+    simil_df = simil_df.loc[simil_order, simil_order[::-1]]
     plot_singleton_ordering(
         simil_df.copy(), auc_list.copy(), size_list.copy(), args)
-    #plot_all_ordering(simil_df.copy(), auc_list.copy(), args, cdata)
+    plot_all_clustering(simil_df.copy(), auc_list.copy(), args)
 
 
 if __name__ == '__main__':
