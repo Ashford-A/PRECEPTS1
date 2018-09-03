@@ -39,11 +39,11 @@ def load_infer_output(out_dir):
 def load_infer_tuning(out_dir):
     file_list, task_ids = get_output_files(out_dir)
 
-    tune_df = pd.concat([
-        pd.DataFrame.from_dict(pickle.load(open(fl, 'rb'))['Tune'],
-                               orient='index')
-        for fl in file_list
-        ])
+    tune_list = [pickle.load(open(fl, 'rb'))['Tune'] for fl in file_list]
+    tune_df = pd.concat([pd.DataFrame.from_records(tuple(tun.values()))
+                         for tun in tune_list])
+    tune_df.index = pd.concat([pd.Series(tuple(tun.keys()))
+                               for tun in tune_list])
 
     if all(isinstance(x, tuple) for x in tune_df.index):
         indx_lens = {len(x) for x in tune_df.index}

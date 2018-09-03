@@ -7,7 +7,8 @@ from functools import reduce
 from operator import or_, and_
 
 
-def compare_scores(iso_df, cdata, get_similarities=True):
+def compare_scores(iso_df, cdata, get_similarities=True,
+                   muts=None, all_mtype=None):
     simil_df = pd.DataFrame(
         0.0, index=iso_df.index, columns=iso_df.index, dtype=np.float)
 
@@ -15,13 +16,18 @@ def compare_scores(iso_df, cdata, get_similarities=True):
     size_list = pd.Series(index=iso_df.index, dtype=np.int)
     auc_list = pd.Series(index=iso_df.index, dtype=np.float)
 
-    all_mtype = MuType(cdata.train_mut.allkey())
-    all_pheno = np.array(cdata.train_pheno(all_mtype))
+    if muts is None:
+        muts = cdata.train_mut
+    samps = sorted(cdata.train_samps)
+
+    if all_mtype is None:
+        all_mtype = MuType(muts.allkey())
+    all_pheno = np.array(muts.status(samps, all_mtype))
 
     for mtypes in iso_df.index:
-        rest_pheno = np.array(cdata.train_pheno(
-            all_mtype - reduce(or_, mtypes)))
-        cur_phenos = [np.array(cdata.train_pheno(mtype)) for mtype in mtypes]
+        rest_pheno = np.array(muts.status(samps,
+                                          all_mtype - reduce(or_, mtypes)))
+        cur_phenos = [np.array(muts.status(samps, mtype)) for mtype in mtypes]
         and_pheno = reduce(and_, cur_phenos)
 
         pheno_dict[mtypes] = and_pheno
@@ -50,8 +56,8 @@ def compare_scores(iso_df, cdata, get_similarities=True):
                     other_diff = np.subtract.outer(
                         other_vals, none_vals).mean()
 
-                    simil_df.loc[cur_mtypes, other_mtypes] = other_diff
-                    simil_df.loc[cur_mtypes, other_mtypes] /= cur_diff
+                    simil_df.loc[[cur_mtypes], [other_mtypes]] = other_diff
+                    simil_df.loc[[cur_mtypes], [other_mtypes]] /= cur_diff
 
     return simil_df, auc_list, size_list
 

@@ -55,8 +55,8 @@ def plot_singleton_ordering(simil_df, auc_list, size_list, args):
     xlabs = [xlab.replace('Copy:', '') for xlab in xlabs]
     ylabs = [ylab.replace('Scale IS Point WITH ', '') for ylab in ylabs]
     ylabs = [ylab.replace('Scale IS Copy WITH ', '') for ylab in ylabs]
-    ylabs = [ylab.replace('\nScale IS Point', '') for ylab in ylabs]
-    ylabs = [ylab.replace('\nScale IS Copy', '') for ylab in ylabs]
+    ylabs = [ylab.replace('\nScale IS Point\nWITH', '\n') for ylab in ylabs]
+    ylabs = [ylab.replace('\nScale IS Copy\nWITH', '\n') for ylab in ylabs]
 
     # draw the heatmap
     ax = sns.heatmap(simil_df, cmap=simil_cmap, vmin=-0.5, vmax=1.5,
@@ -71,7 +71,7 @@ def plot_singleton_ordering(simil_df, auc_list, size_list, args):
     cbar.ax.tick_params(labelsize=19)
 
     # configure the tick labels on the heatmap proper
-    plt.xticks(rotation=31, ha='right', size=12)
+    plt.xticks(rotation=27, ha='right', size=13)
     plt.yticks(size=16)
 
     plt.xlabel('M2: Testing Mutation', size=28, weight='semibold')

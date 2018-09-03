@@ -5,24 +5,26 @@ plot_dir = os.path.join(base_dir, 'plots', 'tuning')
 
 import sys
 sys.path.extend([os.path.join(base_dir, '../../..')])
-from HetMan.experiments.module_isolate import *
 
+from HetMan.experiments.module_isolate import *
+from HetMan.experiments.subvariant_isolate.utils import compare_scores
 from HetMan.features.cohorts.tcga import MutationCohort
-from HetMan.features.mutations import MuType
+from dryadic.features.mutations import MuType
+
 from HetMan.experiments.utilities.process_output import (
     load_infer_tuning, load_infer_output)
 from HetMan.experiments.utilities.scatter_plotting import place_annot
-from HetMan.experiments.gene_baseline.plot_model import detect_log_distr
+from HetMan.experiments.mut_baseline.plot_model import detect_log_distr
 
 import argparse
 from pathlib import Path
-from functools import reduce
-from operator import or_
 import synapseclient
 
 import numpy as np
 import pandas as pd
 from difflib import SequenceMatcher
+from functools import reduce
+from operator import or_
 
 import matplotlib as mpl
 mpl.use('Agg')
@@ -32,40 +34,15 @@ import matplotlib.pyplot as plt
 plt.style.use('fivethirtyeight')
 
 
-def get_aucs(iso_df, cdata):
-    auc_vals = pd.Series(index=iso_df.index)
-
-    for (base_genes, mtype), iso_vals in iso_df.iterrows():
-        base_mtype = MuType({('Gene', base_genes): None})
-
-        none_vals = np.concatenate(iso_vals[
-            ~np.array(cdata.train_pheno(base_mtype))].values)
-        cur_vals = np.concatenate(iso_vals[
-            np.array(cdata.train_pheno(mtype))].values)
-
-        auc_vals[(base_genes, mtype)] = np.less.outer(
-            none_vals, cur_vals).mean()
-
-    return auc_vals
-
-
-def plot_tuning_auc(tune_df, auc_vals, use_clf, args, cdata):
+def plot_tuning_auc(tune_df, auc_vals, size_vals, use_clf, args):
     fig, axarr = plt.subplots(figsize=(17, 1 + 7 * len(use_clf.tune_priors)),
                               nrows=len(use_clf.tune_priors), ncols=1,
                               squeeze=False)
 
-    module_vec = [module for module, _ in auc_vals.index]
-    size_vec = [(463 * len(mtype.get_samples(cdata.train_mut))
-                 / len(cdata.samples))
-                for _, mtype in auc_vals.index]
-
-    use_modules = sorted(set(module_vec))
-    module_clrs = sns.color_palette("muted", n_colors=len(use_modules))
-    clr_vec = [module_clrs[use_modules.index(gns)] for gns in module_vec]
-
+    size_vec = (417 * size_vals.values) / np.max(size_vals)
     for ax, (par_name, tune_distr) in zip(axarr.flatten(),
                                           use_clf.tune_priors):
-        par_vals = tune_df.loc[auc_vals.index, par_name]
+        par_vals = tune_df.loc[:, par_name].values
 
         if detect_log_distr(tune_distr):
             par_vals = np.log10(par_vals)
@@ -76,9 +53,10 @@ def plot_tuning_auc(tune_df, auc_vals, use_clf, args, cdata):
             plt_xmin = 2 * tune_distr[0] - tune_distr[1]
             plt_xmax = 2 * tune_distr[-1] - tune_distr[-2]
 
+        # jitters the paramater values and plots them against mutation AUC
         par_vals += np.random.normal(
             0, (plt_xmax - plt_xmin) / (len(tune_distr) * 7), len(auc_vals))
-        ax.scatter(par_vals, auc_vals, s=size_vec, c=clr_vec, alpha=0.21)
+        ax.scatter(par_vals, auc_vals, s=size_vec, alpha=0.21)
 
         ax.set_xlim(plt_xmin, plt_xmax)
         ax.set_ylim(0.48, 1.02)
@@ -105,8 +83,8 @@ def plot_tuning_auc(tune_df, auc_vals, use_clf, args, cdata):
 
 def main():
     parser = argparse.ArgumentParser(
-        "Plots the tuning characteristics of a model in classifying the "
-        "isolated mutation status of module subvariants in a given cohort."
+        "Plots the tuning characteristics of a model in "
+        "classifying the mutation status of the genes in a given cohort."
         )
 
     parser.add_argument('cohort', type=str, help="a TCGA cohort")
@@ -141,13 +119,11 @@ def main():
             for x in use_data[:use_samps] + use_data[(use_samps + 1):]:
                 del(out_dirs[x[0]])
 
-    tune_dict = {out_dir: load_infer_tuning(str(out_dir))
-                 for out_dir in out_dirs}
-    mut_clf = set(clf for _, clf in tune_dict.values())
-
+    tune_list = [load_infer_tuning(str(out_dir)) for out_dir in out_dirs]
+    mut_clf = set(clf for _, clf in tune_list)
     if len(mut_clf) != 1:
-        raise ValueError("Each module subvariant isolation experiment must "
-                         "be run with exactly one classifier!")
+        raise ValueError("Each subvariant isolation experiment must be run "
+                         "with exactly one classifier!")
 
     mut_clf = tuple(mut_clf)[0]
     out_modules = [
@@ -155,51 +131,67 @@ def main():
         for out_dir in out_dirs
         ]
 
-    tune_dict = {out_dir: tune_df
-                 for out_dir, (tune_df, _) in tune_dict.items()}
-    iso_dict = {out_dir: load_infer_output(str(out_dir))
-                for out_dir in out_dirs}
-
-    for out_dir, out_module in zip(out_dirs, out_modules):
-        tune_dict[out_dir].index = [(tuple(out_module.split('_')), mtype)
-                                    for mtype in tune_dict[out_dir].index]
-        iso_dict[out_dir].index = [(tuple(out_module.split('_')), mtype)
-                                   for mtype in iso_dict[out_dir].index]
-
-    tune_df = pd.concat(tune_dict.values())
     use_lvls = ['Gene']
-    mut_lvls = list(set(
+    mut_lvls = [
         tuple(str(out_dir).split(
             "/output/{}/".format(args.cohort))[1].split('/')[3].split('__'))
         for out_dir in out_dirs
-        ))
+        ]
+    lvl_set = list(set(mut_lvls))
 
-    seq_match = SequenceMatcher(a=mut_lvls[0], b=mut_lvls[1])
+    seq_match = SequenceMatcher(a=lvl_set[0], b=lvl_set[1])
     for (op, start1, end1, start2, end2) in seq_match.get_opcodes():
 
         if op == 'equal' or op=='delete':
-            use_lvls += mut_lvls[0][start1:end1]
+            use_lvls += lvl_set[0][start1:end1]
 
         elif op == 'insert':
-            use_lvls += mut_lvls[1][start2:end2]
+            use_lvls += lvl_set[1][start2:end2]
 
         elif op == 'replace':
-            use_lvls += mut_lvls[0][start1:end1]
-            use_lvls += mut_lvls[1][start2:end2]
-    
+            use_lvls += lvl_set[0][start1:end1]
+            use_lvls += lvl_set[1][start2:end2]
+
+ 
     out_genes = reduce(or_, [set(out_module.split('_'))
                              for out_module in out_modules])
+
+    # log into Synapse using locally stored credentials
     syn = synapseclient.Synapse()
     syn.cache.cache_root_dir = syn_root
     syn.login()
 
-    cdata = MutationCohort(
-        cohort=args.cohort, mut_genes=list(out_genes), mut_levels=use_lvls,
-        expr_source='Firehose', expr_dir=firehose_dir, syn=syn, cv_prop=1.0
-        )
-    auc_vals = get_aucs(pd.concat(iso_dict.values()), cdata)
+    cdata = MutationCohort(cohort=args.cohort, mut_genes=list(set(out_genes)),
+                           mut_levels=use_lvls, expr_source='Firehose',
+                           expr_dir=firehose_dir, var_source='mc3',
+                           copy_source='Firehose', annot_file=annot_file,
+                           syn=syn, cv_prop=1.0)
 
-    plot_tuning_auc(tune_df, auc_vals, mut_clf, args, cdata)
+    iso_list = [load_infer_output(str(out_dir)) for out_dir in out_dirs]
+    info_lists = [
+        compare_scores(
+            iso_df, cdata, get_similarities=False,
+            all_mtype=reduce(
+                or_, [
+                    MuType({('Gene', out_gene):
+                            cdata.train_mut[out_gene].allkey(
+                                ['Scale', 'Copy'] + list(out_lvl))})
+                    for out_gene in out_modl.split('_')
+                    ]
+                )
+            )
+        for iso_df, out_modl, out_lvl in zip(iso_list, out_modules, mut_lvls)
+        ]
+
+    tune_list = [lists[0] for lists in tune_list]
+    auc_list = [lists[1] for lists in info_lists]
+    size_list = [lists[2] for lists in info_lists]
+
+    out_lists = [tune_list, auc_list, size_list, mut_clf, args]
+    for i in range(3):
+        out_lists[i] = pd.concat(out_lists[i]).sort_index()
+
+    plot_tuning_auc(*out_lists)
 
 
 if __name__ == "__main__":
