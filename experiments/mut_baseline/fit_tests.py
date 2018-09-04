@@ -5,8 +5,8 @@ base_dir = os.path.dirname(__file__)
 import sys
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
-from HetMan.features.cohorts.tcga import MutationCohort
 from HetMan.experiments.mut_baseline import *
+from HetMan.features.cohorts.tcga import MutationCohort
 from HetMan.experiments.mut_baseline.setup_tests import get_cohort_data
 from dryadic.features.mutations import MuType
 
@@ -57,7 +57,7 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('expr_source', type=str,
-                        choices=['Firehose', 'toil', 'toil_tx'],
+                        choices=list(expr_sources.keys()),
                         help='which TCGA expression data source to use')
     parser.add_argument('cohort', type=str, help="which TCGA cohort to use")
 

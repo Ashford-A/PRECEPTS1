@@ -31,12 +31,16 @@ def get_cohort_data(expr_source, cohort, samp_cutoff,
             == 'Yes').sum(axis=1) > 1
         ]
 
+    source_info = expr_source.split('__')
+    source_base = source_info[0]
+    collapse_txs = not (len(source_info) > 1 and source_info[1] == 'txs')
+
     cdata = MutationCohort(
         cohort=cohort, mut_genes=use_genes.tolist(),
-        mut_levels=['Gene', 'Form_base', 'Protein'], expr_source=expr_source,
+        mut_levels=['Gene', 'Form_base', 'Protein'], expr_source=source_base,
         var_source='mc3', copy_source='Firehose', annot_file=annot_file,
         expr_dir=expr_sources[expr_source], copy_dir=copy_dir,
-        syn=syn, cv_prop=cv_prop, cv_seed=cv_seed
+        collapse_txs=collapse_txs, syn=syn, cv_prop=cv_prop, cv_seed=cv_seed
         )
 
     return cdata
@@ -45,10 +49,11 @@ def get_cohort_data(expr_source, cohort, samp_cutoff,
 def main():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('expr_source', type=str, choices=['Firehose', 'toil'],
+    parser.add_argument('expr_source', type=str,
+                        choices=list(expr_sources.keys()),
                         help="which TCGA expression data source to use")
-    parser.add_argument('cohort', type=str, help="which TCGA cohort to use")
 
+    parser.add_argument('cohort', type=str, help="which TCGA cohort to use")
     parser.add_argument(
         'samp_cutoff', type=int,
         help="minimum number of mutated samples needed to test a gene"

@@ -25,8 +25,8 @@ class Base(PresencePipe):
 class Meanvar(Base):
 
     tune_priors = (
-        ('feat__mean_perc', (50, 80, 90, 95, 99, 100)),
-        ('feat__var_perc', (50, 80, 90, 95, 99, 100)),
+        ('feat__mean_perc', (100./3, 50, 75, 90, 98, 100)),
+        ('feat__var_perc', (100./3, 50, 75, 90, 98, 100)),
         )
 
     feat_inst = SelectMeanVar()
