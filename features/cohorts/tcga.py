@@ -58,6 +58,7 @@ def add_variant_data(cohort, var_source, copy_source, expr, gene_annot,
 
     """
 
+    # load mutation data from the given source
     if 'mc3' in var_args:
         variants = var_args['mc3']
 
@@ -70,6 +71,7 @@ def add_variant_data(cohort, var_source, copy_source, expr, gene_annot,
     else:
         raise ValueError("Unrecognized source of variant data!")
 
+    # load copy number alteration data from the given source
     if copy_source == 'Firehose':
         if 'copy_dir' not in var_args:
             copy_dir = var_args['expr_dir']
@@ -89,7 +91,7 @@ def add_variant_data(cohort, var_source, copy_source, expr, gene_annot,
         expr.index, variants.loc[:, 'Sample'], copy_df.loc[:, 'Sample'])
 
     new_expr = expr.loc[expr.index.isin(expr_match),
-                        expr.columns.isin(gene_annot)]
+                        expr.columns.get_level_values('Gene').isin(gene_annot)]
     new_expr.index = [expr_match[old_samp] for old_samp in new_expr.index]
 
     new_vars = variants[variants.isin({
@@ -191,23 +193,32 @@ class MutationCohort(BaseMutationCohort):
                  cv_prop=2.0/3, cv_seed=None, **coh_args):
         self.cohort = cohort
 
+        # load expression and gene annotation datasets
         expr = get_expr_data(cohort, expr_source, **coh_args)
         annot_data = get_gencode(annot_file)
 
-        self.gene_annot = {at['gene_name']: {**{'Ens': ens}, **at}
-                           for ens, at in annot_data.items()
-                           if at['gene_name'] in expr.columns}
+        # restructure annotation data around expression gene labels
+        self.gene_annot = {
+            at['gene_name']: {**{'Ens': ens}, **at}
+            for ens, at in annot_data.items()
+            if at['gene_name'] in set(expr.columns.get_level_values('Gene'))
+            }
 
         expr, variants, copy_df = add_variant_data(
             cohort, var_source, copy_source, expr,
             self.gene_annot, **coh_args
             )
- 
+
+        # add a mutation level indicating if a mutation is a CNA or not by
+        # first figuring out where to situate it relative to the other
+        # levels...
         if 'Gene' in mut_levels:
             scale_lvl = mut_levels.index('Gene') + 1
         else:
             scale_lvl = 0
- 
+
+        # ...and then inserting the new level, and adding its corresponding
+        # values to the mutation and copy number alteration datasets
         mut_levels.insert(scale_lvl, 'Scale')
         mut_levels.insert(scale_lvl + 1, 'Copy')
         variants['Scale'] = 'Point'

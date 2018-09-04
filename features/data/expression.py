@@ -106,6 +106,8 @@ def get_expr_firehose(cohort, data_dir):
 
     expr_data.columns = [gn.split('|')[0] if isinstance(gn, str) else gn
                          for gn in expr_data.columns]
+    expr_data.columns.name = 'Gene'
+
     expr_data = expr_data.iloc[:, expr_data.columns != '?']
     expr_data.index = ["-".join(x[:4])
                        for x in expr_data.index.str.split('-')]
@@ -182,8 +184,9 @@ def get_expr_toil(cohort, data_dir, collapse_txs=False):
                '/toil/gencode.v23.annotation.transcript.probemap.gz')
     tx_annot = pd.read_csv(tx_file, sep='\t', index_col=0)
 
+    expr_data = expr_data.loc[:, expr_data.columns.isin(tx_annot.index)]
     expr_data.columns = pd.MultiIndex.from_arrays(
-        [tx_annot.loc[expr_data.columns, 'gene'], expr_data.columns],
+        [tx_annot.loc[expr_data.columns, 'gene'].values, expr_data.columns],
         names=['Gene', 'Transcript']
         )
     
