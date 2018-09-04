@@ -5,7 +5,7 @@ base_dir = os.path.dirname(__file__)
 import sys
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
-from HetMan.experiments.mut_baseline import *
+from HetMan.experiments.multi_baseline import *
 from HetMan.features.cohorts.tcga import MutationCohort
 from HetMan.experiments.mut_baseline.setup_tests import get_cohort_data
 from dryadic.features.mutations import MuType
@@ -16,7 +16,8 @@ import pandas as pd
 import dill as pickle
 
 import time
-from sklearn.metrics import roc_auc_score, average_precision_score
+from sklearn.metrics import roc_auc_score
+from sklearn.metrics import average_precision_score as aupr_score
 from operator import itemgetter
 
 
@@ -91,9 +92,9 @@ def main():
         '{}__samps-{}'.format(args.cohort, args.samp_cutoff), args.classif
         )
 
-    mut_list = pickle.load(
+    comb_list = pickle.load(
         open(os.path.join(base_dir, "setup",
-                          "muts-list_{}__{}__samps-{}.p".format(
+                          "combs-list_{}__{}__samps-{}.p".format(
                               args.expr_source, args.cohort,
                               args.samp_cutoff
                             )),
@@ -105,67 +106,77 @@ def main():
 
     clf_info = args.classif.split('__')
     clf_module = import_module(
-        'HetMan.experiments.mut_baseline.models.{}'.format(clf_info[0]))
+        'HetMan.experiments.multi_baseline.models.{}'.format(clf_info[0]))
     mut_clf = getattr(clf_module, clf_info[1].capitalize())
 
-    out_auc = {mtype: {'train': None, 'test': None} for mtype in mut_list}
-    out_aupr = {mtype: {'train': None, 'test': None} for mtype in mut_list}
-    out_params = {mtype: None for mtype in mut_list}
-    out_time = {mtype: None for mtype in mut_list}
+    out_auc = {mtype: {'train': [None] * 2, 'test': [None] * 2}
+               for mtype in comb_list}
+    out_aupr = {mtype: {'train': [None] * 2, 'test': [None] * 2}
+                for mtype in comb_list}
 
-    for i, mtype in enumerate(mut_list):
+    out_params = {mtype: None for mtype in comb_list}
+    out_time = {mtype: None for mtype in comb_list}
+
+    for i, mtypes in enumerate(comb_list):
         if (i % args.task_count) == args.task_id:
             clf = mut_clf()
 
             if args.verbose:
-                print("Testing {} ...".format(mtype))
+                print("Testing {} ...".format(' with '.join(
+                    [str(mtype) for mtype in mtypes])))
 
-            mut_gene = mtype.subtype_list()[0][0]
+            mut_genes = {mtype.subtype_list()[0][0] for mtype in mtypes}
+            ex_chroms = {cdata.gene_annot[mut_gene]['chr']
+                         for mut_gene in mut_genes}
             ex_genes = {gene for gene, annot in cdata.gene_annot.items()
-                        if annot['chr'] == cdata.gene_annot[mut_gene]['chr']}
+                        if annot['chr'] in ex_chroms}
 
-            clf.tune_coh(cdata, mtype, exclude_genes=ex_genes,
+            clf.tune_coh(cdata, mtypes, exclude_genes=ex_genes,
                          tune_splits=4, test_count=36, parallel_jobs=12)
-            out_params[mtype] = {par: clf.get_params()[par]
-                                 for par, _ in mut_clf.tune_priors}
+            out_params[mtypes] = {par: clf.get_params()[par]
+                                  for par, _ in mut_clf.tune_priors}
 
             t_start = time.time()
-            clf.fit_coh(cdata, mtype, exclude_genes=ex_genes)
+            clf.fit_coh(cdata, mtypes, exclude_genes=ex_genes)
             t_end = time.time()
-            out_time[mtype] = t_end - t_start
+            out_time[mtypes] = t_end - t_start
 
             pheno_list = dict()
             train_omics, pheno_list['train'] = cdata.train_data(
-                mtype, exclude_genes=ex_genes)
+                mtypes, exclude_genes=ex_genes)
             test_omics, pheno_list['test'] = cdata.test_data(
-                mtype, exclude_genes=ex_genes)
+                mtypes, exclude_genes=ex_genes)
 
             pred_scores = {
                 'train': clf.parse_preds(clf.predict_omic(train_omics)),
                 'test': clf.parse_preds(clf.predict_omic(test_omics))
                 }
 
-            samp_sizes = {'train': (len(mtype.get_samples(cdata.train_mut))
-                                    / len(cdata.train_samps)),
-                          'test': (len(mtype.get_samples(cdata.test_mut))
-                                   / len(cdata.test_samps))}
+            samp_sizes = {
+                'train': [(len(mtype.get_samples(cdata.train_mut))
+                           / len(cdata.train_samps)) for mtype in mtypes],
+                'test': [(len(mtype.get_samples(cdata.test_mut))
+                          / len(cdata.test_samps)) for mtype in mtypes]
+                }
 
             for samp_set, scores in pred_scores.items():
-                if len(set(pheno_list[samp_set])) == 2:
-                    out_auc[mtype][samp_set] = roc_auc_score(
-                        pheno_list[samp_set], scores)
-                    out_aupr[mtype][samp_set] = average_precision_score(
-                        pheno_list[samp_set], scores)
-                
-                else:
-                    out_auc[mtype][samp_set] = 0.5
-                    out_aupr[mtype][samp_set] = samp_sizes[samp_set]
+                for i in range(2):
+                    if len(set(pheno_list[samp_set][:, i])) == 2:
+
+                        out_auc[mtypes][samp_set][i] = roc_auc_score(
+                            pheno_list[samp_set][:, i], scores[:, i])
+                        out_aupr[mtypes][samp_set][i] = aupr_score(
+                            pheno_list[samp_set][:, i], scores[:, i])
+ 
+                    else:
+                        out_auc[mtypes][samp_set][i] = 0.5
+                        out_aupr[mtypes][samp_set][i] = samp_sizes[samp_set]
 
         else:
-            del(out_auc[mtype])
-            del(out_aupr[mtype])
-            del(out_params[mtype])
-            del(out_time[mtype])
+            del(out_auc[mtypes])
+            del(out_aupr[mtypes])
+            del(out_params[mtypes])
+            del(out_time[mtypes])
 
     pickle.dump(
         {'AUC': out_auc, 'AUPR': out_aupr,
