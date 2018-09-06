@@ -416,7 +416,8 @@ def main():
         "classifying the mutation status of the genes in a given cohort."
         )
 
-    parser.add_argument('expr_source', type=str, choices=['Firehose', 'toil'],
+    parser.add_argument('expr_source', type=str,
+                        choices=list(expr_sources.keys()),
                         help="which TCGA expression data source was used")
     parser.add_argument('cohort', type=str, help="which TCGA cohort was used")
 

@@ -6,9 +6,9 @@ plot_dir = os.path.join(base_dir, 'plots', 'model')
 import sys
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
-from HetMan.experiments.transfer_baseline import *
-from HetMan.experiments.transfer_baseline.fit_tests import load_output
-from HetMan.experiments.transfer_baseline.setup_tests import get_cohort_data
+from HetMan.experiments.multi_baseline import *
+from HetMan.experiments.multi_baseline.fit_tests import load_output
+from HetMan.experiments.multi_baseline.setup_tests import get_cohort_data
 from HetMan.experiments.mut_baseline.plot_model import detect_log_distr
 
 from HetMan.experiments.utilities import auc_cmap
@@ -35,14 +35,15 @@ def plot_auc_quartiles(auc_df, args):
     quart_df = pd.DataFrame(index=auc_df.index, columns=['Min', 'Max'])
     new_indx = ['' for _ in auc_df.index]
 
-    for i, (((coh1, coh2), mtype), auc_dicts) in enumerate(
-            test_aucs.iterrows()):
-        auc_quants = pd.DataFrame.from_records(
-            auc_dicts.values).quantile(q=0.25).sort_values()
+    for i, (mtypes, auc_dicts) in enumerate(test_aucs.iterrows()):
+        auc_quants = pd.DataFrame(np.stack(auc_dicts.values)).quantile(q=0.25)
 
-        new_indx[i] = "({}) {}".format(
-            ' x '.join(auc_quants.index), str(mtype))
-        quart_df.iloc[i, :] = auc_quants.values
+        if auc_quants[0] >= auc_quants[1]:
+            new_indx[i] = ' + '.join([str(mtype) for mtype in mtypes])
+        else:
+            new_indx[i] = ' + '.join([str(mtype) for mtype in mtypes[::-1]])
+
+        quart_df.iloc[i, :] = auc_quants.sort_values().values
 
     quart_df.index = new_indx
     plot_min = np.min(quart_df.values) - 0.01
@@ -59,17 +60,16 @@ def plot_auc_quartiles(auc_df, args):
     ax.set_xlim(plot_min, 1)
     ax.set_ylim(plot_min, 1)
 
-    ax.set_xlabel('1st Qrt. AUC, min cohort', fontsize=22, weight='semibold')
-    ax.set_ylabel('1st Qrt. AUC, max cohort', fontsize=22, weight='semibold')
+    ax.set_xlabel('1st Qrt. AUC, min mut.', fontsize=22, weight='semibold')
+    ax.set_ylabel('1st Qrt. AUC, max mut.', fontsize=22, weight='semibold')
     ax.plot([-1, 2], [-1, 2],
             linewidth=1.7, linestyle='--', color='#550000', alpha=0.6)
 
     fig.savefig(
-        os.path.join(plot_dir, args.model_name.split('__')[0],
-                     '{}__acc-quartiles__{}_samps-{}.png'.format(
-                         args.model_name.split('__')[1],
-                         args.expr_source, args.samp_cutoff
-                        )),
+        os.path.join(plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
+                     args.model_name.split('__')[0],
+                     '{}__acc-quartiles.png'.format(
+                         args.model_name.split('__')[1])),
         dpi=250, bbox_inches='tight'
         )
 
@@ -195,11 +195,10 @@ def plot_tuning_mtype_grid(par_df, auc_df, use_clf, args):
 
     plt.tight_layout()
     fig.savefig(
-        os.path.join(plot_dir, args.model_name.split('__')[0],
-                     '{}__tuning-mtype-grid__{}_samps-{}.png'.format(
-                         args.model_name.split('__')[1],
-                         args.expr_source, args.samp_cutoff
-                        )),
+        os.path.join(plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
+                     args.model_name.split('__')[0],
+                     '{}__tuning-mtype.png'.format(
+                         args.model_name.split('__')[1])),
         dpi=250, bbox_inches='tight'
         )
 
@@ -212,9 +211,9 @@ def main():
         "classifying the mutation status of the genes in a given cohort."
         )
 
-    parser.add_argument('expr_source', type=str,
-                        choices=list(expr_sources.keys()),
+    parser.add_argument('expr_source', type=str, choices=['Firehose', 'toil'],
                         help="which TCGA expression data source was used")
+    parser.add_argument('cohort', type=str, help="which TCGA cohort was used")
 
     parser.add_argument(
         'samp_cutoff', type=int,
@@ -225,12 +224,15 @@ def main():
                         help="which mutation classifier was tested")
 
     args = parser.parse_args()
-    os.makedirs(os.path.join(plot_dir, args.model_name.split('__')[0]),
-                exist_ok=True)
+    os.makedirs(os.path.join(
+        plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
+        args.model_name.split('__')[0]
+        ), exist_ok=True
+        )
 
     #cdata = get_cohort_data(args.expr_source, args.cohort, args.samp_cutoff)
     auc_df, aupr_df, time_df, par_df, mut_clf = load_output(
-        args.expr_source, args.samp_cutoff, args.model_name)
+        args.expr_source, args.cohort, args.samp_cutoff, args.model_name)
 
     plot_auc_quartiles(auc_df, args)
     if len(mut_clf.tune_priors) > 1:
