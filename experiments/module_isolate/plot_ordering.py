@@ -149,7 +149,7 @@ def main():
 
     cdata = MutationCohort(cohort=args.cohort, mut_genes=args.genes,
                            mut_levels=['Gene'] + args.mut_levels.split('__'),
-                           expr_source='Firehose', expr_dir=firehose_dir,
+                           expr_source='Firehose', expr_dir=expr_dir,
                            var_source='mc3', copy_source='Firehose',
                            annot_file=annot_file, syn=syn, cv_prop=1.0)
 

@@ -19,7 +19,8 @@ from importlib import import_module
 from operator import or_, and_
 from functools import reduce
 
-firehose_dir = "/home/exacloud/lustre1/share_your_data_here/precepts/firehose"
+expr_dir = "/home/exacloud/lustre1/share_your_data_here/precepts/firehose"
+copy_dir = "/home/exacloud/lustre1/CompBio/mgrzad/input-data/firehose"
 
 
 def main():
@@ -142,7 +143,8 @@ def main():
         expr_source='Firehose', var_source='mc3', copy_source='Firehose',
         annot_file=('/home/exacloud/lustre1/CompBio/mgrzad/input-data/'
                     'gencode/gencode.v22.annotation.gtf.gz'),
-        expr_dir=firehose_dir, syn=syn, cv_seed=args.cv_id, cv_prop=1.0
+        expr_dir=expr_dir, copy_dir=copy_dir,
+        syn=syn, cv_seed=args.cv_id, cv_prop=1.0
         )
 
     if args.verbose:

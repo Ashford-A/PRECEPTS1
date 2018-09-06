@@ -55,7 +55,7 @@ def main():
                            mut_levels=['Gene'] + use_lvls,
                            expr_source='Firehose', var_source='mc3',
                            copy_source='Firehose', annot_file=annot_file,
-                           expr_dir=firehose_dir, cv_prop=1.0, syn=syn)
+                           expr_dir=expr_dir, cv_prop=1.0, syn=syn)
 
     iso_mtypes = set()
     for gene in args.genes:

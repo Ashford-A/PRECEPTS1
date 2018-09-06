@@ -53,7 +53,8 @@ def main():
     cdata = MutationCohort(
         cohort=args.cohort, mut_genes=[args.gene], mut_levels=use_lvls,
         expr_source='Firehose', var_source='mc3', copy_source='Firehose',
-        annot_file=annot_file, expr_dir=firehose_dir, cv_prop=1.0, syn=syn
+        annot_file=annot_file, expr_dir=expr_dir, copy_dir=copy_dir,
+        cv_prop=1.0, syn=syn
         )
 
     if args.verbose:
