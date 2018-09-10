@@ -78,3 +78,13 @@ class Kernel_radial(Base):
     fit_inst = SVC(kernel='rbf', probability=True,
                    cache_size=500, class_weight='balanced')
 
+
+class Radial_fixed_gamma(Base):
+
+    tune_priors = (
+        ('fit__C', tuple(10 ** np.linspace(-0.5, 3.875, 36))),
+        )
+ 
+    fit_inst = SVC(kernel='rbf', probability=True, gamma=1e-6,
+                   cache_size=500, class_weight='balanced')
+
