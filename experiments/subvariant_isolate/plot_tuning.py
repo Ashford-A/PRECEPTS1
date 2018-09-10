@@ -13,7 +13,7 @@ from dryadic.features.mutations import MuType
 
 from HetMan.experiments.utilities.process_output import (
     load_infer_tuning, load_infer_output)
-from HetMan.experiments.utilities.scatter_plotting import place_annot
+from HetMan.experiments.utilities import auc_cmap
 from HetMan.experiments.mut_baseline.plot_model import detect_log_distr
 
 import argparse
@@ -23,6 +23,7 @@ import synapseclient
 import numpy as np
 import pandas as pd
 from difflib import SequenceMatcher
+from itertools import combinations as combn
 
 import matplotlib as mpl
 mpl.use('Agg')
@@ -49,7 +50,7 @@ def plot_tuning_auc(tune_df, auc_vals, size_vals, use_clf, args):
 
     for ax, (par_name, tune_distr) in zip(axarr.flatten(),
                                           use_clf.tune_priors):
-        par_vals = tune_df.loc[:, par_name].values
+        par_vals = np.array(tune_df.loc[:, par_name].values, dtype=np.float)
 
         if detect_log_distr(tune_distr):
             par_vals = np.log10(par_vals)
@@ -81,6 +82,103 @@ def plot_tuning_auc(tune_df, auc_vals, size_vals, use_clf, args):
     plt.tight_layout(h_pad=1.7)
     fig.savefig(
         os.path.join(plot_dir, "{}_{}__tuning-auc.png".format(
+            args.cohort, args.classif)),
+        dpi=250, bbox_inches='tight'
+        )
+
+    plt.close()
+
+
+def plot_tuning_grid(tune_df, auc_vals, size_vals, use_clf, args):
+    par_count = len(use_clf.tune_priors)
+    fig, axarr = plt.subplots(figsize=(0.5 + 7 * par_count, 7 * par_count),
+                              nrows=par_count, ncols=par_count)
+
+    size_vec = (417 * size_vals.values) / np.max(size_vals)
+    auc_clrs = auc_vals.apply(auc_cmap)
+
+    for i, (par_name, tune_distr) in enumerate(use_clf.tune_priors):
+        axarr[i, i].grid(False)
+
+        if detect_log_distr(tune_distr):
+            use_distr = [np.log10(par_val) for par_val in tune_distr]
+            par_lbl = par_name + '\n(log-scale)'
+
+        else:
+            use_distr = tune_distr
+            par_lbl = par_name
+
+        distr_diff = np.array(use_distr[-1]) - np.array(use_distr[0])
+        plt_min = use_distr[0] - distr_diff / 9
+        plt_max = use_distr[-1] + distr_diff / 9
+
+        axarr[i, i].set_xlim(plt_min, plt_max)
+        axarr[i, i].set_ylim(plt_min, plt_max)
+        axarr[i, i].text(
+            (plt_min + plt_max) / 2, (plt_min + plt_max) / 2, par_lbl,
+            ha='center', fontsize=31, weight='semibold'
+            )
+
+        for par_val in use_distr:
+            axarr[i, i].axhline(y=par_val, color='#116611',
+                                ls='--', linewidth=1.9, alpha=0.23)
+            axarr[i, i].axvline(x=par_val, color='#116611',
+                                ls='--', linewidth=1.9, alpha=0.23)
+
+    for (i, (par_name1, tn_distr1)), (j, (par_name2, tn_distr2)) in combn(
+            enumerate(use_clf.tune_priors), 2):
+        par_vals1 = np.array(tune_df.loc[:, par_name1].values, dtype=np.float)
+        par_vals2 = np.array(tune_df.loc[:, par_name2].values, dtype=np.float)
+
+        if detect_log_distr(tn_distr1):
+            use_vals1 = np.log10(par_vals1)
+            distr_diff = np.log10(np.array(tn_distr1[-1]))
+            distr_diff -= np.log10(np.array(tn_distr1[0]))
+
+            plt_ymin = np.log10(tn_distr1[0]) - distr_diff / 9
+            plt_ymax = np.log10(tn_distr1[-1]) + distr_diff / 9
+
+        else:
+            use_vals1 = par_vals1
+            distr_diff = tn_distr1[-1] - tn_distr1[0]
+
+            plt_ymin = tn_distr1[0] - distr_diff / 9
+            plt_ymax = tn_distr1[-1] + distr_diff / 9
+
+        if detect_log_distr(tn_distr2):
+            use_vals2 = np.log10(par_vals2)
+            distr_diff = np.log10(np.array(tn_distr2[-1]))
+            distr_diff -= np.log10(np.array(tn_distr2[0]))
+
+            plt_xmin = np.log10(tn_distr2[0]) - distr_diff / 9
+            plt_xmax = np.log10(tn_distr2[-1]) + distr_diff / 9
+
+        else:
+            use_vals2 = par_vals2
+            distr_diff = np.log10(np.array(tn_distr2[-1]))
+            distr_diff -= np.log10(np.array(tn_distr2[0]))
+
+            plt_xmin = np.log10(tn_distr2[0]) - distr_diff / 9
+            plt_xmax = np.log10(tn_distr2[-1]) + distr_diff / 9
+
+        use_vals1 += np.random.normal(
+            0, (plt_ymax - plt_ymin) / (len(tn_distr1) * 11), auc_vals.shape[0])
+        use_vals2 += np.random.normal(
+            0, (plt_xmax - plt_xmin) / (len(tn_distr2) * 11), auc_vals.shape[0])
+
+        axarr[i, j].scatter(use_vals2, use_vals1, s=size_vec, c=auc_clrs,
+                            alpha=0.35, edgecolor='black')
+        axarr[j, i].scatter(use_vals1, use_vals2, s=size_vec, c=auc_clrs,
+                            alpha=0.35, edgecolor='black')
+
+        axarr[i, j].set_xlim(plt_xmin, plt_xmax)
+        axarr[i, j].set_ylim(plt_ymin, plt_ymax)
+        axarr[j, i].set_ylim(plt_xmin, plt_xmax)
+        axarr[j, i].set_xlim(plt_ymin, plt_ymax)
+
+    plt.tight_layout()
+    fig.savefig(
+        os.path.join(plot_dir, "{}_{}__tuning-grid.png".format(
             args.cohort, args.classif)),
         dpi=250, bbox_inches='tight'
         )
@@ -166,7 +264,7 @@ def main():
 
     cdata = MutationCohort(cohort=args.cohort, mut_genes=list(set(out_genes)),
                            mut_levels=use_lvls, expr_source='Firehose',
-                           expr_dir=firehose_dir, var_source='mc3',
+                           expr_dir=expr_dir, var_source='mc3',
                            copy_source='Firehose', annot_file=annot_file,
                            syn=syn, cv_prop=1.0)
 
@@ -195,6 +293,8 @@ def main():
         out_lists[i] = pd.concat(out_lists[i]).sort_index()
 
     plot_tuning_auc(*out_lists)
+    if len(mut_clf.tune_priors) > 1:
+        plot_tuning_grid(*out_lists)
 
 
 if __name__ == "__main__":

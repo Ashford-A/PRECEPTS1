@@ -5,6 +5,7 @@ base_dir = os.path.dirname(__file__)
 import sys
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
+from HetMan.experiments.utilities.data_dirs import expr_dir, copy_dir
 from HetMan.features.cohorts.tcga import MutationCohort
 from dryadic.features.mutations import *
 from HetMan.experiments.utilities.classifiers import *
@@ -18,9 +19,6 @@ import pandas as pd
 from importlib import import_module
 from operator import or_, and_
 from functools import reduce
-
-expr_dir = "/home/exacloud/lustre1/share_your_data_here/precepts/firehose"
-copy_dir = "/home/exacloud/lustre1/CompBio/mgrzad/input-data/firehose"
 
 
 def main():
