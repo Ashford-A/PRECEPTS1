@@ -90,8 +90,10 @@ def add_variant_data(cohort, var_source, copy_source, expr, gene_annot,
     expr_match, var_match, copy_match = match_tcga_samples(
         expr.index, variants.loc[:, 'Sample'], copy_df.loc[:, 'Sample'])
 
-    new_expr = expr.loc[expr.index.isin(expr_match),
-                        expr.columns.get_level_values('Gene').isin(gene_annot)]
+    new_expr = expr.loc[
+        expr.index.isin(expr_match),
+        expr.columns.get_level_values('Gene').isin(gene_annot)
+        ]
     new_expr.index = [expr_match[old_samp] for old_samp in new_expr.index]
 
     new_vars = variants[variants.isin({
