@@ -25,7 +25,7 @@ import dill as pickle
 
 
 def load_output():
-    out_dir = Path(os.path.join(base_dir, 'output', 'gene_models'))
+    out_dir = Path(os.path.join(base_dir, 'output', 'gene_models_fewfeat'))
 
     return [pickle.load(open(str(out_fl), 'rb'))
             for out_fl in out_dir.glob('cv-*.p')]
@@ -35,6 +35,9 @@ class OptimModel(GaussLabels, StanOptimizing):
 
     def run_model(self, **fit_params):
         super().run_model(**{**fit_params, **{'iter': 1e4}})
+
+    def predict_proba(self, X):
+        return self.calc_pred_labels(X)
 
 
 class StanPipe(PresencePipe):
