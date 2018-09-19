@@ -16,7 +16,7 @@ echo $OUTDIR
 echo $array_size
 
 # pause between starting array jobs to ease I/O load
-sleep $(($SLURM_ARRAY_TASK_ID * 7));
+sleep $(($SLURM_ARRAY_TASK_ID * 5));
 
 cv_id=$(($SLURM_ARRAY_TASK_ID % 10));
 task_id=$(($SLURM_ARRAY_TASK_ID / 10));

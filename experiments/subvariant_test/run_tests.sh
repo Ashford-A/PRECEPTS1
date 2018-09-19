@@ -9,7 +9,7 @@
 
 
 export BASEDIR=HetMan/experiments/subvariant_test
-source activate precepts
+source activate HetMan
 
 while getopts t:g:c:s:l:m: var
 do
@@ -54,7 +54,8 @@ then
 fi
 
 # run the subtype tests in parallel
-sbatch --output=${slurm_dir}/subvariant-test.out \
-	--error=${slurm_dir}/subvariant-test.err \
+sbatch --output=${slurm_dir}/subv-test-fit.out \
+	--error=${slurm_dir}/subv-test-fit.err \
+	--exclude=$ex_nodes --no-requeue \
 	--array=0-$(( $array_size )) $BASEDIR/fit_tests.sh
 
