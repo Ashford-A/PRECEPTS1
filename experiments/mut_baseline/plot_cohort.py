@@ -11,14 +11,16 @@ from HetMan.experiments.mut_baseline.fit_tests import load_output
 from HetMan.experiments.mut_baseline.setup_tests import get_cohort_data
 from HetMan.experiments.utilities import auc_cmap
 
-import argparse
+import numpy as np
 import pandas as pd
-from operator import itemgetter
 
+import argparse
+from operator import itemgetter
 import matplotlib as mpl
+from matplotlib import ticker
+
 mpl.use('Agg')
 import seaborn as sns
-
 import matplotlib.pyplot as plt
 plt.style.use('fivethirtyeight')
 
@@ -72,6 +74,44 @@ def plot_acc_highlights(out_dict, args, cdata):
     plt.close()
 
 
+def plot_aupr_time(out_dict, args, cdata):
+    fig, ax = plt.subplots(figsize=(10, 9))
+
+    time_quarts = np.log2(pd.Series(
+        {mdl: time_df.quantile(q=0.75, axis=1).mean()
+         for mdl, (_, _, time_df, _, _) in out_dict.items()}
+        ))
+
+    aupr_quarts = pd.Series(
+        {mdl: aupr_df.applymap(itemgetter('test')).quantile(
+            q=0.25, axis=1).mean()
+         for mdl, (_, aupr_df, _, _, _) in out_dict.items()}
+        )
+
+    model_vec = time_quarts.index.str.split('__').map(itemgetter(0))
+    model_cmap = sns.color_palette(
+        'Set1', n_colors=len(set(model_vec)), desat=.34)
+
+    model_clrs = [model_cmap[sorted(set(model_vec)).index(mdl)]
+                  for mdl in model_vec]
+    ax.scatter(time_quarts.values, aupr_quarts.values,
+               c=model_clrs, s=71, alpha=0.41)
+
+    ax.tick_params(axis='x', labelsize=17, pad=7)
+    plt.yticks(size=17)
+    ax.xaxis.set_major_formatter(ticker.FormatStrFormatter(r'$2^{%d}$'))
+
+    plt.xlabel('Fitting Time (seconds)', size=21, weight='semibold')
+    plt.ylabel('Average AUPR', size=21, weight='semibold')
+
+    fig.savefig(
+        os.path.join(plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
+                     "aupr-time.png"),
+        dpi=250, bbox_inches='tight'
+        )
+    plt.close()
+
+
 def main():
     parser = argparse.ArgumentParser(
         "Plots the success of all models tested in predicting the presence "
@@ -118,6 +158,7 @@ def main():
                 args.expr_source, args.cohort, args.samp_cutoff, out_model)
 
     plot_acc_highlights(out_dict, args, cdata)
+    plot_aupr_time(out_dict, args, cdata)
 
 
 if __name__ == "__main__":
