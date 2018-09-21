@@ -5,11 +5,11 @@ plot_dir = os.path.join(base_dir, 'plots', 'aucs')
 
 import sys
 sys.path.extend([os.path.join(base_dir, '../../..')])
-from HetMan.experiments.subvariant_test import firehose_dir, syn_root
 
+from HetMan.experiments.subvariant_test import *
 from HetMan.experiments.utilities.isolate_mutype_test import load_acc
 from HetMan.features.cohorts.tcga import MutationCohort
-from HetMan.features.mutations import MuType
+from dryadic.features.mutations import MuType
 
 import argparse
 import synapseclient
@@ -88,10 +88,12 @@ def main():
     syn.cache.cache_root_dir = syn_root
     syn.login()
 
-    cdata = MutationCohort(cohort=args.cohort, mut_genes=[args.gene],
-                           mut_levels=args.mut_levels.split('__'),
-                           expr_source='Firehose', expr_dir=firehose_dir,
-                           syn=syn, cv_prop=1.0)
+    cdata = MutationCohort(
+        cohort=args.cohort, mut_genes=[args.gene], mut_levels=use_lvls,
+        expr_source='Firehose', var_source='mc3', copy_source='Firehose',
+        annot_file=annot_file, expr_dir=expr_dir, copy_dir=copy_dir,
+        cv_prop=1.0, syn=syn
+        )
 
     plot_aucs(base_auc.copy(), out_auc.copy(), args, cdata)
 

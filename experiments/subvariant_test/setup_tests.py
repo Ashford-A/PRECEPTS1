@@ -65,13 +65,17 @@ def main():
                       <= len(mtype.get_samples(cdata.train_mut['Copy']))
                       <= (len(cdata.samples) - args.samp_cutoff))}
 
-    pnt_mtypes = cdata.train_mut['Point'].find_unique_subtypes(
-        max_types=400, max_combs=4, verbose=2,
-        sub_levels=use_lvls, min_type_size=args.samp_cutoff
-        )
- 
-    pnt_mtypes = {MuType({('Scale', 'Point'): mtype}) for mtype in pnt_mtypes
-                  if (len(mtype.get_samples(cdata.train_mut['Point']))
+    pnt_mtypes = {
+        MuType({('Scale', 'Point'): mtype})
+        for mtype in cdata.train_mut['Point'].find_unique_subtypes(
+            max_types=400, max_combs=4, verbose=2,
+            sub_levels=use_lvls, min_type_size=args.samp_cutoff
+            ) | {None}
+        }
+
+    pnt_mtypes = {mtype for mtype in pnt_mtypes
+                  if (args.samp_cutoff
+                      <= len(mtype.get_samples(cdata.train_mut))
                       <= (len(cdata.samples) - args.samp_cutoff))}
  
     comb_mtypes = {

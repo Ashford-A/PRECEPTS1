@@ -205,42 +205,18 @@ def main():
                 ))
  
     if 'Gene' in use_lvls:
-        base_mtype = MuType({('Gene', tuple(use_genes)): None})
-        train_samps = base_mtype.get_samples(cdata.train_mut)
-        test_samps = base_mtype.get_samples(cdata.test_mut)
+        base_mtype = MuType({('Gene', tuple(use_genes)): {
+            ('Scale', 'Point'): None}})
  
     else:
-        base_mtype = MuType(cdata.train_mut.allkey())
-        base_mtype |= MuType(cdata.test_mut.allkey())
-        train_samps = cdata.train_mut.get_samples()
-        test_samps = cdata.test_mut.get_samples()
+        base_mtype = MuType({('Scale', 'Point'): None})
+
+    train_samps = base_mtype.get_samples(cdata.train_mut)
+    test_samps = base_mtype.get_samples(cdata.test_mut)
 
     out_auc = {mtype: {'Base': None, 'Iso': None} for mtype in mtype_list}
     out_aupr = {mtype: {'Base': None, 'Iso': None} for mtype in mtype_list}
     out_params = {mtype: {'Base': None, 'Iso': None} for mtype in mtype_list}
-
-    if args.task_id == 0:
-        clf = mut_clf()
-        
-        if args.verbose:
-            print("Isolating {} ...".format(use_genes))
-
-        clf.tune_coh(cdata, base_mtype, exclude_genes=use_genes,
-                     tune_splits=args.tune_splits, test_count=args.test_count,
-                     parallel_jobs=args.parallel_jobs)
- 
-        out_params[tuple(use_genes)] = {par: clf.get_params()[par]
-                                        for par, _ in mut_clf.tune_priors}
-        clf.fit_coh(cdata, base_mtype, exclude_genes=use_genes)
-
-        test_omics, test_pheno = cdata.test_data(
-            base_mtype, exclude_genes=use_genes)
-        pred_scores = clf.parse_preds(clf.predict_omic(test_omics))
- 
-        if len(set(test_pheno)) == 2:
-            out_auc[tuple(use_genes)] = roc_auc_score(test_pheno, pred_scores)
-            out_aupr[tuple(use_genes)] = average_precision_score(
-                test_pheno, pred_scores)
 
     # for each subtype, check if it has been assigned to this task
     for i, mtype in enumerate(mtype_list):
