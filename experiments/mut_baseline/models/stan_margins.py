@@ -26,7 +26,7 @@ class OptimCauchy(CauchyLabels, StanOptimizing):
 class Base(PresencePipe):
 
     tune_priors = (
-        ('fit__alpha', tuple(10 ** np.linspace(-2, -3.75, 36))),
+        ('fit__alpha', tuple(10 ** np.linspace(-3.5, -2.1, 36))),
         )
 
     feat_inst = SelectMeanVar(mean_perc=95, var_perc=95)
@@ -36,6 +36,11 @@ class Base(PresencePipe):
     def __init__(self):
         super().__init__([('feat', self.feat_inst), ('norm', self.norm_inst),
                           ('fit', self.fit_inst)])
+
+
+class Norm_robust(Base):
+
+    norm_inst = RobustScaler()
 
 
 class Cauchy(Base):

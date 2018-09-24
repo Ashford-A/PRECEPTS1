@@ -15,17 +15,21 @@ import numpy as np
 import pandas as pd
 
 import argparse
+from pathlib import Path
 from operator import itemgetter
-import matplotlib as mpl
-from matplotlib import ticker
 
+import matplotlib as mpl
 mpl.use('Agg')
 import seaborn as sns
+from matplotlib import ticker
+
 import matplotlib.pyplot as plt
 plt.style.use('fivethirtyeight')
+use_marks = [(0, 3, 0)]
+use_marks += [(i, 0, k) for k in (0, 140) for i in (3, 4, 5)]
 
 
-def plot_acc_highlights(out_dict, args, cdata):
+def plot_acc_highlights(out_dict, args):
     auc_quarts = pd.DataFrame.from_dict(
         {mdl: auc_df.applymap(itemgetter('test')).quantile(q=0.25, axis=1)
          for mdl, (auc_df, _, _, _, _) in out_dict.items()}
@@ -44,8 +48,8 @@ def plot_acc_highlights(out_dict, args, cdata):
 
     time_vals = {mdl: time_df.quantile(q=0.75, axis=1).mean()
                  for mdl, (_, _, time_df, _, _) in out_dict.items()}
-    plot_df.columns = ['{}  ({:.3g}s)'.format(mdl, time_vals[mdl])
-                       for mdl in plot_df.columns]
+    plot_df.columns = ['{} {}  ({:.3g}s)'.format(src, mdl, vals)
+                       for (src, mdl), vals in time_vals.items()]
 
     annot_values = plot_df.applymap('{:.3f}'.format)
     for mtype, auc_vals in plot_df.iterrows():
@@ -67,14 +71,13 @@ def plot_acc_highlights(out_dict, args, cdata):
     plt.xlabel('Model', size=fig_size * 3.7, weight='semibold')
 
     fig.savefig(
-        os.path.join(plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
-                     "auc-highlights.png"),
+        os.path.join(plot_dir, '{}__auc-highlights.png'.format(args.cohort)),
         dpi=250, bbox_inches='tight'
         )
     plt.close()
 
 
-def plot_aupr_time(out_dict, args, cdata):
+def plot_aupr_time(out_dict, args):
     fig, ax = plt.subplots(figsize=(10, 9))
 
     time_quarts = np.log2(pd.Series(
@@ -88,14 +91,21 @@ def plot_aupr_time(out_dict, args, cdata):
          for mdl, (_, aupr_df, _, _, _) in out_dict.items()}
         )
 
-    model_vec = time_quarts.index.str.split('__').map(itemgetter(0))
+    expr_vec = time_quarts.index.get_level_values(0)
+    expr_shapes = [use_marks[sorted(set(expr_vec)).index(expr)]
+                   for expr in expr_vec]
+
+    model_vec = time_quarts.index.get_level_values(1).str.split(
+        '__').map(itemgetter(0))
     model_cmap = sns.color_palette(
         'Set1', n_colors=len(set(model_vec)), desat=.34)
-
     model_clrs = [model_cmap[sorted(set(model_vec)).index(mdl)]
                   for mdl in model_vec]
-    ax.scatter(time_quarts.values, aupr_quarts.values,
-               c=model_clrs, s=71, alpha=0.41)
+
+    for time_val, aupr_val, expr_shape, model_clr in zip(
+            time_quarts.values, aupr_quarts.values, expr_shapes, model_clrs):
+        ax.scatter(time_val, aupr_val,
+                   marker=expr_shape, c=model_clr, s=71, alpha=0.41)
 
     ax.tick_params(axis='x', labelsize=17, pad=7)
     plt.yticks(size=17)
@@ -105,8 +115,7 @@ def plot_aupr_time(out_dict, args, cdata):
     plt.ylabel('Average AUPR', size=21, weight='semibold')
 
     fig.savefig(
-        os.path.join(plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
-                     "aupr-time.png"),
+        os.path.join(plot_dir, '{}__aupr-time.png'.format(args.cohort)),
         dpi=250, bbox_inches='tight'
         )
     plt.close()
@@ -118,47 +127,34 @@ def main():
         "of the mutations in a given cohort."
         )
 
-    parser.add_argument('expr_source', type=str, choices=['Firehose', 'toil'],
-                        help="which TCGA expression data source was used")
     parser.add_argument('cohort', type=str, help="which TCGA cohort was used")
-
-    parser.add_argument(
-        'samp_cutoff', type=int,
-        help="minimum number of mutated samples needed to test a gene"
-        )
-
     args = parser.parse_args()
-    cdata = get_cohort_data(args.expr_source, args.cohort, args.samp_cutoff)
+    os.makedirs(plot_dir, exist_ok=True)
 
-    os.makedirs(os.path.join(plot_dir,
-                             '{}__{}'.format(args.expr_source, args.cohort)),
-                exist_ok=True)
+    out_path = Path(os.path.join(base_dir, 'output'))
+    out_dirs = [
+        out_dir.parent for out_dir in out_path.glob(
+            "*/{}__samps-*/*/out__cv-0_task-0.p".format(args.cohort))
+        if (len(tuple(out_dir.parent.glob("out__*.p"))) > 0
+            and (len(tuple(out_dir.parent.glob("out__*.p")))
+                 == len(tuple(out_dir.parent.glob("slurm/fit-*.txt")))))
+        ]
 
-    out_dir = os.path.join(base_dir, 'output',
-                           args.expr_source, '{}__samps-{}'.format(
-                               args.cohort, args.samp_cutoff))
-    out_models = os.listdir(out_dir)
+    parsed_dirs = [str(out_dir).split("/output/")[1].split('/')
+                   for out_dir in out_dirs]
 
-    out_dict = dict()
-    for out_model in out_models:
+    if len(set(prs[1] for prs in parsed_dirs)) > 1:
+        pass
 
-        out_fls = [
-            out_fl for out_fl in os.listdir(os.path.join(out_dir, out_model))
-            if 'out__' in out_fl
-            ]
+    else:
+        samp_ctfs = parsed_dirs[0][1].split('__samps-')[1]
+        parsed_dirs = [[prs[0]] + prs[2:] for prs in parsed_dirs]
 
-        log_fls = [
-            log_fl for log_fl in os.listdir(os.path.join(
-                out_dir, out_model, 'slurm'))
-            if 'fit-' in log_fl
-            ]
+    out_dict = {(src, mdl): load_output(src, args.cohort, samp_ctfs, mdl)
+                for src, mdl in parsed_dirs}
 
-        if len(log_fls) > 0 and len(log_fls) == (len(out_fls) * 2):
-            out_dict[out_model] = load_output(
-                args.expr_source, args.cohort, args.samp_cutoff, out_model)
-
-    plot_acc_highlights(out_dict, args, cdata)
-    plot_aupr_time(out_dict, args, cdata)
+    plot_acc_highlights(out_dict, args)
+    plot_aupr_time(out_dict, args)
 
 
 if __name__ == "__main__":
