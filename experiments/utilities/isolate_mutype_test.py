@@ -48,38 +48,17 @@ def load_acc(out_dir):
     file_list, task_ids, cv_ids = get_output_files(out_dir)
     out_data = [pickle.load(fl.open('rb')) for fl in file_list]
 
-    out_auc, out_aupr = tuple(
-        pd.concat([
-            pd.concat([
-                pd.DataFrame.from_dict({
-                    mtype: pd.Series(dt)
-                    for mtype, dt in out_dict[acc_type].items()
-                    }, orient='index')
-                for out_dict, task, cv in zip(out_data, task_ids, cv_ids)
-                if task == use_task
-                ], axis=1)
-            for use_task in set(task_ids)
-            ], axis=0)
-        for acc_type in ['AUC', 'AUPR']
-        )
-
-    base_auc, base_aupr = tuple(
-        pd.Series(out_df.loc[
-            [mtype for mtype in out_df.index if isinstance(mtype, tuple)],
-            out_df.columns == 0
-            ].values[0])
-        for out_df in [out_auc, out_aupr]
-        )
-
-    out_auc, out_aupr = tuple(
-        out_df.loc[
-            [mtype for mtype in out_df.index if isinstance(mtype, MuType)],
-            out_df.columns.isin(['Base', 'Iso'])
-            ]
-        for out_df in [out_auc, out_aupr]
-        )
-
-    return base_auc, out_auc, base_aupr, out_aupr
+    return tuple(pd.concat(
+        [pd.concat([pd.DataFrame.from_dict({mtype: pd.Series(dt)
+                                            for mtype, dt
+                                            in out_dict[acc_type].items()},
+                                           orient='index')
+                    for out_dict, task, cv in zip(out_data, task_ids, cv_ids)
+                    if task == use_task],
+                   axis=1)
+         for use_task in set(task_ids)],
+        axis=0
+        ) for acc_type in ['AUC', 'AUPR'])
 
 
 def main():
@@ -214,6 +193,10 @@ def main():
     train_samps = base_mtype.get_samples(cdata.train_mut)
     test_samps = base_mtype.get_samples(cdata.test_mut)
 
+    use_chrs = {cdata.gene_annot[gene]['chr'] for gene in use_genes}
+    ex_genes = {gene for gene, annot in cdata.gene_annot.items()
+                if annot['chr'] in use_chrs}
+
     out_auc = {mtype: {'Base': None, 'Iso': None} for mtype in mtype_list}
     out_aupr = {mtype: {'Base': None, 'Iso': None} for mtype in mtype_list}
     out_params = {mtype: {'Base': None, 'Iso': None} for mtype in mtype_list}
@@ -227,17 +210,17 @@ def main():
                 print("Isolating {} ...".format(mtype))
 
             clf.tune_coh(
-                cdata, mtype, exclude_genes=use_genes,
+                cdata, mtype, exclude_genes=ex_genes,
                 tune_splits=args.tune_splits, test_count=args.test_count,
                 parallel_jobs=args.parallel_jobs
                 )
 
             out_params[mtype]['Base'] = {par: clf.get_params()[par]
                                          for par, _ in mut_clf.tune_priors}
-            clf.fit_coh(cdata, mtype, exclude_genes=use_genes)
+            clf.fit_coh(cdata, mtype, exclude_genes=ex_genes)
 
             test_omics, test_pheno = cdata.test_data(
-                mtype, exclude_genes=use_genes)
+                mtype, exclude_genes=ex_genes)
             pred_scores = clf.parse_preds(clf.predict_omic(test_omics))
 
             if len(set(test_pheno)) == 2:
@@ -251,7 +234,7 @@ def main():
 
             clf.tune_coh(
                 cdata, mtype,
-                exclude_genes=use_genes, exclude_samps=ex_train,
+                exclude_genes=ex_genes, exclude_samps=ex_train,
                 tune_splits=args.tune_splits, test_count=args.test_count,
                 parallel_jobs=args.parallel_jobs
                 )
@@ -259,10 +242,10 @@ def main():
             out_params[mtype]['Iso'] = {par: clf.get_params()[par]
                                         for par, _ in mut_clf.tune_priors}
             clf.fit_coh(cdata, mtype,
-                        exclude_genes=use_genes, exclude_samps=ex_train)
+                        exclude_genes=ex_genes, exclude_samps=ex_train)
 
             test_omics, test_pheno = cdata.test_data(
-                mtype, exclude_genes=use_genes, exclude_samps=ex_test)
+                mtype, exclude_genes=ex_genes, exclude_samps=ex_test)
             pred_scores = clf.parse_preds(clf.predict_omic(test_omics))
 
             if len(set(test_pheno)) == 2:
