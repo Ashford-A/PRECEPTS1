@@ -31,7 +31,7 @@ def detect_log_distr(tune_distr):
     diff_min = np.log10(np.min(distr_diff))
     diff_max = np.log10(np.max(distr_diff))
 
-    return (diff_max - diff_min) > 1.5
+    return (diff_max - diff_min) > 4./3
 
 
 def plot_auc_distribution(auc_df, args, cdata):
