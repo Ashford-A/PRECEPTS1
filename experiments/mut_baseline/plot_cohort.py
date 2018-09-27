@@ -10,6 +10,7 @@ from HetMan.experiments.mut_baseline import *
 from HetMan.experiments.mut_baseline.fit_tests import load_output
 from HetMan.experiments.mut_baseline.setup_tests import get_cohort_data
 from HetMan.experiments.utilities import auc_cmap
+from HetMan.experiments.utilities.scatter_plotting import place_annot
 
 import numpy as np
 import pandas as pd
@@ -46,10 +47,11 @@ def plot_acc_highlights(out_dict, args):
     fig_size = (fig_width * fig_height) ** 0.37
     fig, ax = plt.subplots(figsize=(fig_width, fig_height))
 
-    time_vals = {mdl: time_df.quantile(q=0.75, axis=1).mean()
-                 for mdl, (_, _, time_df, _, _) in out_dict.items()}
+    time_vals = pd.Series({mdl: tm_df.quantile(q=0.75, axis=1).mean()
+                           for mdl, (_, _, tm_df, _, _) in out_dict.items()})
+    time_vals = time_vals.loc[plot_df.columns]
     plot_df.columns = ['{} {}  ({:.3g}s)'.format(src, mdl, vals)
-                       for (src, mdl), vals in time_vals.items()]
+                       for (src, mdl), vals in time_vals.iteritems()]
 
     annot_values = plot_df.applymap('{:.3f}'.format)
     for mtype, auc_vals in plot_df.iterrows():
@@ -107,6 +109,16 @@ def plot_aupr_time(out_dict, args):
         ax.scatter(time_val, aupr_val,
                    marker=expr_shape, c=model_clr, s=71, alpha=0.41)
 
+    for annot_x, annot_y, annot, halign in place_annot(
+            time_quarts.values.tolist(), aupr_quarts.values.tolist(),
+            size_vec=[71 for _ in time_quarts],
+            annot_vec=[' '.join(tst) for tst in time_quarts.index],
+            x_range=time_quarts.max() - time_quarts.min(),
+            y_range=aupr_quarts.max() - aupr_quarts.min(),
+            gap_adj=101
+            ):
+        ax.text(annot_x, annot_y, annot, size=8, ha=halign)
+
     ax.tick_params(axis='x', labelsize=17, pad=7)
     plt.yticks(size=17)
     ax.xaxis.set_major_formatter(ticker.FormatStrFormatter(r'$2^{%d}$'))
@@ -153,8 +165,8 @@ def main():
     out_dict = {(src, mdl): load_output(src, args.cohort, samp_ctfs, mdl)
                 for src, mdl in parsed_dirs}
 
-    plot_acc_highlights(out_dict, args)
-    plot_aupr_time(out_dict, args)
+    plot_acc_highlights(out_dict.copy(), args)
+    plot_aupr_time(out_dict.copy(), args)
 
 
 if __name__ == "__main__":
