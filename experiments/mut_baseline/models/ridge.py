@@ -38,3 +38,8 @@ class Norm_robust(Base):
 
     norm_inst = RobustScaler()
 
+
+class Select_few(Base):
+
+    feat_inst = SelectMeanVar(mean_perc=200./3, var_perc=200./3)
+
