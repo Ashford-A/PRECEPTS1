@@ -11,13 +11,13 @@ from sklearn.preprocessing import StandardScaler, RobustScaler
 class OptimModel(BaseTranscripts, StanOptimizing):
 
     def run_model(self, **fit_params):
-        super().run_model(**{**fit_params, **{'iter': 1e6}})
+        super().run_model(**{**fit_params, **{'iter': 1e5}})
 
 
 class Base(PresencePipe):
  
     tune_priors = (
-        ('fit__alpha', tuple(10 ** np.linspace(-4.5, -1.2, 12))),
+        ('fit__alpha', tuple(10 ** np.linspace(-4, -2.35, 12))),
         ('fit__gamma', (0.5, 1., 2.)),
         )
 
@@ -28,6 +28,14 @@ class Base(PresencePipe):
     def __init__(self):
         super().__init__([('feat', self.feat_inst), ('norm', self.norm_inst),
                           ('fit', self.fit_inst)])
+
+
+class Tune_gamma(Base):
+
+    tune_priors = (
+        ('fit__alpha', (2e-4, 5e-4, 1e-3, 2e-3)),
+        ('fit__gamma', (0.2, 1./3, 0.5, 2./3, 1., 1.5, 2, 3, 5)),
+        )
 
 
 class Norm_robust(Base):
