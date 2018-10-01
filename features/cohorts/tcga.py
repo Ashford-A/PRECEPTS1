@@ -188,8 +188,9 @@ class MutationCohort(BaseMutationCohort):
     """
 
     def __init__(self,
-                 cohort, mut_genes, mut_levels, expr_source, var_source,
-                 copy_source, annot_file, top_genes=100, samp_cutoff=None,
+                 cohort, mut_genes, mut_levels,
+                 expr_source, var_source, copy_source,
+                 annot_file, domain_dir=None, top_genes=100, samp_cutoff=None,
                  cv_prop=2.0/3, cv_seed=None, **coh_args):
         self.cohort = cohort
 
@@ -225,8 +226,8 @@ class MutationCohort(BaseMutationCohort):
         copy_df['Scale'] = 'Copy'
 
         super().__init__(expr, pd.concat([variants, copy_df], sort=True),
-                         mut_genes, mut_levels, top_genes, samp_cutoff,
-                         cv_prop, cv_seed)
+                         mut_genes, mut_levels, domain_dir,
+                         top_genes, samp_cutoff, cv_prop, cv_seed)
 
 
 class MutFreqCohort(BaseMutFreqCohort):
