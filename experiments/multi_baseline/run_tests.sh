@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=mut-baseline
+#SBATCH --job-name=multi-baseline
 #SBATCH --partition=exacloud
 #SBATCH --verbose
 
@@ -8,7 +8,7 @@
 #SBATCH --time=500
 
 
-export BASEDIR=HetMan/experiments/mut_baseline
+export BASEDIR=HetMan/experiments/multi_baseline
 source activate HetMan
 
 while getopts e:t:s:c:m: var
@@ -30,21 +30,21 @@ export OUTDIR=$BASEDIR/output/$expr_source/${cohort}__samps-${samp_cutoff}/$clas
 rm -rf $OUTDIR
 mkdir -p $OUTDIR/slurm
 
-if [ ! -e $BASEDIR/setup/muts-list_${expr_source}__${cohort}__samps-${samp_cutoff}.p ]
+if [ ! -e $BASEDIR/setup/combs-list_${expr_source}__${cohort}__samps-${samp_cutoff}.p ]
 then
 	srun python $BASEDIR/setup_tests.py $expr_source $cohort $samp_cutoff
 fi
 
-muts_count=$(cat $BASEDIR/setup/muts-count_${expr_source}__${cohort}__samps-${samp_cutoff}.txt)
-export array_size=$(( ($muts_count / $test_max + 1) * 25 - 1 ))
+combs_count=$(cat $BASEDIR/setup/combs-count_${expr_source}__${cohort}__samps-${samp_cutoff}.txt)
+export array_size=$(( ($combs_count / $test_max + 1) * 25 - 1 ))
 
 if [ $array_size -gt 299 ]
 then
 	export array_size=299
 fi
 
-sbatch --output=${slurm_dir}/mut-baseline-fit.out \
-	--error=${slurm_dir}/mut-baseline-fit.err \
+sbatch --output=${slurm_dir}/multi-baseline-fit.out \
+	--error=${slurm_dir}/multi-baseline-fit.err \
 	--exclude=$ex_nodes --no-requeue \
 	--array=0-$((array_size)) $BASEDIR/fit_tests.sh
 

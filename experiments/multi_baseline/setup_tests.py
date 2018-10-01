@@ -5,7 +5,7 @@ base_dir = os.path.dirname(__file__)
 import sys
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
-from HetMan.experiments.mut_baseline import *
+from HetMan.experiments.multi_baseline import *
 from HetMan.features.cohorts.tcga import MutationCohort
 from dryadic.features.mutations import MuType
 
@@ -15,7 +15,8 @@ import pandas as pd
 import dill as pickle
 
 from functools import reduce
-from operator import or_
+from operator import or_, and_
+from itertools import combinations as combn
 
 
 def get_cohort_data(expr_source, cohort, samp_cutoff,
@@ -28,7 +29,7 @@ def get_cohort_data(expr_source, cohort, samp_cutoff,
     use_genes = gene_df.index[
         (gene_df.loc[
             :, ['Vogelstein', 'Sanger CGC', 'Foundation One', 'MSK-IMPACT']]
-            == 'Yes').sum(axis=1) > 1
+            == 'Yes').sum(axis=1) == 4
         ]
 
     source_info = expr_source.split('__')
@@ -37,10 +38,11 @@ def get_cohort_data(expr_source, cohort, samp_cutoff,
 
     cdata = MutationCohort(
         cohort=cohort, mut_genes=use_genes.tolist(),
-        mut_levels=['Gene', 'Form_base', 'Protein'], expr_source=source_base,
-        var_source='mc3', copy_source='Firehose', annot_file=annot_file,
-        expr_dir=expr_sources[expr_source], copy_dir=copy_dir,
-        collapse_txs=collapse_txs, syn=syn, cv_prop=cv_prop, cv_seed=cv_seed
+        mut_levels=['Gene', 'Form_base', 'Exon', 'Protein'],
+        expr_source=source_base, var_source='mc3', copy_source='Firehose',
+        annot_file=annot_file, expr_dir=expr_sources[expr_source],
+        copy_dir=copy_dir, collapse_txs=collapse_txs,
+        syn=syn, cv_prop=cv_prop, cv_seed=cv_seed
         )
 
     return cdata
@@ -94,10 +96,15 @@ def main():
                  if (len(mtype.get_samples(cdata.train_mut))
                      <= (len(cdata.samples) - args.samp_cutoff))}
 
+    combs_list = {mtypes for mtypes in combn(muts_list, 2)
+                  if (reduce(and_, mtypes).is_empty()
+                      and len(reduce(and_, [mtype.get_samples(cdata.train_mut)
+                                            for mtype in mtypes])) == 0)}
+
     pickle.dump(
-        sorted(muts_list),
+        sorted(combs_list),
         open(os.path.join(out_path,
-                          "muts-list_{}__{}__samps-{}.p".format(
+                          "combs-list_{}__{}__samps-{}.p".format(
                               args.expr_source, args.cohort,
                               args.samp_cutoff
                             )),
@@ -105,13 +112,13 @@ def main():
         )
 
     with open(os.path.join(out_path,
-                          "muts-count_{}__{}__samps-{}.txt".format(
+                          "combs-count_{}__{}__samps-{}.txt".format(
                               args.expr_source, args.cohort,
                               args.samp_cutoff
                             )),
               'w') as fl:
 
-        fl.write(str(len(muts_list)))
+        fl.write(str(len(combs_list)))
 
 
 if __name__ == '__main__':

@@ -22,11 +22,10 @@ from sklearn.metrics import average_precision_score as aupr_score
 from operator import itemgetter
 
 
-def load_output(expr_source, cohort, samp_cutoff, classif):
-    out_dir = os.path.join(
-        base_dir, "output", expr_source,
-        "{}__samps-{}".format(cohort, samp_cutoff), classif
-        )
+def load_output(expr_source, samp_cutoff, classif):
+    out_dir = os.path.join(base_dir, "output",
+                           "{}__samps-{}".format(expr_source, samp_cutoff),
+                           classif)
 
     out_files = [(fl, int(fl.split('out__cv-')[1].split('_task-')[0]),
                   int(fl.split('_task-')[1].split('.p')[0]))
@@ -152,13 +151,13 @@ def main():
 
             clf.tune_coh(cdata, mtype, exclude_genes=ex_genes,
                          tune_splits=4, test_count=36, parallel_jobs=12)
-            out_params[mtype] = {par: clf.get_params()[par]
-                                 for par, _ in mut_clf.tune_priors}
+            out_params[cur_cohs, mtype] = {par: clf.get_params()[par]
+                                           for par, _ in mut_clf.tune_priors}
 
             t_start = time.time()
             clf.fit_coh(cdata, mtype, exclude_genes=ex_genes)
             t_end = time.time()
-            out_time[mtype] = t_end - t_start
+            out_time[cur_cohs, mtype] = t_end - t_start
 
             pheno_list = dict()
             train_omics, pheno_list['train'] = cdata.train_data(

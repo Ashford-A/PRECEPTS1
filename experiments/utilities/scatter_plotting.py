@@ -12,8 +12,8 @@ def place_annot(x_vec, y_vec, size_vec, annot_vec, x_range, y_range,
         lbl_ygap = y_range * (size_val ** 0.47) / (gap_adj * 10)
         placed = False
 
-        if (xval + x_range * (11 / gap_adj)) < x_max:
-            if all((xs > (xval + x_range * (9 / gap_adj)))
+        if (xval + x_range * (len(annot) / gap_adj)) < x_max:
+            if all((xs > (xval + x_range * (len(annot) / gap_adj)))
                    or (xs < (xval - x_range * (1 / gap_adj)))
                    or (ys > (yval + y_range * (3 / gap_adj)))
                    or (ys < (yval - y_range * (1 / gap_adj)))
@@ -24,7 +24,7 @@ def place_annot(x_vec, y_vec, size_vec, annot_vec, x_range, y_range,
                 placed_annot += [(xval + lbl_xgap, yval + lbl_ygap,
                                   annot, 'left')]
 
-            elif all((xs > (xval + x_range * (9 / gap_adj)))
+            elif all((xs > (xval + x_range * (len(annot) / gap_adj)))
                      or (xs < (xval - x_range * (1 / gap_adj)))
                      or (ys > (yval + y_range * (1 / gap_adj)))
                     or (ys < (yval - y_range * (3 / gap_adj)))
@@ -35,9 +35,9 @@ def place_annot(x_vec, y_vec, size_vec, annot_vec, x_range, y_range,
                 placed_annot += [(xval + lbl_xgap, yval - lbl_ygap,
                                   annot, 'left')]
 
-        if not placed and ((xval - x_range * (11 / gap_adj)) > x_min):
+        if not placed and ((xval - x_range * (len(annot) / gap_adj)) > x_min):
             if all((xs > (xval + x_range * (1 / gap_adj)))
-                   or (xs < (xval - x_range * (9 / gap_adj)))
+                   or (xs < (xval - x_range * (len(annot) / gap_adj)))
                    or (ys > (yval + y_range * (3 / gap_adj)))
                    or (ys < (yval - y_range * (1 / gap_adj)))
                    for xs, ys in zip(x_vec[:i] + x_vec[(i + 1):],
@@ -47,7 +47,7 @@ def place_annot(x_vec, y_vec, size_vec, annot_vec, x_range, y_range,
                                   annot, 'right')]
  
             elif all((xs > (xval + x_range * (1 / gap_adj)))
-                     or (xs < (xval - x_range * (9 / gap_adj)))
+                     or (xs < (xval - x_range * (len(annot) / gap_adj)))
                      or (ys > (yval + y_range * (1 / gap_adj)))
                      or (ys < (yval - y_range * (3 / gap_adj)))
                      for xs, ys in zip(x_vec[:i] + x_vec[(i + 1):],

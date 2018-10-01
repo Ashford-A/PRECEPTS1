@@ -31,7 +31,7 @@ def detect_log_distr(tune_distr):
     diff_min = np.log10(np.min(distr_diff))
     diff_max = np.log10(np.max(distr_diff))
 
-    return (diff_max - diff_min) > 1.5
+    return (diff_max - diff_min) > 4./3
 
 
 def plot_auc_distribution(auc_df, args, cdata):
@@ -54,11 +54,10 @@ def plot_auc_distribution(auc_df, args, cdata):
     ax.tick_params(axis='y', length=11, width=2)
 
     fig.savefig(
-        os.path.join(plot_dir, args.model_name.split('__')[0],
-                     '{}__auc-distribution__{}-{}_samps-{}.png'.format(
-                         args.model_name.split('__')[1], args.expr_source,
-                         args.cohort, args.samp_cutoff
-                        )),
+        os.path.join(plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
+                     args.model_name.split('__')[0],
+                     '{}__auc-distribution.png'.format(
+                         args.model_name.split('__')[1])),
         dpi=250, bbox_inches='tight'
         )
 
@@ -113,11 +112,10 @@ def plot_acc_quartiles(auc_df, aupr_df, args, cdata):
 
     fig.tight_layout(w_pad=2.2, h_pad=5.1)
     fig.savefig(
-        os.path.join(plot_dir, args.model_name.split('__')[0],
-                     '{}__acc-quartiles__{}-{}_samps-{}.png'.format(
-                         args.model_name.split('__')[1], args.expr_source,
-                         args.cohort, args.samp_cutoff
-                        )),
+        os.path.join(plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
+                     args.model_name.split('__')[0],
+                     '{}__acc-quartiles.png'.format(
+                         args.model_name.split('__')[1])),
         dpi=250, bbox_inches='tight'
         )
 
@@ -141,11 +139,10 @@ def plot_generalization_error(auc_df, par_df, args, cdata):
     ax.set_ylabel('Testing Error', fontsize=22, weight='semibold')
 
     fig.savefig(
-        os.path.join(plot_dir, args.model_name.split('__')[0],
-                     '{}__generalization__{}-{}_samps-{}.png'.format(
-                         args.model_name.split('__')[1], args.expr_source,
-                         args.cohort, args.samp_cutoff
-                        )),
+        os.path.join(plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
+                     args.model_name.split('__')[0],
+                     '{}__generalization.png'.format(
+                         args.model_name.split('__')[1])),
         dpi=250, bbox_inches='tight'
         )
 
@@ -188,11 +185,10 @@ def plot_tuning_distribution(par_df, auc_df, use_clf, args, cdata):
 
     fig.tight_layout()
     fig.savefig(
-        os.path.join(plot_dir, args.model_name.split('__')[0],
-                     '{}__tuning-distribution__{}-{}_samps-{}.png'.format(
-                         args.model_name.split('__')[1], args.expr_source,
-                         args.cohort, args.samp_cutoff
-                        )),
+        os.path.join(plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
+                     args.model_name.split('__')[0],
+                     '{}__tuning-distribution.png'.format(
+                         args.model_name.split('__')[1])),
         dpi=250, bbox_inches='tight'
         )
 
@@ -279,11 +275,10 @@ def plot_tuning_mtype(par_df, auc_df, use_clf, args, cdata):
  
     plt.tight_layout(h_pad=0)
     fig.savefig(
-        os.path.join(plot_dir, args.model_name.split('__')[0],
-                     '{}__tuning-mtype__{}-{}_samps-{}.png'.format(
-                         args.model_name.split('__')[1], args.expr_source,
-                         args.cohort, args.samp_cutoff
-                        )),
+        os.path.join(plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
+                     args.model_name.split('__')[0],
+                     '{}__tuning-mtype.png'.format(
+                         args.model_name.split('__')[1])),
         dpi=250, bbox_inches='tight'
         )
 
@@ -405,11 +400,10 @@ def plot_tuning_mtype_grid(par_df, auc_df, use_clf, args, cdata):
 
     plt.tight_layout()
     fig.savefig(
-        os.path.join(plot_dir, args.model_name.split('__')[0],
-                     '{}__tuning-mtype-grid__{}-{}_samps-{}.png'.format(
-                         args.model_name.split('__')[1], args.expr_source,
-                         args.cohort, args.samp_cutoff
-                        )),
+        os.path.join(plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
+                     args.model_name.split('__')[0],
+                     '{}__tuning-mtype-grid.png'.format(
+                         args.model_name.split('__')[1])),
         dpi=250, bbox_inches='tight'
         )
 
@@ -422,7 +416,8 @@ def main():
         "classifying the mutation status of the genes in a given cohort."
         )
 
-    parser.add_argument('expr_source', type=str, choices=['Firehose', 'toil'],
+    parser.add_argument('expr_source', type=str,
+                        choices=list(expr_sources.keys()),
                         help="which TCGA expression data source was used")
     parser.add_argument('cohort', type=str, help="which TCGA cohort was used")
 
@@ -435,8 +430,11 @@ def main():
                         help="which mutation classifier was tested")
 
     args = parser.parse_args()
-    os.makedirs(os.path.join(plot_dir, args.model_name.split('__')[0]),
-                exist_ok=True)
+    os.makedirs(os.path.join(
+        plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
+        args.model_name.split('__')[0]
+        ), exist_ok=True
+        )
 
     cdata = get_cohort_data(args.expr_source, args.cohort, args.samp_cutoff)
     auc_df, aupr_df, time_df, par_df, mut_clf = load_output(
