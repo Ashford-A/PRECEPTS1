@@ -1,20 +1,19 @@
 
 import os
 base_dir = os.path.dirname(__file__)
-plot_dir = os.path.join(base_dir, 'plots', 'cohort')
+plot_dir = os.path.join(base_dir, 'plots', 'tcga')
 
 import sys
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
-from HetMan.experiments.mut_baseline import *
-from HetMan.experiments.mut_baseline.fit_tests import load_output
+from HetMan.experiments.transfer_baseline import *
+from HetMan.experiments.transfer_baseline.fit_tests import load_output
 from HetMan.experiments.utilities import auc_cmap
 from HetMan.experiments.utilities.scatter_plotting import place_annot
 
 import numpy as np
 import pandas as pd
 
-import argparse
 from pathlib import Path
 from functools import reduce
 from operator import and_
@@ -31,15 +30,17 @@ use_marks = [(0, 3, 0)]
 use_marks += [(i, 0, k) for k in (0, 140) for i in (3, 4, 5)]
 
 
-def plot_auc_highlights(out_dict, args):
+def plot_auc_highlights(out_dict):
     """Plots the accuracy of each classifier for the top mutations."""
 
     # calculates the first quartile of the testing AUC of each classifier on
     # each mutation type across the cross-validation runs
-    auc_quarts = pd.DataFrame.from_dict(
-        {mdl: auc_df.applymap(itemgetter('test')).quantile(q=0.25, axis=1)
-         for mdl, (auc_df, _, _, _, _) in out_dict.items()}
-        )
+    auc_quarts = pd.DataFrame.from_dict({
+        mdl: auc_df.applymap(
+            itemgetter('test')).applymap(
+                lambda aucs: min(aucs.values())).quantile(q=0.25, axis=1)
+         for mdl, (auc_df, _, _, _, _) in out_dict.items()
+        })
 
     # gets the top forty mutation types by the best first-quartile AUC across
     # all classifiers, gets the classifiers that did well on at least one type
@@ -85,15 +86,12 @@ def plot_auc_highlights(out_dict, args):
     plt.yticks(size=fig_size * 1.37, rotation=0)
     plt.xlabel('Model', size=fig_size * 2.43, weight='semibold')
 
-    fig.savefig(
-        os.path.join(plot_dir, '{}__auc-highlights.png'.format(args.cohort)),
-        dpi=250, bbox_inches='tight'
-        )
-
+    fig.savefig(os.path.join(plot_dir, 'auc-highlights.png'),
+                dpi=250, bbox_inches='tight')
     plt.close()
 
 
-def plot_aupr_time(out_dict, args):
+def plot_aupr_time(out_dict):
     fig, axarr = plt.subplots(figsize=(9, 15), nrows=2, sharex=True)
 
     time_quarts = np.log2(pd.Series(
@@ -102,7 +100,8 @@ def plot_aupr_time(out_dict, args):
         ))
 
     aupr_vals = {
-        mdl: aupr_df.applymap(itemgetter('test')).quantile(q=0.25, axis=1)
+        mdl: aupr_df.applymap(itemgetter('test')).applymap(
+            lambda aucs: min(aucs.values())).quantile(q=0.25, axis=1)
         for mdl, (_, aupr_df, _, _, _) in out_dict.items()
         }
 
@@ -150,29 +149,17 @@ def plot_aupr_time(out_dict, args):
     plt.xlabel('Fitting Time (seconds)', size=23, weight='semibold')
     plt.tight_layout(h_pad=3.3)
 
-    fig.savefig(
-        os.path.join(plot_dir, '{}__aupr-time.png'.format(args.cohort)),
-        dpi=250, bbox_inches='tight'
-        )
-
+    fig.savefig(os.path.join(plot_dir, 'aupr-time.png'),
+                dpi=250, bbox_inches='tight')
     plt.close()
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        "Plots the success of all models tested in predicting the presence "
-        "of the mutations in a given cohort."
-        )
-
-    # parse command-line arguments, create directory where plots will be stored
-    parser.add_argument('cohort', type=str, help="which TCGA cohort was used")
-    args = parser.parse_args()
     os.makedirs(plot_dir, exist_ok=True)
-
     out_path = Path(os.path.join(base_dir, 'output'))
+
     out_dirs = [
-        out_dir.parent for out_dir in out_path.glob(
-            "*/{}__samps-*/*/out__cv-0_task-0.p".format(args.cohort))
+        out_dir.parent for out_dir in out_path.glob("*/*/out__cv-0_task-0.p")
         if (len(tuple(out_dir.parent.glob("out__*.p"))) > 0
             and (len(tuple(out_dir.parent.glob("out__*.p")))
                  == len(tuple(out_dir.parent.glob("slurm/fit-*.txt")))))
@@ -181,24 +168,25 @@ def main():
     parsed_dirs = [str(out_dir).split("/output/")[1].split('/')
                    for out_dir in out_dirs]
 
-    if len(set(prs[1] for prs in parsed_dirs)) > 1:
+    if len(set(src for src, _ in parsed_dirs)) > 1:
         pass
 
     else:
-        samp_ctfs = parsed_dirs[0][1].split('__samps-')[1]
-        parsed_dirs = [[prs[0]] + prs[2:] for prs in parsed_dirs]
+        samp_ctfs = parsed_dirs[0][0].split('__samps-')[1]
+        parsed_dirs = [[src.split('__samps-')[0]] + [mdl]
+                       for src, mdl in parsed_dirs]
 
-    out_dict = {(src, mdl): load_output(src, args.cohort, samp_ctfs, mdl)
+    out_dict = {(src, mdl): load_output(src, samp_ctfs, mdl)
                 for src, mdl in parsed_dirs}
 
     # limit the evaluation data to mutations that were in every testing set
     use_muts = reduce(and_, [out_ls[0].index for out_ls in out_dict.values()])
     out_dict = {(src, mdl): [out_df.loc[use_muts]
-                             for out_df in out_ls[:4]] + [out_ls[4]]
+                             for out_df in out_ls[:4]] + [out_ls[4:]]
                 for (src, mdl), out_ls in out_dict.items()}
 
-    plot_auc_highlights(out_dict.copy(), args)
-    plot_aupr_time(out_dict.copy(), args)
+    plot_auc_highlights(out_dict.copy())
+    plot_aupr_time(out_dict.copy())
 
 
 if __name__ == "__main__":

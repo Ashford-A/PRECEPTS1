@@ -5,7 +5,7 @@ base_dir = os.path.dirname(__file__)
 import sys
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
-from HetMan.experiments.utilities.data_dirs import expr_dir, copy_dir
+from HetMan.experiments.utilities.data_dirs import *
 from HetMan.features.cohorts.tcga import MutationCohort
 from dryadic.features.mutations import *
 from HetMan.experiments.utilities.classifiers import *
@@ -136,14 +136,12 @@ def main():
     # loads the expression data and gene mutation data for the given TCGA
     # cohort, with the training/testing cohort split defined by the
     # cross-validation ID for this task
-    cdata = MutationCohort(
-        cohort=args.cohort, mut_genes=list(use_genes), mut_levels=use_lvls,
-        expr_source='Firehose', var_source='mc3', copy_source='Firehose',
-        annot_file=('/home/exacloud/lustre1/CompBio/mgrzad/input-data/'
-                    'gencode/gencode.v22.annotation.gtf.gz'),
-        expr_dir=expr_dir, copy_dir=copy_dir,
-        syn=syn, cv_seed=args.cv_id, cv_prop=1.0
-        )
+    cdata = MutationCohort(cohort=args.cohort, mut_genes=list(use_genes),
+                           mut_levels=use_lvls, domain_dir=domain_dir,
+                           expr_source='Firehose', var_source='mc3',
+                           copy_source='Firehose', annot_file=annot_file,
+                           expr_dir=expr_dir, copy_dir=copy_dir, syn=syn,
+                           cv_seed=args.cv_id, cv_prop=1.0)
 
     if args.verbose:
         print("Loaded {} subtypes of which roughly {} will be isolated in "
