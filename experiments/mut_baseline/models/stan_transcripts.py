@@ -14,6 +14,12 @@ class OptimModel(BaseTranscripts, StanOptimizing):
         super().run_model(**{**fit_params, **{'iter': 1e5}})
 
 
+class ShortOptimModel(BaseTranscripts, StanOptimizing):
+
+    def run_model(self, **fit_params):
+        super().run_model(**{**fit_params, **{'iter': 5e3}})
+
+
 class Base(PresencePipe):
  
     tune_priors = (
@@ -46,9 +52,14 @@ class Norm_robust(Base):
 class Meanvar(Base):
 
     tune_priors = (
-        ('feat__mean_perc', (100./3, 200./3, 80, 90, 99, 100)),
-        ('feat__var_perc', (100./3, 200./3, 80, 90, 99, 100)),
+        ('feat__mean_perc', (20, 40, 50, 60, 70, 90)),
+        ('feat__var_perc', (20, 40, 50, 60, 70, 90)),
         )
 
-    fit_inst = OptimModel(model_code=base_model, alpha=37./13)
+    fit_inst = OptimModel(model_code=base_model, alpha=1e-3, gamma=2.)
+
+
+class Short_iter(Base):
+
+    fit_inst = ShortOptimModel(model_code=base_model)
 
