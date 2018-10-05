@@ -81,7 +81,8 @@ class Trees(object):
     """
 
     def calc_pred_labels(self, X):
-        return self.predict_proba(X).reshape(-1)
+        return self.named_steps['fit'].predict_proba(
+            self._feat_norm(X))[:, 1] * 2. - 1.
 
 
 class Lasso(Base, Linear):

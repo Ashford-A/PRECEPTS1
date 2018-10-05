@@ -62,7 +62,7 @@ def plot_singleton_ordering(simil_df, auc_list, size_list, args):
     ylabs = [ylab.replace('\nScale IS Copy\nWITH', '\n') for ylab in ylabs]
 
     # draw the heatmap
-    ax = sns.heatmap(simil_df, cmap=simil_cmap, vmin=-0.5, vmax=1.5,
+    ax = sns.heatmap(simil_df, cmap=simil_cmap, vmin=-1., vmax=2.,
                      xticklabels=xlabs, yticklabels=ylabs, square=True,
                      annot=annot_df, fmt='', annot_kws={'size': 14})
 
@@ -133,7 +133,7 @@ def plot_singleton_clustering(simil_df, auc_list, size_list, args):
     ylabs = [ylab.replace('\nScale IS Copy\nWITH', '\n') for ylab in ylabs]
 
     # draw the heatmap
-    ax = sns.heatmap(simil_df, cmap=simil_cmap, vmin=-0.5, vmax=1.5,
+    ax = sns.heatmap(simil_df, cmap=simil_cmap, vmin=-1., vmax=2.,
                      xticklabels=xlabs, yticklabels=ylabs, square=True,
                      annot=annot_df, fmt='', annot_kws={'size': 14})
 
@@ -173,7 +173,7 @@ def plot_all_ordering(simil_df, auc_list, args):
     simil_order = simil_rank.sort_values().index
     simil_df = simil_df.loc[simil_order, simil_order]
 
-    sns.heatmap(simil_df, cmap=simil_cmap, vmin=-0.5, vmax=1.5, ax=ax,
+    sns.heatmap(simil_df, cmap=simil_cmap, vmin=-1., vmax=2., ax=ax,
                 xticklabels=False, square=True)
 
     cbar = ax.collections[0].colorbar
@@ -210,7 +210,7 @@ def plot_all_clustering(simil_df, auc_list, args):
     row_linkage = linkage(distance.pdist(
         simil_df, metric='cityblock'), method='centroid')
     gr = sns.clustermap(
-        simil_df, cmap=simil_cmap, figsize=(12, 11), vmin=-0.5, vmax=1.5,
+        simil_df, cmap=simil_cmap, figsize=(12, 11), vmin=-1., vmax=2.,
         row_linkage=row_linkage, col_linkage=row_linkage, square=True
         )
 
