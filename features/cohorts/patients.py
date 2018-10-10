@@ -61,3 +61,13 @@ class PatientMutationCohort(MutationCohort):
         self.samples = frozenset(self.samples | set(patient_expr.index))
         self.patient_samps = frozenset(patient_expr.index)
 
+        patient_train, patient_test = self.split_samples(
+            cv_seed, cv_prop, patient_expr.index)
+        self.train_samps = frozenset(self.train_samps | patient_train)
+
+        if patient_test:
+            if self.test_samps:
+                self.test_samps = frozenset(self.test_samps | patient_test)
+            else:
+                self.test_samps = frozenset(patient_test)
+
