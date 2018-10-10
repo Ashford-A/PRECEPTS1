@@ -175,34 +175,27 @@ def get_expr_icgc(cohort, data_dir):
 
 
 def get_expr_toil(cohort, data_dir, collapse_txs=False):
-    expr_file = os.path.join(data_dir, '{}.txt.gz'.format(cohort))
-    expr_data = pd.read_csv(expr_file, sep='\t', index_col=0).transpose()
-    expr_data.columns.name = None
+    expr = pd.read_csv(os.path.join(data_dir, "TCGA",
+                                    "TCGA_{}_tpm.tsv.gz".format(cohort)),
+                       sep='\t', index_col=0)
 
-    # loads mapping between transcripts and the genes they are a part of
-    tx_annot = pd.read_csv(
-        os.path.join(data_dir, "..",
-                     "gencode.v23.annotation.transcript.probemap.gz"),
-        sep='\t', index_col=0
-        )
+    expr.index = expr.index.str.split('|', expand=True)
+    expr.index = expr.index.set_names(['ENST', 'ENSG', 'OTTG', 'OTTT',
+                                       'Transcript', 'Gene', 'Length',
+                                       'GeneType', ''])
 
-    # removes transcripts for which annotation is unavailable
-    expr_data = expr_data.loc[:, expr_data.columns.isin(tx_annot.index)]
+    id_map = pd.read_csv(os.path.join(data_dir, 'TCGA_ID_MAP.csv'),
+                         sep=',', index_col=0)
+    id_map = id_map.loc[id_map['Disease'] == cohort]
+    expr.columns = id_map.loc[expr.columns, 'AliquotBarcode'].values
 
-    # reshapes the expression index to include genes matched to transcripts
-    expr_data.columns = pd.MultiIndex.from_arrays(
-        [tx_annot.loc[expr_data.columns, 'gene'].values, expr_data.columns],
-        names=['Gene', 'Transcript']
-        )
- 
     if collapse_txs:
-        expr_data = np.log2(
-            expr_data.rpow(2).subtract(0.001).groupby(
-                level=['Gene'], axis=1).sum().add(0.001)
-            )
+        expr = expr.groupby(level=['Gene'], axis=0).sum()
 
     else:
-        expr_data.sort_index(axis=1, level=['Gene'], inplace=True)
+        expr.sort_index(axis=0, level=['Gene'], inplace=True)
+        expr = expr.reorder_levels(['Gene', 'Transcript', 'ENSG', 'ENST',
+                                    'OTTG', 'OTTT', 'Length', 'GeneType', ''])
 
-    return expr_data
+    return expr.transpose()
 
