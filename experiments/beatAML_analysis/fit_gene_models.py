@@ -6,7 +6,8 @@ import sys
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
 from HetMan.experiments.beatAML_analysis import *
-from HetMan.experiments.beatAML_analysis.cohorts import CancerCohort
+from HetMan.experiments.beatAML_analysis.utils import load_beat_expression
+from HetMan.features.cohorts.patients import PatientMutationCohort
 from dryadic.features.mutations import MuType
 from dryadic.learning.pipelines import PresencePipe
 
@@ -25,7 +26,7 @@ import dill as pickle
 
 
 def load_output():
-    out_dir = Path(os.path.join(base_dir, 'output', 'gene_models_fewfeat'))
+    out_dir = Path(os.path.join(base_dir, 'output', 'gene_models'))
 
     return [pickle.load(open(str(out_fl), 'rb'))
             for out_fl in out_dir.glob('cv-*.p')]
@@ -43,10 +44,10 @@ class OptimModel(GaussLabels, StanOptimizing):
 class StanPipe(PresencePipe):
 
     tune_priors = (
-        ('fit__alpha', tuple(10 ** np.linspace(-4, 0, 101))),
+        ('fit__alpha', tuple(10 ** np.linspace(-4, -2, 51))),
         )
 
-    feat_inst = SelectMeanVar(var_perc=75)
+    feat_inst = SelectMeanVar(mean_perc=80)
     norm_inst = StandardScaler()
     fit_inst = OptimModel(model_code=gauss_model)
 
@@ -63,12 +64,12 @@ def main():
         help='how many training cohort splits to use for tuning'
         )
     parser.add_argument(
-        '--test_count', type=int, default=24,
+        '--test_count', type=int, default=12,
         help='how many hyper-parameter values to test in each tuning split'
         )
 
     parser.add_argument(
-        '--infer_splits', type=int, default=24,
+        '--infer_splits', type=int, default=12,
         help='how many cohort splits to use for inference bootstrapping'
         )
     parser.add_argument(
@@ -106,11 +107,13 @@ def main():
          == 'Yes').sum(axis=1) > 1
         ]
 
-    cdata = CancerCohort(
-        mut_genes=use_genes, mut_levels=['Gene', 'Form_base'],
-        toil_dir=toil_dir, sample_data=beataml_data, tx_map=tx_map,
-        syn=syn, copy_dir=copy_dir, annot_file=annot_file,
-        cv_seed=(args.cv_id * 59) + 121, cv_prop=1.0
+    cdata = PatientMutationCohort(
+        patient_expr=load_beat_expression(beataml_expr), patient_muts=None,
+        tcga_cohort='LAML', mut_genes=use_genes, mut_levels=['Gene', 'Form'],
+        expr_source='toil', var_source='mc3', copy_source='Firehose',
+        annot_file=annot_file, expr_dir=toil_dir, copy_dir=copy_dir,
+        cv_seed=(args.cv_id * 59) + 121, cv_prop=1.0,
+        collapse_txs=False, syn=syn
         )
 
     use_mtypes = set()
@@ -149,7 +152,6 @@ def main():
                     for mtype in muts['Point'].branchtypes(min_size=15)
                     }
 
-    beataml_samps = {samp for samp in cdata.samples if samp[:4] != 'TCGA'}
     tuned_params = {mtype: None for mtype in use_mtypes}
     infer_mats = {mtype: None for mtype in use_mtypes}
 
@@ -160,7 +162,7 @@ def main():
 
         mut_clf.tune_coh(
             cdata, mtype,
-            exclude_genes=ex_genes, exclude_samps=beataml_samps,
+            exclude_genes=ex_genes, exclude_samps=cdata.patient_samps,
             tune_splits=args.tune_splits, test_count=args.test_count,
             parallel_jobs=args.parallel_jobs
             )
@@ -172,7 +174,7 @@ def main():
         
         infer_mats[mtype] = mut_clf.infer_coh(
             cdata, mtype,
-            force_test_samps=beataml_samps, exclude_genes=ex_genes,
+            force_test_samps=cdata.patient_samps, exclude_genes=ex_genes,
             infer_splits=args.infer_splits, infer_folds=args.infer_folds
             )
 
