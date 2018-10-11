@@ -48,8 +48,44 @@ class Base(PresencePipe):
         super().__init__([('feat', self.feat_inst), ('norm', self.norm_inst),
                           ('fit', self.fit_inst)])
 
+    def _feat_norm(self, X):
+        return self.named_steps['norm'].transform(
+            self.named_steps['feat'].transform(X))
 
-class Lasso(Base):
+
+class Linear(object):
+    """An abstract class for classifiers assigning linear weights to features.
+
+    """
+
+    def calc_pred_labels(self, X):
+        pred_lbls = np.dot(self._feat_norm(X),
+                           self.named_steps['fit'].coef_.transpose())
+        pred_lbls += self.named_steps['fit'].intercept_
+
+        return pred_lbls.reshape(-1)
+
+
+class Kernel(object):
+    """An abstract class for non-linear support vector machines.
+
+    """
+
+    def calc_pred_labels(self, X):
+        return self.decision_function(X).reshape(-1)
+
+
+class Trees(object):
+    """An abstract class for ensembles of decision trees.
+
+    """
+
+    def calc_pred_labels(self, X):
+        return self.named_steps['fit'].predict_proba(
+            self._feat_norm(X))[:, 1] * 2. - 1.
+
+
+class Lasso(Base, Linear):
     """A linear regressor using logistic loss and lasso regularization.
 
     In the context of predicting mutation status using the standard set of
@@ -70,7 +106,7 @@ class Lasso(Base):
                                   class_weight='balanced')
 
 
-class Ridge(Base):
+class Ridge(Base, Linear):
     """A linear regressor using logistic loss and ridge regularization.
 
     In the context of predicting mutation status using the standard set of
@@ -89,7 +125,7 @@ class Ridge(Base):
     fit_inst = LogisticRegression(penalty='l2', class_weight='balanced')
 
 
-class Elastic(Base):
+class Elastic(Base, Linear):
     """A linear regressor using logistic loss and elastic net regularization.
 
     This classifier tends to prefer lower values for `l1_ratio` in the context
@@ -114,7 +150,7 @@ class Elastic(Base):
                              max_iter=1000, class_weight='balanced')
 
 
-class SVClinear(Base):
+class SVClinear(Base, Linear):
     """A linear classifier implemented using a support vector machine.
 
     While tuned `fit__C` values tend to fall between 1e-6 and 1e-3 across
@@ -133,7 +169,7 @@ class SVClinear(Base):
                    cache_size=500, class_weight='balanced')
 
 
-class SVCquad(Base):
+class SVCquad(Base, Kernel):
     """A quadratic classifier implemented using a support vector machine.
 
     Note that many -omic classification tasks appear to be insensitive to the
@@ -160,7 +196,7 @@ class SVCquad(Base):
                    cache_size=500, class_weight='balanced')
 
 
-class SVCpoly(Base):
+class SVCpoly(Base, Kernel):
     """A polynomial classifier implemented using a support vector machine.
 
     Given the difficulty of tuning over every possible useful value of the
@@ -184,7 +220,7 @@ class SVCpoly(Base):
                    cache_size=500, class_weight='balanced')
 
 
-class SVCrbf(Base):
+class SVCrbf(Base, Kernel):
     """A support vector classifier using a radial basis kernel.
 
     The `fit__C` and `fit__gamma` for this classifier exhibit similar
@@ -203,7 +239,7 @@ class SVCrbf(Base):
                    cache_size=500, class_weight='balanced')
 
 
-class Forests(Base):
+class Forests(Base, Trees):
     """An ensemble classifier using decision trees trained on random subsets.
 
     Note that tuning over values of `max_features` greater than 10^-0.6

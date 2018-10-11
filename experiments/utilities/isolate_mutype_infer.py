@@ -129,8 +129,7 @@ def main():
 
     # log into Synapse using locally stored credentials
     syn = synapseclient.Synapse()
-    syn.cache.cache_root_dir = ("/home/exacloud/lustre1/CompBio/"
-                                "mgrzad/input-data/synapse")
+    syn.cache.cache_root_dir = syn_root
     syn.login()
 
     # loads the expression data and gene mutation data for the given TCGA
@@ -150,7 +149,10 @@ def main():
                   args.cohort, len(cdata.samples)
                 ))
 
-    mut_clf = eval(args.classif)
+    clf = eval(args.classif)
+    clf.predict_proba = clf.calc_pred_labels
+    mut_clf = clf()
+
     out_tune = {mtype: {par: None for par, _ in mut_clf.tune_priors}
                 for mtype in mtype_list}
     out_iso = {mtype: None for mtype in mtype_list}
@@ -163,6 +165,8 @@ def main():
     else:
         base_samps = cdata.train_mut.get_samples()
 
+    # find the genes on the same chromosome as the gene whose mutations are
+    # being isolated which will be removed from the features used for training
     use_chrs = {cdata.gene_annot[gene]['chr'] for gene in use_genes}
     ex_genes = {gene for gene, annot in cdata.gene_annot.items()
                 if annot['chr'] in use_chrs}
@@ -170,8 +174,6 @@ def main():
     # for each subtype, check if it has been assigned to this task
     for i, mtypes in enumerate(mtype_list):
         if (i % args.task_count) == args.task_id:
-            clf = mut_clf()
-
             if args.verbose:
                 print("Isolating {} ...".format(mtypes))
 
@@ -192,26 +194,25 @@ def main():
                 else:
                     use_mtype = MutComb(*mtypes)
 
-            clf.tune_coh(
+            # tune the hyper-parameters of the classifier
+            mut_clf.tune_coh(
                 cdata, use_mtype,
                 exclude_genes=ex_genes, exclude_samps=ex_samps,
                 tune_splits=args.tune_splits, test_count=args.test_count,
                 parallel_jobs=args.parallel_jobs
                 )
 
-            clf_params = clf.get_params()
+            # save the tuned values of the hyper-parameters
+            clf_params = mut_clf.get_params()
             for par, _ in mut_clf.tune_priors:
                 out_tune[mtypes][par] = clf_params[par]
 
-            out_iso[mtypes] = [
-                clf.parse_preds(vals).tolist() for vals in clf.infer_coh(
-                    cdata, use_mtype,
-                    exclude_genes=ex_genes, force_test_samps=ex_samps,
-                    infer_splits=args.infer_splits,
-                    infer_folds=args.infer_folds,
-                    parallel_jobs=args.parallel_jobs
-                    )
-                ]
+            out_iso[mtypes] = mut_clf.infer_coh(
+                cdata, use_mtype,
+                exclude_genes=ex_genes, force_test_samps=ex_samps,
+                infer_splits=args.infer_splits, infer_folds=args.infer_folds,
+                parallel_jobs=args.parallel_jobs
+                )
 
         else:
             del(out_iso[mtypes])
@@ -219,7 +220,7 @@ def main():
 
     pickle.dump(
         {'Infer': out_iso, 'Tune': out_tune,
-         'Info': {'Clf': mut_clf,
+         'Info': {'Clf': mut_clf.__class__,
                   'TunePriors': mut_clf.tune_priors,
                   'TuneSplits': args.tune_splits,
                   'TestCount': args.test_count,

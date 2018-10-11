@@ -51,6 +51,10 @@ def load_output(expr_source, samp_cutoff, classif):
             lambda gn_pars: pd.DataFrame.from_records(tuple(gn_pars)), axis=1)
         ))
 
+    par_df['CV'] = par_df.index.get_level_values(2)
+    par_df.index = pd.MultiIndex.from_arrays(
+        [par_df.index.get_level_values(0), par_df.index.get_level_values(1)])
+
     return out_df.AUC, out_df.AUPR, out_df.Time, par_df, tuple(use_clf)[0]
 
 
