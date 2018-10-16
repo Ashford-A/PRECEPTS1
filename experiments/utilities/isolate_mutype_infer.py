@@ -10,15 +10,15 @@ from HetMan.features.cohorts.tcga import MutationCohort
 from dryadic.features.mutations import *
 from HetMan.experiments.utilities.classifiers import *
 
-import synapseclient
 import argparse
+import synapseclient
 from glob import glob
 import dill as pickle
 
 import pandas as pd
 from importlib import import_module
-from operator import or_, and_
 from functools import reduce
+from operator import or_, and_
 
 
 def main():

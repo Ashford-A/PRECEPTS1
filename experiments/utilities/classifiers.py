@@ -19,7 +19,7 @@ prefer a different set of values.
 
 """
 
-from dryadic.learning.pipelines import PresencePipe
+from dryadic.learning.pipelines import PresencePipe, LinearPipe
 from dryadic.learning.selection import SelectMeanVar
 import numpy as np
 
@@ -53,19 +53,6 @@ class Base(PresencePipe):
             self.named_steps['feat'].transform(X))
 
 
-class Linear(object):
-    """An abstract class for classifiers assigning linear weights to features.
-
-    """
-
-    def calc_pred_labels(self, X):
-        pred_lbls = np.dot(self._feat_norm(X),
-                           self.named_steps['fit'].coef_.transpose())
-        pred_lbls += self.named_steps['fit'].intercept_
-
-        return pred_lbls.reshape(-1)
-
-
 class Kernel(object):
     """An abstract class for non-linear support vector machines.
 
@@ -85,7 +72,7 @@ class Trees(object):
             self._feat_norm(X))[:, 1] * 2. - 1.
 
 
-class Lasso(Base, Linear):
+class Lasso(Base, LinearPipe):
     """A linear regressor using logistic loss and lasso regularization.
 
     In the context of predicting mutation status using the standard set of
@@ -106,7 +93,7 @@ class Lasso(Base, Linear):
                                   class_weight='balanced')
 
 
-class Ridge(Base, Linear):
+class Ridge(Base, LinearPipe):
     """A linear regressor using logistic loss and ridge regularization.
 
     In the context of predicting mutation status using the standard set of
@@ -125,7 +112,7 @@ class Ridge(Base, Linear):
     fit_inst = LogisticRegression(penalty='l2', class_weight='balanced')
 
 
-class Elastic(Base, Linear):
+class Elastic(Base, LinearPipe):
     """A linear regressor using logistic loss and elastic net regularization.
 
     This classifier tends to prefer lower values for `l1_ratio` in the context
@@ -150,7 +137,7 @@ class Elastic(Base, Linear):
                              max_iter=1000, class_weight='balanced')
 
 
-class SVClinear(Base, Linear):
+class SVClinear(Base, LinearPipe):
     """A linear classifier implemented using a support vector machine.
 
     While tuned `fit__C` values tend to fall between 1e-6 and 1e-3 across

@@ -18,8 +18,8 @@ import dill as pickle
 
 import pandas as pd
 from importlib import import_module
-from operator import or_
 from functools import reduce
+from operator import or_
 from sklearn.metrics import roc_auc_score, average_precision_score
 
 
