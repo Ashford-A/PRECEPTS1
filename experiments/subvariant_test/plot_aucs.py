@@ -121,7 +121,7 @@ def main():
     use_lvls = ['Gene'] + args.mut_levels.split('__')
 
     out_auc, out_aupr = load_acc(os.path.join(
-        base_dir, 'output', args.cohort, args.gene, args.classif,
+        out_dir, 'output', args.cohort, args.gene, args.classif,
         'samps_{}'.format(args.samp_cutoff), args.mut_levels
         ))
 
@@ -139,8 +139,8 @@ def main():
     cdata = MutationCohort(
         cohort=args.cohort, mut_genes=[args.gene], mut_levels=use_lvls,
         expr_source='Firehose', var_source='mc3', copy_source='Firehose',
-        annot_file=annot_file, expr_dir=expr_dir, copy_dir=copy_dir,
-        cv_prop=1.0, syn=syn
+        domain_dir=domain_dir, expr_dir=expr_dir, copy_dir=copy_dir,
+        annot_file=annot_file, cv_prop=1.0, syn=syn
         )
 
     plot_basic(out_auc.copy().loc[basic_mtypes], args, cdata)

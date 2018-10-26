@@ -37,7 +37,7 @@ def main():
     # will be stored
     args = parser.parse_args()
     use_lvls = args.mut_levels.split('__')
-    out_path = os.path.join(base_dir, 'setup', args.cohort, args.gene)
+    out_path = os.path.join(out_dir, 'setup', args.cohort, args.gene)
     os.makedirs(out_path, exist_ok=True)
 
     # log into Synapse using locally stored credentials
@@ -50,7 +50,7 @@ def main():
         cohort=args.cohort, mut_genes=[args.gene], mut_levels=use_lvls,
         expr_source='Firehose', var_source='mc3', copy_source='Firehose',
         annot_file=annot_file, expr_dir=expr_dir, copy_dir=copy_dir,
-        cv_prop=1.0, syn=syn
+        domain_dir=domain_dir, cv_prop=1.0, syn=syn
         )
 
     if args.verbose:

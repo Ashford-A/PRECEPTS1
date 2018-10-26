@@ -55,8 +55,17 @@ def get_variants_mc3(syn):
 
     # imports mutation data into a DataFrame, parses TCGA sample barcodes
     # and PolyPhen scores
-    muts = pd.read_csv(mc3.path, usecols=use_cols, sep='\t', header=None,
-                       names=use_names, comment='#', skiprows=1)
+    i = 0
+    while i < 10:
+        try:
+            muts = pd.read_csv(mc3.path, engine='python',
+                               usecols=use_cols, sep='\t', header=None,
+                               names=use_names, comment='#', skiprows=1)
+            break
+
+        except OSError:
+            i = i + 1
+
     muts.Sample = muts.Sample.apply(lambda smp: "-".join(smp.split("-")[:4]))
     muts.PolyPhen = muts.PolyPhen.apply(
         lambda phen: (gsub('\)$', '', gsub('^.*\(', '', phen))

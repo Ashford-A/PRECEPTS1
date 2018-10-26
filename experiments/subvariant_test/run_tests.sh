@@ -8,8 +8,9 @@
 #SBATCH --time=500
 
 
-export BASEDIR=HetMan/experiments/subvariant_test
 source activate HetMan
+export BASEDIR=$DATADIR/HetMan/experiments/subvariant_test
+mkdir -p $BASEDIR/setup/${cohort}/${gene}
 
 while getopts t:g:c:s:l:m: var
 do
@@ -39,7 +40,7 @@ then
 	srun -p=exacloud \
 		--output=$BASEDIR/setup/slurm_${cohort}.txt \
 		--error=$BASEDIR/setup/slurm_${cohort}.err \
-		python $BASEDIR/setup_tests.py -v \
+		python $CODEDIR/HetMan/experiments/subvariant_test/setup_tests.py \
 		$cohort $gene $mut_levels --samp_cutoff=$samp_cutoff
 fi
 
@@ -54,8 +55,7 @@ then
 fi
 
 # run the subtype tests in parallel
-sbatch --output=${slurm_dir}/subv-test-fit.out \
-	--error=${slurm_dir}/subv-test-fit.err \
-	--exclude=$ex_nodes --no-requeue \
-	--array=0-$(( $array_size )) $BASEDIR/fit_tests.sh
+sbatch --output=${slurm_dir}/subv-test-fit.out --error=${slurm_dir}/subv-test-fit.err \
+	--exclude=$ex_nodes --no-requeue --array=0-$(( $array_size )) \
+	$CODEDIR/HetMan/experiments/subvariant_test/fit_tests.sh
 

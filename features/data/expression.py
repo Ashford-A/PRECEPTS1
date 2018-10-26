@@ -72,9 +72,9 @@ def get_expr_firehose(cohort, data_dir):
     # finds the tarballs containing expression data for the given cohort in
     # the given data directory
     expr_tars = glob.glob(os.path.join(
-        data_dir, "stddata__2016_01_28", cohort, "20160128",
+        data_dir, "stddata__*", cohort, "*",
         ("*.Merge_rnaseqv2__illuminahiseq_rnaseqv2__unc_edu__Level_3__"
-         "RSEM_genes_normalized__data.Level_3.2016012800.0.0.tar.gz")
+         "RSEM_genes_normalized__data.Level_3.*.tar.gz")
         ))
 
     # ensures only one tarball matches the file name pattern

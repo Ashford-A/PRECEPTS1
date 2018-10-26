@@ -34,52 +34,55 @@ from HetMan.experiments.utilities.classifiers import *
 
 import argparse
 import synapseclient
-from glob import glob
 import dill as pickle
 
 import pandas as pd
 from functools import reduce
-from operator import or_, and_, add
+from operator import or_, and_, add, itemgetter
 from sklearn.metrics import roc_auc_score, average_precision_score
 
 
 def load_output(out_dir):
+    out_files = [(fl, int(fl.split('out__task-')[1].split('_cv-')[0]),
+                  int(fl.split('_cv-')[1].split('.p')[0]))
+                  for fl in os.listdir(out_dir) if 'out__task-' in fl]
 
-    out_list = [
-        [pickle.load(
-            open(os.path.join(out_dir, "results/out__cv-{}_task-{}.p".format(
-                cv_id, task_id)
-                ), 'rb')
-            ) for task_id in range(3)]
-        for cv_id in range(10)
-        ]
+    task_count = len(set(task_id for _, task_id, _ in out_files))
+    cv_count = len(set(cv_id for _, _, cv_id in out_files))
+    if len(out_files) != (task_count * cv_count):
+        raise ValueError("Depiction output files for some combinations of "
+                         "tasks and cross-validations are missing!")
 
-    acc_data = pd.concat(
-        [pd.concat(pd.DataFrame.from_dict(x['Acc'], orient='index')
-                   for x in ols)
-         for ols in out_list],
-        axis=1
-        )
+    out_list = [pickle.load(open(os.path.join(out_dir, fl), 'rb'))
+                for fl, _, _ in sorted(out_files, key=itemgetter(2, 1))]
 
-    coef_data = []
-    for task_id in range(3):
-        coef_list = [
-            pd.DataFrame.from_dict(out_list[cv_id][task_id]['Coef'],
-                                   orient='index').fillna(0.0)
-            for cv_id in range(10)
-            ]
+    use_clf = set(out_dict['Info']['Clf'].__class__ for out_dict in out_list)
+    if len(use_clf) != 1:
+        raise ValueError("Each subvariant depiction experiment must be run "
+                         "with exactly one classifier!")
 
-        cmn_gns = reduce(or_, [x.columns for x in coef_list])
-        cmn_types = reduce(and_, [x.index for x in coef_list])
+    coef_df = pd.concat([
+        pd.concat([pd.DataFrame.from_dict(out_dict['Coef'], orient='index')
+                   for out_dict in out_list[i::task_count]], axis=1)
+        for i in range(task_count)
+        ], axis=0)
 
-        coef_mat = reduce(add, [ls.loc[cmn_types, cmn_gns].fillna(0.0)
-                                for ls in coef_list])
+    coef_dict = {
+        tp: {mtype: vals[tp].apply(pd.Series).fillna(0.0)
+             for mtype, vals in coef_df.iterrows()}
+        for tp in ['Base', 'Iso']
+        }
 
-        coef_data += [coef_mat / 10.0]
+    acc_dfs = {
+        tp: pd.concat([
+            pd.concat([pd.DataFrame.from_dict(out_dict[tp], orient='index')
+                       for out_dict in out_list[i::task_count]], axis=1)
+            for i in range(task_count)
+            ], axis=0)
+        for tp in ['Acc', 'AUPR']
+        }
 
-    coef_data = pd.concat(coef_data, axis=0).fillna(0.0)
-
-    return acc_data, coef_data
+    return coef_dict, acc_dfs, use_clf
 
 
 def main():
@@ -208,11 +211,12 @@ def main():
 
             if mtype.cur_level == 'Gene':
                 cur_genes = set(gn for gn, _ in mtype.subtype_list())
+            else:
+                cur_genes = use_genes
 
-                cur_chrs = {cdata.gene_annot[gene]['chr']
-                            for gene in cur_genes}
-                ex_genes = {gene for gene, annot in cdata.gene_annot.items()
-                            if annot['chr'] in cur_chrs}
+            cur_chrs = {cdata.gene_annot[gene]['chr'] for gene in cur_genes}
+            ex_genes = {gene for gene, annot in cdata.gene_annot.items()
+                        if annot['chr'] in cur_chrs}
 
             mut_clf.tune_coh(cdata, mtype, exclude_genes=ex_genes,
                              tune_splits=args.tune_splits,
@@ -239,8 +243,12 @@ def main():
                 ex_train = base_mtype.get_samples(cdata.train_mut)
                 ex_test = base_mtype.get_samples(cdata.test_mut)
 
-                ex_train -= mtype.get_samples(cdata.train_mut)
-                ex_test -= mtype.get_samples(cdata.test_mut)
+            else:
+                ex_train = cdata.train_mut.get_samples()
+                ex_test = cdata.test_mut.get_samples()
+
+            ex_train -= mtype.get_samples(cdata.train_mut)
+            ex_test -= mtype.get_samples(cdata.test_mut)
 
             mut_clf.tune_coh(cdata, mtype,
                              exclude_genes=ex_genes, exclude_samps=ex_train,

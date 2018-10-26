@@ -16,7 +16,7 @@ echo $OUTDIR
 echo $array_size
 
 # pause between starting array jobs to ease I/O load
-sleep $(($SLURM_ARRAY_TASK_ID * 5));
+sleep $(($SLURM_ARRAY_TASK_ID * 7));
 
 cv_id=$(($SLURM_ARRAY_TASK_ID % 10));
 task_id=$(($SLURM_ARRAY_TASK_ID / 10));
@@ -26,9 +26,9 @@ SETUP_DIR=$BASEDIR/setup/${cohort}/${gene}
 srun -p=exacloud \
 	--output=$OUTDIR/slurm/fit-${task_id}_${cv_id}.txt \
 	--error=$OUTDIR/slurm/fit-${task_id}_${cv_id}.err \
-	python HetMan/experiments/utilities/isolate_mutype_test.py -v \
+	python $CODEDIR/HetMan/experiments/utilities/isolate_mutype_test.py \
 	$SETUP_DIR/mtypes_list__samps_${samp_cutoff}__levels_${mut_levels}.p \
-	$OUTDIR $cohort $classif $cv_id --use_genes $gene \
+	$OUTDIR $cohort $classif $cv_id --use_genes $gene -v \
 	--task_count=$(( $array_size / 10 + 1 )) --task_id=$task_id \
 	--tune_splits=4 --test_count=48 --parallel_jobs=12
 

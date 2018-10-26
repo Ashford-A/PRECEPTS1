@@ -1,5 +1,6 @@
 
-from .data_dirs import expr_dir, copy_dir, syn_root, annot_file
+from .data_dirs import (
+    expr_dir, copy_dir, syn_root, annot_file, domain_dir, out_dir)
 from dryadic.features.mutations import MuType
 
 copy_mtypes = {MuType({('Copy', 'HomDel'): None}),
@@ -7,5 +8,6 @@ copy_mtypes = {MuType({('Copy', 'HomDel'): None}),
                MuType({('Copy', 'HomGain'): None}),
                MuType({('Copy', ('HomGain', 'HetGain')): None})}
 
-__all__ = ['copy_mtypes', 'expr_dir', 'copy_dir', 'syn_root', 'annot_file']
+__all__ = ['copy_mtypes', 'expr_dir', 'copy_dir',
+           'syn_root', 'annot_file', 'domain_dir', 'out_dir']
 

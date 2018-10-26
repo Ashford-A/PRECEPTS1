@@ -6,7 +6,7 @@ import sys
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
 from HetMan.experiments.utilities.data_dirs import (
-    expr_dir, copy_dir, annot_file)
+    expr_dir, copy_dir, syn_root, annot_file, domain_dir)
 from HetMan.features.cohorts.tcga import MutationCohort
 from dryadic.features.mutations import MuType
 from HetMan.experiments.utilities.classifiers import *
@@ -162,8 +162,7 @@ def main():
 
     # log into Synapse using locally stored credentials
     syn = synapseclient.Synapse()
-    syn.cache.cache_root_dir = ("/home/exacloud/lustre1/CompBio/"
-                                "mgrzad/input-data/synapse")
+    syn.cache.cache_root_dir = syn_root
     syn.login()
 
     # loads the expression data and gene mutation data for the given TCGA
@@ -173,7 +172,7 @@ def main():
         cohort=args.cohort, mut_genes=list(use_genes), mut_levels=use_lvls,
         expr_source='Firehose', var_source='mc3', copy_source='Firehose',
         annot_file=annot_file, expr_dir=expr_dir, copy_dir=copy_dir,
-        syn=syn, cv_seed=args.cv_id, cv_prop=0.75
+        domain_dir=domain_dir, syn=syn, cv_seed=args.cv_id, cv_prop=0.75
         )
 
     if args.verbose:
