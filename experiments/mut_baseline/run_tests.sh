@@ -4,12 +4,14 @@
 #SBATCH --partition=exacloud
 #SBATCH --verbose
 
-#SBATCH --mem=5000
+#SBATCH --mem=8000
 #SBATCH --time=500
 
 
-export BASEDIR=HetMan/experiments/mut_baseline
 source activate HetMan
+export RUNDIR=$CODEDIR/HetMan/experiments/mut_baseline
+export BASEDIR=$DATADIR/HetMan/mut_baseline
+mkdir -p $BASEDIR/setup
 
 while getopts e:t:s:c:m: var
 do
@@ -32,7 +34,7 @@ mkdir -p $OUTDIR/slurm
 
 if [ ! -e $BASEDIR/setup/muts-list_${expr_source}__${cohort}__samps-${samp_cutoff}.p ]
 then
-	srun python $BASEDIR/setup_tests.py $expr_source $cohort $samp_cutoff
+	srun python $RUNDIR/setup_tests.py $expr_source $cohort $samp_cutoff
 fi
 
 muts_count=$(cat $BASEDIR/setup/muts-count_${expr_source}__${cohort}__samps-${samp_cutoff}.txt)
@@ -46,5 +48,5 @@ fi
 sbatch --output=${slurm_dir}/mut-baseline-fit.out \
 	--error=${slurm_dir}/mut-baseline-fit.err \
 	--exclude=$ex_nodes --no-requeue \
-	--array=0-$((array_size)) $BASEDIR/fit_tests.sh
+	--array=0-$((array_size)) $RUNDIR/fit_tests.sh
 

@@ -1,48 +1,37 @@
 name: HetMan
 channels:
-  - conda-forge
   - anaconda
-  - defaults
+  - conda-forge
 dependencies:
-  - binutils_impl_linux-64=2.31.1
-  - binutils_linux-64=2.31.1
-  - gcc_impl_linux-64=7.3.0
-  - gcc_linux-64=7.3.0
-  - gxx_impl_linux-64=7.3.0
-  - gxx_linux-64=7.3.0
-  - libgcc-ng=8.2.0
-  - libstdcxx-ng=8.2.0
-  - ca-certificates=2018.8.24
-  - certifi=2018.8.24
-  - llvmlite=0.23.0
-  - numba=0.38.1
-  - openssl=1.0.2p
-  - umap-learn=0.3.2
   - appdirs=1.4.3
   - asn1crypto=0.24.0
   - attrs=18.1.0
   - automat=0.7.0
   - backcall=0.1.0
+  - binutils_impl_linux-64=2.31.1
+  - binutils_linux-64=2.31.1
   - blas=1.0
   - bleach=2.1.3
   - cffi=1.11.5
   - chardet=3.0.4
   - constantly=15.1.0
   - cryptography=2.2.2
+  - curl=7.61.0
   - cycler=0.10.0
   - cython=0.28.4
   - dbus=1.13.2
   - decorator=4.3.0
-  - dill=0.2.8.2
   - entrypoints=0.2.3
-  - expat=2.2.5
   - fontconfig=2.12.6
-  - freetype=2.8
+  - gcc_impl_linux-64=7.3.0
+  - gcc_linux-64=7.3.0
   - git=2.17.1
   - glib=2.56.1
   - gmp=6.1.2
   - gst-plugins-base=1.14.0
   - gstreamer=1.14.0
+  - gxx_impl_linux-64=7.3.0
+  - gxx_linux-64=7.3.0
   - html5lib=1.0.1
   - hyperlink=18.0.0
   - icu=58.2
@@ -65,10 +54,13 @@ dependencies:
   - libcurl=7.61.0
   - libedit=3.1.20170329
   - libffi=3.2.1
+  - libgcc-ng=8.2.0
   - libgfortran-ng=7.2.0
+  - libiconv=1.15
   - libpng=1.6.34
   - libsodium=1.0.16
   - libssh2=1.8.0
+  - libstdcxx-ng=8.2.0
   - libxcb=1.13
   - libxml2=2.9.8
   - markupsafe=1.0
@@ -81,6 +73,7 @@ dependencies:
   - nbformat=4.4.0
   - ncurses=6.1
   - notebook=5.6.0
+  - numba=0.38.1
   - numpy=1.14.3
   - numpy-base=1.14.3
   - pandas=0.23.3
@@ -115,7 +108,6 @@ dependencies:
   - readline=7.0
   - requests=2.19.1
   - requests-toolbelt=0.8.0
-  - scikit-learn=0.19.1
   - scipy=1.1.0
   - seaborn=0.9.0
   - send2trash=1.5.0
@@ -144,15 +136,29 @@ dependencies:
   - zlib=1.2.11
   - zope=1.0
   - zope.interface=4.5.0
+  - ca-certificates=2018.8.24
+  - expat=2.2.5
+  - freetype=2.8.1
+  - krb5=1.14.6
+  - llvmlite=0.23.0
+  - pthread-stubs=0.4
+  - pyhamcrest=1.9.0
+  - umap-learn=0.3.2
+  - xorg-libxau=1.0.8
+  - xorg-libxdmcp=1.1.2
+  - certifi=2018.8.24
+  - dill=0.2.8.2
+  - openssl=1.0.2p
+  - scikit-learn=0.19.1
   - pip:
-    - aql==0.2.0
+    - aql==0.0.0
     - backports.csv==1.0.6
+    - deprecation==2.0.5
     - dryad==0.3.1a3
-    - future==0.16.0
-    - jeepney==0.3.1
-    - keyring==13.2.1
+    - future==0.17.0
+    - keyring==12.0.2
     - keyrings.alt==3.1
-    - secretstorage==3.0.1
-    - synapseclient==1.8.1
-prefix: /home/exacloud/lustre1/CompBio/miniconda3/envs/HetMan
+    - packaging==18.0
+    - secretstorage==2.3.1
+    - synapseclient==1.9.0
 

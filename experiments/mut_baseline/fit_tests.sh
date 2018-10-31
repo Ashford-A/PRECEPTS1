@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=mut-baseline_fit
+#SBATCH --job-name=mut-base_fit
 #SBATCH --partition=exacloud
 #SBATCH --verbose
 
@@ -19,7 +19,7 @@ task_id=$(($SLURM_ARRAY_TASK_ID / 25));
 
 srun --output=$OUTDIR/slurm/fit-${cv_id}_${task_id}.txt \
 	--error=$OUTDIR/slurm/fit-${cv_id}_${task_id}.err \
-	python $BASEDIR/fit_tests.py -v \
+	python $RUNDIR/fit_tests.py -v \
 	$expr_source $cohort $samp_cutoff $classif --cv_id=$cv_id \
 	--task_count=$(( $array_size / 25 + 1 )) --task_id=$task_id \
 

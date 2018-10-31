@@ -1,10 +1,14 @@
 
 import os
-base_dir = os.path.dirname(__file__)
-plot_dir = os.path.join(base_dir, 'plots', 'cohort')
-
 import sys
-sys.path.extend([os.path.join(base_dir, '../../..')])
+
+if 'DATADIR' in os.environ:
+    base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'mut_baseline')
+else:
+    base_dir = os.path.dirname(__file__)
+
+plot_dir = os.path.join(base_dir, 'plots', 'cohort')
+sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
 
 from HetMan.experiments.mut_baseline import *
 from HetMan.experiments.mut_baseline.fit_tests import load_output
@@ -188,7 +192,8 @@ def main():
         samp_ctfs = parsed_dirs[0][1].split('__samps-')[1]
         parsed_dirs = [[prs[0]] + prs[2:] for prs in parsed_dirs]
 
-    out_dict = {(src, mdl): load_output(src, args.cohort, samp_ctfs, mdl)
+    out_dict = {(src, mdl): load_output(src, args.cohort, samp_ctfs, mdl,
+                                        out_base=base_dir)
                 for src, mdl in parsed_dirs}
 
     # limit the evaluation data to mutations that were in every testing set

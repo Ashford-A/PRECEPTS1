@@ -1,9 +1,12 @@
 
 import os
-base_dir = os.path.dirname(__file__)
-
 import sys
-sys.path.extend([os.path.join(base_dir, '../../..')])
+
+sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
+if 'BASEDIR' in os.environ:
+    base_dir = os.environ['BASEDIR']
+else:
+    base_dir = os.path.dirname(__file__)
 
 from HetMan.experiments.mut_baseline import *
 from HetMan.features.cohorts.tcga import MutationCohort
@@ -20,11 +23,10 @@ from sklearn.metrics import roc_auc_score, average_precision_score
 from operator import itemgetter
 
 
-def load_output(expr_source, cohort, samp_cutoff, classif):
-    out_dir = os.path.join(
-        base_dir, "output", expr_source,
-        "{}__samps-{}".format(cohort, samp_cutoff), classif
-        )
+def load_output(expr_source, cohort, samp_cutoff, classif, out_base=base_dir):
+    out_dir = os.path.join(out_base, "output", expr_source,
+                           "{}__samps-{}".format(cohort, samp_cutoff),
+                           classif)
 
     out_files = [(fl, int(fl.split('out__cv-')[1].split('_task-')[0]),
                   int(fl.split('_task-')[1].split('.p')[0]))

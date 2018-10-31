@@ -1,9 +1,12 @@
 
 import os
-base_dir = os.path.dirname(__file__)
-
 import sys
-sys.path.extend([os.path.join(base_dir, '../../..')])
+
+sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
+if 'BASEDIR' in os.environ:
+    base_dir = os.environ['BASEDIR']
+else:
+    base_dir = os.path.dirname(__file__)
 
 from HetMan.experiments.mut_baseline import *
 from HetMan.features.cohorts.tcga import MutationCohort
@@ -35,13 +38,14 @@ def get_cohort_data(expr_source, cohort, samp_cutoff,
     source_base = source_info[0]
     collapse_txs = not (len(source_info) > 1 and source_info[1] == 'txs')
 
-    cdata = MutationCohort(
-        cohort=cohort, mut_genes=use_genes.tolist(),
-        mut_levels=['Gene', 'Form_base', 'Protein'], expr_source=source_base,
-        var_source='mc3', copy_source='Firehose', annot_file=annot_file,
-        expr_dir=expr_sources[expr_source], copy_dir=copy_dir,
-        collapse_txs=collapse_txs, syn=syn, cv_prop=cv_prop, cv_seed=cv_seed
-        )
+    cdata = MutationCohort(cohort=cohort, mut_genes=use_genes.tolist(),
+                           mut_levels=['Gene', 'Form_base', 'Protein'],
+                           expr_source=source_base, var_source='mc3',
+                           copy_source='Firehose', annot_file=annot_file,
+                           expr_dir=expr_sources[expr_source],
+                           copy_dir=copy_dir, domain_dir=domain_dir,
+                           collapse_txs=collapse_txs, syn=syn,
+                           cv_prop=cv_prop, cv_seed=cv_seed)
 
     return cdata
 
@@ -116,4 +120,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 

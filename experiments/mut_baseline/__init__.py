@@ -1,5 +1,7 @@
 
-from .data_dirs import expr_sources, syn_root, copy_dir, gene_list, annot_file
+from .data_dirs import (
+    expr_sources, copy_dir, syn_root, domain_dir, annot_file, gene_list)
 
-__all__ = ['expr_sources', 'syn_root', 'copy_dir', 'gene_list', 'annot_file']
+__all__ = ['expr_sources', 'copy_dir', 'syn_root',
+           'domain_dir', 'annot_file', 'gene_list']
 

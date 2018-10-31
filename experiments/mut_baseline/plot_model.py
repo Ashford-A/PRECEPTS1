@@ -1,10 +1,14 @@
 
 import os
-base_dir = os.path.dirname(__file__)
-plot_dir = os.path.join(base_dir, 'plots', 'model')
-
 import sys
-sys.path.extend([os.path.join(base_dir, '../../..')])
+
+if 'DATADIR' in os.environ:
+    base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'mut_baseline')
+else:
+    base_dir = os.path.dirname(__file__)
+
+plot_dir = os.path.join(base_dir, 'plots', 'model')
+sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
 
 from HetMan.experiments.mut_baseline import *
 from HetMan.experiments.mut_baseline.fit_tests import load_output
@@ -438,7 +442,9 @@ def main():
 
     cdata = get_cohort_data(args.expr_source, args.cohort, args.samp_cutoff)
     auc_df, aupr_df, time_df, par_df, mut_clf = load_output(
-        args.expr_source, args.cohort, args.samp_cutoff, args.model_name)
+        args.expr_source, args.cohort, args.samp_cutoff, args.model_name,
+        out_base=base_dir
+        )
 
     plot_auc_distribution(auc_df, args, cdata)
     plot_acc_quartiles(auc_df, aupr_df, args, cdata)
