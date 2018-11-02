@@ -1,9 +1,7 @@
 
 import os
-base_dir = os.path.dirname(__file__)
-
 import sys
-sys.path.extend([os.path.join(base_dir, '../../..')])
+sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
 
 from HetMan.experiments.utilities.data_dirs import *
 from HetMan.features.cohorts.tcga import MutationCohort

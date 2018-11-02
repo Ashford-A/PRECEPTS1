@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=module-isolate_fit
+#SBATCH --job-name=modl-isolate_fit
 #SBATCH --partition=exacloud
 #SBATCH --verbose
 
@@ -21,7 +21,7 @@ SETUP_DIR=$BASEDIR/setup/${cohort}/${gene_lbl}
 srun -p=exacloud \
 	--output=$OUTDIR/slurm/fit-${SLURM_ARRAY_TASK_ID}.txt \
 	--error=$OUTDIR/slurm/fit-${SLURM_ARRAY_TASK_ID}.err \
-	python HetMan/experiments/utilities/isolate_mutype_infer.py -v \
+	python $RUNDIR/../utilities/isolate_mutype_infer.py -v \
 	$SETUP_DIR/mtypes_list__samps_${samp_cutoff}__levels_${mut_levels}.p \
 	$OUTDIR $cohort $classif \
 	--task_count=$(( $array_size + 1 )) --task_id=${SLURM_ARRAY_TASK_ID} \

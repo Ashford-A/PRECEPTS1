@@ -22,10 +22,8 @@ Examples:
 """
 
 import os
-base_dir = os.path.dirname(__file__)
-
 import sys
-sys.path.extend([os.path.join(base_dir, '../../..')])
+sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
 
 from HetMan.experiments.utilities.data_dirs import *
 from HetMan.features.cohorts.tcga import MutationCohort
@@ -179,12 +177,12 @@ def main():
     syn.cache.cache_root_dir = syn_root
     syn.login()
 
-    cdata = MutationCohort(
-        cohort=args.cohort, mut_genes=list(use_genes), mut_levels=use_lvls,
-        expr_source='Firehose', var_source='mc3', copy_source='Firehose',
-        annot_file=annot_file, expr_dir=expr_dir, copy_dir=copy_dir,
-        syn=syn, cv_seed=((args.cv_id + 1) * 203) ** 2, cv_prop=0.8
-        )
+    cdata = MutationCohort(cohort=args.cohort, mut_genes=list(use_genes),
+                           mut_levels=use_lvls, expr_source='Firehose',
+                           var_source='mc3', copy_source='Firehose', syn=syn,
+                           annot_file=annot_file, expr_dir=expr_dir,
+                           copy_dir=copy_dir, domain_dir=domain_dir,
+                           cv_seed=((args.cv_id + 1) * 203) ** 2, cv_prop=0.8)
 
     if args.verbose:
         print("Loaded {} sub-types over {} genes whose expression signatures "

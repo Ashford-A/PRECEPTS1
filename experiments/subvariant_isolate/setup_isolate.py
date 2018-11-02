@@ -4,10 +4,13 @@
 """
 
 import os
-base_dir = os.path.dirname(__file__)
-
 import sys
-sys.path.extend([os.path.join(base_dir, '../../..')])
+
+sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
+if 'BASEDIR' in os.environ:
+    base_dir = os.environ['BASEDIR']
+else:
+    base_dir = os.path.dirname(__file__)
 
 from HetMan.experiments.subvariant_isolate import *
 from HetMan.features.cohorts.tcga import MutationCohort

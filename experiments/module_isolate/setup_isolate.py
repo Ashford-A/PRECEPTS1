@@ -1,9 +1,12 @@
 
 import os
-base_dir = os.path.dirname(__file__)
-
 import sys
-sys.path.extend([os.path.join(base_dir, '../../..')])
+
+sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
+if 'BASEDIR' in os.environ:
+    base_dir = os.environ['BASEDIR']
+else:
+    base_dir = os.path.dirname(__file__)
 
 from HetMan.experiments.module_isolate import *
 from HetMan.features.cohorts.tcga import MutationCohort
@@ -55,7 +58,8 @@ def main():
                            mut_levels=['Gene'] + use_lvls,
                            expr_source='Firehose', var_source='mc3',
                            copy_source='Firehose', annot_file=annot_file,
-                           expr_dir=expr_dir, cv_prop=1.0, syn=syn)
+                           expr_dir=expr_dir, domain_dir=domain_dir,
+                           cv_prop=1.0, syn=syn)
 
     iso_mtypes = set()
     for gene in args.genes:

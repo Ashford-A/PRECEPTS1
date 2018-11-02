@@ -1,16 +1,21 @@
 
 import os
-base_dir = os.path.dirname(__file__)
-plot_dir = os.path.join(base_dir, 'plots', 'ordering')
-
 import sys
-sys.path.extend([os.path.join(base_dir, '../../..')])
-import argparse
+
+if 'DATADIR' in os.environ:
+    base_dir = os.path.join(os.environ['DATADIR'],
+                            'HetMan', 'subvariant_isolate')
+else:
+    base_dir = os.path.dirname(__file__)
+
+plot_dir = os.path.join(base_dir, 'plots', 'ordering')
+sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
 
 from HetMan.experiments.subvariant_isolate.setup_isolate import load_cohort
 from HetMan.experiments.subvariant_isolate.utils import compare_scores
 from HetMan.experiments.utilities import load_infer_output, simil_cmap
 
+import argparse
 import pandas as pd
 from scipy.spatial import distance
 from scipy.cluster.hierarchy import linkage, dendrogram
