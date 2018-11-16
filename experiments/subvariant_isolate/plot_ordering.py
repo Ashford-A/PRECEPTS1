@@ -16,6 +16,7 @@ from HetMan.experiments.subvariant_isolate.utils import compare_scores
 from HetMan.experiments.utilities import load_infer_output, simil_cmap
 
 import argparse
+import numpy as np
 import pandas as pd
 from scipy.spatial import distance
 from scipy.cluster.hierarchy import linkage, dendrogram
@@ -26,7 +27,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 
-def plot_singleton_ordering(simil_df, auc_list, size_list, args):
+def plot_singleton_ordering(simil_df, auc_list, pheno_dict, args):
     singl_mtypes = [mtypes for mtypes in simil_df.index
                     if all(len(mtype.subkeys()) == 1 for mtype in mtypes)]
     fig_size = 5. + len(singl_mtypes) * 0.43
@@ -51,7 +52,7 @@ def plot_singleton_ordering(simil_df, auc_list, size_list, args):
     xlabs = [str(mtypes[0]) if len(mtypes) == 1
              else ' & '.join(str(mtype) for mtype in sorted(mtypes))
              for mtypes in singl_mtypes]
-    xlabs = ['{}  ({})'.format(xlab, size_list[mtypes])
+    xlabs = ['{}  ({})'.format(xlab, np.sum(pheno_dict[mtypes]))
              for xlab, mtypes in zip(xlabs, singl_mtypes)]
 
     ylabs = ['ONLY\n{}'.format(repr(mtypes[0])).replace(' WITH ', '\nWITH ')
@@ -97,7 +98,7 @@ def plot_singleton_ordering(simil_df, auc_list, size_list, args):
     plt.close()
 
 
-def plot_singleton_clustering(simil_df, auc_list, size_list, args):
+def plot_singleton_clustering(simil_df, auc_list, pheno_dict, args):
     singl_mtypes = [mtypes for mtypes in simil_df.index
                     if all(len(mtype.subkeys()) == 1 for mtype in mtypes)]
     fig_size = 5. + len(singl_mtypes) * 0.43
@@ -111,7 +112,7 @@ def plot_singleton_clustering(simil_df, auc_list, size_list, args):
 
     annot_df = simil_df.copy()
     annot_df[annot_df < 3.] = 0.0
-    for mtypes in singl_mtypes:
+    for mtypes in simil_df.index:
         annot_df.loc[mtypes, mtypes] = auc_list[mtypes]
 
     annot_df = annot_df.applymap('{:.2f}'.format).applymap(
@@ -121,14 +122,14 @@ def plot_singleton_clustering(simil_df, auc_list, size_list, args):
  
     xlabs = [str(mtypes[0]) if len(mtypes) == 1
              else ' & '.join(str(mtype) for mtype in sorted(mtypes))
-             for mtypes in singl_mtypes]
-    xlabs = ['{}  ({})'.format(xlab, size_list[mtypes])
-             for xlab, mtypes in zip(xlabs, singl_mtypes)]
+             for mtypes in simil_df.index]
+    xlabs = ['{}  ({})'.format(xlab, np.sum(pheno_dict[mtypes]))
+             for xlab, mtypes in zip(xlabs, simil_df.index)]
 
     ylabs = ['ONLY\n{}'.format(repr(mtypes[0])).replace(' WITH ', '\nWITH ')
              if len(mtypes) == 1
              else '\nAND '.join(repr(mtype) for mtype in sorted(mtypes))
-             for mtypes in singl_mtypes]
+             for mtypes in simil_df.index]
 
     xlabs = [xlab.replace('Point:', '') for xlab in xlabs]
     xlabs = [xlab.replace('Copy:', '') for xlab in xlabs]
@@ -253,7 +254,7 @@ def main():
                 exist_ok=True)
 
     cdata = load_cohort(args.cohort, [args.gene], args.mut_levels.split('__'))
-    simil_df, auc_list, size_list = compare_scores(
+    simil_df, auc_list, pheno_dict = compare_scores(
         load_infer_output(
             os.path.join(base_dir, 'output',
                          args.cohort, args.gene, args.classif,
@@ -262,9 +263,9 @@ def main():
         )
 
     plot_singleton_ordering(simil_df.copy(), auc_list.copy(),
-                            size_list.copy(), args)
+                            pheno_dict.copy(), args)
     plot_singleton_clustering(simil_df.copy(), auc_list.copy(),
-                              size_list.copy(), args)
+                              pheno_dict.copy(), args)
 
     plot_all_ordering(simil_df.copy(), auc_list.copy(), args)
     plot_all_clustering(simil_df.copy(), auc_list.copy(), args)

@@ -82,10 +82,14 @@ def main():
     pnt_mtypes = {MuType({('Scale', 'Point'): mtype}) for mtype in pnt_mtypes
                   if (len(mtype.get_samples(cdata.train_mut['Point']))
                       <= (len(cdata.samples) - args.samp_cutoff))}
+    pnt_mtypes |= {MuType({('Scale', 'Point'): None})}
 
     # find copy number alterations whose frequency falls within the cutoffs
     cna_mtypes = cdata.train_mut['Copy'].branchtypes(
         min_size=args.samp_cutoff)
+    cna_mtypes |= {MuType({('Copy', ('HetGain', 'HomGain')): None})}
+    cna_mtypes |= {MuType({('Copy', ('HetDel', 'HomDel')): None})}
+
     cna_mtypes = {MuType({('Scale', 'Copy'): mtype}) for mtype in cna_mtypes
                   if (len(mtype.get_samples(cdata.train_mut['Copy']))
                       <= (len(cdata.samples) - args.samp_cutoff))}

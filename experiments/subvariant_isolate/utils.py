@@ -13,7 +13,6 @@ def compare_scores(iso_df, cdata, get_similarities=True,
         0.0, index=iso_df.index, columns=iso_df.index, dtype=np.float)
 
     pheno_dict = {mtypes: None for mtypes in iso_df.index}
-    size_list = pd.Series(index=iso_df.index, dtype=np.int)
     auc_list = pd.Series(index=iso_df.index, dtype=np.float)
 
     if muts is None:
@@ -33,8 +32,6 @@ def compare_scores(iso_df, cdata, get_similarities=True,
         pheno_dict[mtypes] = and_pheno
         pheno_dict[mtypes] &= ~(rest_pheno
                                 | (reduce(or_, cur_phenos) & ~and_pheno))
-
-        size_list[mtypes] = np.sum(pheno_dict[mtypes])
 
     for cur_mtypes, iso_vals in iso_df.iterrows():
         simil_df.loc[cur_mtypes, cur_mtypes] = 1.0
@@ -59,5 +56,5 @@ def compare_scores(iso_df, cdata, get_similarities=True,
                     simil_df.loc[[cur_mtypes], [other_mtypes]] = other_diff
                     simil_df.loc[[cur_mtypes], [other_mtypes]] /= cur_diff
 
-    return simil_df, auc_list, size_list
+    return simil_df, auc_list, pheno_dict
 
