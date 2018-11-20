@@ -15,13 +15,14 @@ def compare_scores(iso_df, cdata, get_similarities=True,
     pheno_dict = {mtypes: None for mtypes in iso_df.index}
     auc_list = pd.Series(index=iso_df.index, dtype=np.float)
 
+    samps = sorted(cdata.train_samps)
     if muts is None:
         muts = cdata.train_mut
-    samps = sorted(cdata.train_samps)
 
     if all_mtype is None:
         all_mtype = MuType(muts.allkey())
     all_pheno = np.array(muts.status(samps, all_mtype))
+    pheno_dict['Wild-Type'] = ~all_pheno
 
     for mtypes in iso_df.index:
         rest_pheno = np.array(muts.status(samps,
@@ -56,5 +57,5 @@ def compare_scores(iso_df, cdata, get_similarities=True,
                     simil_df.loc[[cur_mtypes], [other_mtypes]] = other_diff
                     simil_df.loc[[cur_mtypes], [other_mtypes]] /= cur_diff
 
-    return simil_df, auc_list, pheno_dict
+    return pheno_dict, auc_list, simil_df
 
