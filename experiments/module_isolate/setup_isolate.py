@@ -83,8 +83,13 @@ def main():
         pnt_mtypes = {MuType({('Scale', 'Point'): mtype}) for mtype in pnt_mtypes
                       if (len(mtype.get_samples(cdata.train_mut[gene]['Point']))
                           <= (len(cdata.samples) - args.samp_cutoff))}
+        pnt_mtypes |= {MuType({('Scale', 'Point'): None})}
 
-        cna_mtypes = cdata.train_mut[gene]['Copy'].branchtypes(min_size=5)
+        cna_mtypes = cdata.train_mut[gene]['Copy'].branchtypes(
+            min_size=args.samp_cutoff)
+        cna_mtypes |= {MuType({('Copy', ('HetGain', 'HomGain')): None})}
+        cna_mtypes |= {MuType({('Copy', ('HetDel', 'HomDel')): None})}
+
         cna_mtypes = {MuType({('Scale', 'Copy'): mtype}) for mtype in cna_mtypes
                       if (len(mtype.get_samples(cdata.train_mut[gene]['Copy']))
                           <= (len(cdata.samples) - args.samp_cutoff))}
