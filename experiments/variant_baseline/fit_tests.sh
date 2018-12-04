@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=mut-base_fit
+#SBATCH --job-name=var-base_fit
 #SBATCH --partition=exacloud
 #SBATCH --verbose
 
@@ -12,7 +12,7 @@
 
 export OMP_NUM_THREADS=1
 echo $OUTDIR
-sleep $(($SLURM_ARRAY_TASK_ID * 7));
+sleep $(($SLURM_ARRAY_TASK_ID * 11));
 
 cv_id=$(($SLURM_ARRAY_TASK_ID % 25));
 task_id=$(($SLURM_ARRAY_TASK_ID / 25));

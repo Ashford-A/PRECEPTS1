@@ -8,10 +8,9 @@ if 'BASEDIR' in os.environ:
 else:
     base_dir = os.path.dirname(__file__)
 
-from HetMan.experiments.mut_baseline import *
+from HetMan.experiments.variant_baseline import *
 from HetMan.features.cohorts.tcga import MutationCohort
-from HetMan.experiments.mut_baseline.setup_tests import get_cohort_data
-from dryadic.features.mutations import MuType
+from HetMan.experiments.variant_baseline.setup_tests import get_cohort_data
 
 import argparse
 from importlib import import_module
@@ -19,7 +18,8 @@ import pandas as pd
 import dill as pickle
 
 import time
-from sklearn.metrics import roc_auc_score, average_precision_score
+from sklearn.metrics import roc_auc_score
+from sklearn.metrics import average_precision_score as aupr_score
 from operator import itemgetter
 
 
@@ -86,55 +86,75 @@ def main():
     parser.add_argument('--verbose', '-v', action='store_true',
                         help='turns on diagnostic messages')
 
-    # parse command-line arguments, create directory where to save results
+    # parse command-line arguments, choose directory where to save results
     args = parser.parse_args()
     out_path = os.path.join(
         base_dir, 'output', args.expr_source,
         '{}__samps-{}'.format(args.cohort, args.samp_cutoff), args.classif
         )
 
-    mut_list = pickle.load(
+    # load list of variants whose presence will be predicted
+    vars_list = pickle.load(
         open(os.path.join(base_dir, "setup",
-                          "muts-list_{}__{}__samps-{}.p".format(
+                          "vars-list_{}__{}__samps-{}.p".format(
                               args.expr_source, args.cohort,
                               args.samp_cutoff
                             )),
              'rb')
         )
 
-    cdata = get_cohort_data(args.expr_source, args.cohort, args.samp_cutoff,
+    cdata = get_cohort_data(args.expr_source, args.cohort,
                             cv_prop=0.75, cv_seed=2079 + 57 * args.cv_id)
 
     clf_info = args.classif.split('__')
     clf_module = import_module(
-        'HetMan.experiments.mut_baseline.models.{}'.format(clf_info[0]))
+        'HetMan.experiments.variant_baseline.models.{}'.format(clf_info[0]))
     mut_clf = getattr(clf_module, clf_info[1].capitalize())
 
-    out_auc = {mtype: {'train': None, 'test': None} for mtype in mut_list}
-    out_aupr = {mtype: {'train': None, 'test': None} for mtype in mut_list}
-    out_params = {mtype: None for mtype in mut_list}
-    out_time = {mtype: None for mtype in mut_list}
+    out_acc = {mtype: {'tune': {'mean': None, 'std': None},
+                       'train': {'AUC': None, 'AUPR': None},
+                       'test': {'AUC': None, 'AUPR': None}}
+               for mtype in vars_list}
 
-    for i, mtype in enumerate(mut_list):
+    out_params = {mtype: None for mtype in vars_list}
+    out_time = {mtype: {'tune': {'fit': dict(), 'score': dict()},
+                        'final': {'fit': None, 'score': None}}
+                for mtype in vars_list}
+
+    for i, mtype in enumerate(vars_list):
         if (i % args.task_count) == args.task_id:
             clf = mut_clf()
 
             if args.verbose:
                 print("Testing {} ...".format(mtype))
 
-            mut_gene = mtype.subtype_list()[0][0]
+            # get the gene that the variant is associated with and the list
+            # of genes on the same chromosome as that gene
+            var_gene = mtype.subtype_list()[0][0]
             ex_genes = {gene for gene, annot in cdata.gene_annot.items()
-                        if annot['chr'] == cdata.gene_annot[mut_gene]['chr']}
+                        if annot['chr'] == cdata.gene_annot[var_gene]['chr']}
 
-            clf.tune_coh(cdata, mtype, exclude_genes=ex_genes,
-                         tune_splits=4, test_count=36, parallel_jobs=12)
+            clf, cv_output = clf.tune_coh(
+                cdata, mtype, exclude_genes=ex_genes,
+                tune_splits=4, test_count=36, parallel_jobs=12
+                )
+
+            out_time[mtype]['tune']['fit']['avg'] = cv_output['mean_fit_time']
+            out_time[mtype]['tune']['fit']['std'] = cv_output['std_fit_time']
+            out_time[mtype]['tune']['score']['avg'] = cv_output[
+                'mean_score_time']
+            out_time[mtype]['tune']['score']['std'] = cv_output[
+                'std_score_time']
+
+            out_acc[mtype]['tune']['mean'] = cv_output['mean_test_score']
+            out_acc[mtype]['tune']['std'] = cv_output['std_test_score']
             out_params[mtype] = {par: clf.get_params()[par]
                                  for par, _ in mut_clf.tune_priors}
 
             t_start = time.time()
             clf.fit_coh(cdata, mtype, exclude_genes=ex_genes)
             t_end = time.time()
-            out_time[mtype] = t_end - t_start
+            out_time[mtype]['final']['fit'] = t_end - t_start
 
             pheno_list = dict()
             train_omics, pheno_list['train'] = cdata.train_data(
@@ -142,10 +162,12 @@ def main():
             test_omics, pheno_list['test'] = cdata.test_data(
                 mtype, exclude_genes=ex_genes)
 
+            t_start = time.time()
             pred_scores = {
                 'train': clf.parse_preds(clf.predict_omic(train_omics)),
                 'test': clf.parse_preds(clf.predict_omic(test_omics))
                 }
+            out_time[mtype]['final']['score'] = time.time() - t_start
 
             samp_sizes = {'train': (len(mtype.get_samples(cdata.train_mut))
                                     / len(cdata.train_samps)),
@@ -154,24 +176,23 @@ def main():
 
             for samp_set, scores in pred_scores.items():
                 if len(set(pheno_list[samp_set])) == 2:
-                    out_auc[mtype][samp_set] = roc_auc_score(
+                    out_acc[mtype][samp_set]['AUC'] = roc_auc_score(
                         pheno_list[samp_set], scores)
-                    out_aupr[mtype][samp_set] = average_precision_score(
+                    out_acc[mtype][samp_set]['AUPR'] = aupr_score(
                         pheno_list[samp_set], scores)
-                
+ 
                 else:
-                    out_auc[mtype][samp_set] = 0.5
-                    out_aupr[mtype][samp_set] = samp_sizes[samp_set]
+                    out_acc[mtype][samp_set]['AUC'] = 0.5
+                    out_acc[mtype][samp_set]['AUPR'] = samp_sizes[samp_set]
 
         else:
-            del(out_auc[mtype])
-            del(out_aupr[mtype])
+            del(out_acc[mtype])
             del(out_params[mtype])
             del(out_time[mtype])
 
     pickle.dump(
-        {'AUC': out_auc, 'AUPR': out_aupr,
-         'Clf': mut_clf, 'Params': out_params, 'Time': out_time},
+        {'Acc': out_acc, 'Clf': mut_clf,
+         'Params': out_params, 'Time': out_time},
         open(os.path.join(out_path,
                           'out__cv-{}_task-{}.p'.format(
                               args.cv_id, args.task_id)),

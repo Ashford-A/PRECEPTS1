@@ -107,8 +107,8 @@ def add_variant_data(cohort, var_source, copy_source, expr, gene_annot,
                            , :].copy()
 
     new_copy.Sample = new_copy.Sample.apply(lambda samp: copy_match[samp])
-    new_copy.Copy = new_copy.Copy.map({-2: 'HomDel', -1: 'HetDel',
-                                       1: 'HetGain', 2: 'HomGain'})
+    new_copy.Copy = new_copy.Copy.map({-2: 'DeepDel', -1: 'ShalDel',
+                                       1: 'ShalGain', 2: 'DeepGain'})
 
     return new_expr, new_vars, new_copy
 
@@ -192,8 +192,9 @@ class MutationCohort(BaseMutationCohort):
     def __init__(self,
                  cohort, mut_genes, mut_levels,
                  expr_source, var_source, copy_source,
-                 annot_file, domain_dir=None, top_genes=100, samp_cutoff=None,
-                 cv_prop=2.0/3, cv_seed=None, **coh_args):
+                 annot_file, domain_dir=None, type_file=None,
+                 top_genes=100, samp_cutoff=None, cv_prop=2.0/3, cv_seed=None,
+                 **coh_args):
         self.cohort = cohort
 
         # load expression and gene annotation datasets
@@ -211,6 +212,20 @@ class MutationCohort(BaseMutationCohort):
             cohort, var_source, copy_source, expr,
             self.gene_annot, **coh_args
             )
+
+        if (type_file is not None and 'use_types' in coh_args
+                and coh_args['use_types'] is not None):
+            type_data = pd.read_csv(type_file, sep='\t', index_col=0)
+            type_data = type_data[type_data.DISEASE == cohort]
+
+            use_samps = set(type_data.index[type_data.SUBTYPE.isin(
+                coh_args['use_types'])])
+            use_samps |= set(expr.index) - set(type_data.index)
+
+        else:
+            use_samps = expr.index
+
+        expr = expr.loc[use_samps]
 
         # add a mutation level indicating if a mutation is a CNA or not by
         # first figuring out where to situate it relative to the other
