@@ -20,6 +20,7 @@ import dill as pickle
 import time
 from sklearn.metrics import roc_auc_score
 from sklearn.metrics import average_precision_score as aupr_score
+from itertools import product
 from operator import itemgetter
 
 
@@ -31,28 +32,68 @@ def load_output(expr_source, cohort, samp_cutoff, classif, out_base=base_dir):
     out_files = [(fl, int(fl.split('out__cv-')[1].split('_task-')[0]),
                   int(fl.split('_task-')[1].split('.p')[0]))
                   for fl in os.listdir(out_dir) if 'out__cv-' in fl]
-    out_files = sorted(out_files, key=itemgetter(2, 1))
-    
-    out_df = pd.concat([
-        pd.concat([
-            pd.DataFrame.from_dict(pickle.load(open(os.path.join(out_dir, fl),
-                                                    'rb')))
-            for fl, _, task in out_files if task == task_id
-            ], axis=1)
-        for task_id in set([fl[2] for fl in out_files])
-        ], axis=0)
 
-    use_clf = set(out_df.Clf.values.ravel())
+    out_files = sorted(out_files, key=itemgetter(1, 2))
+    task_count = len(set(task for _, _, task in out_files))
+    out_list = [pickle.load(open(os.path.join(out_dir, fl), 'rb'))
+                for fl, _, _ in out_files]
+
+    use_clf = set(ols['Clf'] for ols in out_list)
     if len(use_clf) != 1:
         raise ValueError("Each gene baseline testing experiment must be run "
                          "with exactly one classifier!")
 
-    par_df = pd.concat(dict(
-        out_df.Params.apply(
-            lambda gn_pars: pd.DataFrame.from_records(tuple(gn_pars)), axis=1)
-        ))
+    fit_acc = {
+        samp_set: pd.concat([
+            pd.concat([
+                pd.DataFrame.from_dict({mtype: acc[samp_set]
+                                        for mtype, acc in ols['Acc'].items()})
+                for i, ols in enumerate(out_list) if i % task_count == task_id
+                ], axis=0)
+            for task_id in range(task_count)
+        ], axis=1).transpose()
+        for samp_set in ['train', 'test']
+        }
 
-    return out_df.AUC, out_df.AUPR, out_df.Time, par_df, tuple(use_clf)[0]
+    tune_list = tuple(product(*[
+        vals for _, vals in tuple(use_clf)[0].tune_priors]))
+
+    tune_acc = {
+        stat_lbl: pd.concat([
+            pd.concat([
+                pd.DataFrame.from_dict({mtype: acc['tune'][stat_lbl]
+                                        for mtype, acc in ols['Acc'].items()},
+                                       orient='index', columns=tune_list)
+                for i, ols in enumerate(out_list) if i % task_count == task_id
+                ], axis=1, sort=True)
+            for task_id in range(task_count)
+        ], axis=0) for stat_lbl in ['mean', 'std']
+        }
+
+    par_df = pd.concat([
+        pd.concat([pd.DataFrame.from_dict(ols['Params'], orient='index')
+                   for i, ols in enumerate(out_list)
+                   if i % task_count == task_id], axis=1)
+        for task_id in range(task_count)
+        ], axis=0)
+
+    tune_time = {
+        stage_lbl: {
+            stat_lbl: pd.concat([
+                pd.concat([
+                    pd.DataFrame.from_dict({
+                        mtype: tm['tune'][stage_lbl][stat_lbl]
+                        for mtype, tm in ols['Time'].items()},
+                        orient='index', columns=tune_list)
+                    for i, ols in enumerate(out_list)
+                    if i % task_count == task_id
+                    ], axis=1, sort=True)
+                for task_id in range(task_count)
+                ], axis=0) for stat_lbl in ['avg', 'std']
+            } for stage_lbl in ['fit', 'score']
+        }
+
+    return fit_acc, tune_acc, tune_time, par_df, tuple(use_clf)[0]
 
 
 def main():
@@ -136,7 +177,7 @@ def main():
 
             clf, cv_output = clf.tune_coh(
                 cdata, mtype, exclude_genes=ex_genes,
-                tune_splits=4, test_count=36, parallel_jobs=12
+                tune_splits=4, test_count=36, parallel_jobs=8
                 )
 
             out_time[mtype]['tune']['fit']['avg'] = cv_output['mean_fit_time']

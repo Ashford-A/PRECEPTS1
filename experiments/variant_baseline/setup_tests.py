@@ -38,7 +38,7 @@ def get_cohort_data(expr_source, cohort, cv_prop=1.0, cv_seed=None):
     source_base = source_info[0]
     collapse_txs = not (len(source_info) > 1 and source_info[1] == 'txs')
 
-    cdata = MutationCohort(
+    return MutationCohort(
         cohort=cohort.split('_')[0], mut_genes=use_genes.tolist(),
         mut_levels=['Gene', 'Form_base', 'Protein'], expr_source=source_base,
         var_source='mc3', copy_source='Firehose', annot_file=annot_file,
@@ -47,8 +47,6 @@ def get_cohort_data(expr_source, cohort, cv_prop=1.0, cv_seed=None):
         syn=syn, cv_prop=cv_prop, cv_seed=cv_seed,
         use_types=parse_subtypes(cohort)
         )
-
-    return cdata
 
 
 def main():
@@ -68,7 +66,6 @@ def main():
     out_path = os.path.join(base_dir, 'setup')
     os.makedirs(out_path, exist_ok=True)
     cdata = get_cohort_data(args.expr_source, args.cohort)
-    print(len(cdata.samples))
 
     vars_list = reduce(
         or_,

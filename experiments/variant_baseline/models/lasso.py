@@ -4,7 +4,7 @@ from dryadic.learning.selection import SelectMeanVar
 
 import numpy as np
 from scipy import stats
-from sklearn.preprocessing import StandardScaler, RobustScaler
+from sklearn.preprocessing import StandardScaler, RobustScaler, MinMaxScaler
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import average_precision_score
 
@@ -40,6 +40,11 @@ class Meanvar(Base):
 class Norm_robust(Base):
 
     norm_inst = RobustScaler()
+
+
+class Norm_minmax(Base):
+
+    norm_inst = MinMaxScaler()
 
 
 class Iter_short(Base):

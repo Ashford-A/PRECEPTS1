@@ -3,16 +3,17 @@ import os
 import sys
 
 if 'DATADIR' in os.environ:
-    base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'mut_baseline')
+    base_dir = os.path.join(os.environ['DATADIR'],
+                            'HetMan', 'variant_baseline')
 else:
     base_dir = os.path.dirname(__file__)
 
 plot_dir = os.path.join(base_dir, 'plots', 'model')
 sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
 
-from HetMan.experiments.mut_baseline import *
-from HetMan.experiments.mut_baseline.fit_tests import load_output
-from HetMan.experiments.mut_baseline.setup_tests import get_cohort_data
+from HetMan.experiments.variant_baseline import *
+from HetMan.experiments.variant_baseline.fit_tests import load_output
+from HetMan.experiments.variant_baseline.setup_tests import get_cohort_data
 from HetMan.experiments.utilities import auc_cmap
 from HetMan.experiments.utilities.scatter_plotting import place_annot
 
@@ -20,14 +21,16 @@ import argparse
 import numpy as np
 import pandas as pd
 from itertools import combinations as combn
-from operator import itemgetter
 
 import matplotlib as mpl
 mpl.use('Agg')
+import matplotlib.pyplot as plt
 import seaborn as sns
 
-import matplotlib.pyplot as plt
 plt.style.use('fivethirtyeight')
+plt.rcParams['axes.facecolor']='white'
+plt.rcParams['savefig.facecolor']='white'
+plt.rcParams['axes.edgecolor']='white'
 
 
 def detect_log_distr(tune_distr):
@@ -38,24 +41,42 @@ def detect_log_distr(tune_distr):
     return (diff_max - diff_min) > 4./3
 
 
-def plot_auc_distribution(auc_df, args, cdata):
+def plot_auc_distribution(auc_df, args):
     fig, ax = plt.subplots(figsize=(auc_df.shape[0] / 4.3 + 2, 11))
-    auc_vals = auc_df.applymap(itemgetter('test'))
 
-    auc_means = auc_vals.mean(axis=1).sort_values(ascending=False)
+    auc_means = auc_df.mean(axis=1).sort_values(ascending=False)
     auc_clrs = auc_means.apply(auc_cmap)
     flier_props = dict(marker='o', markerfacecolor='black', markersize=4,
                        markeredgecolor='none', alpha=0.4)
 
-    sns.boxplot(data=auc_vals.transpose(), order=auc_means.index,
+    sns.boxplot(data=auc_df.transpose(), order=auc_means.index,
                 palette=auc_clrs, linewidth=1.7, boxprops=dict(alpha=0.68),
                 flierprops=flier_props)
  
     plt.axhline(color='#550000', y=0.5, linewidth=3.7, alpha=0.32)
     plt.ylabel('AUC', fontsize=26, weight='semibold')
-    plt.xticks(rotation=38, ha='right', size=11)
-    plt.yticks(np.linspace(0, 1, 11), size=17)
+    flr_locs = np.array([[ax.lines[i * 6]._yorig[1],
+                          ax.lines[i * 6 + 1]._yorig[1]]
+                         for i in range(len(auc_means))])
+
+    plt.xticks([])
+    plt.yticks(size=17)
     ax.tick_params(axis='y', length=11, width=2)
+
+    for i, mtype in enumerate(auc_means.index):
+        str_len = len(str(mtype)) // 3 + 2
+
+        if i < 8 or ((i % 2) == 1 and i < (len(auc_means) - 8)):
+            txt_pos = np.max(flr_locs[i:(i + str_len), 1]) + 0.004
+            ax.text(i - 0.4, txt_pos, str(mtype),
+                    rotation=41, ha='left', va='bottom', size=10)
+            flr_locs[i, 1] = txt_pos
+
+        else:
+            txt_pos = np.min(flr_locs[(i - str_len):(i + 1), 0]) - 0.004
+            ax.text(i + 0.4, txt_pos, str(mtype),
+                    rotation=41, ha='right', va='top', size=10)
+            flr_locs[i, 0] = txt_pos
 
     fig.savefig(
         os.path.join(plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
@@ -73,8 +94,8 @@ def plot_acc_quartiles(auc_df, aupr_df, args, cdata):
     mpl.rcParams['axes.edgecolor'] = '0.05'
     fig, (ax_auc, ax_aupr) = plt.subplots(figsize=(22, 10), ncols=2)
 
-    auc_vals = auc_df.applymap(itemgetter('test')).quantile(q=0.25, axis=1)
-    aupr_vals = aupr_df.applymap(itemgetter('test')).quantile(q=0.25, axis=1)
+    auc_vals = auc_df.quantile(q=0.25, axis=1)
+    aupr_vals = aupr_df.quantile(q=0.25, axis=1)
 
     mtype_sizes = [
         len(mtype.get_samples(cdata.train_mut)) / len(cdata.samples)
@@ -87,20 +108,21 @@ def plot_acc_quartiles(auc_df, aupr_df, args, cdata):
     for annot_x, annot_y, annot, halign in place_annot(
             mtype_sizes, auc_vals.values.tolist(),
             size_vec=[15 for _ in mtype_sizes], annot_vec=aupr_vals.index,
-            x_range=1, y_range=1, gap_adj=123
+            x_range=max(mtype_sizes) * 1.03, y_range=1, gap_adj=83
             ):
         ax_auc.text(annot_x, annot_y, annot, size=11, ha=halign)
 
     for annot_x, annot_y, annot, halign in place_annot(
             mtype_sizes, aupr_vals.values.tolist(),
             size_vec=[15 for _ in mtype_sizes], annot_vec=aupr_vals.index,
-            x_range=1, y_range=1, gap_adj=123
+            x_range=1, y_range=1, gap_adj=83
             ):
         ax_aupr.text(annot_x, annot_y, annot, size=11, ha=halign)
 
+    ax_auc.set_xlim(0, max(mtype_sizes) * 1.03)
+    ax_aupr.set_xlim(0, 1)
     for ax in (ax_auc, ax_aupr):
         ax.tick_params(pad=3.9)
-        ax.set_xlim(0, 1)
         ax.set_ylim(0, 1)
 
     ax_auc.plot([-1, 2], [0.5, 0.5],
@@ -126,26 +148,71 @@ def plot_acc_quartiles(auc_df, aupr_df, args, cdata):
     plt.close()
 
 
-def plot_generalization_error(auc_df, par_df, args, cdata):
-    fig, ax = plt.subplots(figsize=(15, 14))
+def plot_generalization_error(train_aucs, test_aucs, args):
+    plot_min = min(train_aucs.min().min(), test_aucs.min().min()) - 0.01
 
-    train_vals = auc_df.applymap(itemgetter('train')).values.flatten()
-    test_vals = auc_df.applymap(itemgetter('test')).values.flatten()
-    ax.scatter(train_vals, test_vals, s=11, c='black', alpha=0.33)
+    g = sns.JointGrid(train_aucs.values.flatten(), test_aucs.values.flatten(),
+                      xlim=(plot_min, 1.01), ylim=(plot_min, 1.01), height=9)
+    g = g.plot_joint(sns.kdeplot,
+                     shade=True, shade_lowest=False, bw=0.01, cut=0)
+    g = g.plot_marginals(sns.distplot, kde=False)
 
-    ax.tick_params(pad=3.9)
-    ax.plot([-1, 2], [-1, 2],
-            linewidth=1.7, linestyle='--', color='#550000', alpha=0.6)
+    g.ax_joint.tick_params(pad=3.9)
+    g.ax_joint.plot([-1, 2], [-1, 2],
+                    linewidth=1.7, linestyle='--', color='#550000', alpha=0.6)
+    g.ax_joint.set_xlabel('Training AUC', fontsize=22, weight='semibold')
+    g.ax_joint.set_ylabel('Testing AUC', fontsize=22, weight='semibold')
 
-    ax.set_xlim(min(train_vals) - 0.01, 1.01)
-    ax.set_ylim(min(test_vals) - 0.01, 1.01)
-    ax.set_xlabel('Training Error', fontsize=22, weight='semibold')
-    ax.set_ylabel('Testing Error', fontsize=22, weight='semibold')
-
-    fig.savefig(
+    g.savefig(
         os.path.join(plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
                      args.model_name.split('__')[0],
                      '{}__generalization.png'.format(
+                         args.model_name.split('__')[1])),
+        dpi=250, bbox_inches='tight'
+        )
+
+    plt.close()
+
+
+def plot_tuning_profile(tune_dict, use_clf, args, cdata=None):
+    fig, axarr = plt.subplots(
+        figsize=(17, 0.3 + 7 * len(use_clf.tune_priors)),
+        nrows=len(use_clf.tune_priors), ncols=1, squeeze=False
+        )
+
+    tune_df = tune_dict['mean'] - tune_dict['std']
+    tune_df.columns.names = [par for par, _ in use_clf.tune_priors]
+
+    for ax, (par_name, tune_distr) in zip(axarr.flatten(),
+                                          use_clf.tune_priors):
+        ax.set_title(par_name, size=29, weight='semibold')
+        tune_vals = tune_df.groupby(axis=1, level=par_name).quantile(q=0.25)
+
+        if detect_log_distr(tune_distr):
+            use_distr = [np.log10(par_val) for par_val in tune_distr]
+            par_lbl = par_name + '\n(log-scale)'
+
+        else:
+            use_distr = tune_distr
+            par_lbl = par_name
+
+        for vals in tune_vals.values:
+            ax.plot(use_distr, vals, '-',
+                    linewidth=1.3, alpha=0.23, color=auc_cmap(np.max(vals)))
+
+            diffs = np.argsort(np.abs(vals[1:] - vals[:-1]))
+            chng_indx = np.argmax(sum(diffs[i:(i + 6)])
+                                  for i in range(len(diffs) - 5))
+
+            ax.plot(use_distr[chng_indx:(chng_indx + 6)],
+                    vals[chng_indx:(chng_indx + 6)], '-', linewidth=2.7,
+                    alpha=0.39, color=auc_cmap(np.max(vals)))
+
+    fig.tight_layout()
+    fig.savefig(
+        os.path.join(plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
+                     args.model_name.split('__')[0],
+                     '{}__tuning-profile.png'.format(
                          args.model_name.split('__')[1])),
         dpi=250, bbox_inches='tight'
         )
@@ -159,7 +226,7 @@ def plot_tuning_distribution(par_df, auc_df, use_clf, args, cdata):
         nrows=len(use_clf.tune_priors), ncols=1, squeeze=False
         )
 
-    auc_vals = auc_df.applymap(itemgetter('test')).values.flatten()
+    auc_vals = auc_df.values.flatten()
     for ax, (par_name, tune_distr) in zip(axarr.flatten(),
                                           use_clf.tune_priors):
         ax.set_title(par_name, size=29, weight='semibold')
@@ -205,7 +272,7 @@ def plot_tuning_mtype(par_df, auc_df, use_clf, args, cdata):
                               gridspec_kw={'height_ratios': [1, 0.3, 1]},
                               squeeze=False, sharex=False, sharey=True)
 
-    auc_vals = auc_df.applymap(itemgetter('test')).quantile(q=0.25, axis=1)
+    auc_vals = auc_df.quantile(q=0.25, axis=1)
     size_vec = [
         198 * len(mtype.get_samples(cdata.train_mut)) / len(cdata.samples)
         for mtype in auc_vals.index
@@ -216,14 +283,14 @@ def plot_tuning_mtype(par_df, auc_df, use_clf, args, cdata):
         axarr[2, i].tick_params(length=6)
 
         if detect_log_distr(tune_distr):
-            med_vals = np.log10(par_df[par_name]).groupby(level=0).median()
-            mean_vals = np.log10(par_df[par_name]).groupby(level=0).mean()
+            med_vals = np.log10(par_df[par_name]).median(axis=1)
+            mean_vals = np.log10(par_df[par_name]).mean(axis=1)
             use_distr = [np.log10(par_val) for par_val in tune_distr]
             par_lbl = par_name + '\n(log-scale)'
 
         else:
-            med_vals = par_df[par_name].groupby(level=0).median()
-            mean_vals = par_df[par_name].groupby(level=0).mean()
+            med_vals = par_df[par_name].median(axis=1)
+            mean_vals = par_df[par_name].mean(axis=1)
             use_distr = tune_distr
             par_lbl = par_name
 
@@ -294,7 +361,7 @@ def plot_tuning_mtype_grid(par_df, auc_df, use_clf, args, cdata):
     fig, axarr = plt.subplots(figsize=(0.5 + 7 * par_count, 7 * par_count),
                               nrows=par_count, ncols=par_count)
 
-    auc_vals = auc_df.applymap(itemgetter('test')).quantile(q=0.25, axis=1)
+    auc_vals = auc_df.quantile(q=0.25, axis=1)
     auc_clrs = auc_vals.apply(auc_cmap)
     size_vec = [461 * len(mtype.get_samples(cdata.train_mut)) /
                 (len(cdata.samples) * par_count)
@@ -333,8 +400,8 @@ def plot_tuning_mtype_grid(par_df, auc_df, use_clf, args, cdata):
             enumerate(use_clf.tune_priors), 2):
 
         if detect_log_distr(tn_distr1):
-            par_meds1 = np.log10(par_df[par_name1]).groupby(level=0).median()
-            par_means1 = np.log10(par_df[par_name1]).groupby(level=0).mean()
+            par_meds1 = np.log10(par_df[par_name1]).median(axis=1)
+            par_means1 = np.log10(par_df[par_name1]).mean(axis=1)
             
             distr_diff = np.mean(np.log10(np.array(tn_distr1[1:]))
                                  - np.log10(np.array(tn_distr1[:-1])))
@@ -342,8 +409,8 @@ def plot_tuning_mtype_grid(par_df, auc_df, use_clf, args, cdata):
             plt_ymax = np.log10(tn_distr1[-1]) + distr_diff / 2
 
         else:
-            par_meds1 = par_df[par_name1].groupby(level=0).median()
-            par_means1 = par_df[par_name1].groupby(level=0).mean()
+            par_meds1 = par_df[par_name1].median(axis=1)
+            par_means1 = par_df[par_name1].mean(axis=1)
 
             distr_diff = np.mean(np.array(tn_distr1[1:])
                                  - np.array(tn_distr1[:-1]))
@@ -351,8 +418,8 @@ def plot_tuning_mtype_grid(par_df, auc_df, use_clf, args, cdata):
             plt_ymax = tn_distr1[-1] + distr_diff / 2
 
         if detect_log_distr(tn_distr2):
-            par_meds2 = np.log10(par_df[par_name2]).groupby(level=0).median()
-            par_means2 = np.log10(par_df[par_name2]).groupby(level=0).mean()
+            par_meds2 = np.log10(par_df[par_name2]).median(axis=1)
+            par_means2 = np.log10(par_df[par_name2]).mean(axis=1)
 
             distr_diff = np.mean(np.log10(np.array(tn_distr2[1:]))
                                  - np.log10(np.array(tn_distr2[:-1])))
@@ -360,8 +427,8 @@ def plot_tuning_mtype_grid(par_df, auc_df, use_clf, args, cdata):
             plt_xmax = np.log10(tn_distr2[-1]) + distr_diff / 2
 
         else:
-            par_meds2 = par_df[par_name2].groupby(level=0).median()
-            par_means2 = par_df[par_name2].groupby(level=0).mean()
+            par_meds2 = par_df[par_name2].median(axis=1)
+            par_means2 = par_df[par_name2].mean(axis=1)
 
             distr_diff = np.mean(np.array(tn_distr2[1:])
                                  - np.array(tn_distr2[:-1]))
@@ -440,20 +507,24 @@ def main():
         ), exist_ok=True
         )
 
-    cdata = get_cohort_data(args.expr_source, args.cohort, args.samp_cutoff)
-    auc_df, aupr_df, time_df, par_df, mut_clf = load_output(
+    cdata = get_cohort_data(args.expr_source, args.cohort)
+    fit_acc, tune_acc, tune_time, par_df, mut_clf = load_output(
         args.expr_source, args.cohort, args.samp_cutoff, args.model_name,
         out_base=base_dir
         )
 
-    plot_auc_distribution(auc_df, args, cdata)
-    plot_acc_quartiles(auc_df, aupr_df, args, cdata)
-    plot_generalization_error(auc_df, par_df, args, cdata)
-    plot_tuning_distribution(par_df, auc_df, mut_clf, args, cdata)
-    plot_tuning_mtype(par_df, auc_df, mut_clf, args, cdata)
+    plot_auc_distribution(fit_acc['test'].AUC, args)
+    plot_acc_quartiles(fit_acc['test'].AUC, fit_acc['test'].AUPR, args, cdata)
+    plot_generalization_error(fit_acc['train'].AUC, fit_acc['test'].AUC, args)
+
+    plot_tuning_profile(tune_acc, mut_clf, args, None)
+    plot_tuning_distribution(par_df, fit_acc['test'].AUC, mut_clf,
+                             args, cdata)
+    plot_tuning_mtype(par_df, fit_acc['test'].AUC, mut_clf, args, cdata)
 
     if len(mut_clf.tune_priors) > 1:
-        plot_tuning_mtype_grid(par_df, auc_df, mut_clf, args, cdata)
+        plot_tuning_mtype_grid(par_df, fit_acc['test'].AUC, mut_clf,
+                               args, cdata)
 
 
 if __name__ == "__main__":
