@@ -35,28 +35,30 @@ def plot_similarity_scatter(simil_df, auc_list, pheno_dict, args):
     auc_vals = []
     size_vals = []
 
-    for mtypes1, mtypes2 in combn(auc_list[auc_list > 0.6].index, 2):
-        if (len(mtypes1) > 1 or len(mtypes2) > 1
-                or (mtypes1[0] & mtypes2[0]).is_empty()):
+    test_combs = [
+        (mtypes1, mtypes2)
+        for mtypes1, mtypes2 in combn(auc_list[auc_list > 0.6].index, 2)
+        if ((len(mtypes1) == 1 and len(mtypes2) == 1
+             and (mtypes1[0] & mtypes2[0]).is_empty())
+            or (len(mtypes1) == 2 ^ len(mtypes2) == 2))
+        ]
 
-            mutex_pvals += [
-                -np.log10(fisher_exact(table=pd.crosstab(pheno_dict[mtypes1],
-                                                         pheno_dict[mtypes2]),
-                                       alternative='less')[1])
-                ]
+    for mtypes1, mtypes2 in test_combs:
+        mutex_pvals += [
+            -np.log10(fisher_exact(table=pd.crosstab(pheno_dict[mtypes1],
+                                                     pheno_dict[mtypes2]),
+                                   alternative='less')[1])
+            ]
 
-            siml_adj1 = np.clip(auc_list[mtypes1] - 0.5, 0, 1) ** 2
-            siml_adj2 = np.clip(auc_list[mtypes2] - 0.5, 0, 1) ** 2
+        siml_adj1 = np.clip(auc_list[mtypes1] - 0.5, 0, 1) ** 2
+        siml_adj2 = np.clip(auc_list[mtypes2] - 0.5, 0, 1) ** 2
 
-            siml_val = siml_adj1 * simil_df.loc[
-                [mtypes1], [mtypes2]].iloc[0, 0]
-            siml_val += siml_adj2 * simil_df.loc[
-                [mtypes2], [mtypes1]].iloc[0, 0]
-            simil_vals += [siml_val / (siml_adj1 + siml_adj2)]
-
-            auc_vals += [max(siml_adj1, siml_adj2)]
-            size_vals += [np.sum(pheno_dict[mtypes1])
-                          + np.sum(pheno_dict[mtypes2])]
+        siml_val = siml_adj1 * simil_df.loc[[mtypes1], [mtypes2]].iloc[0, 0]
+        siml_val += siml_adj2 * simil_df.loc[[mtypes2], [mtypes1]].iloc[0, 0]
+        simil_vals += [siml_val / (siml_adj1 + siml_adj2)]
+ 
+        auc_vals += [max(siml_adj1, siml_adj2)]
+        size_vals += [sum(pheno_dict[mtypes1]) + sum(pheno_dict[mtypes2])]
 
     for mutex_pval, simil_val, auc_val, size_val in zip(
             mutex_pvals, simil_vals, auc_vals, size_vals):
@@ -98,7 +100,7 @@ def main():
                 exist_ok=True)
 
     cdata = load_cohort(args.cohort, [args.gene], args.mut_levels.split('__'))
-    simil_df, auc_list, pheno_dict = compare_scores(
+    pheno_dict, auc_list, simil_df = compare_scores(
         load_infer_output(
             os.path.join(base_dir, 'output',
                          args.cohort, args.gene, args.classif,

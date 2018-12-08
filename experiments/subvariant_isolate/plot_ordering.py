@@ -254,7 +254,7 @@ def main():
                 exist_ok=True)
 
     cdata = load_cohort(args.cohort, [args.gene], args.mut_levels.split('__'))
-    simil_df, auc_list, pheno_dict = compare_scores(
+    pheno_dict, auc_list, simil_df = compare_scores(
         load_infer_output(
             os.path.join(base_dir, 'output',
                          args.cohort, args.gene, args.classif,
