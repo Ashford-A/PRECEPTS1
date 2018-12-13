@@ -2,11 +2,8 @@
 import os
 import pandas as pd
 
-domain_dir = ("/home/exacloud/lustre1/CompBio"
-              "/genomic_resources/Ensembl_gene_domains")
 
-
-def get_protein_domains(domain_lbl):
+def get_protein_domains(domain_dir, domain_lbl):
     domain_file = os.path.join(domain_dir,
                                '{}_to_gene.txt.gz'.format(domain_lbl))
     
