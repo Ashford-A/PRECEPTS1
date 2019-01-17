@@ -5,7 +5,7 @@ Authors: Michal Grzadkowski <grzadkow@ohsu.edu>
 
 """
 
-from dryadic.features.cohorts.base import *
+from dryadic.features.cohorts.base import UniCohort
 import numpy as np
 
 

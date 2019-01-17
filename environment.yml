@@ -2,6 +2,7 @@ name: HetMan
 channels:
   - conda-forge
   - anaconda
+  - defaults
 dependencies:
   - appdirs=1.4.3
   - asn1crypto=0.24.0
@@ -21,8 +22,11 @@ dependencies:
   - cython=0.28.4
   - dbus=1.13.2
   - decorator=4.3.0
+  - dill=0.2.8.2
   - entrypoints=0.2.3
+  - expat=2.2.6
   - fontconfig=2.12.6
+  - freetype=2.8
   - gcc_impl_linux-64=7.3.0
   - gcc_linux-64=7.3.0
   - git=2.17.1
@@ -63,6 +67,7 @@ dependencies:
   - libstdcxx-ng=8.2.0
   - libxcb=1.13
   - libxml2=2.9.8
+  - llvmlite=0.23.2
   - markupsafe=1.0
   - matplotlib=2.2.2
   - mistune=0.8.3
@@ -136,29 +141,21 @@ dependencies:
   - zlib=1.2.11
   - zope=1.0
   - zope.interface=4.5.0
-  - ca-certificates=2018.8.24
-  - expat=2.2.5
-  - freetype=2.8.1
-  - krb5=1.14.6
-  - llvmlite=0.23.0
-  - pthread-stubs=0.4
-  - pyhamcrest=1.9.0
-  - umap-learn=0.3.2
-  - xorg-libxau=1.0.8
-  - xorg-libxdmcp=1.1.2
+  - ca-certificates=2018.11.29
   - certifi=2018.8.24
-  - dill=0.2.8.2
+  - matplotlib-venn=0.11.5
   - openssl=1.0.2p
   - scikit-learn=0.19.1
   - pip:
     - aql==0.0.0
     - backports.csv==1.0.6
     - deprecation==2.0.5
-    - dryad==0.3.1
-    - future==0.17.0
+    - dryad==0.3.2a4
+    - future==0.17.1
     - keyring==12.0.2
-    - keyrings.alt==3.1
+    - keyrings.alt==3.1.1
     - packaging==18.0
     - secretstorage==2.3.1
     - synapseclient==1.9.0
+prefix: /home/groups/precepts/miniconda3/envs/HetMan
 

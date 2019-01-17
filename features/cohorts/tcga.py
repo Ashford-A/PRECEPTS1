@@ -1,8 +1,8 @@
 
-from .mut_freq import *
 from ..data.expression import get_expr_firehose, get_expr_bmeg, get_expr_toil
 from ..data.variants import get_variants_mc3, get_variants_firehose
 from ..data.copies import get_copies_firehose
+from .mut_freq import BaseMutFreqCohort
 
 from dryadic.features.cohorts import BaseMutationCohort
 from dryadic.features.cohorts.mut import BaseTransferMutationCohort

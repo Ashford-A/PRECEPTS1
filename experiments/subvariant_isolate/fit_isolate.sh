@@ -16,7 +16,7 @@ echo $OUTDIR
 echo $array_size
 
 # pause between starting array jobs to ease I/O load
-sleep $(($SLURM_ARRAY_TASK_ID * 7));
+sleep $(($SLURM_ARRAY_TASK_ID * 13));
 
 # gets the sub-task ID defined by this job's SLURM array ID and the directory
 # where the subtypes to be tested were saved
@@ -26,9 +26,7 @@ SETUP_DIR=$BASEDIR/setup/$cohort/$gene
 # test the subtypes corresponding to the given sub-task ID
 srun --output=$OUTDIR/slurm/fit-${task_id}.txt \
 	--error=$OUTDIR/slurm/fit-${task_id}.err \
-	python $RUNDIR/../utilities/isolate_mutype_infer.py -v \
-	$SETUP_DIR/mtypes_list__samps_${samp_cutoff}__levels_${mut_levels}.p \
-	$OUTDIR $cohort $classif --use_genes $gene \
+	python $RUNDIR/fit_isolate.py $cohort $classif $gene \
+	$mut_levels --samp_cutoff=$samp_cutoff \
 	--task_count=$(( $array_size + 1 )) --task_id=$task_id \
-	--tune_splits=4 --test_count=32 --infer_splits=40 --parallel_jobs=8
 
