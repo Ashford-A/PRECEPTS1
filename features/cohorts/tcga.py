@@ -9,6 +9,7 @@ from dryadic.features.cohorts.mut import BaseTransferMutationCohort
 from dryadic.features.cohorts.utils import (
     match_tcga_samples, get_gencode, log_norm)
 
+import pandas as pd
 from functools import reduce
 from operator import and_
 from itertools import cycle, combinations
