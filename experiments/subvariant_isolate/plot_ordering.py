@@ -11,7 +11,7 @@ else:
 plot_dir = os.path.join(base_dir, 'plots', 'ordering')
 sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
 
-from HetMan.experiments.subvariant_isolate.setup_isolate import load_cohort
+from HetMan.experiments.subvariant_isolate.fit_isolate import load_cohort_data
 from HetMan.experiments.subvariant_isolate.utils import compare_scores
 from HetMan.experiments.utilities import load_infer_output, simil_cmap
 
@@ -28,12 +28,13 @@ import matplotlib.pyplot as plt
 
 
 def plot_singleton_ordering(simil_df, auc_list, pheno_dict, args):
-    singl_mtypes = [mtypes for mtypes in simil_df.index
-                    if all(len(mtype.subkeys()) == 1 for mtype in mtypes)]
-    fig_size = 5. + len(singl_mtypes) * 0.43
+    singl_mcombs = [mcomb for mcomb in simil_df.index
+                    if all(len(mtype.subkeys()) == 1
+                           for mtype in mcomb.mtypes)]
 
+    fig_size = 5. + len(singl_mcombs) * 0.43
     fig, ax = plt.subplots(figsize=(fig_size, fig_size))
-    simil_df = simil_df.loc[singl_mtypes, singl_mtypes]
+    simil_df = simil_df.loc[singl_mcombs, singl_mcombs]
 
     simil_rank = simil_df.mean(axis=1) - simil_df.mean(axis=0)
     simil_order = simil_rank.sort_values().index
@@ -41,24 +42,18 @@ def plot_singleton_ordering(simil_df, auc_list, pheno_dict, args):
 
     annot_df = simil_df.copy()
     annot_df[annot_df < 3.] = 0.0
-    for mtypes in singl_mtypes:
-        annot_df.loc[mtypes, mtypes] = auc_list[mtypes]
+    for mcomb in singl_mcombs:
+        annot_df.loc[mcomb, mcomb] = auc_list[mcomb]
 
     annot_df = annot_df.applymap('{:.2f}'.format).applymap(
         lambda x: ('' if x == '0.00' else '1.0' if x == '1.00'
                    else x.lstrip('0'))
         )
- 
-    xlabs = [str(mtypes[0]) if len(mtypes) == 1
-             else ' & '.join(str(mtype) for mtype in sorted(mtypes))
-             for mtypes in singl_mtypes]
-    xlabs = ['{}  ({})'.format(xlab, np.sum(pheno_dict[mtypes]))
-             for xlab, mtypes in zip(xlabs, singl_mtypes)]
 
-    ylabs = ['ONLY\n{}'.format(repr(mtypes[0])).replace(' WITH ', '\nWITH ')
-             if len(mtypes) == 1
-             else '\nAND '.join(repr(mtype) for mtype in sorted(mtypes))
-             for mtypes in singl_mtypes]
+    xlabs = ['{}  ({})'.format(mcomb, np.sum(pheno_dict[mcomb]))
+             for mcomb in simil_df.index]
+    ylabs = [repr(mcomb).replace('ONLY ', '').replace(' AND ', '\nAND\n')
+             for mcomb in simil_df.index]
 
     xlabs = [xlab.replace('Point:', '') for xlab in xlabs]
     xlabs = [xlab.replace('Copy:', '') for xlab in xlabs]
@@ -99,12 +94,13 @@ def plot_singleton_ordering(simil_df, auc_list, pheno_dict, args):
 
 
 def plot_singleton_clustering(simil_df, auc_list, pheno_dict, args):
-    singl_mtypes = [mtypes for mtypes in simil_df.index
-                    if all(len(mtype.subkeys()) == 1 for mtype in mtypes)]
-    fig_size = 5. + len(singl_mtypes) * 0.43
+    singl_mcombs = [mcomb for mcomb in simil_df.index
+                    if all(len(mtype.subkeys()) == 1
+                           for mtype in mcomb.mtypes)]
 
+    fig_size = 5. + len(singl_mcombs) * 0.43
     fig, ax = plt.subplots(figsize=(fig_size, fig_size))
-    simil_df = simil_df.loc[singl_mtypes, singl_mtypes]
+    simil_df = simil_df.loc[singl_mcombs, singl_mcombs]
 
     row_order = dendrogram(linkage(distance.pdist(
         simil_df, metric='cityblock'), method='centroid'))['leaves']
@@ -112,24 +108,18 @@ def plot_singleton_clustering(simil_df, auc_list, pheno_dict, args):
 
     annot_df = simil_df.copy()
     annot_df[annot_df < 3.] = 0.0
-    for mtypes in simil_df.index:
-        annot_df.loc[mtypes, mtypes] = auc_list[mtypes]
+    for mcomb in simil_df.index:
+        annot_df.loc[mcomb, mcomb] = auc_list[mcomb]
 
     annot_df = annot_df.applymap('{:.2f}'.format).applymap(
         lambda x: ('' if x == '0.00' else '1.0' if x == '1.00'
                    else x.lstrip('0'))
         )
  
-    xlabs = [str(mtypes[0]) if len(mtypes) == 1
-             else ' & '.join(str(mtype) for mtype in sorted(mtypes))
-             for mtypes in simil_df.index]
-    xlabs = ['{}  ({})'.format(xlab, np.sum(pheno_dict[mtypes]))
-             for xlab, mtypes in zip(xlabs, simil_df.index)]
-
-    ylabs = ['ONLY\n{}'.format(repr(mtypes[0])).replace(' WITH ', '\nWITH ')
-             if len(mtypes) == 1
-             else '\nAND '.join(repr(mtype) for mtype in sorted(mtypes))
-             for mtypes in simil_df.index]
+    xlabs = ['{}  ({})'.format(mcomb, np.sum(pheno_dict[mcomb]))
+             for mcomb in simil_df.index]
+    ylabs = [repr(mcomb).replace('ONLY ', '').replace(' AND ', '\nAND\n')
+             for mcomb in simil_df.index]
 
     xlabs = [xlab.replace('Point:', '') for xlab in xlabs]
     xlabs = [xlab.replace('Copy:', '') for xlab in xlabs]
@@ -173,8 +163,8 @@ def plot_singleton_clustering(simil_df, auc_list, pheno_dict, args):
 def plot_all_ordering(simil_df, auc_list, args):
     fig, ax = plt.subplots(figsize=(13, 12))
 
-    use_mtypes = auc_list[auc_list > 0.7].index
-    simil_df = simil_df.loc[use_mtypes, use_mtypes]
+    use_mcombs = auc_list[auc_list > 0.7].index
+    simil_df = simil_df.loc[use_mcombs, use_mcombs]
     simil_rank = simil_df.mean(axis=1) - simil_df.mean(axis=0)
     simil_order = simil_rank.sort_values().index
     simil_df = simil_df.loc[simil_order, simil_order]
@@ -203,15 +193,13 @@ def plot_all_ordering(simil_df, auc_list, args):
 
 
 def plot_all_clustering(simil_df, auc_list, args):
-    use_mtypes = auc_list[auc_list > 0.7].index
+    use_mcombs = auc_list[auc_list > 0.7].index
+    simil_df = simil_df.loc[use_mcombs, use_mcombs]
 
-    simil_df = simil_df.loc[use_mtypes, use_mtypes]
-    simil_df.index = [str(mtypes[0]) if len(mtypes) == 1
-                      else ' & '.join(str(mtype) for mtype in sorted(mtypes))
-                      for mtypes in simil_df.index]
-
-    simil_df.index = [xlab.replace('Point:', '') for xlab in simil_df.index]
-    simil_df.index = [xlab.replace('Copy:', '') for xlab in simil_df.index]
+    simil_df.index = [str(mcomb).replace('Point:', '')
+                      for mcomb in simil_df.index]
+    simil_df.index = [str(mcomb).replace('Copy:', '')
+                      for mcomb in simil_df.index]
 
     row_linkage = linkage(distance.pdist(
         simil_df, metric='cityblock'), method='centroid')
@@ -247,28 +235,41 @@ def main():
                         help='a set of mutation annotation levels')
     parser.add_argument('--samp_cutoff', default=20)
 
+    parser.add_argument('--all_mcombs', '-a', action='store_true',
+                        help=("plot results for all mutation types as "
+                              "opposed to just singletons"))
+
     # parse command line arguments, create directory where plots will be saved
     args = parser.parse_args()
     os.makedirs(os.path.join(plot_dir,
                              '{}_{}'.format(args.cohort, args.gene)),
                 exist_ok=True)
 
-    cdata = load_cohort(args.cohort, [args.gene], args.mut_levels.split('__'))
-    pheno_dict, auc_list, simil_df = compare_scores(
-        load_infer_output(
-            os.path.join(base_dir, 'output',
-                         args.cohort, args.gene, args.classif,
-                         'samps_{}'.format(args.samp_cutoff), args.mut_levels)
-            ), cdata
-        )
+    cdata = load_cohort_data(base_dir,
+                             args.cohort, args.gene, args.mut_levels)
+    infer_df = load_infer_output(os.path.join(
+        base_dir, 'output', args.cohort, args.gene, args.classif,
+        'samps_{}'.format(args.samp_cutoff), args.mut_levels
+        ))
+
+    if args.all_mcombs:
+        use_mtypes = infer_df.index
+    else:
+        use_mtypes = [mcomb for mcomb in infer_df.index
+                      if all(len(mtype.subkeys()) == 1
+                             for mtype in mcomb.mtypes)]
+
+    pheno_dict, auc_list, simil_df = compare_scores(infer_df.loc[use_mtypes],
+                                                    cdata)
 
     plot_singleton_ordering(simil_df.copy(), auc_list.copy(),
                             pheno_dict.copy(), args)
     plot_singleton_clustering(simil_df.copy(), auc_list.copy(),
                               pheno_dict.copy(), args)
 
-    plot_all_ordering(simil_df.copy(), auc_list.copy(), args)
-    plot_all_clustering(simil_df.copy(), auc_list.copy(), args)
+    if args.all_mcombs:
+        plot_all_ordering(simil_df.copy(), auc_list.copy(), args)
+        plot_all_clustering(simil_df.copy(), auc_list.copy(), args)
 
 
 if __name__ == '__main__':
