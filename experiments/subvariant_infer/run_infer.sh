@@ -9,8 +9,8 @@
 
 
 source activate HetMan
-export RUNDIR=$CODEDIR/HetMan/experiments/subvariant_inference
-export BASEDIR=$DATADIR/HetMan/subvariant_inference
+export RUNDIR=$CODEDIR/HetMan/experiments/subvariant_infer
+export BASEDIR=$DATADIR/HetMan/subvariant_infer
 mkdir -p $BASEDIR/setup
 
 while getopts t:g:c:s:l:m: var
@@ -40,7 +40,7 @@ then
 
 	srun --output=$BASEDIR/setup/slurm_${cohort}.txt \
 		--error=$BASEDIR/setup/slurm_${cohort}.err \
-		python $RUNDIR/setup_inference.py -v \
+		python $RUNDIR/setup_infer.py -v \
 		$cohort $gene $mut_levels --samp_cutoff=$samp_cutoff
 fi
 
@@ -58,5 +58,5 @@ fi
 sbatch --output=$slurm_dir/subv-iso-fit.out \
 	--error=$slurm_dir/subv-iso-fit.err \
 	--exclude=$ex_nodes --no-requeue \
-	--array=0-$(( $array_size )) $RUNDIR/fit_inference.sh
+	--array=0-$(( $array_size )) $RUNDIR/fit_infer.sh
 
