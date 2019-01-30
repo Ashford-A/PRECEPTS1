@@ -4,20 +4,19 @@ import sys
 
 if 'DATADIR' in os.environ:
     base_dir = os.path.join(os.environ['DATADIR'],
-                            'HetMan', 'subvariant_isolate')
+                            'HetMan', 'subvariant_infer')
 else:
     base_dir = os.path.dirname(__file__)
 
 plot_dir = os.path.join(base_dir, 'plots', 'gene')
 sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
 
-from HetMan.experiments.subvariant_isolate.fit_isolate import load_cohort_data
-from HetMan.experiments.subvariant_isolate import domain_dir
-from HetMan.features.data.domains import get_protein_domains
-from dryadic.features.mutations import MuType
+from HetMan.experiments.subvariant_infer.fit_infer import load_cohort_data
+from HetMan.experiments.subvariant_infer import (
+    domain_dir, variant_mtypes, variant_clrs, mcomb_clrs)
+from dryadic.features.data.domains import get_protein_domains
 
 import argparse
-import pandas as pd
 from operator import itemgetter
 from scipy.stats import fisher_exact
 
@@ -35,18 +34,6 @@ plt.style.use('fivethirtyeight')
 plt.rcParams['axes.facecolor']='white'
 plt.rcParams['savefig.facecolor']='white'
 plt.rcParams['axes.edgecolor']='white'
-
-# define major mutation types
-variant_mtypes = (
-    ('Loss', MuType({('Scale', 'Copy'): {(
-        'Copy', ('ShalDel', 'DeepDel')): None}})),
-    ('Point', MuType({('Scale', 'Point'): None})),
-    ('Gain', MuType({('Scale', 'Copy'): {(
-        'Copy', ('ShalGain', 'DeepGain')): None}}))
-    )
-
-# define plotting colours for the major mutation types
-variant_clrs = {'Point': "0.59", 'Gain': "#2A941F", 'Loss': "#B2262D"}
 
 
 def plot_mutation_lollipop(cdata, domain_data, args):
@@ -66,7 +53,7 @@ def plot_mutation_lollipop(cdata, domain_data, args):
     # create the mutation count lollipops and set the aesthetics of
     # the individual lollipop elements
     mrks, stms, basl = main_ax.stem(*zip(*mut_counts))
-    plt.setp(mrks, markersize=7, markeredgecolor='black', zorder=5)
+    plt.setp(mrks, markersize=5, markeredgecolor='black', zorder=5)
     plt.setp(stms, linewidth=0.8, color='black', zorder=1)
     plt.setp(basl, linewidth=1.1, color='black', zorder=2)
 
@@ -138,15 +125,18 @@ def plot_mutation_lollipop(cdata, domain_data, args):
                         else:
                             loc_lbls[i] += '*'
 
-            # plot the overlap Venn Diagram next to the head of the lollipop
+            # plot the overlap Venn diagram next to the head of the lollipop
             pie_ptchs, pie_txts = pie_ax.pie(
                 x=loc_ovlps, labels=loc_lbls, explode=[0.13, 0, 0.13],
-                colors=[variant_clrs[lbl] for lbl, _ in variant_mtypes],
-                labeldistance=0.47, wedgeprops=dict(alpha=0.73)
+                colors=[variant_clrs[lbl] if lbl == 'Point'
+                        else mcomb_clrs["Point+{}".format(lbl)]
+                        for lbl, _ in variant_mtypes],
+                labeldistance=0.47, wedgeprops=dict(alpha=0.71)
                 )
 
+            # adjust the properties of the Venn diagram's text annotation
             for i in range(len(pie_txts)):
-                pie_txts[i].set_fontsize(7.9)
+                pie_txts[i].set_fontsize(7)
                 pie_txts[i].set_horizontalalignment('center')
 
     gn_annot = cdata.gene_annot[args.gene]
@@ -227,10 +217,10 @@ def plot_mutation_lollipop(cdata, domain_data, args):
         bbox_transform=main_ax.transData, borderpad=0
         )
 
-    v_plot = venn3([samp_dict[lbl] for lbl, _ in variant_mtypes],
-                   ["Losses", "Mutations", "Gains"],
-                   [variant_clrs[lbl] for lbl, _ in variant_mtypes],
-                   alpha=0.73, ax=venn_ax)
+    v_plot = venn3([samp_dict[lbl] for lbl, _ in variant_mtypes[::-1]],
+                   ["Gains", "Mutations", "Losses"],
+                   [variant_clrs[lbl] for lbl, _ in variant_mtypes[::-1]],
+                   alpha=0.71, ax=venn_ax)
 
     for i in range(len(v_plot.set_labels)):
         if v_plot.set_labels[i] is not None:
@@ -243,7 +233,7 @@ def plot_mutation_lollipop(cdata, domain_data, args):
     fig.savefig(os.path.join(
         plot_dir, "mut-lollipop_{}__{}_domains-{}.png".format(
             args.cohort, args.gene, args.domains)
-        ), dpi=250, format='png', bbox_inches='tight')
+        ), dpi=350, format='png', bbox_inches='tight')
 
     plt.close()
 

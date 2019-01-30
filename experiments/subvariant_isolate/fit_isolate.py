@@ -122,7 +122,7 @@ def main():
             # tune the hyper-parameters of the classifier
             mut_clf.tune_coh(cdata, mcomb,
                              exclude_genes=ex_genes, exclude_samps=ex_samps,
-                             tune_splits=4, test_count=32, parallel_jobs=8)
+                             tune_splits=4, test_count=24, parallel_jobs=8)
 
             # save the tuned values of the hyper-parameters
             clf_params = mut_clf.get_params()
