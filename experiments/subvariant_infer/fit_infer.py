@@ -9,6 +9,7 @@ else:
     base_dir = os.path.dirname(__file__)
 
 from HetMan.experiments.subvariant_infer import *
+from HetMan.experiments.subvariant_infer.setup_infer import Mcomb, ExMcomb
 from HetMan.experiments.utilities.load_input import load_firehose_cohort
 from dryadic.features.mutations import MuType
 from HetMan.experiments.utilities.classifiers import *
