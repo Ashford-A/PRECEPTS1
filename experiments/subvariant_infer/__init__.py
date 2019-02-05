@@ -14,7 +14,8 @@ variant_mtypes = (
     )
 
 # define plotting colours for the major mutation types
-variant_clrs = {'Point': "#0D29FF", 'Gain': "#6AC500", 'Loss': "#BB0048"}
+variant_clrs = {'WT': "0.29", 'Point': "#0D29FF",
+                'Gain': "#6AC500", 'Loss': "#BB0048"}
 
 variant_mcombs = (
     ('Point+Loss', Mcomb(dict(variant_mtypes)['Point'],
