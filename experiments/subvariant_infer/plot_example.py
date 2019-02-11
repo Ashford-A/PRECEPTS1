@@ -14,7 +14,7 @@ sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
 from HetMan.experiments.subvariant_infer.setup_infer import ExMcomb
 from HetMan.experiments.subvariant_infer.fit_infer import load_cohort_data
 from HetMan.experiments.subvariant_infer.utils import (
-    load_infer_output, calc_auc)
+    check_output, load_infer_output, calc_auc)
 from HetMan.experiments.subvariant_infer import (
     variant_mtypes, variant_clrs, MuType)
 
@@ -43,11 +43,12 @@ def plot_base_classification(mtype, use_vals, cdata, args):
 
     mtype_str = ":".join([args.gene, str(mtype).split(':')[-1][2:]])
     mut_str = mtype_str.split(':')[-1]
-    rest_mtype = MuType(cdata.train_mut.allkey()) - mtype
 
+    rest_mtype = MuType(cdata.train_mut.allkey()) - mtype
     use_df = pd.DataFrame({'Value': use_vals.loc[mtype],
                            'cStat': np.array(cdata.train_pheno(mtype)),
                            'rStat': np.array(cdata.train_pheno(rest_mtype))})
+
     mut_prop = np.sum(use_df.cStat) / len(cdata.samples)
     ovlp_prop = np.mean(~use_df.rStat[~use_df.cStat]) * (1 - mut_prop)
 
@@ -75,18 +76,15 @@ def plot_base_classification(mtype, use_vals, cdata, args):
 
     coh_ax2.add_patch(ptchs.Rectangle((0.33, 0.49 + ovlp_prop * 1.1),
                                       0.23, np.mean(use_df.rStat) * 1.1,
-                                      clip_on=False, alpha=0.83,
+                                      clip_on=False, alpha=0.83, hatch='\\',
+                                      linewidth=1.3, edgecolor='0.47',
                                       facecolor=variant_clrs['Point']))
-    coh_ax2.add_patch(ptchs.Rectangle(
-        (0.33, 0.49 + ovlp_prop * 1.1), 0.23, np.mean(use_df.rStat) * 1.1,
-        clip_on=False, alpha=0.83, linewidth=0.9, edgecolor='black',
-        facecolor='None'
-        ))
 
     coh_ax2.add_patch(ptchs.Rectangle((0.04, 0.49 + ovlp_prop * 1.1),
                                       0.23, np.mean(use_df.rStat) * 1.1,
-                                      clip_on=False, edgecolor='black',
-                                      facecolor='None', linewidth=0.9))
+                                      hatch='\\', clip_on=False,
+                                      edgecolor='0.57', facecolor='None',
+                                      linewidth=1.3))
 
     coh_ax2.text(0.6, 0.52 + ovlp_prop * 1.1,
                  "{} mutations\nother than {}\n({} samples)".format(
@@ -159,8 +157,8 @@ def plot_base_classification(mtype, use_vals, cdata, args):
                                    alpha=0.41, clip_on=False,
                                    transform=diag_ax2.transData))
     diag_ax2.add_patch(ptchs.Wedge((0.42, 0.95), 0.25, 270, 90,
-                                   facecolor='None', edgecolor='black',
-                                   clip_on=False, linewidth=0.8,
+                                   facecolor='None', edgecolor='0.57',
+                                   clip_on=False, linewidth=0.8, hatch='\\',
                                    transform=diag_ax2.transData))
 
     diag_ax2.text(0.02, 0.67, "same classifier\nresults", color='red',
@@ -178,8 +176,8 @@ def plot_base_classification(mtype, use_vals, cdata, args):
                                    alpha=0.41, clip_on=False,
                                    transform=diag_ax2.transData))
     diag_ax2.add_patch(ptchs.Wedge((0.42, 0.22), 0.42, 270, 90,
-                                   facecolor='None', edgecolor='black',
-                                   clip_on=False, linewidth=0.8,
+                                   facecolor='None', edgecolor='0.57',
+                                   clip_on=False, linewidth=0.8, hatch='\\',
                                    transform=diag_ax2.transData))
 
     diag_ax2.text(0.36, 0.95,
@@ -240,8 +238,10 @@ def plot_base_classification(mtype, use_vals, cdata, args):
     for i in [1, 4]:
         clr_face = clf_ax2.get_children()[i].get_facecolor()[0]
         clr_face[-1] = 0.41
-        clf_ax2.get_children()[i].set_linewidth(0.7)
+        clf_ax2.get_children()[i].set_linewidth(0.9)
         clf_ax2.get_children()[i].set_facecolor(clr_face)
+        clf_ax2.get_children()[i].set_hatch('\\')
+        clf_ax2.get_children()[i].set_edgecolor('0.51')
 
     clf_ax2.text(0.23, 0.96, "{} w/o overlap".format(mut_str),
                  color=variant_clrs['Point'], size=9,
@@ -366,8 +366,8 @@ def plot_iso_classification(mtype, use_vals, cdata, args):
                                               transform=diag_ax.transData))
                 diag_ax.add_patch(ptchs.Wedge(
                     (0.4, 0.95), 0.25, 270, 90, facecolor='None',
-                    edgecolor='black', clip_on=False, linewidth=0.7,
-                    transform=diag_ax.transData
+                    edgecolor='0.57', clip_on=False, linewidth=0.7,
+                    hatch='\\', transform=diag_ax.transData
                     ))
 
                 diag_ax.text(0.42, 0.95,
@@ -391,8 +391,8 @@ def plot_iso_classification(mtype, use_vals, cdata, args):
                                               transform=diag_ax.transData))
                 diag_ax.add_patch(ptchs.Wedge(
                     (0.4, 0.22), 0.42, 270, 90, facecolor='None',
-                    edgecolor='black', clip_on=False, linewidth=0.7,
-                    transform=diag_ax.transData
+                    edgecolor='0.57', clip_on=False, linewidth=0.7,
+                    hatch='\\', transform=diag_ax.transData
                     ))
 
                 diag_ax.text(0.42, 0.22,
@@ -451,15 +451,15 @@ def plot_iso_projection(mtype, use_vals, cdata, args):
     base_diag_ax.axis('off')
     base_diag_ax.set_aspect('equal')
 
-    base_diag_ax.text(-0.1, 0.67, "1) classify\nmutations", color='red',
+    base_diag_ax.text(-0.12, 0.67, "1) classify\nmutations", color='red',
                       size=8, fontstyle='italic', ha='right', va='center')
-    base_diag_ax.axhline(y=0.67, xmin=-0.09, xmax=0.12, color='red',
+    base_diag_ax.axhline(y=0.67, xmin=-0.12, xmax=0.1, color='red',
                          alpha=0.83, clip_on=False,
                          linestyle='--', linewidth=1.5)
 
     base_diag_ax.text(0.46, 1.18, "2) apply trained\nclassifier", color='red',
                       size=8, fontstyle='italic', ha='center', va='bottom')
-    base_diag_ax.axhline(y=0.67, xmin=0.16, xmax=0.89, color='red',
+    base_diag_ax.axhline(y=0.67, xmin=0.16, xmax=0.86, color='red',
                          linestyle=':', linewidth=1, alpha=0.57)
  
     vals_min, vals_max = vals_df.Value.quantile(q=[0, 1])
@@ -486,8 +486,8 @@ def plot_iso_projection(mtype, use_vals, cdata, args):
 
     base_diag_ax.add_patch(ptchs.Wedge((0.19, 0.67), 0.2, 270, 90,
                                        facecolor=variant_clrs['Point'],
-                                       edgecolor='black', clip_on=False,
-                                       alpha=0.19, linewidth=1.3,
+                                       edgecolor='0.31', clip_on=False,
+                                       hatch='\\', alpha=0.25, linewidth=1.7,
                                        transform=base_diag_ax.transData))
 
     base_diag_ax.text(0.2, 0.67,
@@ -497,8 +497,8 @@ def plot_iso_projection(mtype, use_vals, cdata, args):
 
     base_diag_ax.add_patch(ptchs.Wedge((0.46, 0.67), 0.35, 270, 90,
                                        facecolor=variant_clrs['WT'],
-                                       edgecolor='black', clip_on=False, 
-                                       alpha=0.19, linewidth=1.3,
+                                       edgecolor='0.31', clip_on=False, 
+                                       hatch='\\', alpha=0.25, linewidth=1.7,
                                        transform=base_diag_ax.transData))
 
     base_diag_ax.text(0.47, 0.67,
@@ -521,12 +521,13 @@ def plot_iso_projection(mtype, use_vals, cdata, args):
                    hue_order=[False, True], split=True, linewidth=0, cut=0,
                    ax=base_vio_ax)
 
-    base_vio_ax.get_children()[0].set_alpha(0.41)
-    base_vio_ax.get_children()[3].set_alpha(0.41)
-    base_vio_ax.get_children()[1].set_alpha(0.29)
-    base_vio_ax.get_children()[4].set_alpha(0.29)
-    base_vio_ax.get_children()[1].set_linewidth(1.1)
-    base_vio_ax.get_children()[4].set_linewidth(1.1)
+    for i in [0, 1, 3, 4]:
+        base_vio_ax.get_children()[i].set_alpha(0.41)
+
+    for i in [1, 4]:
+        base_vio_ax.get_children()[i].set_linewidth(0.9)
+        base_vio_ax.get_children()[i].set_edgecolor('0.31')
+        base_vio_ax.get_children()[i].set_hatch('\\')
 
     base_vio_ax.text(0.25, 0.99,
                      "AUC: {:.3f}".format(
@@ -568,15 +569,13 @@ def plot_iso_projection(mtype, use_vals, cdata, args):
         diag_ax.axis('off')
         diag_ax.set_aspect('equal')
 
-        diag_ax.text(-0.1, 0.67, "1) classify\nmutations", color='red',
-                     size=8, fontstyle='italic', ha='right', va='center')
-        diag_ax.axhline(y=0.67, xmin=-0.09, xmax=0.12, color='red',
+        diag_ax.axhline(y=0.67, xmin=-0.22, xmax=0.1, color='red',
                         alpha=0.83, clip_on=False,
                         linestyle='--', linewidth=1.5)
 
         diag_ax.text(0.46, 1.18, "2) apply trained\nclassifier", color='red',
                      size=8, fontstyle='italic', ha='center', va='bottom')
-        diag_ax.axhline(y=0.67, xmin=0.16, xmax=0.89, color='red',
+        diag_ax.axhline(y=0.67, xmin=0.16, xmax=0.86, color='red',
                         linestyle=':', linewidth=1, alpha=0.57)
  
         vals_min, vals_max = vals_df.Value.quantile(q=[0, 1])
@@ -602,10 +601,10 @@ def plot_iso_projection(mtype, use_vals, cdata, args):
                      size=9, ha='right', va='center')
 
         diag_ax.add_patch(ptchs.Wedge((0.19, 0.67), 0.2, 270, 90,
-                                      facecolor=variant_clrs[lbl],
-                                      edgecolor='black', clip_on=False,
-                                      alpha=0.21, linewidth=1.3,
-                                      transform=diag_ax.transData))
+                                      facecolor=variant_clrs['Point'],
+                                      edgecolor=variant_clrs[lbl],
+                                      clip_on=False, hatch='\\', alpha=0.25,
+                                      linewidth=1.7, transform=diag_ax.transData))
 
         diag_ax.text(0.2, 0.67,
                      "{}\nMutant\nw/ {}\n({} samps)".format(
@@ -614,8 +613,8 @@ def plot_iso_projection(mtype, use_vals, cdata, args):
 
         diag_ax.add_patch(ptchs.Wedge((0.46, 0.67), 0.35, 270, 90,
                                       facecolor=variant_clrs['WT'],
-                                      edgecolor='black', clip_on=False, 
-                                      alpha=0.21, linewidth=1.3,
+                                      edgecolor=variant_clrs[lbl], clip_on=False, 
+                                      hatch='\\', alpha=0.25, linewidth=1.7,
                                       transform=diag_ax.transData))
 
         diag_ax.text(0.47, 0.67,
@@ -647,15 +646,17 @@ def plot_iso_projection(mtype, use_vals, cdata, args):
                        split=True, linewidth=0, cut=0, ax=vio_ax)
         sns.violinplot(data=vals_df[vals_df.cStat & vals_df.mStat],
                        x='cStat', y='Value', hue='mStat',
-                       palette=[variant_clrs[lbl]], hue_order=[False, True],
+                       palette=[variant_clrs['Point']], hue_order=[False, True],
                        split=True, linewidth=0, cut=0, ax=vio_ax)
 
-        vio_ax.get_children()[0].set_alpha(0.41)
-        vio_ax.get_children()[2].set_alpha(0.41)
-        vio_ax.get_children()[1].set_alpha(0.29)
-        vio_ax.get_children()[4].set_alpha(0.53)
-        vio_ax.get_children()[2].set_linewidth(1.3)
-        vio_ax.get_children()[4].set_linewidth(1.3)
+        for i in [0, 1]:
+            vio_ax.get_children()[i].set_alpha(0.41)
+
+        for i in [2, 4]:
+            vio_ax.get_children()[i].set_alpha(0.47)
+            vio_ax.get_children()[i].set_linewidth(0.9)
+            vio_ax.get_children()[i].set_edgecolor(variant_clrs[lbl])
+            vio_ax.get_children()[i].set_hatch('\\')
 
         vio_ax.text(0.25, 0.99,
                     "AUC: {:.3f}".format(
@@ -700,23 +701,23 @@ def main():
     parser.add_argument('gene', help='a mutated gene')
     parser.add_argument('--samp_cutoff', default=20)
 
+    # parse command line arguments, create directory where plots will be saved
     args = parser.parse_args()
     os.makedirs(os.path.join(plot_dir, args.cohort), exist_ok=True)
 
+    # load cohort expression and mutation data, get list of inference
+    # experiments that have been run for the given gene in this cohort
     cdata = load_cohort_data(base_dir, args.cohort, args.gene, 'Protein')
-    all_mtype = MuType(cdata.train_mut.allkey())
-    all_stat = np.array(cdata.train_pheno(all_mtype))
-
     out_path = Path(base_dir, 'output', args.cohort, args.gene)
-    out_dirs = [
-        pth.parent for pth in out_path.glob(
-            '*/samps_{}/Protein/out__task-0.p'.format(args.samp_cutoff))
-        ]
+    out_glob = "*/samps_{}/Protein/out__task-0.p".format(args.samp_cutoff)
+    out_dirs = [pth.parent for pth in out_path.glob(out_glob)]
 
+    # get the classifiers associated with experiments that ran to completion
     use_clfs = [out_dir.parent.parent.stem for out_dir in out_dirs
                 if (len(tuple(out_dir.glob('out__task-*.p')))
                     == len(tuple(out_dir.glob('slurm/fit-*.txt*'))))]
 
+    # load data from classifiers whose inference experiments have finished
     infer_dicts = {
         clf: load_infer_output(os.path.join(
             base_dir, 'output', args.cohort, args.gene, clf,
@@ -725,36 +726,39 @@ def main():
         for clf in use_clfs
         }
 
-    assert all(set(infer_dict['Iso'].index) == set(infer_dict['All'].index)
-               for infer_dict in infer_dicts.values())
-    assert len(set(frozenset(infer_dict['Iso'].index)
-                   for infer_dict in infer_dicts.values())) == 1
-
+    # check the integrity of inference outputs and average inferred
+    # values across cross-validation runs
+    check_output(infer_dicts.values())
     infer_dicts = {clf: {smps: vals.applymap(np.mean)
                          for smps, vals in infer_dict.items()}
                    for clf, infer_dict in infer_dicts.items()}
 
-    base_mtypes = sorted(
-        [{'All': mtype, 'Ex': ExMcomb(cdata.train_mut, mtype)}
-         for mtype in infer_dicts[use_clfs[0]]['All'].index
-         if (isinstance(mtype, MuType) and 'Protein' in mtype.get_levels()
-             and (ExMcomb(cdata.train_mut, mtype)
-                  in infer_dicts[use_clfs[0]]['Iso'].index))],
-        key=itemgetter('All')
-        )
+    # get list of hotspot mutations that appear in enough samples by
+    # themselves to have had inferred values calculated for them
+    base_mtypes = [{'All': mtype, 'Ex': ExMcomb(cdata.train_mut, mtype)}
+                   for mtype in infer_dicts[use_clfs[0]]['All'].index
+                   if (isinstance(mtype, MuType)
+                       and 'Protein' in mtype.get_levels()
+                       and (ExMcomb(cdata.train_mut, mtype)
+                            in infer_dicts[use_clfs[0]]['Iso'].index))]
 
+    # for each hotspot mutation, get the presence of the mutation with and
+    # without overlapping mutations in the samples belonging to the cohort
     mcomb_stats = {mcomb: np.array(cdata.train_pheno(mcomb))
                    for mtps in base_mtypes for mcomb in mtps.values()}
+    all_stat = np.array(cdata.train_pheno(MuType(cdata.train_mut.allkey())))
 
+    # get the samples included in each inference experiment
     mcomb_masks = {
-        mtps['All']: {'All': {mtp_lbl: np.array([True]
-                                                * len(cdata.train_samps))
+        mtps['All']: {'All': {mtp_lbl: np.array([True] * len(cdata.samples))
                               for mtp_lbl in mtps},
                       'Iso': {mtp_lbl: ~(all_stat & ~mcomb_stats[mtp])
                               for mtp_lbl, mtp in mtps.items()}}
         for mtps in base_mtypes
         }
 
+    # calculate the performance of the classifier in predicting the presence
+    # of the given mutation type in each experiment
     auc_dict = {
         (use_clf, mtps['All']): pd.DataFrame.from_dict({
             mtp_lbl: {
@@ -771,6 +775,8 @@ def main():
         for use_clf, mtps in product(use_clfs, base_mtypes)
         }
 
+    # find experiments where the classifier performed well and also with an
+    # improvement when samples with overlapping mutations were removed
     good_exs = {k for k, aucs in auc_dict.items()
                 if (aucs['All']['All'] > 0.7
                     and aucs['Ex']['Iso'] > aucs['All']['All'])}

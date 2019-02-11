@@ -195,12 +195,12 @@ def plot_mutation_lollipop(cdata, domain_data, args):
                  ha='right', va='top', linespacing=0.65, rotation=37)
 
     main_ax.text(
-        0.02, 0.41,
+        0.02, 0.34,
         "{} {}-mutated samples\n{:.1%} of {} cohort affected".format(
             len(pnt_muts), args.gene,
             len(pnt_muts) / len(cdata.samples), args.cohort,
             ),
-        size=10, va='bottom', transform=main_ax.transAxes
+        size=9, va='bottom', transform=main_ax.transAxes
         )
 
     main_ax.set_xlabel("Amino Acid Position", size=15, weight='semibold')
@@ -218,7 +218,7 @@ def plot_mutation_lollipop(cdata, domain_data, args):
         )
 
     v_plot = venn3([samp_dict[lbl] for lbl, _ in variant_mtypes[::-1]],
-                   ["Gains", "Mutations", "Losses"],
+                   ["Gains", "Point\nMutations", "Losses"],
                    [variant_clrs[lbl] for lbl, _ in variant_mtypes[::-1]],
                    alpha=0.71, ax=venn_ax)
 
