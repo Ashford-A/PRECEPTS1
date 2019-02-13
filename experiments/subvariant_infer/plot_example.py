@@ -17,6 +17,7 @@ from HetMan.experiments.subvariant_infer.utils import (
     check_output, load_infer_output, calc_auc)
 from HetMan.experiments.subvariant_infer import (
     variant_mtypes, variant_clrs, MuType)
+from HetMan.experiments.utilities import simil_cmap
 
 import argparse
 from pathlib import Path
@@ -32,6 +33,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import matplotlib.patches as ptchs
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+from matplotlib.colorbar import ColorbarBase
+from matplotlib import colors
 
 
 def plot_base_classification(mtype, use_vals, cdata, args):
@@ -691,6 +694,142 @@ def plot_iso_projection(mtype, use_vals, cdata, args):
     plt.close()
 
 
+def plot_iso_similarities(use_mtype, use_vals, cdata, args):
+    fig, (vio_ax, sim_ax, clr_ax) = plt.subplots(
+        figsize=(11, 7), nrows=1, ncols=3,
+        gridspec_kw=dict(width_ratios=[2, 23, 1])
+        )
+
+    use_mcomb = ExMcomb(cdata.train_mut, use_mtype)
+    all_mtype = MuType(cdata.train_mut.allkey())
+    mtype_str = str(use_mtype).split(':')[-1][2:]
+
+    vals_df = pd.DataFrame({
+        'Value': use_vals.loc[use_mcomb],
+        'cStat': np.array(cdata.train_pheno(use_mcomb)),
+        'rStat': np.array(cdata.train_pheno(all_mtype - use_mtype))
+        })
+
+    sns.violinplot(data=vals_df[~vals_df.cStat & ~vals_df.rStat], x='cStat',
+                   y='Value', hue='rStat', palette=[variant_clrs['WT']],
+                   hue_order=[False, True], split=True, linewidth=0, cut=0,
+                   ax=vio_ax)
+    sns.violinplot(data=vals_df[vals_df.cStat & ~vals_df.rStat], x='cStat',
+                   y='Value', hue='rStat', palette=[variant_clrs['Point']],
+                   hue_order=[False, True], split=True, linewidth=0, cut=0,
+                   ax=vio_ax)
+
+    vals_min, vals_max = vals_df.Value.quantile(q=[0, 1])
+    vals_rng = (vals_max - vals_min) / 101
+    vio_ax.set_xlim(-0.5, 0.01)
+
+    for art in vio_ax.get_children()[:2]:
+        art.set_alpha(0.41)
+
+    vio_ax.set_yticks([])
+    vio_ax.get_legend().remove()
+    vio_ax.set_zorder(1)
+    clr_ax.set_zorder(2)
+
+    wt_mean = np.mean(vals_df.Value[~vals_df.cStat & ~vals_df.rStat])
+    vio_ax.axhline(y=wt_mean, xmin=0, xmax=14,
+                   color=variant_clrs['WT'], clip_on=False, linestyle='--',
+                   linewidth=1.6, alpha=0.51)
+
+    mut_mean = np.mean(vals_df.Value[vals_df.cStat & ~vals_df.rStat])
+    vio_ax.axhline(y=mut_mean, xmin=0, xmax=14,
+                   color=variant_clrs['Point'], clip_on=False, linestyle='--',
+                   linewidth=1.6, alpha=0.51)
+
+    vio_ax.text(-0.52, wt_mean, "0",
+                size=12, fontstyle='italic', ha='right', va='center')
+    vio_ax.text(-0.52, mut_mean, "1",
+                size=12, fontstyle='italic', ha='right', va='center')
+
+    vio_ax.text(0, vals_min - vals_rng,
+                "Isolated\nClassification\n of {}\n(M1)".format(mtype_str),
+                size=13, fontweight='semibold', ha='center', va='top')
+
+    sim_mcombs = {mcomb: ExMcomb(cdata.train_mut,
+                                 *[mtype & all_mtype - use_mtype
+                                   for mtype in mcomb.mtypes])
+                  for mcomb in use_vals.index
+                  if (isinstance(mcomb, ExMcomb) and mcomb != use_mcomb
+                      and all(('Copy' in mtype.get_levels()
+                               and len(mtype.subkeys()) == 2)
+                              or 'Copy' not in mtype.get_levels()
+                              for mtype in mcomb.mtypes))}
+
+    sim_df = pd.concat([
+        pd.DataFrame({
+            'Mcomb': mcomb, 'Value': use_vals.loc[
+                use_mcomb, np.array(cdata.train_pheno(ex_mcomb))]
+            })
+        for mcomb, ex_mcomb in sim_mcombs.items()
+        ])
+
+    mcomb_grps = sim_df.groupby('Mcomb')['Value']
+    mcomb_scores = mcomb_grps.mean().sort_values(ascending=False) - wt_mean
+    mcomb_scores /= (mut_mean - wt_mean)
+
+    mcomb_mins = mcomb_grps.min()
+    mcomb_maxs = mcomb_grps.max()
+    mcomb_sizes = mcomb_grps.count()
+    clr_norm = colors.Normalize(vmin=-1, vmax=2)
+
+    sns.violinplot(data=sim_df, x='Mcomb', y='Value',
+                   order=mcomb_scores.index,
+                   palette=simil_cmap(clr_norm(mcomb_scores.values)),
+                   saturation=1, linewidth=10/7, cut=0, width=0.87, ax=sim_ax)
+
+    for i, (mcomb, scr) in enumerate(mcomb_scores.iteritems()):
+        sim_ax.get_children()[i * 2].set_alpha(9/11)
+
+        mcomb_lbl = str(mcomb).replace('Point:', '').replace('Copy:', '')
+        mcomb_lbl = mcomb_lbl.replace(' ', '\n')
+
+        mcomb_lbl = mcomb_lbl.replace('(DeepGain|ShalGain)', 'gain')
+        mcomb_lbl = mcomb_lbl.replace('(DeepDel|ShalDel)', 'deletion')
+        mcomb_lbl = mcomb_lbl.replace('Point', 'any other\npoint mutation')
+
+        sim_ax.text(i, mcomb_mins[mcomb] - vals_rng / 2,
+                    "{}\n({} samples)".format(mcomb_lbl, mcomb_sizes[mcomb]),
+                    size=10, ha='center', va='top')
+        sim_ax.text(i, mcomb_maxs[mcomb] + vals_rng / 2, format(scr, '.2f'),
+                    size=11, fontstyle='italic', ha='center', va='bottom')
+
+    sim_ax.text(len(mcomb_scores) / 2, vals_min - 2 * vals_rng,
+                "{} Classifier Scoring\nof Other "
+                "Isolated {} Mutations\n(M2)".format(mtype_str, args.gene),
+                size=13, fontweight='semibold', ha='center', va='top')
+
+    for ax in vio_ax, sim_ax:
+        ax.axis('off')
+        ax.set_ylim(vals_min - vals_rng, vals_max + vals_rng)
+
+    clr_min = clr_norm((vals_min - vals_rng - wt_mean) / (mut_mean - wt_mean))
+    clr_max = clr_norm((vals_max + vals_rng - wt_mean) / (mut_mean - wt_mean))
+    clr_ext = min(0.2, -clr_min, clr_max - 1)
+
+    clr_bar = ColorbarBase(ax=clr_ax, cmap=simil_cmap, norm=clr_norm,
+                           extend='both', extendfrac=clr_ext,
+                           ticks=[-0.5, 0, 0.5, 1.0, 1.5])
+
+    clr_bar.set_ticklabels(
+        ['M2 < WT', 'M2 = WT', 'WT < M2 < M1', 'M2 = M1', 'M2 > M1'])
+    clr_ax.set_ylim(clr_min, clr_max)
+    clr_ax.tick_params(labelsize=12)
+
+    plt.tight_layout(pad=0, h_pad=0, w_pad=-2)
+    plt.savefig(os.path.join(
+        plot_dir, args.cohort, "iso_similarities_{}_samps-{}.svg".format(
+            args.gene, args.samp_cutoff)
+        ),
+        dpi=300, bbox_inches='tight', format='svg')
+
+    plt.close()
+
+
 def main():
     parser = argparse.ArgumentParser(
         "Plot an example diagram showing how overlap with other types of "
@@ -794,8 +933,11 @@ def main():
                              cdata, args)
     plot_iso_classification(use_mtype, infer_dicts.copy()[use_clf],
                             cdata, args)
+
     plot_iso_projection(use_mtype, infer_dicts.copy()[use_clf]['Iso'],
                         cdata, args)
+    plot_iso_similarities(use_mtype, infer_dicts.copy()[use_clf]['Iso'],
+                          cdata, args)
 
 
 if __name__ == '__main__':

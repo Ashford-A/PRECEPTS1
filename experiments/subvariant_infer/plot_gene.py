@@ -231,9 +231,9 @@ def plot_mutation_lollipop(cdata, domain_data, args):
 
     # save the plot to file
     fig.savefig(os.path.join(
-        plot_dir, "mut-lollipop_{}__{}_domains-{}.png".format(
+        plot_dir, "mut-lollipop_{}__{}_domains-{}.svg".format(
             args.cohort, args.gene, args.domains)
-        ), dpi=350, format='png', bbox_inches='tight')
+        ), dpi=350, bbox_inches='tight', format='svg')
 
     plt.close()
 
