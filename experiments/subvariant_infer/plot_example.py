@@ -38,11 +38,10 @@ from matplotlib import colors
 
 
 def plot_base_classification(mtype, use_vals, cdata, args):
-    fig, ((coh_ax1, diag_ax1, clf_ax1),
-          (coh_ax2, diag_ax2, clf_ax2)) = plt.subplots(
-              figsize=(7, 8), nrows=2, ncols=3,
-              gridspec_kw=dict(width_ratios=[2, 4, 5])
-            )
+    fig, (coh_ax, clf_ax, ovp_ax) = plt.subplots(
+        figsize=(6, 8), nrows=3, ncols=1,
+        gridspec_kw=dict(height_ratios=[1, 3, 3])
+        )
 
     mtype_str = ":".join([args.gene, str(mtype).split(':')[-1][2:]])
     mut_str = mtype_str.split(':')[-1]
@@ -55,218 +54,234 @@ def plot_base_classification(mtype, use_vals, cdata, args):
     mut_prop = np.sum(use_df.cStat) / len(cdata.samples)
     ovlp_prop = np.mean(~use_df.rStat[~use_df.cStat]) * (1 - mut_prop)
 
-    coh_ax1.text(-0.21, -0.02,
-                 "TCGA-{}\n({} samples)".format(
-                     args.cohort, len(cdata.samples)),
-                 size=11, ha='center', va='center', rotation=90)
-    coh_ax1.add_patch(ptchs.FancyArrowPatch(
-        posA=(-0.04, -0.038), posB=(-0.02, -0.038), clip_on=False,
-        arrowstyle=ptchs.ArrowStyle('-[', lengthB=4.3, widthB=149)
+    for ax in coh_ax, clf_ax, ovp_ax:
+        ax.axis('off')
+
+    coh_ax.text(0.5, 1, "TCGA-{}\n({} samples)".format(args.cohort,
+                                                       len(cdata.samples)),
+                size=10, ha='center', va='top')
+    coh_ax.add_patch(ptchs.FancyArrowPatch(
+        posA=(0.5, 0.75), posB=(0.5, 0.66),
+        arrowstyle=ptchs.ArrowStyle('-[', lengthB=4.7, widthB=134)
         ))
 
-    coh_ax2.add_patch(ptchs.Rectangle(
-        (0.04, 0.49), 0.23, (1 - mut_prop) * 1.1, clip_on=False,
-        facecolor=variant_clrs['WT'], alpha=0.41
-        ))
-    coh_ax2.add_patch(ptchs.Rectangle(
-        (0.04, 0.49 + (1 - mut_prop) * 1.1), 0.23, mut_prop * 1.1,
-        clip_on=False, alpha=0.41, linewidth=0.3,
-        edgecolor=variant_clrs['Point'], facecolor=variant_clrs['Point']
-        ))
+    coh_ax.add_patch(ptchs.Rectangle((0.17, 0.42),
+                                     (1 - mut_prop) * 0.66, 0.23,
+                                     facecolor=variant_clrs['WT'],
+                                     alpha=0.41, hatch='/', linewidth=1.3,
+                                     edgecolor='0.51'))
+    coh_ax.add_patch(ptchs.Rectangle((0.17 + (1 - mut_prop) * 0.66, 0.42),
+                                     mut_prop * 0.66, 0.23,
+                                     facecolor=variant_clrs['Point'],
+                                     alpha=0.41, hatch='/', linewidth=1.3,
+                                     edgecolor='0.51'))
 
-    coh_ax1.text(0.25, 0.62, "{}\nmutated status".format(mtype_str),
-                 size=8, rotation=315, ha='right', va='center')
+    coh_ax.text(0.15, 0.52, "{}\nmutated status".format(mtype_str),
+                 size=8, ha='right', va='center')
 
-    coh_ax2.add_patch(ptchs.Rectangle((0.33, 0.49 + ovlp_prop * 1.1),
-                                      0.23, np.mean(use_df.rStat) * 1.1,
-                                      clip_on=False, alpha=0.83, hatch='\\',
-                                      linewidth=1.3, edgecolor='0.47',
+    coh_ax.add_patch(ptchs.Rectangle((0.17 + ovlp_prop * 0.66, 0.12),
+                                      np.mean(use_df.rStat) * 0.66, 0.23,
+                                      alpha=0.83, hatch='\\',
+                                      linewidth=1.3, edgecolor='0.51',
                                       facecolor=variant_clrs['Point']))
 
-    coh_ax2.add_patch(ptchs.Rectangle((0.04, 0.49 + ovlp_prop * 1.1),
-                                      0.23, np.mean(use_df.rStat) * 1.1,
-                                      hatch='\\', clip_on=False,
-                                      edgecolor='0.57', facecolor='None',
-                                      linewidth=1.3))
+    coh_ax.add_patch(ptchs.Rectangle((0.17 + ovlp_prop * 0.66, 0.42),
+                                     np.mean(use_df.rStat) * 0.66, 0.23,
+                                     hatch='\\', linewidth=1.3,
+                                     edgecolor='0.51', facecolor='None'))
 
-    coh_ax2.text(0.6, 0.52 + ovlp_prop * 1.1,
-                 "{} mutations\nother than {}\n({} samples)".format(
-                     args.gene, mut_str, np.sum(use_df.rStat)),
-                 color=variant_clrs['Point'], size=8, fontstyle='italic',
-                 ha='left', va='bottom')
+    coh_ax.text(0.15 + ovlp_prop * 0.66, 0.23,
+                "{} mutations\nother than {}".format(args.gene, mut_str),
+                color=variant_clrs['Point'], size=8, ha='right', va='center')
+    coh_ax.text(0.17 + ovlp_prop * 0.66 + np.mean(use_df.rStat) * 0.33, 0.09,
+                "({} samples)".format(np.sum(use_df.rStat)),
+                color=variant_clrs['Point'], size=8, ha='center', va='top')
 
-    for coh_ax in coh_ax1, coh_ax2:
-        coh_ax.axis('off')
-        coh_ax.set_xlim(0, 1)
-        coh_ax.set_ylim(0, 1)
+    diag_ax1 = inset_axes(clf_ax, width='100%', height='100%',
+                          loc=10, borderpad=0,
+                          bbox_to_anchor=(0, 0, 0.6, 1),
+                          bbox_transform=clf_ax.transAxes)
+    vio_ax1 = inset_axes(clf_ax, width='100%', height='100%',
+                         loc=10, borderpad=0,
+                         bbox_to_anchor=(0.6, 0, 0.4, 1),
+                         bbox_transform=clf_ax.transAxes)
+
+    diag_ax2 = inset_axes(ovp_ax, width='100%', height='100%',
+                          loc=10, borderpad=0,
+                          bbox_to_anchor=(0, 0, 0.6, 1),
+                          bbox_transform=ovp_ax.transAxes)
+    vio_ax2 = inset_axes(ovp_ax, width='100%', height='100%',
+                         loc=10, borderpad=0,
+                         bbox_to_anchor=(0.6, 0, 0.4, 1),
+                         bbox_transform=ovp_ax.transAxes)
 
     for diag_ax in diag_ax1, diag_ax2:
         diag_ax.axis('off')
         diag_ax.set_aspect('equal')
 
         diag_ax.add_patch(ptchs.FancyArrow(
-            0.92, 0.51, dx=0.17, dy=0, width=0.04, length_includes_head=True,
-            head_length=0.08, clip_on=False, alpha=0.91, linewidth=1.9,
-            facecolor='white', edgecolor='black'
+            0.85, 0.57, dx=0.14, dy=0, width=0.03,
+            length_includes_head=True, head_length=0.06,
+            linewidth=1.7, facecolor='white', edgecolor='black'
             ))
 
-    diag_ax1.add_patch(ptchs.Circle(
-        (0.4, 0.95), radius=0.25, facecolor=variant_clrs['Point'], alpha=0.41,
-        clip_on=False, transform=diag_ax1.transData
-        ))
-    diag_ax1.text(0.4, 0.95,
+    diag_ax1.add_patch(ptchs.Circle((0.5, 0.85), radius=0.14,
+                                    facecolor=variant_clrs['Point'],
+                                    alpha=0.41))
+    diag_ax1.text(0.5, 0.85,
                   "{}\nMutant\n({} samples)".format(
                       mut_str, np.sum(use_df.cStat)),
-                  size=10, ha='center', va='center')
+                  size=8, ha='center', va='center')
 
     diag_ax1.add_patch(ptchs.Circle(
-        (0.4, 0.22), radius=0.42, facecolor=variant_clrs['WT'], alpha=0.41,
-        clip_on=False, transform=diag_ax1.transData
-        ))
-    diag_ax1.text(0.4, 0.22,
+        (0.5, 0.32), radius=0.31, facecolor=variant_clrs['WT'], alpha=0.41))
+    diag_ax1.text(0.5, 0.32,
                   "{}\nWild-Type\n({} samples)".format(
                       mut_str, np.sum(~use_df.cStat)),
                   size=13, ha='center', va='center')
 
-    diag_ax1.text(0.02, 0.67, "classify\nmutations", color='red',
+    diag_ax1.text(0.22, 0.67, "classify\nmutations", color='red',
                   size=11, fontstyle='italic', ha='right', va='center')
-    diag_ax1.axhline(y=0.67, xmin=0.03, xmax=0.83, color='red',
-                     linestyle='--', linewidth=2.1, alpha=0.81)
+    diag_ax1.axhline(y=0.67, xmin=0.23, xmax=0.86, color='red',
+                     linestyle='--', linewidth=2.3, alpha=0.83)
 
     diag_ax1.text(0.82, 0.68, "{} (+)".format(np.sum(use_df.cStat)),
                   color='red', size=8, fontstyle='italic', 
                   ha='right', va='bottom')
-    diag_ax1.text(0.82, 0.65, "{} (\u2212)".format(np.sum(~use_df.cStat)),
+    diag_ax1.text(0.82, 0.655, "{} (\u2212)".format(np.sum(~use_df.cStat)),
                   color='red', size=8, fontstyle='italic',
                   ha='right', va='top')
 
-    sns.violinplot(data=use_df[~use_df.cStat], y='Value', ax=clf_ax1,
+    sns.violinplot(data=use_df[~use_df.cStat], y='Value', ax=vio_ax1,
                    palette=[variant_clrs['WT']], linewidth=0, cut=0)
-    sns.violinplot(data=use_df[use_df.cStat], y='Value', ax=clf_ax1,
+    sns.violinplot(data=use_df[use_df.cStat], y='Value', ax=vio_ax1,
                    palette=[variant_clrs['Point']], linewidth=0, cut=0)
 
-    clf_ax1.text(0.5, 0.99,
+    vio_ax1.text(0.5, 0.99,
                  "AUC: {:.3f}".format(calc_auc(use_df.Value, use_df.cStat)),
-                 color='red', size=11, fontstyle='italic',
-                 ha='center', va='top', transform=clf_ax1.transAxes)
+                 color='red', size=10, fontstyle='italic',
+                 ha='center', va='top', transform=vio_ax1.transAxes)
 
-    diag_ax2.add_patch(ptchs.Wedge((0.38, 0.95), 0.25, 90, 270,
+    diag_ax2.add_patch(ptchs.Wedge((0.48, 0.85), 0.14, 90, 270,
                                    facecolor=variant_clrs['Point'],
-                                   alpha=0.41, clip_on=False,
-                                   transform=diag_ax2.transData))
+                                   alpha=0.41, hatch='/', linewidth=0.8,
+                                   edgecolor='0.51'))
 
-    diag_ax2.add_patch(ptchs.Wedge((0.42, 0.95), 0.25, 270, 90,
+    diag_ax2.add_patch(ptchs.Wedge((0.52, 0.85), 0.14, 270, 90,
                                    facecolor=variant_clrs['Point'],
-                                   alpha=0.41, clip_on=False,
-                                   transform=diag_ax2.transData))
-    diag_ax2.add_patch(ptchs.Wedge((0.42, 0.95), 0.25, 270, 90,
-                                   facecolor='None', edgecolor='0.57',
-                                   clip_on=False, linewidth=0.8, hatch='\\',
-                                   transform=diag_ax2.transData))
+                                   alpha=0.41, hatch='/', linewidth=0.8,
+                                   edgecolor='0.51'))
+    diag_ax2.add_patch(ptchs.Wedge((0.52, 0.85), 0.14, 270, 90,
+                                   facecolor='None', edgecolor='0.61',
+                                   hatch='\\', linewidth=0.8))
 
-    diag_ax2.text(0.02, 0.67, "same classifier\nresults", color='red',
+    diag_ax2.text(0.22, 0.67, "same classifier\nresults", color='red',
                   size=8, fontstyle='italic', ha='right', va='center')
-    diag_ax2.axhline(y=0.67, xmin=0.03, xmax=0.83, color='red',
+    diag_ax2.axhline(y=0.67, xmin=0.23, xmax=0.86, color='red',
                      linestyle='--', linewidth=0.8, alpha=0.67)
 
-    diag_ax2.add_patch(ptchs.Wedge((0.38, 0.22), 0.42, 90, 270,
+    diag_ax2.add_patch(ptchs.Wedge((0.48, 0.32), 0.31, 90, 270,
                                    facecolor=variant_clrs['WT'],
-                                   alpha=0.41, clip_on=False,
-                                   transform=diag_ax2.transData))
+                                   alpha=0.41, hatch='/', linewidth=0.8,
+                                   edgecolor='0.51'))
 
-    diag_ax2.add_patch(ptchs.Wedge((0.42, 0.22), 0.42, 270, 90,
+    diag_ax2.add_patch(ptchs.Wedge((0.52, 0.32), 0.31, 270, 90,
                                    facecolor=variant_clrs['WT'],
-                                   alpha=0.41, clip_on=False,
-                                   transform=diag_ax2.transData))
-    diag_ax2.add_patch(ptchs.Wedge((0.42, 0.22), 0.42, 270, 90,
-                                   facecolor='None', edgecolor='0.57',
-                                   clip_on=False, linewidth=0.8, hatch='\\',
-                                   transform=diag_ax2.transData))
+                                   alpha=0.41, hatch='/', linewidth=0.8,
+                                   edgecolor='0.51'))
+    diag_ax2.add_patch(ptchs.Wedge((0.52, 0.32), 0.31, 270, 90,
+                                   facecolor='None', edgecolor='0.61',
+                                   linewidth=0.8, hatch='\\'))
 
-    diag_ax2.text(0.36, 0.95,
+    diag_ax2.text(0.33, 0.85,
                   "{}\nMutant\nw/o overlap\n({} samps)".format(
                       mut_str, np.sum(use_df.cStat & ~use_df.rStat)),
-                  size=8, ha='right', va='center')
-    diag_ax2.text(0.44, 0.95,
+                  size=9, ha='right', va='center')
+    diag_ax2.text(0.67, 0.85,
                   "{}\nMutant\nw/ overlap\n({} samps)".format(
                       mut_str, np.sum(use_df.cStat & use_df.rStat)),
-                  size=8, ha='left', va='center')
+                  size=9, ha='left', va='center')
 
-    diag_ax2.text(0.36, 0.22,
+    diag_ax2.text(0.47, 0.32,
                   "{}\nWild-Type\nw/o overlap\n({} samps)".format(
                       mut_str, np.sum(~use_df.cStat & ~use_df.rStat)),
-                  size=12, ha='right', va='center')
-    diag_ax2.text(0.44, 0.22,
+                  size=10, ha='right', va='center')
+    diag_ax2.text(0.53, 0.32,
                   "{}\nWild-Type\nw/ overlap\n({} samps)".format(
                       mut_str, np.sum(~use_df.cStat & use_df.rStat)),
-                  size=12, ha='left', va='center')
+                  size=10, ha='left', va='center')
 
     sns.violinplot(data=use_df[~use_df.cStat], x='cStat', y='Value',
                    hue='rStat', palette=[variant_clrs['WT']],
                    hue_order=[False, True], split=True, linewidth=0,
-                   cut=0, ax=clf_ax2)
+                   cut=0, ax=vio_ax2)
     sns.violinplot(data=use_df[use_df.cStat], x='cStat', y='Value',
                    hue='rStat', palette=[variant_clrs['Point']],
                    hue_order=[False, True], split=True, linewidth=0,
-                   cut=0, ax=clf_ax2)
+                   cut=0, ax=vio_ax2)
 
     vals_min, vals_max = use_df.Value.quantile(q=[0, 1])
     vals_rng = (vals_max - vals_min) / 51
+    vio_ax1.set_ylim(vals_min - vals_rng, vals_max + 4 * vals_rng)
+    vio_ax2.set_ylim(vals_min - vals_rng, vals_max + 2 * vals_rng)
 
-    clf_ax2.get_legend().remove()
-    diag_ax2.axvline(x=0.4, ymin=-0.22, ymax=1.22, clip_on=False,
+    vio_ax2.get_legend().remove()
+    diag_ax2.axvline(x=0.5, ymin=-0.03, ymax=1.03, clip_on=False,
                      color=variant_clrs['Point'], linewidth=1.1, alpha=0.81,
                      linestyle=':')
 
-    diag_ax2.text(0.4, -0.25,
+    diag_ax2.text(0.5, -0.05,
                   "partition scored samples according to\noverlap with "
                   "PIK3CA mutations\nthat are not {}".format(mut_str),
-                  color=variant_clrs['Point'], size=10,
+                  color=variant_clrs['Point'], size=9,
                   fontstyle='italic', ha='center', va='top')
 
-    for clf_ax in clf_ax1, clf_ax2:
-        clf_ax.set_xticks([])
-        clf_ax.set_xticklabels([])
-        clf_ax.set_yticklabels([])
+    for vio_ax in vio_ax1, vio_ax2:
+        vio_ax.set_xticks([])
+        vio_ax.set_xticklabels([])
+        vio_ax.set_yticklabels([])
+        vio_ax.xaxis.label.set_visible(False)
+        vio_ax.yaxis.label.set_visible(False)
 
-        clf_ax.xaxis.label.set_visible(False)
-        clf_ax.yaxis.label.set_visible(False)
-        clf_ax.set_ylim(vals_min - vals_rng, vals_max + 3 * vals_rng)
+    vio_ax1.get_children()[0].set_alpha(0.41)
+    vio_ax1.get_children()[2].set_alpha(0.41)
 
-    clf_ax1.get_children()[0].set_alpha(0.41)
-    clf_ax1.get_children()[2].set_alpha(0.41)
-    clf_ax2.get_children()[0].set_alpha(0.41)
-    clf_ax2.get_children()[3].set_alpha(0.41)
+    for i in [0, 1, 3, 4]:
+        clr_face = vio_ax2.get_children()[i].get_facecolor()[0]
+        clr_face[-1] = 0.41
+        vio_ax2.get_children()[i].set_facecolor(clr_face)
+
+    for i in [0, 3]:
+        vio_ax2.get_children()[i].set_linewidth(0.8)
+        vio_ax2.get_children()[i].set_hatch('/')
+        vio_ax2.get_children()[i].set_edgecolor('0.61')
 
     for i in [1, 4]:
-        clr_face = clf_ax2.get_children()[i].get_facecolor()[0]
-        clr_face[-1] = 0.41
-        clf_ax2.get_children()[i].set_linewidth(0.9)
-        clf_ax2.get_children()[i].set_facecolor(clr_face)
-        clf_ax2.get_children()[i].set_hatch('\\')
-        clf_ax2.get_children()[i].set_edgecolor('0.51')
+        vio_ax2.get_children()[i].set_linewidth(1.0)
+        vio_ax2.get_children()[i].set_hatch('/\\')
+        vio_ax2.get_children()[i].set_edgecolor('0.47')
 
-    clf_ax2.text(0.23, 0.96, "{} w/o overlap".format(mut_str),
-                 color=variant_clrs['Point'], size=9,
+    vio_ax2.text(0.23, 0.96, "{} w/o overlap".format(mut_str),
+                 color=variant_clrs['Point'], size=7,
                  fontstyle='italic', ha='center', va='bottom',
-                 transform=clf_ax2.transAxes)
-    clf_ax2.text(0.23, 0.95,
+                 transform=vio_ax2.transAxes)
+    vio_ax2.text(0.23, 0.95,
                  "AUC: {:.3f}".format(calc_auc(use_df.Value[~use_df.rStat],
                                                use_df.cStat[~use_df.rStat])),
-                 color='red', size=11, fontstyle='italic',
-                 ha='center', va='top', transform=clf_ax2.transAxes)
+                 color='red', size=10, fontstyle='italic',
+                 ha='center', va='top', transform=vio_ax2.transAxes)
 
-    clf_ax2.text(0.77, 0.96, "{} w/ overlap".format(mut_str),
-                 color=variant_clrs['Point'], size=9,
+    vio_ax2.text(0.77, 0.96, "{} w/ overlap".format(mut_str),
+                 color=variant_clrs['Point'], size=7,
                  fontstyle='italic', ha='center', va='bottom',
-                 transform=clf_ax2.transAxes)
-    clf_ax2.text(0.77, 0.95,
+                 transform=vio_ax2.transAxes)
+    vio_ax2.text(0.77, 0.95,
                  "AUC: {:.3f}".format(calc_auc(use_df.Value[use_df.rStat],
                                                use_df.cStat[use_df.rStat])),
-                 color='red', size=11, fontstyle='italic',
-                 ha='center', va='top', transform=clf_ax2.transAxes)
+                 color='red', size=10, fontstyle='italic',
+                 ha='center', va='top', transform=vio_ax2.transAxes)
 
-    plt.tight_layout(pad=0, w_pad=0, h_pad=0)
+    plt.tight_layout(pad=-0.2, w_pad=0, h_pad=0.5)
     plt.savefig(os.path.join(
         plot_dir, args.cohort, "base_classification_{}_samps-{}.svg".format(
             args.gene, args.samp_cutoff)
