@@ -362,58 +362,44 @@ def plot_iso_classification(mtype, use_vals, cdata, args):
 
             vals_min, vals_max = vals_df.Value[
                 vals_df.uStat].quantile(q=[0, 1])
-            vals_rng = (vals_max - vals_min) / 51
-            vio_ax.set_ylim(vals_min - vals_rng, vals_max + 3 * vals_rng)
+            vals_rng = (vals_max - vals_min) / 71
+            vio_ax.set_ylim(vals_min - vals_rng, vals_max + 4 * vals_rng)
 
             vio_ax.get_children()[0].set_alpha(0.41)
             vio_ax.get_children()[2].set_alpha(0.41)
 
-            diag_ax.add_patch(ptchs.Wedge((0.4, 0.95), 0.25, 90, 270,
+            diag_ax.add_patch(ptchs.Wedge((0.38, 0.95), 0.25, 90, 270,
                                           facecolor=variant_clrs['Point'],
-                                          alpha=0.41, clip_on=False,
-                                          transform=diag_ax.transData))
-            diag_ax.text(0.38, 0.95,
+                                          alpha=0.41, clip_on=False))
+            diag_ax.text(0.37, 0.95,
                          "{}\nMutant\nw/o overlap\n({} samps)".format(
                              mut_str, np.sum(vals_df.cStat & ~all_stat)),
                          size=6, ha='right', va='center')
 
             if np.sum(vals_df.cStat & all_stat):
-                diag_ax.add_patch(ptchs.Wedge((0.4, 0.95), 0.25, 270, 90,
+                diag_ax.add_patch(ptchs.Wedge((0.42, 0.95), 0.25, 270, 90,
                                               facecolor=variant_clrs['Point'],
-                                              alpha=0.41, clip_on=False,
-                                              transform=diag_ax.transData))
-                diag_ax.add_patch(ptchs.Wedge(
-                    (0.4, 0.95), 0.25, 270, 90, facecolor='None',
-                    edgecolor='0.57', clip_on=False, linewidth=0.7,
-                    hatch='\\', transform=diag_ax.transData
-                    ))
+                                              alpha=0.41, clip_on=False))
 
-                diag_ax.text(0.42, 0.95,
+                diag_ax.text(0.43, 0.95,
                              "{}\nMutant\nw/ overlap\n({} samps)".format(
                                  mut_str, np.sum(vals_df.cStat & all_stat)),
                              size=6, ha='left', va='center')
 
-            diag_ax.add_patch(ptchs.Wedge((0.4, 0.22), 0.42, 90, 270,
+            diag_ax.add_patch(ptchs.Wedge((0.38, 0.22), 0.42, 90, 270,
                                           facecolor=variant_clrs['WT'],
-                                          alpha=0.41, clip_on=False,
-                                          transform=diag_ax.transData))
-            diag_ax.text(0.38, 0.22,
+                                          alpha=0.41, clip_on=False))
+            diag_ax.text(0.37, 0.22,
                          "{}\nWild-Type\nw/o overlap\n({} samps)".format(
                              mut_str, np.sum(~vals_df.cStat & ~all_stat)),
                          size=9, ha='right', va='center')
 
             if np.sum(~vals_df.cStat & all_stat & vals_df.uStat):
-                diag_ax.add_patch(ptchs.Wedge((0.4, 0.22), 0.42, 270, 90,
+                diag_ax.add_patch(ptchs.Wedge((0.42, 0.22), 0.42, 270, 90,
                                               facecolor=variant_clrs['WT'],
-                                              alpha=0.41, clip_on=False,
-                                              transform=diag_ax.transData))
-                diag_ax.add_patch(ptchs.Wedge(
-                    (0.4, 0.22), 0.42, 270, 90, facecolor='None',
-                    edgecolor='0.57', clip_on=False, linewidth=0.7,
-                    hatch='\\', transform=diag_ax.transData
-                    ))
+                                              alpha=0.41, clip_on=False))
 
-                diag_ax.text(0.42, 0.22,
+                diag_ax.text(0.43, 0.22,
                              "{}\nWild-Type\nw/ overlap\n({} samps)".format(
                                  mut_str, np.sum(~vals_df.cStat & all_stat)),
                              size=9, ha='left', va='center')
@@ -441,7 +427,7 @@ def plot_iso_classification(mtype, use_vals, cdata, args):
 
 def plot_iso_projection(mtype, use_vals, cdata, args):
     fig, ((base_ax, pnt_ax), (loss_ax, gain_ax)) = plt.subplots(
-        figsize=(11, 7), nrows=2, ncols=2)
+        figsize=(12, 7), nrows=2, ncols=2)
 
     all_mtype = MuType(cdata.train_mut.allkey())
     all_stat = np.array(cdata.train_pheno(all_mtype - mtype))
@@ -455,28 +441,30 @@ def plot_iso_projection(mtype, use_vals, cdata, args):
                             'rStat': np.array(cdata.train_pheno(all_mtype
                                                                 - mtype))})
 
-    for ax in base_ax, pnt_ax, loss_ax, gain_ax:
-        ax.set_aspect('equal')
-        ax.axis('off')
-
     base_diag_ax = inset_axes(base_ax, width='100%', height='100%', loc=10,
-                              borderpad=0, bbox_to_anchor=(0, 0, 0.52, 1),
+                              borderpad=0, bbox_to_anchor=(0, 0, 0.58, 1),
                               bbox_transform=base_ax.transAxes)
     base_vio_ax = inset_axes(base_ax, width='100%', height='100%', loc=10,
-                             borderpad=0, bbox_to_anchor=(0.57, 0, 0.6, 1),
+                             borderpad=0, bbox_to_anchor=(0.62, 0, 0.56, 1),
                              bbox_transform=base_ax.transAxes)
 
     base_diag_ax.axis('off')
     base_diag_ax.set_aspect('equal')
+    for ax in base_ax, pnt_ax, loss_ax, gain_ax:
+        ax.set_aspect('equal')
+        ax.axis('off')
 
-    base_diag_ax.text(-0.12, 0.67, "1) classify\nmutations", color='red',
-                      size=8, fontstyle='italic', ha='right', va='center')
-    base_diag_ax.axhline(y=0.67, xmin=-0.12, xmax=0.1, color='red',
+    base_diag_ax.text(-0.17, 1.37, "1) train\nclassifier", color='red',
+                      size=8, fontstyle='italic', ha='center', va='bottom')
+    base_diag_ax.text(0.51, 1.37, "2) apply classifier to\nheld-out samples",
+                      color='red', size=8, fontstyle='italic',
+                      ha='center', va='bottom')
+    base_vio_ax.text(0, 1.49, "3) calculate AUCs", color='red',
+                     size=8, fontstyle='italic', ha='center', va='bottom')
+
+    base_diag_ax.axhline(y=0.67, xmin=-0.37, xmax=0.04, color='red',
                          alpha=0.83, clip_on=False,
                          linestyle='--', linewidth=1.5)
-
-    base_diag_ax.text(0.46, 1.18, "2) apply trained\nclassifier", color='red',
-                      size=8, fontstyle='italic', ha='center', va='bottom')
     base_diag_ax.axhline(y=0.67, xmin=0.16, xmax=0.86, color='red',
                          linestyle=':', linewidth=1, alpha=0.57)
  
@@ -484,29 +472,26 @@ def plot_iso_projection(mtype, use_vals, cdata, args):
     vals_rng = (vals_max - vals_min) / 51
     base_vio_ax.set_ylim(vals_min - vals_rng, vals_max + 3 * vals_rng)
 
-    base_diag_ax.add_patch(ptchs.Wedge((0.07, 1), 0.27, 90, 270,
+    base_diag_ax.add_patch(ptchs.Wedge((0, 1), 0.27, 90, 270,
                                        facecolor=variant_clrs['Point'],
-                                       alpha=0.41, clip_on=False,
-                                       transform=base_diag_ax.transData))
-    base_diag_ax.text(0.05, 1.01,
+                                       alpha=0.41, clip_on=False))
+    base_diag_ax.text(-0.01, 1.01,
                       "{}\nMutant\nw/o overlap\n({} samps)".format(
                           mut_str, np.sum(vals_df.cStat & ~all_stat)),
                       size=6, ha='right', va='center')
 
-    base_diag_ax.add_patch(ptchs.Wedge((0.07, 0.17), 0.45, 90, 270,
+    base_diag_ax.add_patch(ptchs.Wedge((0, 0.17), 0.45, 90, 270,
                                        facecolor=variant_clrs['WT'],
-                                       alpha=0.41, clip_on=False,
-                                       transform=base_diag_ax.transData))
-    base_diag_ax.text(0.05, 0.17,
+                                       alpha=0.41, clip_on=False))
+    base_diag_ax.text(-0.01, 0.17,
                       "{}\nWild-Type\nw/o overlap\n({} samps)".format(
                           mut_str, np.sum(~vals_df.cStat & ~all_stat)),
                       size=9, ha='right', va='center')
 
     base_diag_ax.add_patch(ptchs.Wedge((0.19, 0.67), 0.2, 270, 90,
                                        facecolor=variant_clrs['Point'],
-                                       edgecolor='0.31', clip_on=False,
-                                       hatch='\\', alpha=0.25, linewidth=1.7,
-                                       transform=base_diag_ax.transData))
+                                       edgecolor='0.53', clip_on=False,
+                                       hatch='\\', alpha=0.25, linewidth=1.7))
 
     base_diag_ax.text(0.2, 0.67,
                       "{}\nMutant\nw/ overlap\n({} samps)".format(
@@ -515,9 +500,8 @@ def plot_iso_projection(mtype, use_vals, cdata, args):
 
     base_diag_ax.add_patch(ptchs.Wedge((0.46, 0.67), 0.35, 270, 90,
                                        facecolor=variant_clrs['WT'],
-                                       edgecolor='0.31', clip_on=False, 
-                                       hatch='\\', alpha=0.25, linewidth=1.7,
-                                       transform=base_diag_ax.transData))
+                                       edgecolor='0.59', clip_on=False, 
+                                       hatch='\\', alpha=0.25, linewidth=1.7))
 
     base_diag_ax.text(0.47, 0.67,
                       "{}\nWild-Type\nw/ overlap\n({} samps)".format(
@@ -525,7 +509,7 @@ def plot_iso_projection(mtype, use_vals, cdata, args):
                       size=7, alpha=0.41, ha='left', va='center')
 
     base_diag_ax.add_patch(ptchs.FancyArrow(
-        0.91, 0.51, dx=0.11, dy=0, width=0.03, clip_on=False,
+        0.88, 0.51, dx=0.11, dy=0, width=0.03, clip_on=False,
         length_includes_head=True, head_length=0.05, alpha=0.93,
         linewidth=1.3, facecolor='None', edgecolor='black'
         ))
@@ -543,8 +527,8 @@ def plot_iso_projection(mtype, use_vals, cdata, args):
         base_vio_ax.get_children()[i].set_alpha(0.41)
 
     for i in [1, 4]:
-        base_vio_ax.get_children()[i].set_linewidth(0.9)
-        base_vio_ax.get_children()[i].set_edgecolor('0.31')
+        base_vio_ax.get_children()[i].set_linewidth(1)
+        base_vio_ax.get_children()[i].set_edgecolor('0.59')
         base_vio_ax.get_children()[i].set_hatch('\\')
 
     base_vio_ax.text(0.25, 0.99,
@@ -577,52 +561,53 @@ def plot_iso_projection(mtype, use_vals, cdata, args):
             use_mtype = dict(variant_mtypes)[lbl]
 
         diag_ax = inset_axes(ax, width='100%', height='100%', loc=10,
-                             borderpad=0, bbox_to_anchor=(0, 0, 0.52, 1),
+                             borderpad=0, bbox_to_anchor=(0, 0, 0.58, 1),
                              bbox_transform=ax.transAxes)
         vio_ax = inset_axes(ax, width='100%', height='100%', loc=10,
-                            borderpad=0, bbox_to_anchor=(0.57, 0, 0.6, 1),
+                            borderpad=0, bbox_to_anchor=(0.62, 0, 0.56, 1),
                             bbox_transform=ax.transAxes)
 
         vals_df['mStat'] = np.array(cdata.train_pheno(use_mtype))
         diag_ax.axis('off')
         diag_ax.set_aspect('equal')
 
-        diag_ax.axhline(y=0.67, xmin=-0.22, xmax=0.1, color='red',
+        diag_ax.axhline(y=0.67, xmin=-0.37, xmax=0.04, color='red',
                         alpha=0.83, clip_on=False,
                         linestyle='--', linewidth=1.5)
-
-        diag_ax.text(0.46, 1.18, "2) apply trained\nclassifier", color='red',
-                     size=8, fontstyle='italic', ha='center', va='bottom')
         diag_ax.axhline(y=0.67, xmin=0.16, xmax=0.86, color='red',
                         linestyle=':', linewidth=1, alpha=0.57)
+
+        diag_ax.text(0.51, 1.37, "2) apply classifier to\nheld-out samples",
+                     color='red', size=8, fontstyle='italic',
+                     ha='center', va='bottom')
+        vio_ax.text(0, 1.49, "3) calculate AUCs", color='red',
+                    size=8, fontstyle='italic', ha='center', va='bottom')
  
         vals_min, vals_max = vals_df.Value.quantile(q=[0, 1])
         vals_rng = (vals_max - vals_min) / 51
         vio_ax.set_ylim(vals_min - vals_rng, vals_max + 3 * vals_rng)
 
-        diag_ax.add_patch(ptchs.Wedge((0.07, 1), 0.27, 90, 270,
+        diag_ax.add_patch(ptchs.Wedge((0, 1), 0.27, 90, 270,
                                       facecolor=variant_clrs['Point'],
-                                      alpha=0.41, clip_on=False,
-                                      transform=diag_ax.transData))
-        diag_ax.text(0.05, 1.01,
+                                      alpha=0.41, clip_on=False))
+        diag_ax.text(-0.01, 1.01,
                      "{}\nMutant\nw/o overlap\n({} samps)".format(
                          mut_str, np.sum(vals_df.cStat & ~all_stat)),
                      size=6, ha='right', va='center')
 
-        diag_ax.add_patch(ptchs.Wedge((0.07, 0.17), 0.45, 90, 270,
+        diag_ax.add_patch(ptchs.Wedge((0, 0.17), 0.45, 90, 270,
                                       facecolor=variant_clrs['WT'],
-                                      alpha=0.41, clip_on=False,
-                                      transform=diag_ax.transData))
-        diag_ax.text(0.05, 0.17,
+                                      alpha=0.41, clip_on=False))
+        diag_ax.text(-0.01, 0.17,
                      "{}\nWild-Type\nw/o overlap\n({} samps)".format(
                          mut_str, np.sum(~vals_df.cStat & ~all_stat)),
                      size=9, ha='right', va='center')
 
         diag_ax.add_patch(ptchs.Wedge((0.19, 0.67), 0.2, 270, 90,
+                                      clip_on=False, alpha=0.25, hatch='\\',
+                                      linewidth=1.7,
                                       facecolor=variant_clrs['Point'],
-                                      edgecolor=variant_clrs[lbl],
-                                      clip_on=False, hatch='\\', alpha=0.25,
-                                      linewidth=1.7, transform=diag_ax.transData))
+                                      edgecolor=variant_clrs[lbl]))
 
         diag_ax.text(0.2, 0.67,
                      "{}\nMutant\nw/ {}\n({} samps)".format(
@@ -632,8 +617,7 @@ def plot_iso_projection(mtype, use_vals, cdata, args):
         diag_ax.add_patch(ptchs.Wedge((0.46, 0.67), 0.35, 270, 90,
                                       facecolor=variant_clrs['WT'],
                                       edgecolor=variant_clrs[lbl], clip_on=False, 
-                                      hatch='\\', alpha=0.25, linewidth=1.7,
-                                      transform=diag_ax.transData))
+                                      hatch='\\', alpha=0.25, linewidth=1.7))
 
         diag_ax.text(0.47, 0.67,
                      "{}\nWild-Type\nw/ {}\n({} samps)".format(
@@ -643,7 +627,7 @@ def plot_iso_projection(mtype, use_vals, cdata, args):
                      size=7, alpha=0.41, ha='left', va='center')
 
         diag_ax.add_patch(ptchs.FancyArrow(
-            0.91, 0.51, dx=0.11, dy=0, width=0.03, clip_on=False,
+            0.88, 0.51, dx=0.11, dy=0, width=0.03, clip_on=False,
             length_includes_head=True, head_length=0.05, alpha=0.93,
             linewidth=1.3, facecolor='None', edgecolor='black'
             ))
@@ -699,7 +683,7 @@ def plot_iso_projection(mtype, use_vals, cdata, args):
         vio_ax.yaxis.label.set_visible(False)
         vio_ax.get_legend().remove()
 
-    plt.tight_layout(pad=0, w_pad=-3, h_pad=0)
+    plt.tight_layout(pad=0, w_pad=-5, h_pad=1)
     plt.savefig(os.path.join(
         plot_dir, args.cohort, "iso_projection_{}_samps-{}.svg".format(
             args.gene, args.samp_cutoff)
