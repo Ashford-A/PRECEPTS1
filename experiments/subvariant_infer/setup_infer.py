@@ -17,10 +17,13 @@ from HetMan.experiments.utilities.load_input import load_firehose_cohort
 from dryadic.features.mutations import MuType, MutComb
 
 import argparse
+import pandas as pd
+import hashlib
+import dill as pickle
+
 from functools import reduce
 from operator import or_
 from itertools import combinations as combn
-import dill as pickle
 
 
 class Mcomb(MutComb):
@@ -56,10 +59,17 @@ class Mcomb(MutComb):
         return eq
 
     def __lt__(self, other):
-        if not isinstance(other, Mcomb):
-            return NotImplemented
+        if isinstance(other, Mcomb):
+            lt = self.mtypes < other.mtypes
 
-        return self.mtypes < other.mtypes
+        elif isinstance(other, MuType):
+            lt = False
+        elif isinstance(other, ExMcomb):
+            lt = True
+        else:
+            lt = NotImplemented
+
+        return lt
 
 
 class ExMcomb(MutComb):
@@ -107,14 +117,19 @@ class ExMcomb(MutComb):
         return eq
 
     def __lt__(self, other):
-        if not isinstance(other, ExMcomb):
-            return NotImplemented
+        if isinstance(other, ExMcomb):
+            if self.all_mtype != other.all_mtype:
+                raise ValueError("Cannot compare combinations from different "
+                                 "mutation cohorts!")
+ 
+            lt = self.mtypes < other.mtypes
 
-        if self.all_mtype != other.all_mtype:
-            raise ValueError("Cannot compare combinations from different "
-                             "mutation cohorts!")
+        elif isinstance(other, (MuType, Mcomb)):
+            lt = False
+        else:
+            lt = NotImplemented
 
-        return self.mtypes < other.mtypes
+        return lt
 
     def get_sorted_levels(self):
         return self.all_mtype.get_sorted_levels()
@@ -183,29 +198,23 @@ def main():
                        <= len(mcomb.get_samples(cdata.train_mut))
                        <= (len(cdata.samples) - args.samp_cutoff))}
 
-    out_mtypes = sorted(mtype for mtype in use_mtypes
-                        if isinstance(mtype, MuType))
-    out_mtypes += sorted(mtype for mtype in use_mtypes
-                         if isinstance(mtype, Mcomb))
-    out_mtypes += sorted(mtype for mtype in use_mtypes
-                         if isinstance(mtype, ExMcomb))
+    pth_sfx = "__samps_{}__levels_{}".format(args.samp_cutoff,
+                                               args.mut_levels)
 
     # save the list of found non-duplicate subtypes to file
-    pickle.dump(
-        out_mtypes,
-        open(os.path.join(out_path,
-                          'mtypes_list__samps_{}__levels_{}.p'.format(
-                              args.samp_cutoff, args.mut_levels)),
-             'wb')
-        )
+    pickle.dump(sorted(use_mtypes),
+                open(os.path.join(out_path, "mtypes_list" + pth_sfx + ".p"),
+                     'wb'))
 
     # save the number of found subtypes to file
-    with open(os.path.join(out_path,
-                           'mtypes_count__samps_{}__levels_{}.txt'.format(
-                               args.samp_cutoff, args.mut_levels)),
-              'w') as fl:
+    with open(os.path.join(
+            out_path, "mtypes_count" + pth_sfx + ".txt"), 'w') as fl:
+        fl.write(str(len(use_mtypes)))
 
-        fl.write(str(len(out_mtypes)))
+    with open(os.path.join(
+            out_path, "cdata-hash" + pth_sfx + ".txt"), 'w') as fl:
+        fl.write(hashlib.md5(pd.util.hash_pandas_object(
+            cdata.omic_data).to_csv().encode()).hexdigest())
 
 
 if __name__ == '__main__':
