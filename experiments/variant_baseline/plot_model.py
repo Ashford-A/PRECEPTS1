@@ -12,8 +12,8 @@ plot_dir = os.path.join(base_dir, 'plots', 'model')
 sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
 
 from HetMan.experiments.variant_baseline import *
-from HetMan.experiments.variant_baseline.fit_tests import load_output
-from HetMan.experiments.variant_baseline.setup_tests import get_cohort_data
+from HetMan.experiments.variant_baseline.fit_tests import (
+    load_cohort_data, load_output)
 from HetMan.experiments.utilities import auc_cmap
 from HetMan.experiments.utilities.scatter_plotting import place_annot
 
@@ -21,6 +21,7 @@ import argparse
 import numpy as np
 import pandas as pd
 from itertools import combinations as combn
+from itertools import product
 
 import matplotlib as mpl
 mpl.use('Agg')
@@ -81,9 +82,9 @@ def plot_auc_distribution(auc_df, args):
     fig.savefig(
         os.path.join(plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
                      args.model_name.split('__')[0],
-                     '{}__auc-distribution.png'.format(
+                     "{}__auc-distribution.svg".format(
                          args.model_name.split('__')[1])),
-        dpi=250, bbox_inches='tight'
+        dpi=300, bbox_inches='tight', format='svg'
         )
 
     plt.close()
@@ -102,20 +103,20 @@ def plot_acc_quartiles(auc_df, aupr_df, args, cdata):
         for mtype in auc_df.index
         ]
 
-    ax_auc.scatter(mtype_sizes, auc_vals, s=15, c='black', alpha=0.47)
-    ax_aupr.scatter(mtype_sizes, aupr_vals, s=15, c='black', alpha=0.47)
+    ax_auc.scatter(mtype_sizes, auc_vals, s=17, c='black', alpha=0.47)
+    ax_aupr.scatter(mtype_sizes, aupr_vals, s=17, c='black', alpha=0.47)
 
     for annot_x, annot_y, annot, halign in place_annot(
             mtype_sizes, auc_vals.values.tolist(),
             size_vec=[15 for _ in mtype_sizes], annot_vec=aupr_vals.index,
-            x_range=max(mtype_sizes) * 1.03, y_range=1, gap_adj=83
+            x_range=max(mtype_sizes) * 1.03, y_range=1, gap_adj=53
             ):
         ax_auc.text(annot_x, annot_y, annot, size=11, ha=halign)
 
     for annot_x, annot_y, annot, halign in place_annot(
             mtype_sizes, aupr_vals.values.tolist(),
             size_vec=[15 for _ in mtype_sizes], annot_vec=aupr_vals.index,
-            x_range=1, y_range=1, gap_adj=83
+            x_range=1, y_range=1, gap_adj=53
             ):
         ax_aupr.text(annot_x, annot_y, annot, size=11, ha=halign)
 
@@ -140,9 +141,9 @@ def plot_acc_quartiles(auc_df, aupr_df, args, cdata):
     fig.savefig(
         os.path.join(plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
                      args.model_name.split('__')[0],
-                     '{}__acc-quartiles.png'.format(
+                     "{}__acc-quartiles.svg".format(
                          args.model_name.split('__')[1])),
-        dpi=250, bbox_inches='tight'
+        dpi=350, bbox_inches='tight', format='svg'
         )
 
     plt.close()
@@ -150,6 +151,9 @@ def plot_acc_quartiles(auc_df, aupr_df, args, cdata):
 
 def plot_generalization_error(train_aucs, test_aucs, args):
     plot_min = min(train_aucs.min().min(), test_aucs.min().min()) - 0.01
+
+    if np.min(train_aucs.values) > 0.999:
+        train_aucs += np.random.randn(train_aucs.shape[1]) / 500
 
     g = sns.JointGrid(train_aucs.values.flatten(), test_aucs.values.flatten(),
                       xlim=(plot_min, 1.01), ylim=(plot_min, 1.01), height=9)
@@ -166,15 +170,15 @@ def plot_generalization_error(train_aucs, test_aucs, args):
     g.savefig(
         os.path.join(plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
                      args.model_name.split('__')[0],
-                     '{}__generalization.png'.format(
+                     "{}__generalization.svg".format(
                          args.model_name.split('__')[1])),
-        dpi=250, bbox_inches='tight'
+        dpi=300, bbox_inches='tight', format='svg'
         )
 
     plt.close()
 
 
-def plot_tuning_profile(tune_dict, use_clf, args, cdata=None):
+def plot_tuning_profile(tune_dict, use_clf, args, cdata):
     fig, axarr = plt.subplots(
         figsize=(17, 0.3 + 7 * len(use_clf.tune_priors)),
         nrows=len(use_clf.tune_priors), ncols=1, squeeze=False
@@ -212,9 +216,9 @@ def plot_tuning_profile(tune_dict, use_clf, args, cdata=None):
     fig.savefig(
         os.path.join(plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
                      args.model_name.split('__')[0],
-                     '{}__tuning-profile.png'.format(
+                     "{}__tuning-profile.svg".format(
                          args.model_name.split('__')[1])),
-        dpi=250, bbox_inches='tight'
+        dpi=300, bbox_inches='tight', format='svg'
         )
 
     plt.close()
@@ -258,9 +262,9 @@ def plot_tuning_distribution(par_df, auc_df, use_clf, args, cdata):
     fig.savefig(
         os.path.join(plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
                      args.model_name.split('__')[0],
-                     '{}__tuning-distribution.png'.format(
+                     "{}__tuning-distribution.svg".format(
                          args.model_name.split('__')[1])),
-        dpi=250, bbox_inches='tight'
+        dpi=300, bbox_inches='tight', format='svg'
         )
 
     plt.close()
@@ -348,9 +352,9 @@ def plot_tuning_mtype(par_df, auc_df, use_clf, args, cdata):
     fig.savefig(
         os.path.join(plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
                      args.model_name.split('__')[0],
-                     '{}__tuning-mtype.png'.format(
+                     "{}__tuning-mtype.svg".format(
                          args.model_name.split('__')[1])),
-        dpi=250, bbox_inches='tight'
+        dpi=300, bbox_inches='tight', format='svg'
         )
 
     plt.close()
@@ -473,9 +477,74 @@ def plot_tuning_mtype_grid(par_df, auc_df, use_clf, args, cdata):
     fig.savefig(
         os.path.join(plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
                      args.model_name.split('__')[0],
-                     '{}__tuning-mtype-grid.png'.format(
+                     "{}__tuning-mtype-grid.svg".format(
                          args.model_name.split('__')[1])),
-        dpi=250, bbox_inches='tight'
+        dpi=300, bbox_inches='tight', format='svg'
+        )
+
+    plt.close()
+
+
+def plot_tuning_profile_grid(tune_dict, use_clf, args, cdata):
+    fig, axarr = plt.subplots(
+        figsize=(0.1 + 2.3 * len(use_clf.tune_priors[1][1]),
+                 0.1 + 2.3 * len(use_clf.tune_priors[0][1])),
+        nrows=len(use_clf.tune_priors[0][1]),
+        ncols=len(use_clf.tune_priors[1][1]),
+        sharex=True, sharey=True
+        )
+
+    tune_grps = (tune_dict['mean'] - tune_dict['std']).groupby(
+        axis=1, level=tune_dict['mean'].columns.names)
+    ylim = max(tune_grps.min().values.min(), 0)
+    mtype_order = tune_grps.quantile(q=0.25).max(axis=1).sort_values(
+        ascending=False).index
+
+    for (i, par_val1), (j, par_val2) in product(
+            enumerate(use_clf.tune_priors[0][1]),
+            enumerate(use_clf.tune_priors[1][1])
+            ):
+
+        if i == 0:
+            axarr[i, j].text(0.5, 1.03, format(par_val2, '.1g'),
+                             size=16, weight='semibold', ha='center',
+                             va='bottom', transform=axarr[i, j].transAxes)
+
+        if j == 0:
+            axarr[i, j].text(-0.24, 0.5, format(par_val1, '.1g'),
+                             size=16, weight='semibold', rotation=90,
+                             ha='right', va='center',
+                             transform=axarr[i, j].transAxes)
+
+        axarr[i, j].plot(
+            tune_grps.quantile(q=0.25).loc[
+                mtype_order, (par_val1, par_val2)].values,
+            linewidth=3.1, color='blue', alpha=0.9
+            )
+
+        axarr[i, j].fill_between(
+            list(range(len(tune_grps) + 1)),
+            y1=tune_grps.quantile(q=0.5).loc[
+                mtype_order, (par_val1, par_val2)].values,
+            y2=tune_grps.min().loc[mtype_order, (par_val1, par_val2)].values,
+            facecolor='blue', alpha=0.3, interpolate=True
+            )
+
+        axarr[i, j].set_xticks([])
+        axarr[i, j].set_ylim(ylim, 1.01)
+
+    fig.text(0.5, 60/59, use_clf.tune_priors[1][0],
+             size=21, weight='semibold', ha='center', va='bottom')
+    fig.text(-0.03, 0.5, use_clf.tune_priors[0][0], size=21,
+             weight='semibold', rotation=90, ha='right', va='center')
+
+    fig.tight_layout()
+    fig.savefig(
+        os.path.join(plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
+                     args.model_name.split('__')[0],
+                     "{}__tuning-profile-grid.svg".format(
+                         args.model_name.split('__')[1])),
+        dpi=300, bbox_inches='tight', format='svg'
         )
 
     plt.close()
@@ -507,7 +576,8 @@ def main():
         ), exist_ok=True
         )
 
-    cdata = get_cohort_data(args.expr_source, args.cohort)
+    cdata = load_cohort_data(base_dir, args.expr_source, args.cohort,
+                             args.samp_cutoff, cv_prop=1.0, cv_seed=0)
     fit_acc, tune_acc, tune_time, par_df, mut_clf = load_output(
         args.expr_source, args.cohort, args.samp_cutoff, args.model_name,
         out_base=base_dir
@@ -517,7 +587,7 @@ def main():
     plot_acc_quartiles(fit_acc['test'].AUC, fit_acc['test'].AUPR, args, cdata)
     plot_generalization_error(fit_acc['train'].AUC, fit_acc['test'].AUC, args)
 
-    plot_tuning_profile(tune_acc, mut_clf, args, None)
+    plot_tuning_profile(tune_acc, mut_clf, args, cdata)
     plot_tuning_distribution(par_df, fit_acc['test'].AUC, mut_clf,
                              args, cdata)
     plot_tuning_mtype(par_df, fit_acc['test'].AUC, mut_clf, args, cdata)
@@ -525,6 +595,9 @@ def main():
     if len(mut_clf.tune_priors) > 1:
         plot_tuning_mtype_grid(par_df, fit_acc['test'].AUC, mut_clf,
                                args, cdata)
+
+    if len(mut_clf.tune_priors) == 2:
+        plot_tuning_profile_grid(tune_acc, mut_clf, args, cdata)
 
 
 if __name__ == "__main__":

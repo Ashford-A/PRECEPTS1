@@ -3,15 +3,17 @@ import os
 import sys
 
 if 'DATADIR' in os.environ:
-    base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'mut_baseline')
+    base_dir = os.path.join(os.environ['DATADIR'],
+                            'HetMan', 'variant_baseline')
 else:
     base_dir = os.path.dirname(__file__)
 
 plot_dir = os.path.join(base_dir, 'plots', 'cohort')
 sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
 
-from HetMan.experiments.mut_baseline import *
-from HetMan.experiments.mut_baseline.fit_tests import load_output
+from HetMan.experiments.variant_baseline import *
+from HetMan.experiments.variant_baseline.fit_tests import (
+    load_cohort_data, load_output)
 from HetMan.experiments.utilities import auc_cmap
 from HetMan.experiments.utilities.scatter_plotting import place_annot
 
@@ -35,15 +37,15 @@ use_marks = [(0, 3, 0)]
 use_marks += [(i, 0, k) for k in (0, 140) for i in (3, 4, 5)]
 
 
-def plot_auc_highlights(out_dict, args):
+def plot_auc_highlights(out_dict, args, cdata_dict):
     """Plots the accuracy of each classifier for the top mutations."""
 
     # calculates the first quartile of the testing AUC of each classifier on
     # each mutation type across the cross-validation runs
-    auc_quarts = pd.DataFrame.from_dict(
-        {mdl: auc_df.applymap(itemgetter('test')).quantile(q=0.25, axis=1)
-         for mdl, (auc_df, _, _, _, _) in out_dict.items()}
-        )
+    auc_quarts = pd.DataFrame.from_dict({
+        mdl: acc_dict['test']['AUC'].quantile(q=0.25, axis=1)
+        for mdl, (acc_dict, _, _, _, _) in out_dict.items()
+        })
 
     # gets the top forty mutation types by the best first-quartile AUC across
     # all classifiers, gets the classifiers that did well on at least one type
@@ -61,8 +63,12 @@ def plot_auc_highlights(out_dict, args):
     # gets the 3rd quartile of fit times for each combination of classifier
     # and mutation type across cross-validation runs, takes the average across
     # all types to get the computational complexity for each classifier
-    time_vals = pd.Series({mdl: tm_df.quantile(q=0.75, axis=1).mean()
-                           for mdl, (_, _, tm_df, _, _) in out_dict.items()})
+    time_vals = pd.Series({
+        mdl: (tm_dict['fit']['avg'] + tm_dict['fit']['std']).groupby(
+            axis=1, level=0).quantile(q=0.75).mean().mean()
+        for mdl, (_, _, tm_dict, _, _) in out_dict.items()
+        })
+
     time_vals = time_vals.loc[plot_df.columns]
     plot_df.columns = ['{} {}  ({:.3g}s)'.format(src, mdl, vals)
                        for (src, mdl), vals in time_vals.iteritems()]
@@ -74,9 +80,20 @@ def plot_auc_highlights(out_dict, args):
         best_stat = plot_df.columns == auc_vals.idxmax()
         annot_values.loc[mtype, ~best_stat] = ''
 
+    mtype_sizes = {mtype: {src: mtype.get_samples(cdata.train_mut)
+                           for src, cdata in cdata_dict.items()}
+                   for mtype in use_mtypes}
+    for mtype, samp_dict in mtype_sizes.items():
+        assert len(set(frozenset(samps) for samps in samp_dict.values())) == 1
+
+    mtype_sizes = {mtype: len(tuple(samp_dict.values())[0])
+                   for mtype, samp_dict in mtype_sizes.items()}
+    mtype_lbls = ["{} ({})".format(str(mtype), mtype_sizes[mtype])
+                  for mtype in plot_df.index]
+
     # creates the heatmap of AUC values for classifiers x mutation types
     ax = sns.heatmap(plot_df, cmap=auc_cmap, vmin=0, vmax=1, center=0.5,
-                     yticklabels=True, annot=annot_values, fmt='',
+                     yticklabels=mtype_lbls, annot=annot_values, fmt='',
                      annot_kws={'size': fig_size})
 
     ax.figure.axes[-1].tick_params(labelsize=fig_size * 1.73)
@@ -100,15 +117,14 @@ def plot_auc_highlights(out_dict, args):
 def plot_aupr_time(out_dict, args):
     fig, axarr = plt.subplots(figsize=(9, 15), nrows=2, sharex=True)
 
-    time_quarts = np.log2(pd.Series(
-        {mdl: time_df.quantile(q=0.75, axis=1).mean()
-         for mdl, (_, _, time_df, _, _) in out_dict.items()}
-        ))
+    time_quarts = np.log2(pd.Series({
+        mdl: (tm_dict['fit']['avg'] + tm_dict['fit']['std']).groupby(
+            axis=1, level=0).quantile(q=0.75).mean().mean()
+        for mdl, (_, _, tm_dict, _, _) in out_dict.items()
+        }))
 
-    aupr_vals = {
-        mdl: aupr_df.applymap(itemgetter('test')).quantile(q=0.25, axis=1)
-        for mdl, (_, aupr_df, _, _, _) in out_dict.items()
-        }
+    aupr_vals = {mdl: acc_dict['test']['AUPR'].quantile(q=0.25, axis=1)
+                 for mdl, (acc_dict, _, _, _, _) in out_dict.items()}
 
     aupr_list = [
         pd.Series({mdl: vals.mean() for mdl, vals in aupr_vals.items()}),
@@ -192,17 +208,15 @@ def main():
         samp_ctfs = parsed_dirs[0][1].split('__samps-')[1]
         parsed_dirs = [[prs[0]] + prs[2:] for prs in parsed_dirs]
 
+    cdata_dict = {src: load_cohort_data(base_dir, src, args.cohort, samp_ctfs,
+                                        cv_prop=1.0, cv_seed=0)
+                  for src in set(s for s, _ in parsed_dirs)}
+
     out_dict = {(src, mdl): load_output(src, args.cohort, samp_ctfs, mdl,
                                         out_base=base_dir)
                 for src, mdl in parsed_dirs}
 
-    # limit the evaluation data to mutations that were in every testing set
-    use_muts = reduce(and_, [out_ls[0].index for out_ls in out_dict.values()])
-    out_dict = {(src, mdl): [out_df.loc[use_muts]
-                             for out_df in out_ls[:4]] + [out_ls[4]]
-                for (src, mdl), out_ls in out_dict.items()}
-
-    plot_auc_highlights(out_dict.copy(), args)
+    plot_auc_highlights(out_dict.copy(), args, cdata_dict)
     plot_aupr_time(out_dict.copy(), args)
 
 
