@@ -12,7 +12,7 @@
 
 export OMP_NUM_THREADS=1
 echo $OUTDIR
-sleep $(($SLURM_ARRAY_TASK_ID * 11));
+sleep $(($SLURM_ARRAY_TASK_ID * $(shuf -i 1-29 -n 1)));
 
 cv_id=$(($SLURM_ARRAY_TASK_ID % 25));
 task_id=$(($SLURM_ARRAY_TASK_ID / 25));

@@ -523,7 +523,7 @@ def plot_tuning_profile_grid(tune_dict, use_clf, args, cdata):
             )
 
         axarr[i, j].fill_between(
-            list(range(len(tune_grps) + 1)),
+            list(range(len(mtype_order))),
             y1=tune_grps.quantile(q=0.5).loc[
                 mtype_order, (par_val1, par_val2)].values,
             y2=tune_grps.min().loc[mtype_order, (par_val1, par_val2)].values,

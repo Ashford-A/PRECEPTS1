@@ -67,6 +67,14 @@ def main():
     os.makedirs(out_path, exist_ok=True)
     cdata = get_cohort_data(args.expr_source, args.cohort)
 
+    with open(os.path.join(out_path,
+                           "cohort-data_{}__{}__samps-{}.p".format(
+                               args.expr_source, args.cohort,
+                               args.samp_cutoff
+                            )),
+              'wb') as f:
+        pickle.dump(cdata, f)
+
     vars_list = reduce(
         or_,
         [{MuType({('Gene', gene): mtype})
