@@ -9,7 +9,6 @@ else:
     base_dir = os.path.dirname(__file__)
 
 from HetMan.experiments.variant_baseline import *
-from HetMan.features.cohorts.tcga import MutationCohort
 from HetMan.experiments.variant_baseline.setup_tests import get_cohort_data
 
 import argparse
@@ -22,6 +21,25 @@ from sklearn.metrics import roc_auc_score
 from sklearn.metrics import average_precision_score as aupr_score
 from itertools import product
 from operator import itemgetter
+
+
+def load_cohort_data(base_dir,
+                     expr_source, cohort, samp_cutoff):
+
+    cdata_path = os.path.join(
+        base_dir, 'setup', "cohort-data_{}__{}__samps-{}.p".format(
+            expr_source, cohort, samp_cutoff)
+        )
+
+    if os.path.exists(cdata_path):
+        cdata = pickle.load(open(cdata_path, 'rb'))
+
+    else:
+        cdata = get_cohort_data(expr_source, cohort)
+        os.makedirs(os.path.join(base_dir, 'setup'), exist_ok=True)
+        pickle.dump(cdata, open(cdata_path, 'wb'))
+
+    return cdata
 
 
 def load_output(expr_source, cohort, samp_cutoff, classif, out_base=base_dir):
@@ -173,7 +191,7 @@ def main():
             # of genes on the same chromosome as that gene
             var_gene = mtype.subtype_list()[0][0]
             ex_genes = {gene for gene, annot in cdata.gene_annot.items()
-                        if annot['chr'] == cdata.gene_annot[var_gene]['chr']}
+                        if annot['Chr'] == cdata.gene_annot[var_gene]['Chr']}
 
             clf, cv_output = clf.tune_coh(
                 cdata, mtype, exclude_genes=ex_genes,

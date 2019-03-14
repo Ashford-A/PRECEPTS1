@@ -189,7 +189,6 @@ def plot_tuning_profile(tune_dict, use_clf, args, cdata):
 
     for ax, (par_name, tune_distr) in zip(axarr.flatten(),
                                           use_clf.tune_priors):
-        ax.set_title(par_name, size=29, weight='semibold')
         tune_vals = tune_df.groupby(axis=1, level=par_name).quantile(q=0.25)
 
         if detect_log_distr(tune_distr):
@@ -199,6 +198,10 @@ def plot_tuning_profile(tune_dict, use_clf, args, cdata):
         else:
             use_distr = tune_distr
             par_lbl = par_name
+
+        ax.axhline(color='#550000', y=0.5, linewidth=3.1, alpha=0.32)
+        ax.set_xlabel(par_lbl, fontsize=22, weight='semibold')
+        ax.set_ylabel('Training AUC', fontsize=22, weight='semibold')
 
         for vals in tune_vals.values:
             ax.plot(use_distr, vals, '-',
@@ -211,6 +214,10 @@ def plot_tuning_profile(tune_dict, use_clf, args, cdata):
             ax.plot(use_distr[chng_indx:(chng_indx + 6)],
                     vals[chng_indx:(chng_indx + 6)], '-', linewidth=2.7,
                     alpha=0.39, color=auc_cmap(np.max(vals)))
+
+        for par_val in use_distr:
+            ax.axvline(x=par_val, color='#116611',
+                       ls=':', linewidth=1.3, alpha=0.16)
 
     fig.tight_layout()
     fig.savefig(
@@ -339,6 +346,11 @@ def plot_tuning_mtype(par_df, auc_df, use_clf, args, cdata):
             axarr[1, i].axvline(x=par_val, color='#116611',
                                 ls='--', linewidth=3.4, alpha=0.27)
 
+            axarr[0, i].axvline(x=par_val, color='#116611',
+                                ls=':', linewidth=1.3, alpha=0.16)
+            axarr[2, i].axvline(x=par_val, color='#116611',
+                                ls=':', linewidth=1.3, alpha=0.16)
+
         annot_placed = place_annot(
             med_vals, auc_vals.values.tolist(),
             size_vec=size_vec, annot_vec=auc_vals.index,
@@ -404,6 +416,7 @@ def plot_tuning_mtype_grid(par_df, auc_df, use_clf, args, cdata):
             enumerate(use_clf.tune_priors), 2):
 
         if detect_log_distr(tn_distr1):
+            use_distr1 = [np.log10(par_val) for par_val in tn_distr1]
             par_meds1 = np.log10(par_df[par_name1]).median(axis=1)
             par_means1 = np.log10(par_df[par_name1]).mean(axis=1)
             
@@ -413,6 +426,7 @@ def plot_tuning_mtype_grid(par_df, auc_df, use_clf, args, cdata):
             plt_ymax = np.log10(tn_distr1[-1]) + distr_diff / 2
 
         else:
+            use_distr1 = tn_distr1
             par_meds1 = par_df[par_name1].median(axis=1)
             par_means1 = par_df[par_name1].mean(axis=1)
 
@@ -422,6 +436,7 @@ def plot_tuning_mtype_grid(par_df, auc_df, use_clf, args, cdata):
             plt_ymax = tn_distr1[-1] + distr_diff / 2
 
         if detect_log_distr(tn_distr2):
+            use_distr2 = [np.log10(par_val) for par_val in tn_distr2]
             par_meds2 = np.log10(par_df[par_name2]).median(axis=1)
             par_means2 = np.log10(par_df[par_name2]).mean(axis=1)
 
@@ -431,6 +446,7 @@ def plot_tuning_mtype_grid(par_df, auc_df, use_clf, args, cdata):
             plt_xmax = np.log10(tn_distr2[-1]) + distr_diff / 2
 
         else:
+            use_distr2 = tn_distr2
             par_meds2 = par_df[par_name2].median(axis=1)
             par_means2 = par_df[par_name2].mean(axis=1)
 
@@ -439,21 +455,33 @@ def plot_tuning_mtype_grid(par_df, auc_df, use_clf, args, cdata):
             plt_xmin = tn_distr2[0] - distr_diff / 2
             plt_xmax = tn_distr2[-1] + distr_diff / 2
 
-        par_meds1 += np.random.normal(
-            0, (plt_ymax - plt_ymin) / (len(tn_distr1) * 17), auc_df.shape[0])
-        par_meds2 += np.random.normal(
-            0, (plt_xmax - plt_xmin) / (len(tn_distr2) * 17), auc_df.shape[0])
+        par_meds1 = par_meds1[auc_clrs.index]
+        par_meds2 = par_meds2[auc_clrs.index]
+        y_adj = (plt_ymax - plt_ymin) / len(tn_distr1)
+        x_adj = (plt_xmax - plt_xmin) / len(tn_distr2)
+        plt_adj = (plt_xmax - plt_xmin) / (plt_ymax - plt_ymin)
 
-        par_means1 += np.random.normal(
-            0, (plt_ymax - plt_ymin) / (len(tn_distr1) * 23), auc_df.shape[0])
-        par_means2 += np.random.normal(
-            0, (plt_xmax - plt_xmin) / (len(tn_distr2) * 23), auc_df.shape[0])
+        for med1, med2 in set(zip(par_meds1, par_meds2)):
+            use_indx = (par_meds1 == med1) & (par_meds2 == med2)
 
-        axarr[i, j].scatter(
-            par_meds2[auc_clrs.index], par_meds1[auc_clrs.index],
-            s=size_vec, c=auc_clrs, alpha=0.36, edgecolor='black'
-            )
+            cnt_adj = use_indx.sum() ** 0.49
+            use_sizes = [s for s, ix in zip(size_vec, use_indx) if ix]
+            sort_indx = sorted(enumerate(use_sizes),
+                               key=lambda x: x[1], reverse=True)
 
+            from circlify import circlify
+            mpl.use('Agg')
+
+            for k, circ in enumerate(circlify([s for _, s in sort_indx])):
+                axarr[i, j].scatter(
+                    med2 + (1 / 23) * cnt_adj * circ.y * plt_adj,
+                    med1 + (1 / 23) * cnt_adj * circ.x * plt_adj ** -1,
+                    s=sort_indx[k][1], c=auc_clrs[use_indx][sort_indx[k][0]],
+                    alpha=0.36, edgecolor='black'
+                    )
+
+        par_means1 += np.random.normal(0, y_adj / 27, auc_df.shape[0])
+        par_means2 += np.random.normal(0, x_adj / 27, auc_df.shape[0])
         axarr[j, i].scatter(
             par_means1[auc_clrs.index], par_means2[auc_clrs.index],
             s=size_vec, c=auc_clrs, alpha=0.36, edgecolor='black'
@@ -472,6 +500,18 @@ def plot_tuning_mtype_grid(par_df, auc_df, use_clf, args, cdata):
  
         for annot_x, annot_y, annot, halign in annot_placed:
             axarr[i, j].text(annot_x, annot_y, annot, size=11, ha=halign)
+
+        for par_val1 in use_distr1:
+            axarr[i, j].axhline(y=par_val1, color='#116611',
+                                ls=':', linewidth=2.3, alpha=0.19)
+            axarr[j, i].axvline(x=par_val1, color='#116611',
+                                ls=':', linewidth=2.3, alpha=0.19)
+
+        for par_val2 in use_distr2:
+            axarr[i, j].axvline(x=par_val2, color='#116611',
+                                ls=':', linewidth=2.3, alpha=0.19)
+            axarr[j, i].axhline(y=par_val2, color='#116611',
+                                ls=':', linewidth=2.3, alpha=0.19)
 
     plt.tight_layout()
     fig.savefig(
@@ -576,8 +616,8 @@ def main():
         ), exist_ok=True
         )
 
-    cdata = load_cohort_data(base_dir, args.expr_source, args.cohort,
-                             args.samp_cutoff, cv_prop=1.0, cv_seed=0)
+    cdata = load_cohort_data(base_dir,
+                             args.expr_source, args.cohort, args.samp_cutoff)
     fit_acc, tune_acc, tune_time, par_df, mut_clf = load_output(
         args.expr_source, args.cohort, args.samp_cutoff, args.model_name,
         out_base=base_dir

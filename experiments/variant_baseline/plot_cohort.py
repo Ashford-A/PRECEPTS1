@@ -208,8 +208,7 @@ def main():
         samp_ctfs = parsed_dirs[0][1].split('__samps-')[1]
         parsed_dirs = [[prs[0]] + prs[2:] for prs in parsed_dirs]
 
-    cdata_dict = {src: load_cohort_data(base_dir, src, args.cohort, samp_ctfs,
-                                        cv_prop=1.0, cv_seed=0)
+    cdata_dict = {src: load_cohort_data(base_dir, src, args.cohort, samp_ctfs)
                   for src in set(s for s, _ in parsed_dirs)}
 
     out_dict = {(src, mdl): load_output(src, args.cohort, samp_ctfs, mdl,
