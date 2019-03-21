@@ -1,102 +1,82 @@
 
 import os
-base_dir = os.path.dirname(__file__)
-plot_dir = os.path.join(base_dir, 'plots', 'subtypes')
-
 import sys
-sys.path.extend([os.path.join(base_dir, '../../..')])
 
-from HetMan.features.cohorts.tcga import MutationCohort
-from HetMan.features.mutations import MuType
-from HetMan.describe.transformers import *
+if 'DATADIR' in os.environ:
+    data_dir = os.path.join(os.environ['DATADIR'],
+                            'HetMan', 'variant_baseline')
+    base_dir = os.path.join(os.environ['DATADIR'],
+                            'HetMan', 'tcga_cluster')
 
-import synapseclient
+else:
+    data_dir = os.path.dirname(__file__)
+    base_dir = os.path.dirname(__file__)
+
+plot_dir = os.path.join(base_dir, 'plots', 'subtypes')
+sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
+
+from HetMan.experiments.tcga_cluster import *
+from HetMan.experiments.variant_baseline.fit_tests import load_cohort_data
+
 import argparse
 import numpy as np
+import pandas as pd
 
 import matplotlib as mpl
 mpl.use('Agg')
-import seaborn as sns
-
 import matplotlib.pyplot as plt
+import seaborn as sns
+from matplotlib.lines import Line2D
+
 plt.style.use('fivethirtyeight')
+plt.rcParams['axes.facecolor']='white'
+plt.rcParams['savefig.facecolor']='white'
+plt.rcParams['axes.edgecolor']='white'
 
-firehose_dir = "/home/exacloud/lustre1/share_your_data_here/precepts/firehose"
 
+def plot_clustering(trans_expr, args, cdata, lum_data, pca_comps=(0, 1)):
+    fig, ax = plt.subplots(figsize=(9, 8))
 
-def plot_subtype_clustering(trans_expr, args, cdata, use_gene,
-                            pca_comps=(0, 1)):
-    fig, axarr = plt.subplots(nrows=3, ncols=4, figsize=(18, 13),
-                              sharex=True, sharey=True)
-    fig.tight_layout(pad=2.4, w_pad=2.1, h_pad=5.4)
+    trans_expr = trans_expr[:, np.array(pca_comps)]
+    lum_stat = np.array([lum_data.SUBTYPE[lum_data.index.get_loc(samp)]
+                         if samp in lum_data.index else 'None'
+                         for samp in cdata.train_data()[0].index])
 
-    for ax in axarr.reshape(-1):
-        ax.set_xticklabels([])
-        ax.set_yticklabels([])
+    lum_clrs = sns.color_palette('bright', n_colors=len(set(lum_stat)))
+    lgnd_lbls = []
+    lgnd_marks = []
 
-    pca_comps = np.array(pca_comps)
-    trans_expr = trans_expr[:, pca_comps]
-    mut_clr = sns.light_palette((1/3, 0, 0), input="rgb",
-                                n_colors=5, reverse=True)[1]
+    for lum, lum_clr in zip(sorted(set(lum_stat)), lum_clrs):
+        lum_indx = lum_stat == lum
 
-    base_pheno = np.array(cdata.train_pheno(
-        MuType({('Gene', use_gene): None})))
-    axarr[0, 0].set_title(use_gene, size=23)
+        ax.scatter(trans_expr[lum_indx, 0], trans_expr[lum_indx, 1],
+                   marker='o', s=31, c=lum_clr, alpha=0.27, edgecolor='none')
 
-    axarr[0, 0].scatter(
-        trans_expr[~base_pheno, 0], trans_expr[~base_pheno, 1],
-        marker='o', s=14, c='0.4', alpha=0.25, edgecolor='none'
-        )
+        lgnd_lbls += ["{} ({})".format(lum, np.sum(lum_indx))]
+        lgnd_marks += [Line2D([], [],
+                              marker='o', linestyle='None',
+                              markersize=23, alpha=0.43,
+                              markerfacecolor=lum_clr,
+                              markeredgecolor='none')]
 
-    axarr[0, 0].scatter(
-        trans_expr[base_pheno, 0], trans_expr[base_pheno, 1],
-        marker='o', s=45, c=mut_clr, alpha=0.4, edgecolor='none'
-        )
+    ax.set_xlabel("{} Component {}".format(args.transform, pca_comps[0] + 1),
+                  size=17, weight='semibold')
+    ax.set_xticklabels([])
 
-    plot_mtypes = {
-        MuType({('Gene', use_gene): mtype})
-        for mtype in cdata.train_mut[use_gene].branchtypes(min_size=20)
-        }
+    ax.set_ylabel("{} Component {}".format(args.transform, pca_comps[1] + 1),
+                  size=17, weight='semibold')
+    ax.set_yticklabels([])
 
-    plot_phenos = sorted([(mtype, np.array(cdata.train_pheno(mtype)))
-                          for mtype in plot_mtypes],
-                         key=lambda x: np.sum(x[1]), reverse=True)
-
-    if len(plot_mtypes) < 11:
-        comb_mtypes = {
-            MuType({('Gene', use_gene): mtype})
-            for mtype in cdata.train_mut[use_gene].combtypes(
-                min_type_size=25, comb_sizes=(2, ))
-            }
-
-        plot_phenos += sorted([(mtype, np.array(cdata.train_pheno(mtype)))
-                               for mtype in comb_mtypes],
-                              key=lambda x: np.sum(x[1]), reverse=True
-                             )[:(11 - len(plot_mtypes))]
-
-    for ax, (mtype, pheno) in zip(axarr.reshape(-1)[1:], plot_phenos[:11]):
-        ax.set_title(
-            repr(mtype).replace(' WITH ', '\n').replace(' OR ', '\n'),
-            size=16
-            )
-
-        ax.scatter(trans_expr[~pheno, 0], trans_expr[~pheno, 1],
-                   marker='o', s=14, c='0.4', alpha=0.25, edgecolor='none')
-        ax.scatter(trans_expr[pheno, 0], trans_expr[pheno, 1],
-                   marker='o', s=45, c=mut_clr, alpha=0.4, edgecolor='none')
-
-    fig.text(0.5, 0.02, 'Component {}'.format(pca_comps[0] + 1),
-             size=24, weight='semibold', ha='center')
-    fig.text(0.02, 0.5, 'Component {}'.format(pca_comps[1] + 1),
-             size=24, weight='semibold', va='center', rotation='vertical')
+    ax.legend(lgnd_marks, lgnd_lbls, bbox_to_anchor=(0.5, -0.05),
+              frameon=False, fontsize=21, ncol=3, loc=9, handletextpad=0.3)
 
     fig.savefig(os.path.join(
-        plot_dir, "{}_clustering_comps_{}-{}__{}_{}__levels__{}.png".format(
-            args.cohort, pca_comps[0], pca_comps[1],
-            use_gene, args.transform, args.mut_levels,
-            )),
-        dpi=250, bbox_inches='tight'
-        )
+        plot_dir, "{}__{}_{}_comps-{}_{}.png".format(
+            args.expr_source, args.cohort, args.transform,
+            pca_comps[0], pca_comps[1]
+            )
+        ),
+        dpi=400, bbox_inches='tight')
 
     plt.close()
 
@@ -104,35 +84,30 @@ def plot_subtype_clustering(trans_expr, args, cdata, use_gene,
 def main():
     parser = argparse.ArgumentParser(
         "Plots the clustering done by an unsupervised learning method on a "
-        "TCGA cohort with subtypes of particular genes highlighted."
+        "TCGA cohort with molecular subtypes highlighted."
         )
 
+    parser.add_argument('expr_source', type=str,
+                        choices=list(expr_sources.keys()),
+                        help="which TCGA expression data source to use")
     parser.add_argument('cohort', type=str, help='a cohort in TCGA')
+
     parser.add_argument('transform', type=str,
+                        choices=list(clust_algs.keys()),
                         help='an unsupervised learning method')
-    parser.add_argument('mut_levels', type=str,
-                        help='a set of mutation annotation levels')
-    parser.add_argument('--genes', type=str, nargs='+', default=['TP53'],
-                        help='a list of mutated genes')
 
     args = parser.parse_args()
     os.makedirs(plot_dir, exist_ok=True)
+    np.random.seed(use_seed)
 
-    syn = synapseclient.Synapse()
-    syn.cache.cache_root_dir = ("/home/exacloud/lustre1/CompBio/"
-                                "mgrzad/input-data/synapse")
-    syn.login()
+    cdata = load_cohort_data(data_dir, args.expr_source, args.cohort,
+                             samp_cutoff=25)
+    trans_expr = clust_algs[args.transform].fit_transform_coh(cdata)
 
-    cdata = MutationCohort(cohort=args.cohort, mut_genes=args.genes,
-                           mut_levels=['Gene'] + args.mut_levels.split('__'),
-                           expr_source='Firehose', expr_dir=firehose_dir,
-                           cv_prop=1.0, syn=syn)
+    lum_data = pd.read_csv(type_file, sep='\t', index_col=0)
+    lum_data = lum_data[lum_data.DISEASE == args.cohort.split('_')[0]]
 
-    mut_trans = eval(args.transform)()
-    trans_expr = mut_trans.fit_transform_coh(cdata)
-
-    for gene in args.genes:
-        plot_subtype_clustering(trans_expr.copy(), args, cdata, gene)
+    plot_clustering(trans_expr.copy(), args, cdata, lum_data)
 
 
 if __name__ == "__main__":
