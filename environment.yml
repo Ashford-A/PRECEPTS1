@@ -140,16 +140,38 @@ dependencies:
   - zlib=1.2.11
   - pip:
     - aql==0.0.0
+    - asciimatics==1.10.0
     - backports.csv==1.0.6
     - chardet==3.0.4
+    - circlify==0.9.1
+    - colorama==0.4.1
+    - configobj==5.0.6
+    - configparser==3.7.3
+    - contextlib2==0.5.5
     - deprecation==2.0.5
-    - dryad==0.3.2a9
+    - distro==1.4.0
+    - dryad==0.3.2b0
+    - dvc==0.32.1
     - future==0.17.1
+    - gitdb2==2.0.5
+    - gitpython==2.1.11
+    - grandalf==0.6
+    - jsonpath-rw==1.4.0
     - keyring==12.0.2
     - keyrings.alt==3.1.1
+    - line-profiler==2.1.2
+    - nanotime==0.5.2
+    - networkx==2.2
     - packaging==18.0
+    - pillow==5.4.1
+    - ply==3.11
+    - pyfiglet==0.8.post1
+    - pyyaml==5.1
     - requests==2.21.0
+    - schema==0.7.0
     - secretstorage==2.3.1
+    - smmap2==2.0.5
     - synapseclient==1.9.0
     - urllib3==1.24.1
+    - zc.lockfile==1.4
 

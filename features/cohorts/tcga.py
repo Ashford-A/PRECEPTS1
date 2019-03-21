@@ -200,7 +200,10 @@ class MutationCohort(BaseMutationCohort):
 
         # load expression and gene annotation datasets
         expr = get_expr_data(cohort, expr_source, **coh_args)
-        annot_data = get_gencode(annot_file)
+        if 'annot_fields' in coh_args:
+            annot_data = get_gencode(annot_file, coh_args['annot_fields'])
+        else:
+            annot_data = get_gencode(annot_file)
 
         # restructure annotation data around expression gene labels
         self.gene_annot = {
@@ -221,12 +224,17 @@ class MutationCohort(BaseMutationCohort):
 
             use_samps = set(type_data.index[type_data.SUBTYPE.isin(
                 coh_args['use_types'])])
-            use_samps |= set(expr.index) - set(type_data.index)
+            use_samps &= set(expr.index)
 
         else:
             use_samps = expr.index
 
         expr = expr.loc[use_samps]
+        if mut_genes:
+            self.alleles = variants.loc[
+                variants.Gene.isin(mut_genes),
+                ['Sample', 'Protein', 'ref_count', 'alt_count']
+                ]
 
         # add a mutation level indicating if a mutation is a CNA or not by
         # first figuring out where to situate it relative to the other

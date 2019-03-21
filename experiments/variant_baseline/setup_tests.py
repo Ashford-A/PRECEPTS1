@@ -45,7 +45,7 @@ def get_cohort_data(expr_source, cohort, cv_prop=1.0, cv_seed=None):
         type_file=type_file, expr_dir=expr_sources[expr_source],
         copy_dir=copy_dir, domain_dir=domain_dir, collapse_txs=collapse_txs,
         syn=syn, cv_prop=cv_prop, cv_seed=cv_seed,
-        use_types=parse_subtypes(cohort)
+        annot_fields=['transcript'], use_types=parse_subtypes(cohort)
         )
 
 
