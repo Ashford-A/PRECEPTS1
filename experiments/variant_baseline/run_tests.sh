@@ -43,7 +43,7 @@ fi
 mkdir -p $OUTDIR/setup $OUTDIR/output $OUTDIR/slurm
 cd $OUTDIR
 dvc init --no-scm
-mkdir -p $DATADIR/HetMan/variant_baseline/$out_tag
+mkdir -p $DATADIR/HetMan/variant_baseline/output/$out_tag
 
 dvc run -d $firehose_dir -d $mc3_file -d $gencode_file -d $gene_file -d $subtype_file \
 	-d $RUNDIR/setup_tests.py -o setup/cohort-data_${out_tag}.p \

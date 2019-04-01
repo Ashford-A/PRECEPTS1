@@ -1,117 +1,26 @@
 
 import os
+base_dir = os.path.dirname(__file__)
+
 import sys
-
-sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
-if 'BASEDIR' in os.environ:
-    base_dir = os.environ['BASEDIR']
-else:
-    base_dir = os.path.dirname(__file__)
-
+sys.path.extend([os.path.join(base_dir, '../../..')])
 from HetMan.experiments.variant_baseline import *
 from HetMan.experiments.variant_baseline.setup_tests import get_cohort_data
 
 import argparse
 from importlib import import_module
-import pandas as pd
 import dill as pickle
 
 import time
 from sklearn.metrics import roc_auc_score
 from sklearn.metrics import average_precision_score as aupr_score
-from itertools import product
-from operator import itemgetter
 
 
-def load_cohort_data(base_dir,
-                     expr_source, cohort, samp_cutoff):
+def load_variants_list(setup_dir, expr_source, cohort, samp_cutoff):
+    var_file = "vars-list_{}__{}__samps-{}.p".format(
+        expr_source, cohort, samp_cutoff)
 
-    cdata_path = os.path.join(
-        base_dir, 'setup', "cohort-data_{}__{}__samps-{}.p".format(
-            expr_source, cohort, samp_cutoff)
-        )
-
-    if os.path.exists(cdata_path):
-        cdata = pickle.load(open(cdata_path, 'rb'))
-
-    else:
-        cdata = get_cohort_data(expr_source, cohort)
-        os.makedirs(os.path.join(base_dir, 'setup'), exist_ok=True)
-        pickle.dump(cdata, open(cdata_path, 'wb'))
-
-    return cdata
-
-
-def load_output(expr_source, cohort, samp_cutoff, classif, out_base=base_dir):
-    out_dir = os.path.join(out_base, "output", expr_source,
-                           "{}__samps-{}".format(cohort, samp_cutoff),
-                           classif)
-
-    out_files = [(fl, int(fl.split('out__cv-')[1].split('_task-')[0]),
-                  int(fl.split('_task-')[1].split('.p')[0]))
-                  for fl in os.listdir(out_dir) if 'out__cv-' in fl]
-
-    out_files = sorted(out_files, key=itemgetter(1, 2))
-    task_count = len(set(task for _, _, task in out_files))
-    out_list = [pickle.load(open(os.path.join(out_dir, fl), 'rb'))
-                for fl, _, _ in out_files]
-
-    use_clf = set(ols['Clf'] for ols in out_list)
-    if len(use_clf) != 1:
-        raise ValueError("Each gene baseline testing experiment must be run "
-                         "with exactly one classifier!")
-
-    fit_acc = {
-        samp_set: pd.concat([
-            pd.concat([
-                pd.DataFrame.from_dict({mtype: acc[samp_set]
-                                        for mtype, acc in ols['Acc'].items()})
-                for i, ols in enumerate(out_list) if i % task_count == task_id
-                ], axis=0)
-            for task_id in range(task_count)
-        ], axis=1).transpose()
-        for samp_set in ['train', 'test']
-        }
-
-    tune_list = tuple(product(*[
-        vals for _, vals in tuple(use_clf)[0].tune_priors]))
-
-    tune_acc = {
-        stat_lbl: pd.concat([
-            pd.concat([
-                pd.DataFrame.from_dict({mtype: acc['tune'][stat_lbl]
-                                        for mtype, acc in ols['Acc'].items()},
-                                       orient='index', columns=tune_list)
-                for i, ols in enumerate(out_list) if i % task_count == task_id
-                ], axis=1, sort=True)
-            for task_id in range(task_count)
-        ], axis=0) for stat_lbl in ['mean', 'std']
-        }
-
-    par_df = pd.concat([
-        pd.concat([pd.DataFrame.from_dict(ols['Params'], orient='index')
-                   for i, ols in enumerate(out_list)
-                   if i % task_count == task_id], axis=1)
-        for task_id in range(task_count)
-        ], axis=0)
-
-    tune_time = {
-        stage_lbl: {
-            stat_lbl: pd.concat([
-                pd.concat([
-                    pd.DataFrame.from_dict({
-                        mtype: tm['tune'][stage_lbl][stat_lbl]
-                        for mtype, tm in ols['Time'].items()},
-                        orient='index', columns=tune_list)
-                    for i, ols in enumerate(out_list)
-                    if i % task_count == task_id
-                    ], axis=1, sort=True)
-                for task_id in range(task_count)
-                ], axis=0) for stat_lbl in ['avg', 'std']
-            } for stage_lbl in ['fit', 'score']
-        }
-
-    return fit_acc, tune_acc, tune_time, par_df, tuple(use_clf)[0]
+    return pickle.load(open(os.path.join(setup_dir, 'setup', var_file), 'rb'))
 
 
 def main():
@@ -142,28 +51,19 @@ def main():
     parser.add_argument('--task_id', type=int, default=0,
                         help='the subset of subtypes to assign to this task')
 
+    parser.add_argument('--setup_dir', type=str, default=base_dir)
+    parser.add_argument('--out_dir', type=str, default=base_dir)
+
     parser.add_argument('--verbose', '-v', action='store_true',
                         help='turns on diagnostic messages')
 
-    # parse command-line arguments, choose directory where to save results
     args = parser.parse_args()
-    out_path = os.path.join(
-        base_dir, 'output', args.expr_source,
-        '{}__samps-{}'.format(args.cohort, args.samp_cutoff), args.classif
-        )
-
-    # load list of variants whose presence will be predicted
-    vars_list = pickle.load(
-        open(os.path.join(base_dir, "setup",
-                          "vars-list_{}__{}__samps-{}.p".format(
-                              args.expr_source, args.cohort,
-                              args.samp_cutoff
-                            )),
-             'rb')
-        )
-
     cdata = get_cohort_data(args.expr_source, args.cohort,
                             cv_prop=0.75, cv_seed=2079 + 57 * args.cv_id)
+
+    # load list of variants whose presence will be predicted
+    vars_list = load_variants_list(
+        args.setup_dir, args.expr_source, args.cohort, args.samp_cutoff)
 
     clf_info = args.classif.split('__')
     clf_module = import_module(
@@ -252,7 +152,7 @@ def main():
     pickle.dump(
         {'Acc': out_acc, 'Clf': mut_clf,
          'Params': out_params, 'Time': out_time},
-        open(os.path.join(out_path,
+        open(os.path.join(args.out_dir, 'output',
                           'out__cv-{}_task-{}.p'.format(
                               args.cv_id, args.task_id)),
              'wb')
