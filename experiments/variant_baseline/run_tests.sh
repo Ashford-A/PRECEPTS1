@@ -5,24 +5,20 @@
 #SBATCH --verbose
 
 #SBATCH --mem=8000
-#SBATCH --time=500
+#SBATCH --time=2150
 
 
 source activate HetMan
 rewrite=false
 
-export RUNDIR=$CODEDIR/HetMan/experiments/variant_baseline
-export BASEDIR=$DATADIR/HetMan/variant_baseline
-mkdir -p $BASEDIR/setup
-
 while getopts e:t:s:c:m:r var
 do
 	case "$var" in
-		e)	export expr_source=$OPTARG;;
-		t)	export cohort=$OPTARG;;
-		s)	export samp_cutoff=$OPTARG;;
-		c)	export classif=$OPTARG;;
-		m)	export test_max=$OPTARG;;
+		e)	expr_source=$OPTARG;;
+		t)	cohort=$OPTARG;;
+		s)	samp_cutoff=$OPTARG;;
+		c)	classif=$OPTARG;;
+		m)	test_max=$OPTARG;;
 		r)	rewrite=true;;
 		[?])	echo "Usage: $0 [-e] expression source directory" \
 			     "[-t] TCGA cohort [-s] minimum sample cutoff" \
@@ -31,47 +27,46 @@ do
 	esac
 done
 
-export OUTDIR=$BASEDIR/output/$expr_source/${cohort}__samps-${samp_cutoff}/$classif
-if [ ! -e $BASEDIR/setup/vars-list_${expr_source}__${cohort}__samps-${samp_cutoff}.p ]
-then
-	srun python $RUNDIR/setup_tests.py $expr_source $cohort $samp_cutoff
-fi
+OUTDIR=$TEMPDIR/HetMan/variant_baseline/$expr_source/${cohort}__samps-${samp_cutoff}/$classif
+export RUNDIR=$CODEDIR/HetMan/experiments/variant_baseline
+source $RUNDIR/files.sh
+out_tag=${expr_source}__${cohort}__samps-${samp_cutoff}
 
-vars_count=$(cat $BASEDIR/setup/vars-count_${expr_source}__${cohort}__samps-${samp_cutoff}.txt)
-export array_size=$(( ($vars_count / $test_max + 1) * 25 - 1 ))
-
-if [ $array_size -gt 299 ]
-then
-	export array_size=299
-fi
-
+rmv_str=""
 if $rewrite
 then
 	rm -rf $OUTDIR
-	mkdir -p $OUTDIR/slurm
-	array_str=0-$array_size
-
 else
-	array_str=""
-	for i in `seq 0 $array_size`;
-	do
-		cv_id=$(( $i % 25 ));
-		task_id=$(( $i / 25 ));
-
-		if [ ! -e $OUTDIR/out__cv-${cv_id}_task-${task_id}.p ]
-		then
-			if [ ${#array_str} -gt 0 ]
-			then
-				array_str="$array_str,$i"
-			else
-				array_str="$i"
-			fi
-		fi
-	done 
+	rmv_str="--remove-outs "
 fi
 
-sbatch --output=${slurm_dir}/var-baseline-fit.out \
-	--error=${slurm_dir}/var-baseline-fit.err \
-	--exclude=$ex_nodes --no-requeue \
-	--array=$array_str $RUNDIR/fit_tests.sh
+mkdir -p $OUTDIR/setup $OUTDIR/output $OUTDIR/slurm
+cd $OUTDIR
+dvc init --no-scm
+mkdir -p $DATADIR/HetMan/variant_baseline/$out_tag
+
+dvc run -d $firehose_dir -d $mc3_file -d $gencode_file -d $gene_file -d $subtype_file \
+	-d $RUNDIR/setup_tests.py -o setup/cohort-data_${out_tag}.p \
+	-o setup/vars-list_${out_tag}.p -m setup/vars-count_${out_tag}.txt \
+	-f setup.dvc --overwrite-dvcfile \
+	python $RUNDIR/setup_tests.py $expr_source $cohort $samp_cutoff --setup_dir $OUTDIR
+
+vars_count=$(cat setup/vars-count_${out_tag}.txt)
+task_count=$(( $vars_count / $test_max + 1 ))
+
+if [ $task_count -gt 12 ]
+then
+	task_count=12
+fi
+
+dvc run -d setup/cohort-data_${out_tag}.p -d setup/vars-list_${out_tag}.p \
+       	-d $RUNDIR/fit_tests.py -d $RUNDIR/models/${classif%%'__'*}.py \
+	-o out-data.p -f output.dvc \
+	'snakemake -s $RUNDIR/Snakefile -j 100 --latency-wait 120 \
+	--rerun-incomplete --cluster-config $RUNDIR/cluster.json \
+	--cluster "sbatch -p {cluster.partition} -J {cluster.job-name} -t {cluster.time} \
+	-o {cluster.output} -e {cluster.error} -n {cluster.ntasks} -c {cluster.cpus-per-task} \
+	--mem-per-cpu {cluster.mem-per-cpu} --exclude=$ex_nodes --no-requeue" \
+	--config expr_source='"$expr_source"' cohort='"$cohort"' samp_cutoff='"$samp_cutoff"' \
+	classif='"$classif"' task_count='"$task_count"
 
