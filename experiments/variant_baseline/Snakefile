@@ -1,0 +1,71 @@
+
+import os
+
+LOCALDIR = os.path.join(os.environ['CODEDIR'],
+                        'HetMan', 'experiments', 'variant_baseline')
+
+TMPDIR = os.path.join(os.environ['TEMPDIR'],
+                      'HetMan', 'variant_baseline', config['expr_source'],
+                      "{}__samps-{}".format(config['cohort'],
+                                            config['samp_cutoff']),
+                      config['classif'])
+
+OUTDIR = os.path.join(
+    os.environ['DATADIR'], 'HetMan', 'variant_baseline', 'output',
+    "{}__{}__samps-{}".format(
+        config['expr_source'], config['cohort'], config['samp_cutoff'])
+    )
+
+
+localrules: target
+
+
+rule target:
+    input:
+        expand("{outdir}/out-data__{classif}.p",
+               outdir=OUTDIR, classif=config['classif'])
+
+    threads: 1
+
+
+rule classify:
+    output: "{TMPDIR}/output/out__cv-{cv_id}_task-{task_id}.p"
+
+    threads: 8
+
+    shell: """
+        set +u; source activate HetMan; set -u;
+        export OMP_NUM_THREADS=1;
+        sleep $(( ({wildcards.cv_id} + 1) * ({wildcards.task_id} + 1) * $(shuf -i 1-11 -n 1) ));
+ 
+        python {LOCALDIR}/fit_tests.py -v \
+                {config[expr_source]} {config[cohort]} {config[samp_cutoff]} \
+                {config[classif]} --cv_id={wildcards.cv_id} \
+                --task_count=1 --task_id={wildcards.task_id} \
+                --setup_dir={TMPDIR} --out_dir={TMPDIR}
+        """
+
+
+rule consolidate:
+    input:
+        expand("{tmpdir}/output/out__cv-{cv_id}_task-{task_id}.p",
+               tmpdir=TMPDIR,
+               cv_id=range(25), task_id=range(config['task_count']))
+
+    output:
+        expand("{outdir}/out-data__{classif}.p",
+               outdir=OUTDIR, classif=config['classif'])
+
+    threads: 1
+
+    shell: """
+        set +u; source activate HetMan; set -u;
+        python {LOCALDIR}/merge_tests.py \
+                {config[expr_source]} {config[cohort]} {config[samp_cutoff]} \
+                {config[classif]} --use_dir={TMPDIR}
+
+        out_tag={config[expr_source]}__{config[cohort]}__samps-{config[samp_cutoff]}
+        cp {TMPDIR}/out-data.p {OUTDIR}/out-data__{config[classif]}.p
+        cp {TMPDIR}/setup/cohort-data_${{out_tag}}.p {OUTDIR}/cohort-data__{config[classif]}.p
+        """
+
