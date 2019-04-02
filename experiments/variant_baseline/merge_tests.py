@@ -18,24 +18,96 @@ class MergeError(Exception):
     pass
 
 
-def merge_cohort_data(out_dir):
+def cdata_hash(cdata):
+    expr_hash = tuple(dict(cdata.omic_data.sum().round(5)).items())
+    mut_str = cdata.train_mut.get_newick()
+
+    return expr_hash, tuple(mut_str.count(k) for k in sorted(set(mut_str)))
+
+
+def merge_cohort_data(out_dir, cur_mdl=None):
     meta_file = os.path.join(out_dir, "metadata.txt")
 
     if not os.path.isfile(meta_file):
         raise MergeError("Meta-data file for output directory\n{}\nnot "
                          "present, directory is either locked due to a "
                          "concurrent process running or meta-data file needs "
-                         "to be instantiated using\n\ttouch {}".format(
+                         "to be instantiated using:\n\ttouch {}".format(
                              out_dir, meta_file))
 
     with open(meta_file, 'r') as fl:
         meta_data = fl.read()
     os.remove(meta_file)
 
-    coh_files = [fl for fl in os.listdir(os.path.join(out_dir))
-                 if 'cohort-data__' in fl]
+    if len(meta_data) > 0:
+        meta_dict = [[meta_str.split(': ')[0],
+                      meta_str.split(': ')[1].split(', ')]
+                     for meta_str in meta_data.split('\n') if meta_str]
 
-    cdata = pickle.load(open(os.path.join(out_dir, coh_files[0]), 'rb'))
+    else:
+        meta_dict = []
+
+    cur_cdatas = {
+        fl.split('data_')[1].split('.p')[0]: pickle.load(
+            open(os.path.join(out_dir, fl), 'rb'))
+        for fl in os.listdir(os.path.join(out_dir)) if 'cohort-data_v' in fl
+        }
+
+    new_cdatas = {
+        fl.split('data__')[1].split('.p')[0]: pickle.load(
+            open(os.path.join(out_dir, fl), 'rb'))
+        for fl in os.listdir(os.path.join(out_dir)) if 'cohort-data__' in fl
+        }
+
+    for mdl, cdata in new_cdatas.items():
+        if cdata.cv_seed != 0:
+            raise MergeError("Cohort for model {} does not have a "
+                             "cross-validation seed of zero!".format(mdl))
+
+        if cdata.test_samps is not None:
+            raise MergeError("Cohort for model {} does not have an empty "
+                             "testing sample set!".format(mdl))
+
+    cur_chsums = {cdata_hash(cdata): vrs for vrs, cdata in cur_cdatas.items()}
+    new_chsums = {mdl: cdata_hash(cdata) for mdl, cdata in new_cdatas.items()}
+
+    if len(cur_cdatas) > 0:
+        new_version = max(int(vrs[1:]) for vrs in cur_cdatas) + 1
+    else:
+        new_version = 0
+
+    for mdl, new_chsum in new_chsums.items():
+        os.remove(os.path.join(out_dir, "cohort-data__{}.p".format(mdl)))
+
+        if new_chsum not in cur_chsums:
+            vrs_str = 'v{}'.format(new_version)
+            new_fl = os.path.join(out_dir, "cohort-data_{}.p".format(vrs_str))
+
+            pickle.dump(new_cdatas[mdl], open(new_fl, 'wb'))
+            cur_cdatas[vrs_str] = new_cdatas[mdl]
+            del(new_cdatas[mdl])
+
+            cur_chsums[new_chsum] = vrs_str
+            meta_dict += [[vrs_str, [mdl]]]
+            new_version += 1
+
+        else:
+            meta_indx = [i for i, (vrs, _) in enumerate(meta_dict)
+                         if vrs == cur_chsums[new_chsum]]
+            if mdl not in meta_dict[meta_indx[0]][1]:
+                meta_dict[meta_indx[0]][1] += [mdl]
+
+    if cur_mdl is None:
+        use_vrs = max(int(vrs[1:]) for vrs in cur_cdatas)
+        cdata = cur_cdatas['v{}'.format(use_vrs)]
+
+    else:
+        pass
+
+    with open(meta_file, 'w') as fl:
+        fl.write('\n'.join("{}: {}".format(meta_val[0],
+                                           ', '.join(meta_val[1]))
+                           for meta_val in meta_dict))
 
     return cdata
 

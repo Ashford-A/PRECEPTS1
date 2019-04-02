@@ -2,22 +2,19 @@
 import os
 import sys
 
-if 'DATADIR' in os.environ:
-    base_dir = os.path.join(os.environ['DATADIR'],
+base_dir = os.path.join(os.environ['DATADIR'],
                             'HetMan', 'variant_baseline')
-else:
-    base_dir = os.path.dirname(__file__)
-
 plot_dir = os.path.join(base_dir, 'plots', 'model')
 sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
 
 from HetMan.experiments.variant_baseline import *
-from HetMan.experiments.variant_baseline.fit_tests import (
-    load_cohort_data, load_output)
+from HetMan.experiments.variant_baseline.merge_tests import merge_cohort_data
 from HetMan.experiments.utilities import auc_cmap
 from HetMan.experiments.utilities.scatter_plotting import place_annot
 
 import argparse
+import dill as pickle
+
 import numpy as np
 import pandas as pd
 from itertools import combinations as combn
@@ -65,7 +62,7 @@ def plot_auc_distribution(auc_df, args):
     ax.tick_params(axis='y', length=11, width=2)
 
     for i, mtype in enumerate(auc_means.index):
-        str_len = len(str(mtype)) // 3 + 2
+        str_len = min(len(str(mtype)) // 3 + 2, 8)
 
         if i < 8 or ((i % 2) == 1 and i < (len(auc_means) - 8)):
             txt_pos = np.max(flr_locs[i:(i + str_len), 1]) + 0.004
@@ -80,7 +77,9 @@ def plot_auc_distribution(auc_df, args):
             flr_locs[i, 0] = txt_pos
 
     fig.savefig(
-        os.path.join(plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
+        os.path.join(plot_dir,
+                     "{}__{}__samps-{}".format(args.expr_source, args.cohort,
+                                               args.samp_cutoff),
                      args.model_name.split('__')[0],
                      "{}__auc-distribution.svg".format(
                          args.model_name.split('__')[1])),
@@ -139,7 +138,9 @@ def plot_acc_quartiles(auc_df, aupr_df, args, cdata):
 
     fig.tight_layout(w_pad=2.2, h_pad=5.1)
     fig.savefig(
-        os.path.join(plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
+        os.path.join(plot_dir,
+                     "{}__{}__samps-{}".format(args.expr_source, args.cohort,
+                                               args.samp_cutoff),
                      args.model_name.split('__')[0],
                      "{}__acc-quartiles.svg".format(
                          args.model_name.split('__')[1])),
@@ -168,7 +169,9 @@ def plot_generalization_error(train_aucs, test_aucs, args):
     g.ax_joint.set_ylabel('Testing AUC', fontsize=22, weight='semibold')
 
     g.savefig(
-        os.path.join(plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
+        os.path.join(plot_dir,
+                     "{}__{}__samps-{}".format(args.expr_source, args.cohort,
+                                               args.samp_cutoff),
                      args.model_name.split('__')[0],
                      "{}__generalization.svg".format(
                          args.model_name.split('__')[1])),
@@ -221,7 +224,9 @@ def plot_tuning_profile(tune_dict, use_clf, args, cdata):
 
     fig.tight_layout()
     fig.savefig(
-        os.path.join(plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
+        os.path.join(plot_dir,
+                     "{}__{}__samps-{}".format(args.expr_source, args.cohort,
+                                               args.samp_cutoff),
                      args.model_name.split('__')[0],
                      "{}__tuning-profile.svg".format(
                          args.model_name.split('__')[1])),
@@ -267,7 +272,9 @@ def plot_tuning_distribution(par_df, auc_df, use_clf, args, cdata):
 
     fig.tight_layout()
     fig.savefig(
-        os.path.join(plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
+        os.path.join(plot_dir,
+                     "{}__{}__samps-{}".format(args.expr_source, args.cohort,
+                                               args.samp_cutoff),
                      args.model_name.split('__')[0],
                      "{}__tuning-distribution.svg".format(
                          args.model_name.split('__')[1])),
@@ -362,7 +369,9 @@ def plot_tuning_mtype(par_df, auc_df, use_clf, args, cdata):
  
     plt.tight_layout(h_pad=0)
     fig.savefig(
-        os.path.join(plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
+        os.path.join(plot_dir,
+                     "{}__{}__samps-{}".format(args.expr_source, args.cohort,
+                                               args.samp_cutoff),
                      args.model_name.split('__')[0],
                      "{}__tuning-mtype.svg".format(
                          args.model_name.split('__')[1])),
@@ -515,7 +524,9 @@ def plot_tuning_mtype_grid(par_df, auc_df, use_clf, args, cdata):
 
     plt.tight_layout()
     fig.savefig(
-        os.path.join(plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
+        os.path.join(plot_dir,
+                     "{}__{}__samps-{}".format(args.expr_source, args.cohort,
+                                               args.samp_cutoff),
                      args.model_name.split('__')[0],
                      "{}__tuning-mtype-grid.svg".format(
                          args.model_name.split('__')[1])),
@@ -580,7 +591,9 @@ def plot_tuning_profile_grid(tune_dict, use_clf, args, cdata):
 
     fig.tight_layout()
     fig.savefig(
-        os.path.join(plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
+        os.path.join(plot_dir,
+                     "{}__{}__samps-{}".format(args.expr_source, args.cohort,
+                                               args.samp_cutoff),
                      args.model_name.split('__')[0],
                      "{}__tuning-profile-grid.svg".format(
                          args.model_name.split('__')[1])),
@@ -610,34 +623,39 @@ def main():
                         help="which mutation classifier was tested")
 
     args = parser.parse_args()
-    os.makedirs(os.path.join(
-        plot_dir, '{}__{}'.format(args.expr_source, args.cohort),
-        args.model_name.split('__')[0]
-        ), exist_ok=True
-        )
+    out_tag = "{}__{}__samps-{}".format(
+        args.expr_source, args.cohort, args.samp_cutoff)
 
-    cdata = load_cohort_data(base_dir,
-                             args.expr_source, args.cohort, args.samp_cutoff)
-    fit_acc, tune_acc, tune_time, par_df, mut_clf = load_output(
-        args.expr_source, args.cohort, args.samp_cutoff, args.model_name,
-        out_base=base_dir
-        )
+    os.makedirs(os.path.join(plot_dir, out_tag,
+                             args.model_name.split('__')[0]),
+                exist_ok=True)
 
-    plot_auc_distribution(fit_acc['test'].AUC, args)
-    plot_acc_quartiles(fit_acc['test'].AUC, fit_acc['test'].AUPR, args, cdata)
-    plot_generalization_error(fit_acc['train'].AUC, fit_acc['test'].AUC, args)
+    cdata = merge_cohort_data(os.path.join(base_dir, 'output', out_tag))
+    out_dict = pickle.load(open(os.path.join(base_dir, 'output', out_tag,
+                                             "out-data__{}.p".format(
+                                                 args.model_name)),
+                                'rb'))
 
-    plot_tuning_profile(tune_acc, mut_clf, args, cdata)
-    plot_tuning_distribution(par_df, fit_acc['test'].AUC, mut_clf,
-                             args, cdata)
-    plot_tuning_mtype(par_df, fit_acc['test'].AUC, mut_clf, args, cdata)
+    plot_auc_distribution(out_dict['Fit']['test'].AUC, args)
+    plot_acc_quartiles(out_dict['Fit']['test'].AUC,
+                       out_dict['Fit']['test'].AUPR, args, cdata)
+    plot_generalization_error(out_dict['Fit']['train'].AUC,
+                              out_dict['Fit']['test'].AUC, args)
 
-    if len(mut_clf.tune_priors) > 1:
-        plot_tuning_mtype_grid(par_df, fit_acc['test'].AUC, mut_clf,
+    plot_tuning_profile(out_dict['Tune']['Acc'], out_dict['Clf'], args, cdata)
+    plot_tuning_distribution(out_dict['Params'], out_dict['Fit']['test'].AUC,
+                             out_dict['Clf'], args, cdata)
+    plot_tuning_mtype(out_dict['Params'], out_dict['Fit']['test'].AUC,
+                      out_dict['Clf'], args, cdata)
+
+    if len(out_dict['Clf'].tune_priors) > 1:
+        plot_tuning_mtype_grid(out_dict['Params'],
+                               out_dict['Fit']['test'].AUC, out_dict['Clf'],
                                args, cdata)
 
-    if len(mut_clf.tune_priors) == 2:
-        plot_tuning_profile_grid(tune_acc, mut_clf, args, cdata)
+    if len(out_dict['Clf'].tune_priors) == 2:
+        plot_tuning_profile_grid(out_dict['Tune']['Acc'], out_dict['Clf'],
+                                 args, cdata)
 
 
 if __name__ == "__main__":
