@@ -49,9 +49,9 @@ def get_variants_mc3(syn):
     mc3 = syn.get('syn7824274')
 
     # defines which mutation annotation MAF columns to use
-    use_cols = [0, 8, 15, 36, 37, 38, 72]
-    use_names = ['Gene', 'Form', 'Sample',
-                 'Protein', 'Transcript', 'Exon', 'PolyPhen']
+    use_cols = [0, 8, 15, 36, 37, 38, 40, 41, 72]
+    use_names = ['Gene', 'Form', 'Sample', 'Protein', 'Transcript',
+                 'Exon', 'ref_count', 'alt_count', 'PolyPhen']
 
     # imports mutation data into a DataFrame, parses TCGA sample barcodes
     # and PolyPhen scores

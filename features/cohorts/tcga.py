@@ -219,7 +219,8 @@ class MutationCohort(BaseMutationCohort):
 
         if (type_file is not None and 'use_types' in coh_args
                 and coh_args['use_types'] is not None):
-            type_data = pd.read_csv(type_file, sep='\t', index_col=0)
+            type_data = pd.read_csv(type_file,
+                                    sep='\t', index_col=0, comment='#')
             type_data = type_data[type_data.DISEASE == cohort]
 
             use_samps = set(type_data.index[type_data.SUBTYPE.isin(

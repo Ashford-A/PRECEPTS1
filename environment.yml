@@ -1,6 +1,7 @@
 name: HetMan
 channels:
   - conda-forge
+  - bioconda
   - anaconda
   - defaults
 dependencies:
@@ -12,8 +13,6 @@ dependencies:
   - binutils_impl_linux-64=2.31.1
   - binutils_linux-64=2.31.1
   - bleach=2.1.4
-  - ca-certificates=2018.03.07
-  - certifi=2018.8.24
   - cffi=1.11.5
   - constantly=15.1.0
   - cryptography=2.3.1
@@ -65,7 +64,6 @@ dependencies:
   - nbconvert=5.3.1
   - nbformat=4.4.0
   - notebook=5.6.0
-  - openssl=1.0.2p
   - pandoc=2.2.3.2
   - pandocfilters=1.4.2
   - parso=0.3.1
@@ -105,12 +103,71 @@ dependencies:
   - zeromq=4.2.5
   - zope=1.0
   - zope.interface=4.5.0
+  - filechunkio=1.6
+  - ftputil=3.2
+  - pygraphviz=1.3.1
+  - pysftp=0.2.9
+  - rsa=3.1.4
+  - snakemake=5.4.3
+  - snakemake-minimal=5.4.3
+  - urllib3=1.12
+  - aioeasywebdav=2.2.0
+  - aiohttp=3.4.4
+  - async-timeout=3.0.1
+  - boto3=1.7.84
+  - botocore=1.10.84
+  - ca-certificates=2019.3.9
+  - cachetools=2.1.0
+  - certifi=2018.8.24
+  - chardet=3.0.4
+  - configargparse=0.13.0
+  - docutils=0.14
+  - dropbox=7.3.1
+  - fribidi=1.0.5
+  - gitdb2=2.0.5
+  - gitpython=2.1.11
+  - google-auth=1.6.3
+  - google-auth-httplib2=0.0.3
+  - google-cloud-core=0.24.1
+  - google-cloud-storage=1.1.1
+  - google-resumable-media=0.0.2
+  - googleapis-common-protos=1.5.8
+  - graphite2=1.3.13
+  - harfbuzz=1.9.0
+  - httplib2=0.11.3
+  - idna_ssl=1.0.0
+  - jmespath=0.9.4
+  - libprotobuf=3.6.0
+  - libtiff=4.0.9
   - llvmlite=0.25.0
   - matplotlib-venn=0.11.5
+  - multidict=4.4.2
+  - networkx=2.2
   - numba=0.40.0
+  - openssl=1.0.2r
+  - paramiko=2.4.1
+  - pixman=0.34.0
+  - prettytable=0.7.2
+  - protobuf=3.6.0
+  - psutil=5.4.7
+  - pynacl=1.1.2
+  - python-irodsclient=0.7.0
+  - pyyaml=3.13
+  - ratelimiter=1.2.0
+  - requests=2.13.0
+  - s3transfer=0.1.13
+  - smmap2=2.0.5
   - umap-learn=0.3.2
+  - wrapt=1.10.11
+  - xmlrunner=1.7.7
+  - yaml=0.1.7
+  - yarl=1.2.6
+  - bcrypt=3.1.4
   - blas=1.0
+  - cairo=1.14.12
+  - datrie=0.7.1
   - dill=0.2.8.2
+  - graphviz=2.40.1
   - intel-openmp=2019.1
   - libedit=3.1.20170329
   - libffi=3.2.1
@@ -124,6 +181,7 @@ dependencies:
   - numpy=1.14.6
   - numpy-base=1.14.6
   - pandas=0.23.4
+  - pango=1.42.4
   - pip=10.0.1
   - python=3.5.6
   - python-dateutil=2.7.3
@@ -142,7 +200,6 @@ dependencies:
     - aql==0.0.0
     - asciimatics==1.10.0
     - backports.csv==1.0.6
-    - chardet==3.0.4
     - circlify==0.9.1
     - colorama==0.4.1
     - configobj==5.0.6
@@ -153,25 +210,18 @@ dependencies:
     - dryad==0.3.2b0
     - dvc==0.32.1
     - future==0.17.1
-    - gitdb2==2.0.5
-    - gitpython==2.1.11
     - grandalf==0.6
     - jsonpath-rw==1.4.0
     - keyring==12.0.2
     - keyrings.alt==3.1.1
     - line-profiler==2.1.2
     - nanotime==0.5.2
-    - networkx==2.2
     - packaging==18.0
     - pillow==5.4.1
     - ply==3.11
     - pyfiglet==0.8.post1
-    - pyyaml==5.1
-    - requests==2.21.0
     - schema==0.7.0
     - secretstorage==2.3.1
-    - smmap2==2.0.5
     - synapseclient==1.9.0
-    - urllib3==1.24.1
     - zc.lockfile==1.4
 

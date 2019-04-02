@@ -1,18 +1,14 @@
 
 import os
+base_dir = os.path.dirname(__file__)
+
 import sys
-
-sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
-if 'BASEDIR' in os.environ:
-    base_dir = os.environ['BASEDIR']
-else:
-    base_dir = os.path.dirname(__file__)
-
+sys.path.extend([os.path.join(base_dir, '../../..')])
 from HetMan.experiments.variant_baseline import *
 from HetMan.experiments.utilities.load_input import parse_subtypes
 from HetMan.features.cohorts.tcga import MutationCohort
-from dryadic.features.mutations import MuType
 
+from dryadic.features.mutations import MuType
 import argparse
 import synapseclient
 import pandas as pd
@@ -30,7 +26,8 @@ def get_cohort_data(expr_source, cohort, cv_prop=1.0, cv_seed=None):
     gene_df = pd.read_csv(gene_list, sep='\t', skiprows=1, index_col=0)
     use_genes = gene_df.index[
         (gene_df.loc[
-            :, ['Vogelstein', 'Sanger CGC', 'Foundation One', 'MSK-IMPACT']]
+            :, ['Vogelstein', 'SANGER CGC(05/30/2017)',
+                'FOUNDATION ONE', 'MSK-IMPACT']]
             == 'Yes').sum(axis=1) > 1
         ]
 
@@ -43,7 +40,7 @@ def get_cohort_data(expr_source, cohort, cv_prop=1.0, cv_seed=None):
         mut_levels=['Gene', 'Form_base', 'Protein'], expr_source=source_base,
         var_source='mc3', copy_source='Firehose', annot_file=annot_file,
         type_file=type_file, expr_dir=expr_sources[expr_source],
-        copy_dir=copy_dir, domain_dir=domain_dir, collapse_txs=collapse_txs,
+        copy_dir=copy_dir, collapse_txs=collapse_txs,
         syn=syn, cv_prop=cv_prop, cv_seed=cv_seed,
         annot_fields=['transcript'], use_types=parse_subtypes(cohort)
         )
@@ -62,9 +59,9 @@ def main():
         help="minimum number of mutated samples needed to test a gene"
         )
 
+    parser.add_argument('--setup_dir', type=str, default=base_dir)
     args = parser.parse_args()
-    out_path = os.path.join(base_dir, 'setup')
-    os.makedirs(out_path, exist_ok=True)
+    out_path = os.path.join(args.setup_dir, 'setup')
     cdata = get_cohort_data(args.expr_source, args.cohort)
 
     with open(os.path.join(out_path,
