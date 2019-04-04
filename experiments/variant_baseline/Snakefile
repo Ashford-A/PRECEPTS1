@@ -41,7 +41,7 @@ rule classify:
         python {LOCALDIR}/fit_tests.py -v \
                 {config[expr_source]} {config[cohort]} {config[samp_cutoff]} \
                 {config[classif]} --cv_id={wildcards.cv_id} \
-                --task_count=1 --task_id={wildcards.task_id} \
+                --task_count={config[task_count]} --task_id={wildcards.task_id} \
                 --setup_dir={TMPDIR} --out_dir={TMPDIR}
         """
 

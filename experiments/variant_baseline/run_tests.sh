@@ -40,10 +40,14 @@ else
 	rmv_str="--remove-outs "
 fi
 
+mkdir -p $DATADIR/HetMan/variant_baseline/output/$out_tag
 mkdir -p $OUTDIR/setup $OUTDIR/output $OUTDIR/slurm
 cd $OUTDIR
-dvc init --no-scm
-mkdir -p $DATADIR/HetMan/variant_baseline/output/$out_tag
+
+if [ ! -d .dvc ]
+then
+	dvc init --no-scm
+fi
 
 dvc run -d $firehose_dir -d $mc3_file -d $gencode_file -d $gene_file -d $subtype_file \
 	-d $RUNDIR/setup_tests.py -o setup/cohort-data_${out_tag}.p \
@@ -51,7 +55,7 @@ dvc run -d $firehose_dir -d $mc3_file -d $gencode_file -d $gene_file -d $subtype
 	-f setup.dvc --overwrite-dvcfile \
 	python $RUNDIR/setup_tests.py $expr_source $cohort $samp_cutoff --setup_dir $OUTDIR
 
-vars_count=$(cat setup/vars-count_${out_tag}.txt)
+vars_count=$( cat setup/vars-count_${out_tag}.txt )
 task_count=$(( $vars_count / $test_max + 1 ))
 
 if [ $task_count -gt 12 ]
@@ -59,11 +63,16 @@ then
 	task_count=12
 fi
 
+if [ -d .snakemake ]
+then
+	snakemake --unlock
+fi
+
 dvc run -d setup/cohort-data_${out_tag}.p -d setup/vars-list_${out_tag}.p \
        	-d $RUNDIR/fit_tests.py -d $RUNDIR/models/${classif%%'__'*}.py \
-	-o out-data.p -f output.dvc \
+	-o out-data.p -f output.dvc --overwrite-dvcfile --remove-outs \
 	'snakemake -s $RUNDIR/Snakefile -j 100 --latency-wait 120 \
-	--rerun-incomplete --cluster-config $RUNDIR/cluster.json \
+	--cluster-config $RUNDIR/cluster.json \
 	--cluster "sbatch -p {cluster.partition} -J {cluster.job-name} -t {cluster.time} \
 	-o {cluster.output} -e {cluster.error} -n {cluster.ntasks} -c {cluster.cpus-per-task} \
 	--mem-per-cpu {cluster.mem-per-cpu} --exclude=$ex_nodes --no-requeue" \

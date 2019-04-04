@@ -1,22 +1,11 @@
 
 import os
+base_dir = os.path.dirname(__file__)
+
 import sys
-
-if 'DATADIR' in os.environ:
-    data_dir = os.path.join(os.environ['DATADIR'],
-                            'HetMan', 'variant_baseline')
-    base_dir = os.path.join(os.environ['DATADIR'],
-                            'HetMan', 'tcga_cluster')
-
-else:
-    data_dir = os.path.dirname(__file__)
-    base_dir = os.path.dirname(__file__)
-
-plot_dir = os.path.join(base_dir, 'plots', 'subtypes')
-sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
-
+sys.path.extend([os.path.join(base_dir, '../../..')])
 from HetMan.experiments.tcga_cluster import *
-from HetMan.experiments.variant_baseline.fit_tests import load_cohort_data
+from HetMan.experiments.variant_baseline.merge_tests import merge_cohort_data
 
 import argparse
 import numpy as np
@@ -70,13 +59,15 @@ def plot_clustering(trans_expr, args, cdata, lum_data, pca_comps=(0, 1)):
     ax.legend(lgnd_marks, lgnd_lbls, bbox_to_anchor=(0.5, -0.05),
               frameon=False, fontsize=21, ncol=3, loc=9, handletextpad=0.3)
 
-    fig.savefig(os.path.join(
-        plot_dir, "{}__{}_{}_comps-{}_{}.png".format(
-            args.expr_source, args.cohort, args.transform,
-            pca_comps[0], pca_comps[1]
-            )
-        ),
-        dpi=400, bbox_inches='tight')
+    parse_dir = args.out_dir.split(os.path.join('', 'output', ''))
+    plot_dir = os.path.join(parse_dir[0], 'plots', 'cluster')
+    os.makedirs(plot_dir, exist_ok=True)
+
+    fig.savefig(
+        os.path.join(plot_dir, "{}_comps-{}_{}.png".format(
+            parse_dir[1], pca_comps[0], pca_comps[1])),
+        dpi=400, bbox_inches='tight'
+        )
 
     plt.close()
 
@@ -87,25 +78,29 @@ def main():
         "TCGA cohort with molecular subtypes highlighted."
         )
 
-    parser.add_argument('expr_source', type=str,
-                        choices=list(expr_sources.keys()),
-                        help="which TCGA expression data source to use")
-    parser.add_argument('cohort', type=str, help='a cohort in TCGA')
-
+    parser.add_argument('out_dir', type=str)
     parser.add_argument('transform', type=str,
                         choices=list(clust_algs.keys()),
                         help='an unsupervised learning method')
+    parser.add_argument('--use_seed', type=int, default=1301)
 
     args = parser.parse_args()
-    os.makedirs(plot_dir, exist_ok=True)
-    np.random.seed(use_seed)
+    np.random.seed(args.use_seed)
+    cdata = merge_cohort_data(args.out_dir)
+    lum_data = pd.read_csv(type_file, sep='\t', index_col=0, comment='#')
 
-    cdata = load_cohort_data(data_dir, args.expr_source, args.cohort,
-                             samp_cutoff=25)
+    if '_' in cdata.cohort:
+        use_cohort = cdata.cohort.split('_')[0]
+    else:
+        use_cohort = cdata.cohort
+
+    if use_cohort not in lum_data.DISEASE.values:
+        raise ValueError("The source of this cohort ({}) does not "
+                         "match those present in the TCGA subtypes "
+                         "file!".format(use_cohort))
+ 
+    lum_data = lum_data[lum_data.DISEASE == use_cohort]
     trans_expr = clust_algs[args.transform].fit_transform_coh(cdata)
-
-    lum_data = pd.read_csv(type_file, sep='\t', index_col=0)
-    lum_data = lum_data[lum_data.DISEASE == args.cohort.split('_')[0]]
 
     plot_clustering(trans_expr.copy(), args, cdata, lum_data)
 

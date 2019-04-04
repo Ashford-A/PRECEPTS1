@@ -161,6 +161,11 @@ def main():
         for samp_set in ['train', 'test']
         }
 
+    assert fit_acc['train'].shape[0] == len(vars_list), (
+        "Training fit accuracies missing for some tested mutations!")
+    assert fit_acc['test'].shape[0] == len(vars_list), (
+        "Testing fit accuracies missing for some tested mutations!")
+
     tune_list = tuple(product(*[
         vals for _, vals in tuple(use_clf)[0].tune_priors]))
 
@@ -175,6 +180,13 @@ def main():
             for task_id in range(task_count)
         ], axis=0) for stat_lbl in ['mean', 'std']
         }
+
+    assert tune_acc['mean'].shape[0] == len(vars_list), (
+        "Mean of tuning test accuracies missing for some tested mutations!")
+    assert tune_acc['std'].shape[0] == len(vars_list), (
+        "Variance of tuning test accuracies missing for some "
+        "tested mutations!"
+        )
 
     par_df = pd.concat([
         pd.concat([pd.DataFrame.from_dict(ols['Params'], orient='index')
