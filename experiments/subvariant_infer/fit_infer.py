@@ -1,26 +1,22 @@
 
 import os
-import sys
+base_dir = os.path.dirname(__file__)
 
-sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
-if 'BASEDIR' in os.environ:
-    base_dir = os.environ['BASEDIR']
-else:
-    base_dir = os.path.dirname(__file__)
+import sys
+sys.path.extend([os.path.join(base_dir, '../../..')])
 
 from HetMan.experiments.subvariant_infer import *
 from HetMan.experiments.subvariant_infer.setup_infer import Mcomb, ExMcomb
 from HetMan.experiments.utilities.load_input import load_firehose_cohort
-from dryadic.features.mutations import MuType
 from HetMan.experiments.utilities.classifiers import *
+from dryadic.features.mutations import MuType
 
 import argparse
 import dill as pickle
 
 
-def load_cohort_data(base_dir, cohort, gene, mut_levels):
-    cdata_path = os.path.join(base_dir, 'setup', cohort, gene,
-                              "cohort_data__levels_{}.p".format(mut_levels))
+def load_cohort_data(setup_dir):
+    cdata_path = os.path.join(setup_dir, 'setup', "cohort-data.p")
 
     # load cached processed TCGA expression and mutation data if available
     if os.path.exists(cdata_path):
@@ -29,9 +25,6 @@ def load_cohort_data(base_dir, cohort, gene, mut_levels):
     # otherwise, load and process the raw TCGA data and create the local cache
     else:
         cdata = load_firehose_cohort(cohort, [gene], mut_levels.split('__'))
-
-        os.makedirs(os.path.join(base_dir, 'setup', cohort, gene),
-                    exist_ok=True)
         pickle.dump(cdata, open(cdata_path, 'wb'))
 
     return cdata
@@ -70,23 +63,15 @@ def main():
     parser.add_argument('--task_id', type=int, default=0,
                         help='the subset of subtypes to assign to this task')
 
+    parser.add_argument('--use_dir', type=str, default=base_dir)
+
     args = parser.parse_args()
+    cdata = load_cohort_data(args.use_dir)
     mtype_list = pickle.load(open(
-        os.path.join(base_dir, 'setup', args.cohort, args.gene,
-                     "mtypes_list__samps_{}__levels_{}.p".format(
-                         args.samp_cutoff, args.mut_levels)),
-        'rb'))
+        os.path.join(args.use_dir, 'setup', "muts-list.p"), 'rb'))
 
     print("Subtypes at mutation annotation levels {} will be isolated "
           "against gene {}".format(args.mut_levels, args.gene))
-
-    cdata = load_cohort_data(base_dir,
-                             args.cohort, args.gene, args.mut_levels)
-    out_file = os.path.join(
-        base_dir, 'output', args.cohort, args.gene, args.classif,
-        'samps_{}'.format(args.samp_cutoff), args.mut_levels,
-        'out__task-{}.p'.format(args.task_id)
-        )
 
     print("Loaded {} subtypes of which roughly {} will be isolated in "
           "cohort {} with {} samples.".format(
@@ -117,8 +102,10 @@ def main():
             ex_samps = base_samps - mtype.get_samples(cdata.train_mut)
 
             # tune the hyper-parameters of the classifier
-            mut_clf.tune_coh(cdata, mtype, exclude_genes=ex_genes,
-                             tune_splits=8, test_count=48, parallel_jobs=8)
+            mut_clf, cv_output = mut_clf.tune_coh(
+                cdata, mtype, exclude_genes=ex_genes,
+                tune_splits=8, test_count=48, parallel_jobs=8
+                )
 
             # save the tuned values of the hyper-parameters
             clf_params = mut_clf.get_params()
@@ -127,13 +114,14 @@ def main():
 
             out_inf[mtype]['All'] = mut_clf.infer_coh(
                 cdata, mtype, exclude_genes=ex_genes,
-                infer_splits=160, infer_folds=4, parallel_jobs=8
+                infer_splits=200, infer_folds=4, parallel_jobs=8
                 )
 
             # tune the hyper-parameters of the classifier
-            mut_clf.tune_coh(cdata, mtype,
-                             exclude_genes=ex_genes, exclude_samps=ex_samps,
-                             tune_splits=8, test_count=48, parallel_jobs=8)
+            mut_clf, cv_output = mut_clf.tune_coh(
+                cdata, mtype, exclude_genes=ex_genes, exclude_samps=ex_samps,
+                tune_splits=8, test_count=48, parallel_jobs=8
+                )
 
             # save the tuned values of the hyper-parameters
             clf_params = mut_clf.get_params()
@@ -143,7 +131,7 @@ def main():
             out_inf[mtype]['Iso'] = mut_clf.infer_coh(
                 cdata, mtype,
                 exclude_genes=ex_genes, force_test_samps=ex_samps,
-                infer_splits=160, infer_folds=4, parallel_jobs=8
+                infer_splits=200, infer_folds=4, parallel_jobs=8
                 )
 
         else:
@@ -151,10 +139,10 @@ def main():
             del(out_tune[mtype])
 
     pickle.dump(
-        {'Infer': out_inf, 'Tune': out_tune,
-         'Info': {'Clf': mut_clf.__class__,
-                  'TunePriors': mut_clf.tune_priors}},
-        open(out_file, 'wb')
+        {'Infer': out_inf, 'Tune': out_tune, 'Clf': mut_clf},
+        open(os.path.join(args.use_dir, 'output',
+                          "out_task-{}.p".format(args.task_id)),
+             'wb')
         )
 
 
