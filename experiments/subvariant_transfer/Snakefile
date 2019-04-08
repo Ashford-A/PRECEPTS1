@@ -1,0 +1,67 @@
+
+import os
+
+LOCALDIR = os.path.join(os.environ['CODEDIR'],
+                        'HetMan', 'experiments', 'subvariant_transfer')
+
+TMPDIR = os.path.join(os.environ['TEMPDIR'],
+                      'HetMan', 'subvariant_transfer',
+                      "{}__samps-{}".format(config['cohorts'],
+                                            config['samp_cutoff']),
+                      config['mut_levels'], config['classif'])
+
+OUTDIR = os.path.join(os.environ['DATADIR'], 'HetMan', 'subvariant_transfer',
+                      "{}__samps-{}".format(config['cohorts'],
+                                            config['samp_cutoff']))
+
+
+localrules: target
+
+
+rule target:
+    input:
+        expand("{outdir}/out-data__{mut_levels}_{classif}.p", outdir=OUTDIR,
+               mut_levels=config['mut_levels'], classif=config['classif'])
+
+    threads: 1
+
+
+rule transfer:
+    output: "{TMPDIR}/output/out_task-{task_id}.p"
+
+    threads: 8
+
+    shell: """
+        set +u; source activate HetMan; set -u;
+        export OMP_NUM_THREADS=1;
+        sleep $(( ({wildcards.task_id} + 1) * $(shuf -i 1-13 -n 1) ));
+
+        python {LOCALDIR}/fit_transfer.py {config[classif]} \
+                --use_dir={TMPDIR} --task_count={config[task_count]} \
+                --task_id={wildcards.task_id}
+        """
+
+
+rule consolidate:
+    input:
+        expand("{tmpdir}/output/out_task-{task_id}.p",
+               tmpdir=TMPDIR, task_id=range(config['task_count']))
+
+    output:
+        expand("{outdir}/out-data__{mut_levels}_{classif}.p", outdir=OUTDIR,
+               mut_levels=config['mut_levels'], classif=config['classif'])
+
+    threads: 1
+
+    shell: """
+        set +u; source activate HetMan; set -u;
+        python {LOCALDIR}/merge_transfer.py {TMPDIR}
+
+        out_tag={config[mut_levels]}_{config[classif]}
+        cp {TMPDIR}/out-data.p {OUTDIR}/out-data__${{out_tag}}.p
+        cp {TMPDIR}/setup/cohort-data.p {OUTDIR}/cohort-data__${{out_tag}}.p
+
+        profiler $( grep 'Submitted' {TMPDIR}/.snakemake/log/*.log | cut -d ' ' -f 10 | cut -d "'" -f 1 ) \
+                | grep 'batch' | grep -v 'Requests' > slurm/usage.txt
+        """
+
