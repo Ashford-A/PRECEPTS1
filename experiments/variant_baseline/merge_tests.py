@@ -1,9 +1,9 @@
 
 import os
-base_dir = os.path.dirname(__file__)
-
 import sys
+base_dir = os.path.dirname(__file__)
 sys.path.extend([os.path.join(base_dir, '../../..')])
+
 from HetMan.experiments.variant_baseline import *
 from HetMan.experiments.variant_baseline.fit_tests import load_variants_list
 

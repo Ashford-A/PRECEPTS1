@@ -4,8 +4,8 @@ import sys
 
 base_dir = os.path.join(os.environ['DATADIR'],
                         'HetMan', 'variant_baseline')
-plot_dir = os.path.join(base_dir, 'plots', 'model')
 sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
+plot_dir = os.path.join(base_dir, 'plots', 'model')
 
 from HetMan.experiments.variant_baseline import *
 from HetMan.experiments.variant_baseline.merge_tests import merge_cohort_data

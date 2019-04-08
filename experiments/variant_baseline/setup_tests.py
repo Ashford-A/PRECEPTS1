@@ -1,14 +1,14 @@
 
 import os
-base_dir = os.path.dirname(__file__)
-
 import sys
+base_dir = os.path.dirname(__file__)
 sys.path.extend([os.path.join(base_dir, '../../..')])
+
 from HetMan.experiments.variant_baseline import *
 from HetMan.experiments.utilities.load_input import parse_subtypes
 from HetMan.features.cohorts.tcga import MutationCohort
-
 from dryadic.features.mutations import MuType
+
 import argparse
 import synapseclient
 import pandas as pd

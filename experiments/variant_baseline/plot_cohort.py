@@ -2,18 +2,13 @@
 import os
 import sys
 
-if 'DATADIR' in os.environ:
-    base_dir = os.path.join(os.environ['DATADIR'],
-                            'HetMan', 'variant_baseline')
-else:
-    base_dir = os.path.dirname(__file__)
-
-plot_dir = os.path.join(base_dir, 'plots', 'cohort')
+base_dir = os.path.join(os.environ['DATADIR'],
+                        'HetMan', 'variant_baseline')
 sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
+plot_dir = os.path.join(base_dir, 'plots', 'cohort')
 
 from HetMan.experiments.variant_baseline import *
-from HetMan.experiments.variant_baseline.fit_tests import (
-    load_cohort_data, load_output)
+from HetMan.experiments.variant_baseline.merge_tests import merge_cohort_data
 from HetMan.experiments.utilities import auc_cmap
 from HetMan.experiments.utilities.scatter_plotting import place_annot
 
@@ -22,6 +17,7 @@ import pandas as pd
 
 import argparse
 from pathlib import Path
+import dill as pickle
 from functools import reduce
 from operator import and_
 from operator import itemgetter
@@ -43,8 +39,8 @@ def plot_auc_highlights(out_dict, args, cdata_dict):
     # calculates the first quartile of the testing AUC of each classifier on
     # each mutation type across the cross-validation runs
     auc_quarts = pd.DataFrame.from_dict({
-        mdl: acc_dict['test']['AUC'].quantile(q=0.25, axis=1)
-        for mdl, (acc_dict, _, _, _, _) in out_dict.items()
+        mdl: out_data['Fit']['test']['AUC'].quantile(q=0.25, axis=1)
+        for mdl, out_data in out_dict.items()
         })
 
     # gets the top forty mutation types by the best first-quartile AUC across
@@ -64,9 +60,10 @@ def plot_auc_highlights(out_dict, args, cdata_dict):
     # and mutation type across cross-validation runs, takes the average across
     # all types to get the computational complexity for each classifier
     time_vals = pd.Series({
-        mdl: (tm_dict['fit']['avg'] + tm_dict['fit']['std']).groupby(
-            axis=1, level=0).quantile(q=0.75).mean().mean()
-        for mdl, (_, _, tm_dict, _, _) in out_dict.items()
+        mdl: (out_data['Tune']['Time']['fit']['avg']
+              + out_data['Tune']['Time']['fit']['std']).groupby(
+                  axis=1, level=0).quantile(q=0.75).mean().mean()
+        for mdl, out_data in out_dict.items()
         })
 
     time_vals = time_vals.loc[plot_df.columns]
@@ -118,13 +115,14 @@ def plot_aupr_time(out_dict, args):
     fig, axarr = plt.subplots(figsize=(9, 15), nrows=2, sharex=True)
 
     time_quarts = np.log2(pd.Series({
-        mdl: (tm_dict['fit']['avg'] + tm_dict['fit']['std']).groupby(
-            axis=1, level=0).quantile(q=0.75).mean().mean()
-        for mdl, (_, _, tm_dict, _, _) in out_dict.items()
+        mdl: (out_data['Tune']['Time']['fit']['avg']
+              + out_data['Tune']['Time']['fit']['std']).groupby(
+                  axis=1, level=0).quantile(q=0.75).mean().mean()
+        for mdl, out_data in out_dict.items()
         }))
 
-    aupr_vals = {mdl: acc_dict['test']['AUPR'].quantile(q=0.25, axis=1)
-                 for mdl, (acc_dict, _, _, _, _) in out_dict.items()}
+    aupr_vals = {mdl: out_data['Fit']['test']['AUPR'].quantile(q=0.25, axis=1)
+                 for mdl, out_data in out_dict.items()}
 
     aupr_list = [
         pd.Series({mdl: vals.mean() for mdl, vals in aupr_vals.items()}),
@@ -184,37 +182,50 @@ def main():
         "of the mutations in a given cohort."
         )
 
-    # parse command-line arguments, create directory where plots will be stored
+    # parse command-line arguments, create directory to store the plots
     parser.add_argument('cohort', type=str, help="which TCGA cohort was used")
     args = parser.parse_args()
     os.makedirs(plot_dir, exist_ok=True)
 
+    # search for experiment output directories corresponding to this cohort
     out_path = Path(os.path.join(base_dir, 'output'))
-    out_dirs = [
-        out_dir.parent for out_dir in out_path.glob(
-            "*/{}__samps-*/*/out__cv-0_task-0.p".format(args.cohort))
-        if (len(tuple(out_dir.parent.glob("out__*.p"))) > 0
-            and (len(tuple(out_dir.parent.glob("out__*.p")))
-                 == len(tuple(out_dir.parent.glob("slurm/fit-*.txt")))))
+    out_datas = [
+        out_file.parts[-2:] for out_file in out_path.glob(
+            "*__{}__samps-*/out-data__*.p".format(args.cohort))
         ]
 
-    parsed_dirs = [str(out_dir).split("/output/")[1].split('/')
-                   for out_dir in out_dirs]
+    # get the experiment output directory for each combination of input
+    # expression source and algorithm with the lowest sample incidence cutoff
+    out_use = pd.DataFrame([
+        {'Source': out_data[0].split('__')[0],
+         'Samps': int(out_data[0].split('__samps-')[1]),
+         'Model': out_data[1].split('out-data__')[1].split('.p')[0]}
+        for out_data in out_datas
+        ]).groupby(['Model', 'Source'])['Samps'].min().reset_index(
+            'Model').set_index('Samps', append=True)
 
-    if len(set(prs[1] for prs in parsed_dirs)) > 1:
-        pass
+    # load the cohort expression and mutation data for each combination of
+    # expression source and sample cutoff
+    cdata_dict = {
+        (src, ctf): merge_cohort_data(os.path.join(
+            base_dir, 'output', "{}__{}__samps-{}".format(
+                src, args.cohort, ctf)
+            ))
+        for src, ctf in set(out_use.index)
+        }
 
-    else:
-        samp_ctfs = parsed_dirs[0][1].split('__samps-')[1]
-        parsed_dirs = [[prs[0]] + prs[2:] for prs in parsed_dirs]
+    # load the experiment output for each combination of source and cutoff
+    out_dict = {
+        (src, mdl.values[0]): pickle.load(open(
+            os.path.join(base_dir, 'output',
+                         "{}__{}__samps-{}".format(src, args.cohort, ctf),
+                         "out-data__{}.p".format(mdl.values[0])),
+            'rb'
+            ))
+        for (src, ctf), mdl in out_use.iterrows()
+        }
 
-    cdata_dict = {src: load_cohort_data(base_dir, src, args.cohort, samp_ctfs)
-                  for src in set(s for s, _ in parsed_dirs)}
-
-    out_dict = {(src, mdl): load_output(src, args.cohort, samp_ctfs, mdl,
-                                        out_base=base_dir)
-                for src, mdl in parsed_dirs}
-
+    # create the plots
     plot_auc_highlights(out_dict.copy(), args, cdata_dict)
     plot_aupr_time(out_dict.copy(), args)
 

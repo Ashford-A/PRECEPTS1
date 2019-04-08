@@ -1,6 +1,8 @@
 HetMan: Variant Baseline Testing
 --------------------------------
 
+This experiment seeks to compare machine learning algorithms' ability to
+predict the presence of mutations in tumour cohorts.
 
 ### Running the experiment ###
 
