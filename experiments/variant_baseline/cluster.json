@@ -5,6 +5,7 @@
         'ntasks' : 1,
         'output': 'slurm/master.out',
         'error': 'slurm/master.err',
+        'exclude': '$ex_nodes',
     },
 
     'classify' : {

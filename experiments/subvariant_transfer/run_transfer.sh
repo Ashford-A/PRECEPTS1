@@ -5,7 +5,7 @@
 #SBATCH --verbose
 
 #SBATCH --mem=8000
-#SBATCH --time=2150
+#SBATCH --time=400
 
 
 source activate HetMan
@@ -31,7 +31,7 @@ done
 IFS=$'\n'
 export sorted_cohs=($(sort <<<"${cohort_list[*]}"))
 unset IFS
-export coh_lbl=$(IFS='_'; echo "${sorted_cohs[*]}")
+export coh_lbl=$(IFS='__'; echo "${sorted_cohs[*]}")
 
 OUTDIR=$TEMPDIR/HetMan/subvariant_transfer/${coh_lbl}__samps-${samp_cutoff}/$mut_levels/$classif
 export RUNDIR=$CODEDIR/HetMan/experiments/subvariant_transfer
@@ -56,9 +56,10 @@ fi
 
 dvc run -d $firehose_dir -d $mc3_file -d $gencode_file -d $gene_file -d $subtype_file \
 	-d $RUNDIR/setup_transfer.py -d $CODEDIR/HetMan/environment.yml \
-	-o setup/cohort-dict.p -o setup/muts-list.p -m setup/muts-count.txt \
-	-f setup.dvc --overwrite-dvcfile python $RUNDIR/setup_transfer.py \
-	$mut_levels "${sorted_cohs[@]}" --samp_cutoff=$samp_cutoff --setup_dir=$OUTDIR
+	-o setup/cohort-dict.p -o setup/cohort-data.p -o setup/muts-list.p \
+	-m setup/muts-count.txt -f setup.dvc --overwrite-dvcfile \
+	python $RUNDIR/setup_transfer.py $mut_levels "${sorted_cohs[@]}" \
+	--samp_cutoff=$samp_cutoff --setup_dir=$OUTDIR
 
 muts_count=$(cat setup/muts-count.txt)
 task_count=$(( $(( $muts_count - 1 )) / $test_max + 1 ))
@@ -73,8 +74,8 @@ then
 	snakemake --unlock
 fi
 
-dvc run -d setup/cohort-dict.p -d setup/muts-list.p -d $RUNDIR/fit_transfer.py \
-	-d $CODEDIR/HetMan/experiments/utilities/classifiers.py -o out-data.p -f output.dvc \
+dvc run -d setup/cohort-data.p -d setup/muts-list.p -d $RUNDIR/fit_transfer.py \
+	-d $CODEDIR/HetMan/experiments/utilities/classifiers.py -o out-data.p -f output.dvc --overwrite-dvcfile $rmv_str \
 	'snakemake -s $RUNDIR/Snakefile -j 50 --latency-wait 120 \
 	--cluster-config $RUNDIR/cluster.json \
 	--cluster "sbatch -p {cluster.partition} -J {cluster.job-name} -t {cluster.time} \

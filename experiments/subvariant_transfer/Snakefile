@@ -29,7 +29,7 @@ rule target:
 rule transfer:
     output: "{TMPDIR}/output/out_task-{task_id}.p"
 
-    threads: 8
+    threads: 12
 
     shell: """
         set +u; source activate HetMan; set -u;
@@ -60,8 +60,5 @@ rule consolidate:
         out_tag={config[mut_levels]}_{config[classif]}
         cp {TMPDIR}/out-data.p {OUTDIR}/out-data__${{out_tag}}.p
         cp {TMPDIR}/setup/cohort-data.p {OUTDIR}/cohort-data__${{out_tag}}.p
-
-        profiler $( grep 'Submitted' {TMPDIR}/.snakemake/log/*.log | cut -d ' ' -f 10 | cut -d "'" -f 1 ) \
-                | grep 'batch' | grep -v 'Requests' > slurm/usage.txt
         """
 

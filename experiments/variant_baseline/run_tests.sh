@@ -11,6 +11,7 @@
 source activate HetMan
 rewrite=false
 
+# collect command line arguments
 while getopts e:t:s:c:m:r var
 do
 	case "$var" in
@@ -27,6 +28,7 @@ do
 	esac
 done
 
+# decide where intermediate files will be stored, find code source directory and input files
 OUTDIR=$TEMPDIR/HetMan/variant_baseline/$expr_source/${cohort}__samps-${samp_cutoff}/$classif
 export RUNDIR=$CODEDIR/HetMan/experiments/variant_baseline
 source $RUNDIR/files.sh
@@ -36,6 +38,8 @@ rmv_str=""
 if $rewrite
 then
 	rm -rf $OUTDIR
+	rm -f $DATADIR/HetMan/variant_baseline/output/$out_tag/out-data__${classif}.p
+
 else
 	rmv_str="--remove-outs "
 fi
@@ -70,7 +74,7 @@ fi
 
 dvc run -d setup/cohort-data_${out_tag}.p -d setup/vars-list_${out_tag}.p \
        	-d $RUNDIR/fit_tests.py -d $RUNDIR/models/${classif%%'__'*}.py \
-	-o out-data.p -f output.dvc --overwrite-dvcfile --remove-outs \
+	-o out-data.p -f output.dvc --overwrite-dvcfile \
 	'snakemake -s $RUNDIR/Snakefile -j 100 --latency-wait 120 \
 	--cluster-config $RUNDIR/cluster.json \
 	--cluster "sbatch -p {cluster.partition} -J {cluster.job-name} -t {cluster.time} \

@@ -16,7 +16,7 @@ import pandas as pd
 import dill as pickle
 
 from functools import reduce
-from operator import or_, and_
+from operator import or_
 from itertools import combinations as combn
 from itertools import product
 
