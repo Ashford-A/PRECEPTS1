@@ -72,18 +72,15 @@ def main():
         "enumerating the subtypes to be tested."
         )
 
-    # create positional command line arguments
     parser.add_argument('mut_levels', type=str,
                         help="the mutation property levels to consider")
     parser.add_argument('cohorts', type=str, nargs='+',
                         help="which TCGA cohort to use")
 
-    # create optional command line arguments
     parser.add_argument('--samp_cutoff', type=int, default=20,
                         help='subtype sample frequency threshold')
     parser.add_argument('--setup_dir', type=str, default=base_dir)
 
-    # parse command line arguments
     args = parser.parse_args()
     out_path = os.path.join(args.setup_dir, 'setup')
     use_lvls = args.mut_levels.split('__')
@@ -133,8 +130,7 @@ def main():
 
             use_mcombs |= {ExMcomb(muts, mtype) for mtype in use_mtypes}
             use_mtypes |= {mcomb for mcomb in use_mcombs
-                           if (20
-                               <= len(mcomb.get_samples(muts))
+                           if (20 <= len(mcomb.get_samples(muts))
                                <= (len(cdata.samples) - 20))}
 
             mtype_list[cohort] |= {MuType({('Gene', gene): mtype})

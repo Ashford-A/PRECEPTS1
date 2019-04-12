@@ -14,7 +14,7 @@
         'error' : "slurm/classify_{wildcards.task_id}.err",
         'time' : "35:55:00",
         'cpus-per-task' : 12,
-        'mem-per-cpu': 4,
+        'mem-per-cpu': 4000,
     },
 
     'consolidate' : {
