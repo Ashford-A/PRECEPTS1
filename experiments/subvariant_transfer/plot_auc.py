@@ -26,7 +26,7 @@ plt.rcParams['axes.linewidth'] = 1.5
 plt.rcParams['axes.edgecolor'] = 'black'
 
 
-def plot_auc_comparisons(infer_dict, auc_dict, args, cdata):
+def plot_auc_comparisons(auc_dict, args, cdata):
     fig, axarr = plt.subplots(figsize=(13, 12), nrows=2, ncols=2)
 
     cohort_cmap = sns.hls_palette(len(args.cohorts), l=.4, s=.71)
@@ -89,20 +89,20 @@ def plot_auc_comparisons(infer_dict, auc_dict, args, cdata):
         ax.set_ylim(plot_min, 1.005)
         ax.tick_params(labelsize=13, pad=2.9)
 
-    axarr[0, 0].set_xlabel('Default AUC', fontsize=19, weight='semibold')
-    axarr[0, 0].set_ylabel('Isolated AUC', fontsize=19, weight='semibold')
+    axarr[0, 0].set_xlabel("Default AUC", fontsize=19, weight='semibold')
+    axarr[0, 0].set_ylabel("Isolated AUC", fontsize=19, weight='semibold')
 
-    axarr[0, 1].set_xlabel('Default AUC', fontsize=19, weight='semibold')
-    axarr[0, 1].set_ylabel('Transfer Default AUC',
+    axarr[0, 1].set_xlabel("Default AUC", fontsize=19, weight='semibold')
+    axarr[0, 1].set_ylabel("Transfer Default AUC",
                            fontsize=19, weight='semibold')
 
-    axarr[1, 0].set_xlabel('Isolated AUC', fontsize=19, weight='semibold')
-    axarr[1, 0].set_ylabel('Transfer Isolated AUC',
+    axarr[1, 0].set_xlabel("Isolated AUC", fontsize=19, weight='semibold')
+    axarr[1, 0].set_ylabel("Transfer Isolated AUC",
                            fontsize=19, weight='semibold')
 
-    axarr[1, 1].set_xlabel('Transfer Default AUC',
+    axarr[1, 1].set_xlabel("Transfer Default AUC",
                            fontsize=19, weight='semibold')
-    axarr[1, 1].set_ylabel('Transfer Isolated AUC',
+    axarr[1, 1].set_ylabel("Transfer Isolated AUC",
                            fontsize=19, weight='semibold')
 
     fig.tight_layout(w_pad=3.1, h_pad=2.7)
@@ -112,6 +112,86 @@ def plot_auc_comparisons(infer_dict, auc_dict, args, cdata):
                      args.mut_levels,
                      "{}__acc-comparisons.svg".format(args.classif)),
         dpi=500, bbox_inches='tight', format='svg'
+        )
+
+    plt.close()
+
+
+def plot_cohort_transfer(auc_dict, args, cdata):
+    fig, axarr = plt.subplots(
+        figsize=(15, 15), nrows=len(args.cohorts), ncols=len(args.cohorts))
+
+    for mtype in auc_dict['All']:
+        for trn_coh, tst_coh in auc_dict['All'][mtype]:
+            mtype_samps = mtype.get_samples(cdata.train_mut)
+            ax_i = sorted(args.cohorts).index(trn_coh)
+            ax_j = sorted(args.cohorts).index(tst_coh)
+
+            mtype_size = (
+                len(mtype_samps & cdata.cohort_samps[trn_coh.split('_')[0]])
+                + len(mtype_samps & cdata.cohort_samps[tst_coh.split('_')[0]])
+                )
+            mtype_size = (0.27 * mtype_size) ** 0.41
+
+            axarr[ax_i, ax_j].plot(auc_dict['All'][mtype][(trn_coh, tst_coh)],
+                                   auc_dict['Iso'][mtype][(trn_coh, tst_coh)],
+                                   marker='o', markersize=mtype_size,
+                                   color='black', markeredgecolor='none',
+                                   alpha=0.29)
+
+    plot_min = min(auc_val for exp_dict in auc_dict.values()
+                   for mtype_dict in exp_dict.values()
+                   for auc_val in mtype_dict.values()) - 0.01
+
+    for ax in axarr.flatten():
+        ax.plot([-1, 2], [-1, 2],
+                linewidth=1.5, linestyle='--', color='#550000', alpha=0.49)
+
+        ax.axhline(y=0.5,
+                   linewidth=0.9, linestyle='--', color='black', alpha=0.29)
+        ax.axvline(x=0.5,
+                   linewidth=0.9, linestyle='--', color='black', alpha=0.29)
+
+        ax.grid(color='0.23', linewidth=0.7, alpha=0.21)
+        ax.set_xlim(plot_min, 1.005)
+        ax.set_ylim(plot_min, 1.005)
+        ax.tick_params(labelsize=15, pad=2.9)
+
+    fig.text(0.5, 0, "Default AUC",
+             size=27, ha='center', va='top', fontweight='semibold')
+    fig.text(0, 0.5, "Isolated AUC", size=27, rotation=90,
+             ha='right', va='center', fontweight='semibold')
+
+    fig.text(0.5, 1.02, "Training Cohort",
+             size=27, ha='center', va='bottom', fontweight='semibold')
+    fig.text(1.02, 0.5, "Testing Cohort", size=27, rotation=270,
+             ha='left', va='center', fontweight='semibold')
+
+    for i, cohort in enumerate(sorted(args.cohorts)):
+        axarr[0, i].text(0.5, 1.02, cohort, size=15,
+                         ha='center', va='bottom', fontweight='semibold',
+                         transform=axarr[0, i].transAxes)
+        axarr[i, -1].text(1.02, 0.5, cohort, size=15, ha='left', va='center',
+                          rotation=270, fontweight='semibold',
+                          transform=axarr[i, -1].transAxes)
+
+    for i in range(len(args.cohorts)):
+        for j in range(len(args.cohorts)):
+            axarr[i, j].set_xticks([0.5, 0.7, 0.9], minor=False)
+            axarr[i, j].set_yticks([0.5, 0.7, 0.9], minor=False)
+
+            if i != (len(args.cohorts) - 1):
+                axarr[i, j].set_xticklabels([])
+            if j != 0:
+                axarr[i, j].set_yticklabels([])
+
+    fig.tight_layout(w_pad=1.3, h_pad=1.3)
+    fig.savefig(
+        os.path.join(plot_dir, "{}__samps-{}".format('__'.join(args.cohorts),
+                                                     args.samp_cutoff),
+                     args.mut_levels,
+                     "{}__cohort-transfer.svg".format(args.classif)),
+        dpi=600, bbox_inches='tight', format='svg'
         )
 
     plt.close()
@@ -139,30 +219,39 @@ def main():
     os.makedirs(os.path.join(plot_dir, out_tag, args.mut_levels),
                 exist_ok=True)
 
+    # load expression and mutation data for each of the cohorts considered
     cdata = merge_cohort_data(os.path.join(base_dir, out_tag))
     use_samps = sorted(cdata.train_samps)
 
+    # find which cohort each sample belongs to
     coh_stat = {
         cohort: np.array([samp in cdata.cohort_samps[cohort.split('_')[0]]
                           for samp in use_samps])
         for cohort in args.cohorts
         }
 
+    # load mutation scores inferred by the classifier in the experiment
     out_dict = pickle.load(open(os.path.join(
         base_dir, out_tag,
         "out-data__{}_{}.p".format(args.mut_levels, args.classif)
         ), 'rb'))
 
+    # for each mutation task, calculate classifier performance when using
+    # naive approach and when using isolation approach
     auc_dict = {'All': dict(), 'Iso': dict()}
     for (coh, mtype) in out_dict['Infer']['All'].index:
         if mtype not in auc_dict['All']:
             auc_dict['All'][mtype] = dict()
             auc_dict['Iso'][mtype] = dict()
 
+        # find the samples harbouring this mutation, and the inferred scores
+        # predicted by the mutation classifier when trained on this cohort
         mtype_stat = np.array(cdata.train_mut.status(use_samps, mtype))
         all_vals = out_dict['Infer']['All'].loc[[(coh, mtype)]].values[0]
         iso_vals = out_dict['Infer']['Iso'].loc[[(coh, mtype)]].values[0]
 
+        # get the gene associated with this mutation and the samples
+        # harbouring any mutation of this gene
         use_gene = mtype.subtype_list()[0][0]
         muts = cdata.train_mut[use_gene]
         all_stat = np.array(muts.status(use_samps, MuType(muts.allkey())))
@@ -189,7 +278,8 @@ def main():
                 auc_dict['Iso'][mtype][(coh, test_coh)] += np.equal.outer(
                     cur_iso_vals, none_vals).mean() / 2
 
-    plot_auc_comparisons(out_dict['Infer'], auc_dict, args, cdata)
+    plot_auc_comparisons(auc_dict, args, cdata)
+    plot_cohort_transfer(auc_dict, args, cdata)
 
 
 if __name__ == '__main__':
