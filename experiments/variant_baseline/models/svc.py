@@ -8,6 +8,15 @@ from sklearn.svm import SVC
 
 
 class Base(PresencePipe):
+    """Support Vector Classifiers with various kernels. 
+
+    The `Base` model corresponds to the simplest linear kernel; other choices
+    of kernels are implemented below.
+
+    Note that a unique tuning grid for the `C` regularization parameter needs
+    to be specified in each version of this model due to the differences in
+    characteristics associated with each kernel.
+    """
 
     tune_priors = (
         ('fit__C', tuple(10 ** np.linspace(-6.3, -2.8, 36))),
@@ -61,7 +70,7 @@ class Kernel_poly(Base):
     tune_priors = (
         ('fit__degree', (2, 3, 4, 5)),
         ('fit__coef0', (0, 2, 5)),
-        ('fit__C', (1, 5, 10)),
+        ('fit__C', (1, 10, 100)),
         )
  
     fit_inst = SVC(kernel='poly', gamma=1e-6, probability=True,
@@ -82,9 +91,21 @@ class Kernel_radial(Base):
 class Radial_fixed_gamma(Base):
 
     tune_priors = (
-        ('fit__C', tuple(10 ** np.linspace(-0.5, 3.875, 36))),
+        ('fit__C', tuple(10 ** np.linspace(-0.3, 3.2, 36))),
         )
  
+    fit_inst = SVC(kernel='rbf', probability=True, gamma=1e-6,
+                   cache_size=500, class_weight='balanced')
+
+
+class Radial_meanvar(Base):
+
+    tune_priors = (
+        ('feat__mean_perc', (40, 55, 70)),
+        ('feat__var_perc', (40, 55, 70)),
+        ('fit__C', (1, 5, 10, 100)),
+        )
+
     fit_inst = SVC(kernel='rbf', probability=True, gamma=1e-6,
                    cache_size=500, class_weight='balanced')
 

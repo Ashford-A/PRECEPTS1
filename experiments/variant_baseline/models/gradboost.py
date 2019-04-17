@@ -10,24 +10,29 @@ from sklearn.ensemble import GradientBoostingClassifier
 class Base(PresencePipe):
  
     tune_priors = (
-        ('fit__max_depth', (2, 3, 4, 5, 6, 7)),
-        ('fit__min_samples_split', (0.005, 0.01, 0.02, 0.03, 0.04, 0.05)),
+        ('fit__max_depth', (2, 3, 4, 5)),
+        ('fit__min_samples_split', tuple(np.linspace(0.003, 0.051, 9))),
         )
 
     feat_inst = SelectMeanVar(mean_perc=95, var_perc=95)
     norm_inst = StandardScaler()
-    fit_inst = GradientBoostingClassifier(n_estimators=50, learning_rate=0.2)
+    fit_inst = GradientBoostingClassifier()
 
     def __init__(self):
         super().__init__([('feat', self.feat_inst), ('norm', self.norm_inst),
                           ('fit', self.fit_inst)])
 
 
+class Many_estimators(Base):
+
+    fit_inst = GradientBoostingClassifier(n_estimators=400)
+
+
 class Depth_fixed(Base):
 
     tune_priors = (
-        ('fit__learning_rate', (0.03, 0.07, 0.11, 0.17, 0.25, 0.35)),
-        ('fit__min_samples_split', (0.006, 0.018, 0.028, 0.036, 0.46, 0.58)),
+        ('fit__learning_rate', (0.03, 0.05, 0.1, 0.15, 0.2, 0.3)),
+        ('fit__min_samples_split', (1, 2, 5, 15, 40, 80)),
         )
 
     fit_inst = GradientBoostingClassifier(max_depth=4, n_estimators=150)
