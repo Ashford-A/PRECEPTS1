@@ -16,14 +16,5 @@
         'cpus-per-task' : 12,
         'mem-per-cpu': 4000,
     },
-
-    'consolidate' : {
-        'job-name' : "subv-trans_merge",
-        'output' : "slurm/merge.out",
-        'error' : "slurm/merge.err",
-        'time' : "1:00:00",
-        'cpus-per-task' : 1,
-        'mem-per-cpu': 8000,
-    },
 }
 

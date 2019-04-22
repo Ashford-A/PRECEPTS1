@@ -21,7 +21,15 @@ from itertools import combinations as combn
 from itertools import product
 
 
-def get_cohorts(expr_source, cohorts, mut_levels, cv_prop=1.0, cv_seed=None):
+def get_gene(mtype):
+    if mtype.cur_level != 'Gene':
+        raise ValueError("Cannot retrieve the gene of a mutation not "
+                         "defined at the gene level!")
+
+    return mtype.subtype_list()[0][0]
+
+
+def get_cohorts(expr_source, cohorts, mut_levels, cv_prop=1.0, cv_seed=9078):
     syn = synapseclient.Synapse()
     syn.cache.cache_root_dir = syn_root
     syn.login()
@@ -74,9 +82,10 @@ def main():
 
     parser.add_argument('mut_levels', type=str,
                         help="the mutation property levels to consider")
+    parser.add_argument('ex_mtype', type=str, choices=list(ex_mtypes.keys()))
+
     parser.add_argument('cohorts', type=str, nargs='+',
                         help="which TCGA cohort to use")
-
     parser.add_argument('--samp_cutoff', type=int, default=20,
                         help='subtype sample frequency threshold')
     parser.add_argument('--setup_dir', type=str, default=base_dir)
@@ -91,10 +100,13 @@ def main():
     with open(os.path.join(out_path, "cohort-dict.p"), 'wb') as f:
         pickle.dump(cdata_dict, f)
 
+    all_mtypes = {gene: MuType(muts.allkey()) - ex_mtypes[args.ex_mtype]
+                  for gene, muts in cdata_concat.train_mut}
+
     mtype_list = {cohort: set() for cohort in args.cohorts}
     for cohort, cdata in cdata_dict.items():
         for gene, muts in cdata.train_mut:
-            
+
             use_mtypes = {
                 mtype for mtype in (muts.branchtypes(min_size=20)
                                     - {MuType({('Scale', 'Copy'): None})}
@@ -109,18 +121,6 @@ def main():
             if args.mut_levels != 'Location__Protein':
                 use_mtypes -= {MuType({('Scale', 'Point'): None})}
 
-            use_pairs = {(mtype1, mtype2)
-                         for mtype1, mtype2 in combn(use_mtypes, 2)
-                         if (mtype1 & mtype2).is_empty()}
-            use_mcombs = {Mcomb(*pair) for pair in use_pairs}
-            use_mcombs |= {ExMcomb(muts, *pair) for pair in use_pairs}
-
-            if args.mut_levels != 'Location__Protein':
-                use_mtypes = {
-                    mtype for mtype in use_mtypes
-                    if (mtype & MuType({('Scale', 'Copy'): None})).is_empty()
-                    }
-
             use_mtypes -= {mtype1
                            for mtype1, mtype2 in product(use_mtypes, repeat=2)
                            if (mtype1 != mtype2
@@ -128,26 +128,52 @@ def main():
                                and (mtype1.get_samples(cdata.train_mut)
                                     == mtype2.get_samples(cdata.train_mut)))}
 
-            use_mcombs |= {ExMcomb(muts, mtype) for mtype in use_mtypes}
+            use_pairs = {(mtype1, mtype2)
+                         for mtype1, mtype2 in combn(use_mtypes, 2)
+                         if (mtype1 & mtype2).is_empty()}
+
+            use_mcombs = {Mcomb(*pair) for pair in use_pairs}
+            test_mcombs = {(mcomb, ExMcomb(all_mtypes[gene], *mcomb.mtypes))
+                           for mcomb in use_mcombs}
+
+            use_mcombs |= {
+                exmcomb for mcomb, exmcomb in test_mcombs
+                if exmcomb.get_samples(muts) < mcomb.get_samples(muts)
+                }
+
+            if args.mut_levels != 'Location__Protein':
+                use_mtypes = {
+                    mtype for mtype in use_mtypes
+                    if (mtype & MuType({('Scale', 'Copy'): None})).is_empty()
+                    }
+
+            test_mtypes = {(mtype, ExMcomb(all_mtypes[gene], mtype))
+                           for mtype in use_mtypes}
+            use_mcombs |= {
+                exmcomb for mtype, exmcomb in test_mtypes
+                if exmcomb.get_samples(muts) < mtype.get_samples(muts)
+                }
+
             use_mtypes |= {mcomb for mcomb in use_mcombs
                            if (20 <= len(mcomb.get_samples(muts))
                                <= (len(cdata.samples) - 20))}
-
             mtype_list[cohort] |= {MuType({('Gene', gene): mtype})
                                    for mtype in use_mtypes}
 
     train_mtypes = [
-        (cohort, mtype)
-        for cohort, mtypes in mtype_list.items() for mtype in mtypes
-        if (len(mtype.get_samples(cdata_dict[cohort].train_mut))
+        (coh, mtype)
+        for coh, mtypes in mtype_list.items() for mtype in mtypes
+        if (len(mtype.get_samples(cdata_dict[coh].train_mut))
             >= args.samp_cutoff
-            and any(other_mtype.subtype_list()[0][0]
-                    == mtype.subtype_list()[0][0]
-                    for other_mtype in mtype_list[cohort] - {mtype})
+            and len(
+                all_mtypes[get_gene(mtype)].get_samples(
+                    cdata_dict[coh].train_mut[get_gene(mtype)])
+                - mtype.get_samples(cdata_dict[coh].train_mut)
+                ) >= 5
             and mtype in reduce(
                 or_, [oth_mtypes
                       for oth_cohort, oth_mtypes in mtype_list.items()
-                      if oth_cohort != cohort]
+                      if oth_cohort != coh]
                 ))
         ]
 
