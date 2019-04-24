@@ -2,6 +2,7 @@
 {
     '__default__' : {
         'partition' : "exacloud",
+        'account' : "compbio",
         'ntasks' : 1,
         'output': 'slurm/master.out',
         'error': 'slurm/master.err',

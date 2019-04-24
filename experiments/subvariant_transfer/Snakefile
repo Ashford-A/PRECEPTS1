@@ -8,20 +8,22 @@ TMPDIR = os.path.join(os.environ['TEMPDIR'],
                       'HetMan', 'subvariant_transfer',
                       "{}__samps-{}".format(config['cohorts'],
                                             config['samp_cutoff']),
-                      config['mut_levels'], config['classif'])
+                      config['mut_levels'],
+                      "{}_{}".format(config['classif'], config['ex_mtype']))
 
 OUTDIR = os.path.join(os.environ['DATADIR'], 'HetMan', 'subvariant_transfer',
                       "{}__samps-{}".format(config['cohorts'],
                                             config['samp_cutoff']))
 
 
-localrules: target
+localrules: target, consolidate
 
 
 rule target:
     input:
-        expand("{outdir}/out-data__{mut_levels}_{classif}.p", outdir=OUTDIR,
-               mut_levels=config['mut_levels'], classif=config['classif'])
+        expand("{outdir}/out-data__{mut_levels}_{classif}_{ex_mtype}.p",
+               outdir=OUTDIR, mut_levels=config['mut_levels'],
+               classif=config['classif'], ex_mtype=config['ex_mtype'])
 
     threads: 1
 
@@ -36,7 +38,8 @@ rule transfer:
         export OMP_NUM_THREADS=1;
         sleep $(( ({wildcards.task_id} + 1) * $(shuf -i 1-13 -n 1) ));
 
-        python {LOCALDIR}/fit_transfer.py {config[classif]} \
+        python {LOCALDIR}/fit_transfer.py \
+                {config[classif]} {config[ex_mtype]} \
                 --use_dir={TMPDIR} --task_count={config[task_count]} \
                 --task_id={wildcards.task_id}
         """
@@ -48,8 +51,9 @@ rule consolidate:
                tmpdir=TMPDIR, task_id=range(config['task_count']))
 
     output:
-        expand("{outdir}/out-data__{mut_levels}_{classif}.p", outdir=OUTDIR,
-               mut_levels=config['mut_levels'], classif=config['classif'])
+        expand("{outdir}/out-data__{mut_levels}_{classif}_{ex_mtype}.p",
+               outdir=OUTDIR, mut_levels=config['mut_levels'],
+               classif=config['classif'], ex_mtype=config['ex_mtype'])
 
     threads: 1
 
@@ -57,7 +61,7 @@ rule consolidate:
         set +u; source activate HetMan; set -u;
         python {LOCALDIR}/merge_transfer.py {TMPDIR}
 
-        out_tag={config[mut_levels]}_{config[classif]}
+        out_tag={config[mut_levels]}_{config[classif]}_{config[ex_mtype]}
         cp {TMPDIR}/out-data.p {OUTDIR}/out-data__${{out_tag}}.p
         cp {TMPDIR}/setup/cohort-data.p {OUTDIR}/cohort-data__${{out_tag}}.p
         """
