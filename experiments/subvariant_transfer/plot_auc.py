@@ -8,6 +8,8 @@ sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
 plot_dir = os.path.join(base_dir, 'plots', 'auc')
 
 from HetMan.experiments.subvariant_transfer import *
+from HetMan.experiments.subvariant_infer import variant_clrs
+from HetMan.experiments.subvariant_infer.setup_infer import Mcomb, ExMcomb
 from dryadic.features.mutations import MuType
 
 import argparse
@@ -19,55 +21,66 @@ import pandas as pd
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
-import seaborn as sns
+from matplotlib.lines import Line2D
 
 plt.rcParams['axes.facecolor']='white'
 plt.rcParams['savefig.facecolor']='white'
 plt.rcParams['axes.linewidth'] = 1.5
 plt.rcParams['axes.edgecolor'] = 'black'
 
+lgnd_ptchs = [Line2D([0], [0], marker='o', linewidth=0, alpha=0.51,
+                     markerfacecolor=variant_clrs[tp],
+                     markeredgecolor=variant_clrs[tp])
+              for tp in ['Gain', 'Loss', 'Point']]
+lgnd_lbls = ['Deep Amplification', 'Deep Deletion', 'Point Mutation']
 
-def plot_auc_comparisons(auc_dict, size_dict, args):
+
+def plot_auc_comparisons(auc_dict, size_dict, type_dict, args):
     fig, axarr = plt.subplots(figsize=(13, 12), nrows=2, ncols=2)
 
-    cohort_cmap = sns.hls_palette(len(args.cohorts), l=.4, s=.71)
-    coh_clrs = {coh: cohort_cmap[sorted(args.cohorts).index(coh)]
-                for coh in args.cohorts}
+    for mtype in auc_dict['All']['Reg']:
+        if type_dict[mtype] in variant_clrs:
+            mtype_clr = variant_clrs[type_dict[mtype]]
+        else:
+            mtype_clr = '0.5'
 
-    for mtype in auc_dict['All']:
-        for trn_coh, tst_coh in auc_dict['All'][mtype]:
+        for coh, tst_coh in auc_dict['All']['Reg'][mtype]:
             mtype_size = (0.49 * size_dict[tst_coh, mtype]) ** 0.43
 
-            if trn_coh == tst_coh:
-                axarr[0, 0].plot(auc_dict['All'][mtype][(trn_coh, tst_coh)],
-                                 auc_dict['Iso'][mtype][(trn_coh, tst_coh)],
-                                 marker='o', markersize=mtype_size,
-                                 color=coh_clrs[tst_coh], alpha=0.19)
+            if coh == tst_coh:
+                axarr[0, 0].plot(
+                    auc_dict['All']['Reg'][mtype][(coh, tst_coh)],
+                    auc_dict['Iso']['Reg'][mtype][(coh, tst_coh)],
+                    marker='o', markersize=mtype_size,
+                    color=mtype_clr, alpha=0.19
+                    )
 
-                for trn_coh2, tst_coh2 in auc_dict['All'][mtype]:
-                    if trn_coh2 == trn_coh and tst_coh2 != tst_coh:
+                for coh2, tst_coh2 in auc_dict['All']['Reg'][mtype]:
+                    if coh2 == coh and tst_coh2 != tst_coh:
                         axarr[0, 1].plot(
-                            auc_dict['All'][mtype][(trn_coh, tst_coh)],
-                            auc_dict['All'][mtype][(trn_coh, tst_coh2)],
-                            marker='o', markersize=mtype_size, alpha=0.19,
-                            color=coh_clrs[tst_coh]
+                            auc_dict['All']['Reg'][mtype][(coh, tst_coh)],
+                            auc_dict['All']['Reg'][mtype][(coh, tst_coh2)],
+                            marker='o', markersize=mtype_size,
+                            color=mtype_clr, alpha=0.19
                             )
 
                         axarr[1, 0].plot(
-                            auc_dict['Iso'][mtype][(trn_coh, tst_coh)],
-                            auc_dict['Iso'][mtype][(trn_coh, tst_coh2)],
-                            marker='o', markersize=mtype_size, alpha=0.19,
-                            color=coh_clrs[tst_coh]
+                            auc_dict['Iso']['Reg'][mtype][(coh, tst_coh)],
+                            auc_dict['Iso']['Reg'][mtype][(coh, tst_coh2)],
+                            marker='o', markersize=mtype_size,
+                            color=mtype_clr, alpha=0.19
                             )
 
             else:
-                axarr[1, 1].plot(auc_dict['All'][mtype][(trn_coh, tst_coh)],
-                                 auc_dict['Iso'][mtype][(trn_coh, tst_coh)],
-                                 marker='o', markersize=mtype_size,
-                                 color=coh_clrs[tst_coh], alpha=0.19)
+                axarr[1, 1].plot(
+                    auc_dict['All']['Reg'][mtype][(coh, tst_coh)],
+                    auc_dict['Iso']['Reg'][mtype][(coh, tst_coh)],
+                    marker='o', markersize=mtype_size,
+                    color=mtype_clr, alpha=0.19
+                    )
 
-    plot_min = min(auc_val for exp_dict in auc_dict.values()
-                   for mtype_dict in exp_dict.values()
+    plot_min = min(auc_val for samp_dict in auc_dict.values()
+                   for mtype_dict in samp_dict['Reg'].values()
                    for auc_val in mtype_dict.values()) - 0.02
 
     for ax in axarr.flatten():
@@ -100,7 +113,11 @@ def plot_auc_comparisons(auc_dict, size_dict, args):
     axarr[1, 1].set_ylabel("Transfer Isolated AUC",
                            fontsize=19, weight='semibold')
 
-    fig.tight_layout(w_pad=3.1, h_pad=2.7)
+    fig.legend(lgnd_ptchs, lgnd_lbls, frameon=False, fontsize=23, ncol=3,
+               loc=8, handletextpad=0.06, markerscale=4.1,
+               bbox_to_anchor=(9/19, -1/51))
+
+    fig.tight_layout(pad=3.7, w_pad=3.1, h_pad=2.7)
     fig.savefig(
         os.path.join(plot_dir, "{}__samps-{}".format('__'.join(args.cohorts),
                                                      args.samp_cutoff),
@@ -112,31 +129,38 @@ def plot_auc_comparisons(auc_dict, size_dict, args):
     plt.close()
 
 
-def plot_cohort_transfer(auc_dict, size_dict, args):
+def plot_cohort_transfer(auc_dict, size_dict, type_dict, args):
     fig_size = 1 + len(args.cohorts) * 2.9
     fig, axarr = plt.subplots(figsize=(fig_size, fig_size),
-                              nrows=len(args.cohorts),
-                              ncols=len(args.cohorts))
+                              nrows=len(args.cohorts) + 1,
+                              ncols=len(args.cohorts),
+                              gridspec_kw=dict(height_ratios=[6, 6, 1]))
 
-    for mtype in auc_dict['All']:
-        for trn_coh, tst_coh in auc_dict['All'][mtype]:
+    for mtype in auc_dict['All']['Reg']:
+        if type_dict[mtype] in variant_clrs:
+            mtype_clr = variant_clrs[type_dict[mtype]]
+        else:
+            mtype_clr = '0.5'
+
+        for coh, tst_coh in auc_dict['All']['Reg'][mtype]:
             mtype_size = 0.051 * fig_size * size_dict[tst_coh, mtype]
             mtype_size **= 0.43
 
-            ax_i = sorted(args.cohorts).index(trn_coh)
+            ax_i = sorted(args.cohorts).index(coh)
             ax_j = sorted(args.cohorts).index(tst_coh)
 
-            axarr[ax_i, ax_j].plot(auc_dict['All'][mtype][(trn_coh, tst_coh)],
-                                   auc_dict['Iso'][mtype][(trn_coh, tst_coh)],
-                                   marker='o', markersize=mtype_size,
-                                   color='black', markeredgecolor='none',
-                                   alpha=0.29)
+            axarr[ax_i, ax_j].plot(
+                auc_dict['All']['Reg'][mtype][(coh, tst_coh)],
+                auc_dict['Iso']['Reg'][mtype][(coh, tst_coh)],
+                marker='o', markersize=mtype_size, color=mtype_clr,
+                markeredgecolor='none', alpha=0.29
+                )
 
-    plot_min = min(auc_val for exp_dict in auc_dict.values()
-                   for mtype_dict in exp_dict.values()
+    plot_min = min(auc_val for samp_dict in auc_dict.values()
+                   for mtype_dict in samp_dict['Reg'].values()
                    for auc_val in mtype_dict.values()) - 0.01
 
-    for ax in axarr.flatten():
+    for ax in axarr.flatten()[:-2]:
         ax.plot([-1, 2], [-1, 2],
                 linewidth=1.5, linestyle='--', color='#550000', alpha=0.49)
 
@@ -150,7 +174,7 @@ def plot_cohort_transfer(auc_dict, size_dict, args):
         ax.set_ylim(plot_min, 1.005)
         ax.tick_params(labelsize=4 + fig_size, pad=fig_size / 4.7)
 
-    fig.text(0.5, 0, "Default AUC", size=13 + fig_size * 0.63,
+    fig.text(0.5, 2/15, "Default AUC", size=13 + fig_size * 0.63,
              ha='center', va='top', fontweight='semibold')
     fig.text(0, 0.5, "Isolated AUC", size=13 + fig_size * 0.63,
              rotation=90, ha='right', va='center', fontweight='semibold')
@@ -180,7 +204,13 @@ def plot_cohort_transfer(auc_dict, size_dict, args):
             if j != 0:
                 axarr[i, j].set_yticklabels([])
 
-    fig.tight_layout(w_pad=1.3, h_pad=1.3)
+    axarr[2, 0].axis('off')
+    axarr[2, 1].axis('off')
+    fig.legend(lgnd_ptchs, lgnd_lbls, frameon=False, fontsize=15,
+               ncol=3, loc=8, handletextpad=0.09, markerscale=3.2,
+               bbox_to_anchor=(5/9, 0))
+
+    fig.tight_layout()
     fig.savefig(
         os.path.join(plot_dir, "{}__samps-{}".format('__'.join(args.cohorts),
                                                      args.samp_cutoff),
@@ -192,55 +222,43 @@ def plot_cohort_transfer(auc_dict, size_dict, args):
     plt.close()
 
 
-def plot_stability_comparisons(stab_dict, auc_dict, size_dict, args):
+def plot_stability_comparisons(stab_dict, auc_dict,
+                               size_dict, type_dict, args):
     fig, axarr = plt.subplots(figsize=(13, 12), nrows=2, ncols=2)
 
-    cohort_cmap = sns.hls_palette(len(args.cohorts), l=.4, s=.71)
-    coh_clrs = {coh: cohort_cmap[sorted(args.cohorts).index(coh)]
-                for coh in args.cohorts}
+    for mtype in auc_dict['All']['Reg']:
+        if type_dict[mtype] in variant_clrs:
+            mtype_clr = variant_clrs[type_dict[mtype]]
+        else:
+            mtype_clr = '0.5'
 
-    for mtype in auc_dict['All']:
-        for trn_coh, tst_coh in auc_dict['All'][mtype]:
+        for coh, tst_coh in auc_dict['All']['Reg'][mtype]:
             mtype_size = (0.49 * size_dict[tst_coh, mtype]) ** 0.43
 
-            if trn_coh == tst_coh:
-                axarr[0, 0].plot(auc_dict['All'][mtype][(trn_coh, tst_coh)],
-                                 stab_dict['All'][mtype][(trn_coh, tst_coh)],
-                                 marker='o', markersize=mtype_size,
-                                 color=coh_clrs[tst_coh], alpha=0.19)
+            for i, smps in enumerate(['All', 'Iso']):
+                axarr[int(coh != tst_coh), i].plot(
+                    auc_dict[smps]['Reg'][mtype][(coh, tst_coh)],
+                    stab_dict[smps][mtype][(coh, tst_coh)],
+                    marker='o', markersize=mtype_size,
+                    color=mtype_clr, alpha=0.19
+                    )
 
-                axarr[0, 1].plot(auc_dict['Iso'][mtype][(trn_coh, tst_coh)],
-                                 stab_dict['Iso'][mtype][(trn_coh, tst_coh)],
-                                 marker='o', markersize=mtype_size, alpha=0.19,
-                                 color=coh_clrs[tst_coh])
-
-            else:
-                axarr[1, 0].plot(auc_dict['All'][mtype][(trn_coh, tst_coh)],
-                                 stab_dict['All'][mtype][(trn_coh, tst_coh)],
-                                 marker='o', markersize=mtype_size, alpha=0.19,
-                                 color=coh_clrs[tst_coh])
-
-                axarr[1, 1].plot(auc_dict['Iso'][mtype][(trn_coh, tst_coh)],
-                                 stab_dict['Iso'][mtype][(trn_coh, tst_coh)],
-                                 marker='o', markersize=mtype_size,
-                                 color=coh_clrs[tst_coh], alpha=0.19)
-
-    plot_xmin = min(auc_val for exp_dict in auc_dict.values()
-                    for mtype_dict in exp_dict.values()
+    plot_xmin = min(auc_val for samp_dict in auc_dict.values()
+                    for mtype_dict in samp_dict['Reg'].values()
                     for auc_val in mtype_dict.values()) - 0.01
 
     plot_ymax_wthn = max(
         stab_val for exp_dict in stab_dict.values()
         for mtype_dict in exp_dict.values()
-        for (trn_coh, tst_coh), stab_val in mtype_dict.items()
-        if trn_coh == tst_coh
+        for (coh, tst_coh), stab_val in mtype_dict.items()
+        if coh == tst_coh
         ) + 0.02
 
     plot_ymax_btwn = max(
         stab_val for exp_dict in stab_dict.values()
         for mtype_dict in exp_dict.values()
-        for (trn_coh, tst_coh), stab_val in mtype_dict.items()
-        if trn_coh != tst_coh
+        for (coh, tst_coh), stab_val in mtype_dict.items()
+        if coh != tst_coh
         ) + 0.02
 
     for ax in axarr.flatten():
@@ -274,7 +292,11 @@ def plot_stability_comparisons(stab_dict, auc_dict, size_dict, args):
     axarr[1, 1].set_ylabel("Transfer Isolated Instability",
                            fontsize=19, weight='semibold')
 
-    fig.tight_layout(w_pad=1.3, h_pad=1.3)
+    fig.legend(lgnd_ptchs, lgnd_lbls, frameon=False, fontsize=23, ncol=3,
+               loc=8, handletextpad=0.06, markerscale=4.1,
+               bbox_to_anchor=(9/19, -1/51))
+
+    fig.tight_layout(pad=3.7, w_pad=3.1, h_pad=2.7)
     fig.savefig(
         os.path.join(plot_dir, "{}__samps-{}".format('__'.join(args.cohorts),
                                                      args.samp_cutoff),
@@ -286,45 +308,40 @@ def plot_stability_comparisons(stab_dict, auc_dict, size_dict, args):
     plt.close()
 
 
-def plot_holdout_error(auc_dict, oth_dict, size_dict, args):
+def plot_holdout_error(auc_dict, size_dict, type_dict, args):
     fig, axarr = plt.subplots(figsize=(13, 12), nrows=2, ncols=2)
 
-    cohort_cmap = sns.hls_palette(len(args.cohorts), l=.4, s=.71)
-    coh_clrs = {coh: cohort_cmap[sorted(args.cohorts).index(coh)]
-                for coh in args.cohorts}
+    for mtype in auc_dict['All']['Reg']:
+        if type_dict[mtype] in variant_clrs:
+            mtype_clr = variant_clrs[type_dict[mtype]]
+        else:
+            mtype_clr = '0.5'
 
-    for mtype in auc_dict['All']:
-        for trn_coh, tst_coh in auc_dict['All'][mtype]:
+        for coh, tst_coh in auc_dict['All']['Reg'][mtype]:
             mtype_size = (0.49 * size_dict[tst_coh, mtype]) ** 0.43
 
-            if trn_coh == tst_coh:
-                axarr[0, 0].plot(auc_dict['All'][mtype][(trn_coh, tst_coh)],
-                                 oth_dict['All'][mtype][(trn_coh, tst_coh)],
-                                 marker='o', markersize=mtype_size,
-                                 color=coh_clrs[tst_coh], alpha=0.19)
+            if coh == tst_coh:
+                for i, smps in enumerate(['All', 'Iso']):
+                    axarr[i, 0].plot(
+                        auc_dict[smps]['Reg'][mtype][(coh, tst_coh)],
+                        auc_dict[smps]['Oth'][mtype][(coh, tst_coh)],
+                        marker='o', markersize=mtype_size,
+                        color=mtype_clr, alpha=0.19
+                        )
 
-                axarr[1, 0].plot(auc_dict['Iso'][mtype][(trn_coh, tst_coh)],
-                                 oth_dict['Iso'][mtype][(trn_coh, tst_coh)],
-                                 marker='o', markersize=mtype_size,
-                                 color=coh_clrs[tst_coh], alpha=0.19)
+            elif (coh, tst_coh) in auc_dict['All']['Oth'][mtype]:
+                for i, smps in enumerate(['All', 'Iso']):
+                    axarr[i, 1].plot(
+                        auc_dict[smps]['Reg'][mtype][(coh, tst_coh)],
+                        auc_dict[smps]['Oth'][mtype][(coh, tst_coh)],
+                        marker='o', markersize=mtype_size,
+                        color=mtype_clr, alpha=0.19
+                        )
 
-            elif (trn_coh, tst_coh) in oth_dict['All'][mtype]:
-                axarr[0, 1].plot(auc_dict['All'][mtype][(trn_coh, tst_coh)],
-                                 oth_dict['All'][mtype][(trn_coh, tst_coh)],
-                                 marker='o', markersize=mtype_size,
-                                 color=coh_clrs[tst_coh], alpha=0.19)
-
-                axarr[1, 1].plot(auc_dict['Iso'][mtype][(trn_coh, tst_coh)],
-                                 oth_dict['Iso'][mtype][(trn_coh, tst_coh)],
-                                 marker='o', markersize=mtype_size,
-                                 color=coh_clrs[tst_coh], alpha=0.19)
-
-    plot_min = min(min(auc_val for exp_dict in auc_dict.values()
-                       for mtype_dict in exp_dict.values()
-                       for auc_val in mtype_dict.values()),
-                   min(auc_val for exp_dict in oth_dict.values()
-                       for mtype_dict in exp_dict.values()
-                       for auc_val in mtype_dict.values())) - 0.02
+    plot_min = min(auc_val for exp_dict in auc_dict.values()
+                   for samp_dict in exp_dict.values()
+                   for mtype_dict in samp_dict.values()
+                   for auc_val in mtype_dict.values()) - 0.02
 
     for ax in axarr.flatten():
         ax.plot([-1, 2], [-1, 2],
@@ -358,12 +375,89 @@ def plot_holdout_error(auc_dict, oth_dict, size_dict, args):
     axarr[1, 1].set_ylabel("Transfer Isolated Hold-out AUC",
                            fontsize=19, weight='semibold')
 
-    fig.tight_layout(w_pad=3.1, h_pad=2.7)
+    fig.legend(lgnd_ptchs, lgnd_lbls, frameon=False, fontsize=23, ncol=3,
+               loc=8, handletextpad=0.06, markerscale=4.1,
+               bbox_to_anchor=(9/19, -1/51))
+
+    fig.tight_layout(pad=3.7, w_pad=3.1, h_pad=2.7)
     fig.savefig(
         os.path.join(plot_dir, "{}__samps-{}".format('__'.join(args.cohorts),
                                                      args.samp_cutoff),
                      "{}_{}__holdout-error.svg".format(args.classif,
                                                        args.ex_mtype)),
+        dpi=500, bbox_inches='tight', format='svg'
+        )
+
+    plt.close()
+
+
+def plot_holdout_comparison(auc_dict, size_dict, type_dict, args):
+    fig, axarr = plt.subplots(figsize=(13, 12), nrows=2, ncols=2)
+
+    for mtype in auc_dict['All']['Reg']:
+        if type_dict[mtype] in variant_clrs:
+            mtype_clr = variant_clrs[type_dict[mtype]]
+        else:
+            mtype_clr = '0.5'
+
+        for coh, tst_coh in auc_dict['All']['Reg'][mtype]:
+            mtype_size = (0.49 * size_dict[tst_coh, mtype]) ** 0.43
+
+            for i, smps in enumerate(['All', 'Iso']):
+                axarr[int(coh != tst_coh), i].plot(
+                    auc_dict[smps]['Reg'][mtype][(coh, tst_coh)],
+                    auc_dict['All']['Hld'][mtype][(coh, tst_coh)],
+                    marker='o', markersize=mtype_size,
+                    color=mtype_clr, alpha=0.19
+                    )
+
+    plot_min = min(auc_val for exp_dict in auc_dict.values()
+                   for samp_dict in exp_dict.values()
+                   for mtype_dict in samp_dict.values()
+                   for auc_val in mtype_dict.values()) - 0.02
+
+    for ax in axarr.flatten():
+        ax.plot([-1, 2], [-1, 2],
+                linewidth=1.5, linestyle='--', color='#550000', alpha=0.49)
+
+        ax.axhline(y=0.5,
+                   linewidth=0.9, linestyle='--', color='black', alpha=0.29)
+        ax.axvline(x=0.5,
+                   linewidth=0.9, linestyle='--', color='black', alpha=0.29)
+
+        ax.grid(color='0.23', linewidth=0.7, alpha=0.21)
+        ax.set_xlim(plot_min, 1.005)
+        ax.set_ylim(plot_min, 1.005)
+        ax.tick_params(labelsize=13, pad=2.9)
+
+    axarr[0, 0].set_xlabel("Default AUC", fontsize=19, weight='semibold')
+    axarr[0, 0].set_ylabel("Default AUC\nw/o Held-out Samples",
+                           fontsize=17, weight='semibold')
+
+    axarr[0, 1].set_xlabel("Isolated AUC", fontsize=19, weight='semibold')
+    axarr[0, 1].set_ylabel("Default AUC\nw/o Held-out Samples",
+                           fontsize=17, weight='semibold')
+
+    axarr[1, 0].set_xlabel("Transfer Default AUC",
+                           fontsize=19, weight='semibold')
+    axarr[1, 0].set_ylabel("Transfer Default AUC\nw/o Held-out Samples",
+                           fontsize=17, weight='semibold')
+
+    axarr[1, 1].set_xlabel("Transfer Isolated AUC",
+                           fontsize=19, weight='semibold')
+    axarr[1, 1].set_ylabel("Transfer Default AUC\nw/o Held-out Samples",
+                           fontsize=17, weight='semibold')
+
+    fig.legend(lgnd_ptchs, lgnd_lbls, frameon=False, fontsize=23, ncol=3,
+               loc=8, handletextpad=0.06, markerscale=4.1,
+               bbox_to_anchor=(9/19, -1/51))
+
+    fig.tight_layout(pad=3.7, w_pad=3.1, h_pad=2.7)
+    fig.savefig(
+        os.path.join(plot_dir, "{}__samps-{}".format('__'.join(args.cohorts),
+                                                     args.samp_cutoff),
+                     "{}_{}__holdout-comparison.svg".format(args.classif,
+                                                            args.ex_mtype)),
         dpi=500, bbox_inches='tight', format='svg'
         )
 
@@ -432,21 +526,49 @@ def main():
         for cohort in args.cohorts
         }
 
-    auc_dict = {'All': dict(), 'Iso': dict()}
+    auc_dict = {smps: {'Reg': dict(), 'Oth': dict(), 'Hld': dict()}
+                for smps in ['All', 'Iso']}
     stab_dict = {'All': dict(), 'Iso': dict()}
-    oth_dict = {'All': dict(), 'Iso': dict()}
     size_dict = dict()
+    type_dict = dict()
 
     # for each mutation task, calculate classifier performance when using
     # naive approach and when using isolation approach
     for (coh, mtype) in all_df.index:
-        if mtype not in auc_dict['All']:
-            auc_dict['All'][mtype] = dict()
-            auc_dict['Iso'][mtype] = dict()
-            stab_dict['All'][mtype] = dict()
-            stab_dict['Iso'][mtype] = dict()
-            oth_dict['All'][mtype] = dict()
-            oth_dict['Iso'][mtype] = dict()
+        if mtype not in type_dict:
+            use_type = mtype.subtype_list()[0][1]
+
+            if isinstance(use_type, ExMcomb) or isinstance(use_type, Mcomb):
+                if len(use_type.mtypes) == 1:
+                    use_subtype = tuple(use_type.mtypes)[0]
+                    mtype_lvls = use_subtype.get_sorted_levels()[1:]
+                else:
+                    mtype_lvls = None
+
+            else:
+                use_subtype = use_type
+                mtype_lvls = use_type.get_sorted_levels()[1:]
+
+            if mtype_lvls == ('Copy', ):
+                copy_type = use_subtype.subtype_list()[0][1].\
+                        subtype_list()[0][0]
+
+                if copy_type == 'DeepGain':
+                    type_dict[mtype] = 'Gain'
+                elif copy_type == 'DeepDel':
+                    type_dict[mtype] = 'Loss'
+                else:
+                    type_dict[mtype] = 'Other'
+
+            else:
+                type_dict[mtype] = 'Point'
+
+        if mtype not in auc_dict['All']['Reg']:
+            for smps in ['All', 'Iso']:
+                stab_dict[smps][mtype] = dict()
+
+                for auc_type in ['Reg', 'Oth', 'Hld']:
+                    auc_dict[smps][auc_type][mtype] = dict()
 
         use_gene, use_type = mtype.subtype_list()[0]
         mtype_lvls = use_type.get_sorted_levels()[1:]
@@ -495,6 +617,7 @@ def main():
                 wt_vals = np.concatenate(all_vals[wt_stat])
                 none_stat = coh_stat[test_coh] & ~all_stat
                 none_vals = np.concatenate(iso_vals[none_stat])
+                hld_vals = np.concatenate(all_vals[none_stat])
 
                 if test_coh == coh:
                     cv_count = 30
@@ -525,15 +648,20 @@ def main():
                     "match the number of cross-validations!"
                     )
 
-                auc_dict['All'][mtype][(coh, test_coh)] = np.greater.outer(
-                    cur_all_vals, wt_vals).mean()
-                auc_dict['All'][mtype][(coh, test_coh)] += np.equal.outer(
-                    cur_all_vals, wt_vals).mean() / 2
+                auc_dict['All']['Reg'][mtype][(coh, test_coh)] = np.\
+                        greater.outer(cur_all_vals, wt_vals).mean()
+                auc_dict['All']['Reg'][mtype][(coh, test_coh)] += np.\
+                        equal.outer(cur_all_vals, wt_vals).mean() / 2
 
-                auc_dict['Iso'][mtype][(coh, test_coh)] = np.greater.outer(
-                    cur_iso_vals, none_vals).mean()
-                auc_dict['Iso'][mtype][(coh, test_coh)] += np.equal.outer(
-                    cur_iso_vals, none_vals).mean() / 2
+                auc_dict['Iso']['Reg'][mtype][(coh, test_coh)] = np.\
+                        greater.outer(cur_iso_vals, none_vals).mean()
+                auc_dict['Iso']['Reg'][mtype][(coh, test_coh)] += np.\
+                        equal.outer(cur_iso_vals, none_vals).mean() / 2
+
+                auc_dict['All']['Hld'][mtype][(coh, test_coh)] = np.\
+                        greater.outer(cur_all_vals, hld_vals).mean()
+                auc_dict['All']['Hld'][mtype][(coh, test_coh)] += np.\
+                        equal.outer(cur_all_vals, hld_vals).mean() / 2
 
                 oth_stat = coh_stat[test_coh] & all_stat & ~mtype_stat
                 if np.sum(oth_stat) >= 5:
@@ -550,20 +678,23 @@ def main():
                         "samples does not match the # of cross-validations!"
                         )
 
-                    oth_dict['All'][mtype][(coh, test_coh)] = np.greater.outer(
-                        cur_all_vals, oth_all_vals).mean()
-                    oth_dict['All'][mtype][(coh, test_coh)] += np.equal.outer(
-                        cur_all_vals, oth_all_vals).mean() / 2
+                    auc_dict['All']['Oth'][mtype][(coh, test_coh)] = np.\
+                            greater.outer(cur_all_vals, oth_all_vals).mean()
+                    auc_dict['All']['Oth'][mtype][(coh, test_coh)] += np.\
+                            equal.outer(cur_all_vals, oth_all_vals).mean() / 2
 
-                    oth_dict['Iso'][mtype][(coh, test_coh)] = np.greater.outer(
-                        cur_iso_vals, oth_iso_vals).mean()
-                    oth_dict['Iso'][mtype][(coh, test_coh)] += np.equal.outer(
-                        cur_iso_vals, oth_iso_vals).mean() / 2
+                    auc_dict['Iso']['Oth'][mtype][(coh, test_coh)] = np.\
+                            greater.outer(cur_iso_vals, oth_iso_vals).mean()
+                    auc_dict['Iso']['Oth'][mtype][(coh, test_coh)] += np.\
+                            equal.outer(cur_iso_vals, oth_iso_vals).mean() / 2
 
-    plot_auc_comparisons(auc_dict, size_dict, args)
-    plot_cohort_transfer(auc_dict, size_dict, args)
-    plot_stability_comparisons(stab_dict, auc_dict, size_dict, args)
-    plot_holdout_error(auc_dict, oth_dict, size_dict, args)
+    plot_auc_comparisons(auc_dict, size_dict, type_dict, args)
+    plot_cohort_transfer(auc_dict, size_dict, type_dict, args)
+    plot_stability_comparisons(stab_dict, auc_dict,
+                               size_dict, type_dict, args)
+
+    plot_holdout_error(auc_dict, size_dict, type_dict, args)
+    plot_holdout_comparison(auc_dict, size_dict, type_dict, args)
 
 
 if __name__ == '__main__':
