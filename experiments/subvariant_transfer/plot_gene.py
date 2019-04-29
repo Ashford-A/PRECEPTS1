@@ -8,12 +8,16 @@ sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
 plot_dir = os.path.join(base_dir, 'plots', 'gene')
 
 from HetMan.experiments.subvariant_transfer import *
+from HetMan.experiments.subvariant_infer import variant_clrs
+from HetMan.experiments.subvariant_infer.setup_infer import Mcomb, ExMcomb
 from HetMan.experiments.utilities.scatter_plotting import place_annot
 from dryadic.features.mutations import MuType
 
 import argparse
 import dill as pickle
+from glob import glob
 import numpy as np
+import pandas as pd
 
 import matplotlib as mpl
 mpl.use('Agg')
@@ -29,53 +33,51 @@ use_marks = [(0, 3, 0)]
 use_marks += [(i, 0, k) for k in (0, 140) for i in (3, 4, 5)]
 
 
-def plot_auc_comparisons(auc_dict, args, cdata):
+def plot_auc_comparisons(auc_dict, size_dict, type_dict, args):
     fig, axarr = plt.subplots(figsize=(10, 9), nrows=2, ncols=2)
 
-    cohort_cmap = sns.hls_palette(len(args.cohorts), l=.4, s=.71)
-    coh_clrs = {coh: cohort_cmap[sorted(args.cohorts).index(coh)]
-                for coh in args.cohorts}
+    for mtype in auc_dict['All']['Reg']:
+        if type_dict[mtype] in variant_clrs:
+            mtype_clr = variant_clrs[type_dict[mtype]]
+        else:
+            mtype_clr = '0.5'
 
-    for mtype in auc_dict['All']:
-        for trn_coh, tst_coh in auc_dict['All'][mtype]:
-            mtype_samps = mtype.get_samples(cdata.train_mut)
+        for coh, tst_coh in auc_dict['All']['Reg'][mtype]:
+            mtype_size = (0.71 * size_dict[tst_coh, mtype]) ** 0.43
 
-            mtype_size = (
-                len(mtype_samps & cdata.cohort_samps[trn_coh.split('_')[0]])
-                + len(mtype_samps & cdata.cohort_samps[tst_coh.split('_')[0]])
-                )
-            mtype_size = (0.71 * mtype_size) ** 0.43
+            if coh == tst_coh:
+                axarr[0, 0].plot(
+                    auc_dict['All']['Reg'][mtype][(coh, tst_coh)],
+                    auc_dict['Iso']['Reg'][mtype][(coh, tst_coh)],
+                    marker='o', markersize=mtype_size,
+                    color=mtype_clr, alpha=0.31)
 
-            if trn_coh == tst_coh:
-                axarr[0, 0].plot(auc_dict['All'][mtype][(trn_coh, tst_coh)],
-                                 auc_dict['Iso'][mtype][(trn_coh, tst_coh)],
-                                 marker='o', markersize=mtype_size,
-                                 color=coh_clrs[tst_coh], alpha=0.31)
-
-                for trn_coh2, tst_coh2 in auc_dict['All'][mtype]:
-                    if trn_coh2 == trn_coh and tst_coh2 != tst_coh:
+                for coh2, tst_coh2 in auc_dict['All']['Reg'][mtype]:
+                    if coh2 == coh and tst_coh2 != tst_coh:
                         axarr[0, 1].plot(
-                            auc_dict['All'][mtype][(trn_coh, tst_coh)],
-                            auc_dict['All'][mtype][(trn_coh, tst_coh2)],
-                            marker='o', markersize=mtype_size, alpha=0.31,
-                            color=coh_clrs[tst_coh]
+                            auc_dict['All']['Reg'][mtype][(coh, tst_coh)],
+                            auc_dict['All']['Reg'][mtype][(coh, tst_coh2)],
+                            marker='o', markersize=mtype_size,
+                            color=mtype_clr, alpha=0.31
                             )
 
                         axarr[1, 0].plot(
-                            auc_dict['Iso'][mtype][(trn_coh, tst_coh)],
-                            auc_dict['Iso'][mtype][(trn_coh, tst_coh2)],
-                            marker='o', markersize=mtype_size, alpha=0.31,
-                            color=coh_clrs[tst_coh]
+                            auc_dict['Iso']['Reg'][mtype][(coh, tst_coh)],
+                            auc_dict['Iso']['Reg'][mtype][(coh, tst_coh2)],
+                            marker='o', markersize=mtype_size,
+                            color=mtype_clr, alpha=0.31
                             )
 
             else:
-                axarr[1, 1].plot(auc_dict['All'][mtype][(trn_coh, tst_coh)],
-                                 auc_dict['Iso'][mtype][(trn_coh, tst_coh)],
-                                 marker='o', markersize=mtype_size,
-                                 color=coh_clrs[tst_coh], alpha=0.31)
+                axarr[1, 1].plot(
+                    auc_dict['All']['Reg'][mtype][(coh, tst_coh)],
+                    auc_dict['Iso']['Reg'][mtype][(coh, tst_coh)],
+                    marker='o', markersize=mtype_size,
+                    color=mtype_clr, alpha=0.31
+                    )
 
-    plot_min = min(auc_val for exp_dict in auc_dict.values()
-                   for mtype_dict in exp_dict.values()
+    plot_min = min(auc_val for samp_dict in auc_dict.values()
+                   for mtype_dict in samp_dict['Reg'].values()
                    for auc_val in mtype_dict.values()) - 0.02
 
     for ax in axarr.flatten():
@@ -108,13 +110,13 @@ def plot_auc_comparisons(auc_dict, args, cdata):
     axarr[1, 1].set_ylabel("Transfer Isolated AUC",
                            fontsize=17, weight='semibold')
 
-    fig.tight_layout(w_pad=2.9, h_pad=2.3)
+    fig.tight_layout(pad=3.7, w_pad=3.1, h_pad=2.3)
     fig.savefig(
         os.path.join(plot_dir, "{}__samps-{}".format('__'.join(args.cohorts),
                                                      args.samp_cutoff),
                      args.gene,
-                     "{}__{}_{}__acc-comparisons.svg".format(
-                         args.mut_levels, args.classif, args.ex_mtype)),
+                     "{}_{}__acc-comparisons.svg".format(args.classif,
+                                                         args.ex_mtype)),
         dpi=500, bbox_inches='tight', format='svg'
         )
 
@@ -128,9 +130,6 @@ def main():
         )
 
     parser.add_argument('gene', type=str, help="a mutated gene")
-    parser.add_argument('mut_levels', type=str,
-                        help="the mutation property levels to consider")
-
     parser.add_argument('classif', type=str,
                         help="the mutation classification algorithm used")
     parser.add_argument('ex_mtype', type=str)
@@ -146,45 +145,102 @@ def main():
     os.makedirs(os.path.join(plot_dir, out_tag, args.gene),
                 exist_ok=True)
 
+    out_files = glob(os.path.join(
+        base_dir, out_tag, "out-data__*_{}_{}.p".format(
+            args.classif, args.ex_mtype)
+        ))
+
+    # load mutation scores inferred by the classifier in the experiment
+    out_list = [pickle.load(open(out_file, 'rb'))['Infer']
+                for out_file in out_files]
+    all_df = pd.concat([ols['All'] for ols in out_list])
+    iso_df = pd.concat([ols['Iso'] for ols in out_list])
+
+    out_mdls = [out_file.split("out-data__")[1].split(".p")[0]
+                for out_file in out_files]
+
     # load expression and mutation data for each of the cohorts considered
-    cdata = merge_cohort_data(os.path.join(base_dir, out_tag))
-    use_samps = sorted(cdata.train_samps)
+    cdata_dict = {lvl: merge_cohort_data(os.path.join(base_dir, out_tag),
+                                         use_lvl=lvl)
+                  for lvl in [mdl.split('_{}_'.format(args.classif))[0]
+                              for mdl in out_mdls]}
+    cdata = tuple(cdata_dict.values())[0]
 
     # find which cohort each sample belongs to
+    use_samps = sorted(cdata.train_samps)
     coh_stat = {
         cohort: np.array([samp in cdata.cohort_samps[cohort.split('_')[0]]
                           for samp in use_samps])
         for cohort in args.cohorts
         }
 
-    # load mutation scores inferred by the classifier in the experiment
-    out_dict = pickle.load(open(os.path.join(
-        base_dir, out_tag,
-        "out-data__{}_{}_{}.p".format(
-            args.mut_levels, args.classif, args.ex_mtype)
-        ), 'rb'))
-
-    auc_dict = {'All': dict(), 'Iso': dict()}
+    auc_dict = {smps: {'Reg': dict(), 'Oth': dict(), 'Hld': dict()}
+                for smps in ['All', 'Iso']}
     stab_dict = {'All': dict(), 'Iso': dict()}
+    size_dict = dict()
+    type_dict = dict()
 
-    gene_muts = cdata.train_mut[args.gene]
-    gene_mtype = MuType(gene_muts.allkey()) - ex_mtypes[args.ex_mtype]
-    gene_stat = np.array(gene_muts.status(use_samps, gene_mtype))
-
-    for (coh, mtype) in out_dict['Infer']['All'].index:
+    for (coh, mtype) in all_df.index:
         if mtype.subtype_list()[0][0] == args.gene:
-            if mtype not in auc_dict['All']:
-                auc_dict['All'][mtype] = dict()
-                auc_dict['Iso'][mtype] = dict()
-                stab_dict['All'][mtype] = dict()
-                stab_dict['Iso'][mtype] = dict()
+            if mtype not in type_dict:
+                use_type = mtype.subtype_list()[0][1]
 
-            mtype_stat = np.array(cdata.train_mut.status(use_samps, mtype))
-            all_vals = out_dict['Infer']['All'].loc[[(coh, mtype)]].values[0]
-            iso_vals = out_dict['Infer']['Iso'].loc[[(coh, mtype)]].values[0]
+                if (isinstance(use_type, ExMcomb)
+                        or isinstance(use_type, Mcomb)):
+                    if len(use_type.mtypes) == 1:
+                        use_subtype = tuple(use_type.mtypes)[0]
+                        mtype_lvls = use_subtype.get_sorted_levels()[1:]
+                    else:
+                        mtype_lvls = None
+
+                else:
+                    use_subtype = use_type
+                    mtype_lvls = use_type.get_sorted_levels()[1:]
+
+                if mtype_lvls == ('Copy', ):
+                    copy_type = use_subtype.subtype_list()[0][1].\
+                            subtype_list()[0][0]
+
+                    if copy_type == 'DeepGain':
+                        type_dict[mtype] = 'Gain'
+                    elif copy_type == 'DeepDel':
+                        type_dict[mtype] = 'Loss'
+                    else:
+                        type_dict[mtype] = 'Other'
+
+                else:
+                    type_dict[mtype] = 'Point'
+
+            if mtype not in auc_dict['All']['Reg']:
+                for smps in ['All', 'Iso']:
+                    stab_dict[smps][mtype] = dict()
+
+                    for auc_type in ['Reg', 'Oth', 'Hld']:
+                        auc_dict[smps][auc_type][mtype] = dict()
+
+            use_gene, use_type = mtype.subtype_list()[0]
+            mtype_lvls = use_type.get_sorted_levels()[1:]
+
+            if '__'.join(mtype_lvls) in cdata_dict:
+                use_lvls = '__'.join(mtype_lvls)
+            elif not mtype_lvls or mtype_lvls == ('Copy', ):
+                use_lvls = 'Location__Protein'
+
+            mtype_stat = np.array(
+                cdata_dict[use_lvls].train_mut.status(use_samps, mtype))
+            all_vals = all_df.loc[[(coh, mtype)]].values[0]
+            iso_vals = iso_df.loc[[(coh, mtype)]].values[0]
+
+            gene_muts = cdata_dict[use_lvls].train_mut[args.gene]
+            gene_mtype = MuType(gene_muts.allkey()) - ex_mtypes[args.ex_mtype]
+            gene_stat = np.array(gene_muts.status(use_samps, gene_mtype))
 
             for tst_coh in args.cohorts:
-                if np.sum(coh_stat[tst_coh] & mtype_stat) >= 20:
+                mtype_size = np.sum(coh_stat[tst_coh] & mtype_stat)
+
+                if mtype_size >= 20:
+                    size_dict[tst_coh, mtype] = mtype_size
+
                     stab_dict['All'][mtype][coh, tst_coh] = np.mean([
                         np.std(vals) for vals in all_vals[coh_stat[tst_coh]]])
                     stab_dict['All'][mtype][coh, tst_coh] /= np.std([
@@ -213,17 +269,17 @@ def main():
                     cur_all_vals = np.concatenate(all_vals[cur_stat])
                     cur_iso_vals = np.concatenate(iso_vals[cur_stat])
 
-                    auc_dict['All'][mtype][(coh, tst_coh)] = np.greater.outer(
-                        cur_all_vals, wt_vals).mean()
-                    auc_dict['All'][mtype][(coh, tst_coh)] += np.equal.outer(
-                        cur_all_vals, wt_vals).mean() / 2
+                    auc_dict['All']['Reg'][mtype][(coh, tst_coh)] = np.\
+                            greater.outer(cur_all_vals, wt_vals).mean()
+                    auc_dict['All']['Reg'][mtype][(coh, tst_coh)] += np.\
+                            equal.outer(cur_all_vals, wt_vals).mean() / 2
 
-                    auc_dict['Iso'][mtype][(coh, tst_coh)] = np.greater.outer(
-                        cur_iso_vals, none_vals).mean()
-                    auc_dict['Iso'][mtype][(coh, tst_coh)] += np.equal.outer(
-                        cur_iso_vals, none_vals).mean() / 2
+                    auc_dict['Iso']['Reg'][mtype][(coh, tst_coh)] = np.\
+                            greater.outer(cur_iso_vals, none_vals).mean()
+                    auc_dict['Iso']['Reg'][mtype][(coh, tst_coh)] += np.\
+                            equal.outer(cur_iso_vals, none_vals).mean() / 2
 
-    plot_auc_comparisons(auc_dict, args, cdata)
+    plot_auc_comparisons(auc_dict, size_dict, type_dict, args)
 
 
 if __name__ == '__main__':
