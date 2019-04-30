@@ -10,8 +10,11 @@ plot_dir = os.path.join(base_dir, 'plots', 'gene')
 from HetMan.experiments.subvariant_transfer import *
 from HetMan.experiments.subvariant_infer import variant_clrs
 from HetMan.experiments.subvariant_infer.setup_infer import Mcomb, ExMcomb
+
 from HetMan.experiments.utilities.scatter_plotting import place_annot
+from HetMan.features.data.copies import get_copies_firehose
 from dryadic.features.mutations import MuType
+from dryadic.features.cohorts.utils import match_tcga_samples
 
 import argparse
 import dill as pickle
@@ -29,11 +32,13 @@ plt.rcParams['savefig.facecolor']='white'
 plt.rcParams['axes.linewidth'] = 1.5
 plt.rcParams['axes.edgecolor'] = 'black'
 
+loss_clrs = sns.light_palette(variant_clrs['Loss'], 5)
+gain_clrs = sns.light_palette(variant_clrs['Gain'], 5)
 use_marks = [(0, 3, 0)]
 use_marks += [(i, 0, k) for k in (0, 140) for i in (3, 4, 5)]
 
 
-def plot_auc_comparisons(auc_dict, size_dict, type_dict, args):
+def plot_auc_comparisons(auc_dict, stat_dict, type_dict, args):
     fig, axarr = plt.subplots(figsize=(10, 9), nrows=2, ncols=2)
 
     for mtype in auc_dict['All']['Reg']:
@@ -43,7 +48,7 @@ def plot_auc_comparisons(auc_dict, size_dict, type_dict, args):
             mtype_clr = '0.5'
 
         for coh, tst_coh in auc_dict['All']['Reg'][mtype]:
-            mtype_size = (0.71 * size_dict[tst_coh, mtype]) ** 0.43
+            mtype_size = (0.71 * np.sum(stat_dict[tst_coh, mtype])) ** 0.43
 
             if coh == tst_coh:
                 axarr[0, 0].plot(
@@ -123,6 +128,93 @@ def plot_auc_comparisons(auc_dict, size_dict, type_dict, args):
     plt.close()
 
 
+def plot_copy_calls(cohort, all_df, iso_df, copy_dict, copy_norml,
+                    auc_dict, stat_dict, coh_stat, type_dict, args):
+    use_mtypes = {mtype for coh, mtype in all_df.index
+                  if (coh == cohort
+                      and mtype.subtype_list()[0][0] == args.gene)}
+
+    fig, axarr = plt.subplots(figsize=(14, 1 + 4 * len(use_mtypes)),
+                              nrows=len(use_mtypes), ncols=2)
+
+    copy_vals = copy_dict[copy_norml][args.gene]
+    copy_ctfs = {
+        'ShalDel': copy_vals[stat_dict['ShalDel'] & coh_stat[cohort]].max(),
+        'ShalGain': copy_vals[stat_dict['ShalGain'] & coh_stat[cohort]].min(),
+        }
+
+    for i, mtype in enumerate(use_mtypes):
+        mut_stat = stat_dict[cohort, mtype]
+        wt_stat = ~stat_dict[cohort, mtype] & coh_stat[cohort]
+
+        if type_dict[mtype] in variant_clrs:
+            mtype_clr = variant_clrs[type_dict[mtype]]
+        else:
+            mtype_clr = '0.3'
+
+        all_vals = all_df.loc[[(cohort, mtype)]].values[0]
+        all_means = np.array([np.mean(vals) for vals in all_vals])
+        iso_vals = iso_df.loc[[(cohort, mtype)]].values[0]
+        iso_means = np.array([np.mean(vals) for vals in iso_vals])
+
+        for j, vals in enumerate([all_means, iso_means]):
+            axarr[i, j].plot(copy_vals[mut_stat], vals[mut_stat],
+                             color=mtype_clr, marker='o', linewidth=0,
+                             markersize=6, markeredgecolor='none', alpha=0.23)
+
+            axarr[i, j].plot(copy_vals[wt_stat], vals[wt_stat],
+                             color='0.6', marker='o', linewidth=0,
+                             markersize=4, markeredgecolor='none', alpha=0.17)
+
+            axarr[i, j].axvline(copy_ctfs['ShalDel'], color=loss_clrs[-3],
+                                linewidth=4, linestyle=':', alpha=0.47)
+            axarr[i, j].axvline(copy_ctfs['ShalGain'], color=gain_clrs[-3],
+                                linewidth=4, linestyle=':', alpha=0.47)
+
+            if copy_norml:
+                axarr[i, j].set_xlim(max(-3, axarr[i, j].get_xlim()[0]),
+                                     min(3, axarr[i, j].get_xlim()[1]))
+
+                axarr[i, j].axvline(-1, color=loss_clrs[-1],
+                                    linewidth=4, linestyle=':', alpha=0.47)
+                axarr[i, j].axvline(1, color=gain_clrs[-1],
+                                    linewidth=4, linestyle=':', alpha=0.47)
+
+            axarr[i, j].set_yticks([])
+            if i != (len(use_mtypes) - 1):
+                axarr[i, j].set_xticks([])
+            else:
+                axarr[i, j].tick_params(labelsize=13, pad=3)
+
+    axarr[0, 0].text(0.5, 1.02, "With Other {} Mutations".format(args.gene),
+                     size=19, ha='center', va='bottom', fontweight='semibold',
+                     transform=axarr[0, 0].transAxes)
+    axarr[0, 1].text(0.5, 1.02,
+                     "Without Other {} Mutations".format(args.gene),
+                     size=19, ha='center', va='bottom', fontweight='semibold',
+                     transform=axarr[0, 1].transAxes)
+
+    fig.text(0.5, 0.05, "GISTIC Copy Number Score", size=23,
+             ha='center', va='top', fontweight='semibold')
+
+    if copy_norml:
+        plt_lbl = "{}_{}_{}_normed-copy-calls.svg".format(
+            args.classif, args.ex_mtype, cohort)
+    else:
+        plt_lbl = "{}_{}_{}_copy-calls.svg".format(
+            args.classif, args.ex_mtype, cohort)
+
+    fig.tight_layout(pad=3.7, w_pad=3.1, h_pad=2.3)
+    fig.savefig(
+        os.path.join(plot_dir, "{}__samps-{}".format('__'.join(args.cohorts),
+                                                     args.samp_cutoff),
+                     args.gene, plt_lbl),
+        dpi=500, bbox_inches='tight', format='svg'
+        )
+
+    plt.close()
+
+
 def main():
     parser = argparse.ArgumentParser(
         "Plot how isolating subvariants affects classification performance "
@@ -139,23 +231,27 @@ def main():
     parser.add_argument('--samp_cutoff', default=20,
                         help='subtype sample frequency threshold')
 
-    # parse command line arguments, create directory where plots will be saved
     args = parser.parse_args()
     out_tag = "{}__samps-{}".format('__'.join(args.cohorts), args.samp_cutoff)
-    os.makedirs(os.path.join(plot_dir, out_tag, args.gene),
-                exist_ok=True)
 
     out_files = glob(os.path.join(
         base_dir, out_tag, "out-data__*_{}_{}.p".format(
             args.classif, args.ex_mtype)
         ))
 
-    # load mutation scores inferred by the classifier in the experiment
     out_list = [pickle.load(open(out_file, 'rb'))['Infer']
                 for out_file in out_files]
     all_df = pd.concat([ols['All'] for ols in out_list])
     iso_df = pd.concat([ols['Iso'] for ols in out_list])
 
+    if not any(mtype.subtype_list()[0][0] == args.gene
+               for _, mtype in all_df.index):
+        raise ValueError("No mutations associated with gene {} were "
+                         "included in this version of the "
+                         "experiment!".format(args.gene))
+
+    os.makedirs(os.path.join(plot_dir, out_tag, args.gene),
+                exist_ok=True)
     out_mdls = [out_file.split("out-data__")[1].split(".p")[0]
                 for out_file in out_files]
 
@@ -164,10 +260,28 @@ def main():
                                          use_lvl=lvl)
                   for lvl in [mdl.split('_{}_'.format(args.classif))[0]
                               for mdl in out_mdls]}
-    cdata = tuple(cdata_dict.values())[0]
 
-    # find which cohort each sample belongs to
+    cdata = tuple(cdata_dict.values())[0]
     use_samps = sorted(cdata.train_samps)
+
+    copy_dict = {False: dict(), True: dict()}
+    for norml in [False, True]:
+        for coh in args.cohorts:
+            copy_dict[norml][coh] = get_copies_firehose(
+                coh.split('_')[0], copy_dir, discrete=False, normalize=norml)
+
+            copy_samps = {old_smp: new_smp
+                          for old_smp, new_smp in match_tcga_samples(
+                              copy_dict[norml][coh].index)[0].items()
+                          if new_smp in cdata.cohort_samps[coh.split('_')[0]]}
+
+            copy_dict[norml][coh] = copy_dict[norml][coh].loc[
+                copy_samps.keys(), cdata.genes]
+            copy_dict[norml][coh].index = copy_samps.values()
+
+        copy_dict[norml] = pd.concat(list(copy_dict[norml].values())).loc[
+            use_samps]
+
     coh_stat = {
         cohort: np.array([samp in cdata.cohort_samps[cohort.split('_')[0]]
                           for samp in use_samps])
@@ -177,8 +291,15 @@ def main():
     auc_dict = {smps: {'Reg': dict(), 'Oth': dict(), 'Hld': dict()}
                 for smps in ['All', 'Iso']}
     stab_dict = {'All': dict(), 'Iso': dict()}
-    size_dict = dict()
     type_dict = dict()
+
+    stat_dict = {
+        copy_lbl: np.array(cdata.train_mut[args.gene].status(
+            use_samps, MuType({
+                ('Scale', 'Copy'): {('Copy', copy_lbl): None}})
+            ))
+        for copy_lbl in ['ShalGain', 'ShalDel']
+        }
 
     for (coh, mtype) in all_df.index:
         if mtype.subtype_list()[0][0] == args.gene:
@@ -236,10 +357,10 @@ def main():
             gene_stat = np.array(gene_muts.status(use_samps, gene_mtype))
 
             for tst_coh in args.cohorts:
-                mtype_size = np.sum(coh_stat[tst_coh] & mtype_stat)
+                use_stat = coh_stat[tst_coh] & mtype_stat
 
-                if mtype_size >= 20:
-                    size_dict[tst_coh, mtype] = mtype_size
+                if np.sum(use_stat) >= 20:
+                    stat_dict[tst_coh, mtype] = use_stat
 
                     stab_dict['All'][mtype][coh, tst_coh] = np.mean([
                         np.std(vals) for vals in all_vals[coh_stat[tst_coh]]])
@@ -279,7 +400,11 @@ def main():
                     auc_dict['Iso']['Reg'][mtype][(coh, tst_coh)] += np.\
                             equal.outer(cur_iso_vals, none_vals).mean() / 2
 
-    plot_auc_comparisons(auc_dict, size_dict, type_dict, args)
+    plot_auc_comparisons(auc_dict, stat_dict, type_dict, args)
+    for copy_norml in [False, True]:
+        for use_cohort in args.cohorts:
+            plot_copy_calls(use_cohort, all_df, iso_df, copy_dict, copy_norml,
+                            auc_dict, stat_dict, coh_stat, type_dict, args)
 
 
 if __name__ == '__main__':

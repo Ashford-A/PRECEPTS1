@@ -17,7 +17,7 @@ import tarfile
 from io import BytesIO
 
 
-def get_copies_firehose(cohort, data_dir, discrete=True):
+def get_copies_firehose(cohort, data_dir, discrete=True, normalize=False):
     """Loads gene-level copy number alteration data downloaded from Firehose.
 
     Args:
@@ -66,10 +66,26 @@ def get_copies_firehose(cohort, data_dir, discrete=True):
     copy_fl = copy_tar.extractfile(copy_tar.getmembers()[copy_indx[0]])
     copy_data = pd.read_csv(BytesIO(copy_fl.read()),
                             sep='\t', index_col=0, engine='python')
- 
+
     copy_data = copy_data.iloc[:, 2:].transpose()
-    copy_data.index = ["-".join(x[:4])
-                       for x in copy_data.index.str.split('-')]
+    copy_data.index = ["-".join(smp[:4])
+                       for smp in copy_data.index.str.split('-')]
+
+    if normalize:
+        ctf_indx = [i for i, memb in enumerate(copy_tar.getmembers())
+                    if 'sample_cutoffs.txt' in memb.get_info()['name']]
+        ctf_fl = copy_tar.extractfile(copy_tar.getmembers()[ctf_indx[0]])
+
+        ctf_data = pd.read_csv(BytesIO(ctf_fl.read()), sep='\t',
+                               index_col=0, comment='#', engine='python')
+        ctf_data.index = ["-".join(smp[:4])
+                          for smp in ctf_data.index.str.split('-')]
+
+        for smp in set(copy_data.index) & set(ctf_data.index):
+            smp_vals = copy_data.loc[smp] 
+            smp_vals[smp_vals < 0] /= -ctf_data.loc[smp, 'Low']
+            smp_vals[smp_vals > 0] /= ctf_data.loc[smp, 'High']
+            copy_data.loc[smp] = smp_vals.round(3)
 
     return copy_data
 
