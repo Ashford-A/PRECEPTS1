@@ -37,6 +37,7 @@ lgnd_lbls = ['Deep Amplification', 'Deep Deletion', 'Point Mutation']
 
 def plot_auc_comparisons(auc_dict, size_dict, type_dict, args):
     fig, axarr = plt.subplots(figsize=(13, 12), nrows=2, ncols=2)
+    pnt_size = len(auc_dict) ** -0.19
 
     for mtype in auc_dict['All']['Reg']:
         if type_dict[mtype] in variant_clrs:
@@ -45,14 +46,14 @@ def plot_auc_comparisons(auc_dict, size_dict, type_dict, args):
             mtype_clr = '0.5'
 
         for coh, tst_coh in auc_dict['All']['Reg'][mtype]:
-            mtype_size = (0.49 * size_dict[tst_coh, mtype]) ** 0.43
+            mtype_size = (pnt_size * size_dict[tst_coh, mtype]) ** 0.43
 
             if coh == tst_coh:
                 axarr[0, 0].plot(
                     auc_dict['All']['Reg'][mtype][(coh, tst_coh)],
                     auc_dict['Iso']['Reg'][mtype][(coh, tst_coh)],
                     marker='o', markersize=mtype_size,
-                    color=mtype_clr, alpha=0.19
+                    color=mtype_clr, alpha=0.21
                     )
 
                 for coh2, tst_coh2 in auc_dict['All']['Reg'][mtype]:
@@ -61,14 +62,14 @@ def plot_auc_comparisons(auc_dict, size_dict, type_dict, args):
                             auc_dict['All']['Reg'][mtype][(coh, tst_coh)],
                             auc_dict['All']['Reg'][mtype][(coh, tst_coh2)],
                             marker='o', markersize=mtype_size,
-                            color=mtype_clr, alpha=0.19
+                            color=mtype_clr, alpha=0.21
                             )
 
                         axarr[1, 0].plot(
                             auc_dict['Iso']['Reg'][mtype][(coh, tst_coh)],
                             auc_dict['Iso']['Reg'][mtype][(coh, tst_coh2)],
                             marker='o', markersize=mtype_size,
-                            color=mtype_clr, alpha=0.19
+                            color=mtype_clr, alpha=0.21
                             )
 
             else:
@@ -76,7 +77,7 @@ def plot_auc_comparisons(auc_dict, size_dict, type_dict, args):
                     auc_dict['All']['Reg'][mtype][(coh, tst_coh)],
                     auc_dict['Iso']['Reg'][mtype][(coh, tst_coh)],
                     marker='o', markersize=mtype_size,
-                    color=mtype_clr, alpha=0.19
+                    color=mtype_clr, alpha=0.21
                     )
 
     plot_min = min(auc_val for samp_dict in auc_dict.values()
@@ -85,17 +86,19 @@ def plot_auc_comparisons(auc_dict, size_dict, type_dict, args):
 
     for ax in axarr.flatten():
         ax.plot([-1, 2], [-1, 2],
-                linewidth=1.5, linestyle='--', color='#550000', alpha=0.49)
+                linewidth=1.6, linestyle='--', color='#550000', alpha=0.49)
 
         ax.axhline(y=0.5,
-                   linewidth=0.9, linestyle='--', color='black', alpha=0.29)
+                   linewidth=1.1, linestyle='--', color='black', alpha=0.29)
         ax.axvline(x=0.5,
-                   linewidth=0.9, linestyle='--', color='black', alpha=0.29)
+                   linewidth=1.1, linestyle='--', color='black', alpha=0.29)
 
         ax.grid(color='0.23', linewidth=0.7, alpha=0.21)
         ax.set_xlim(plot_min, 1.005)
         ax.set_ylim(plot_min, 1.005)
+
         ax.tick_params(labelsize=13, pad=2.9)
+        ax.set_yticklabels(ax.get_xticklabels())
 
     axarr[0, 0].set_xlabel("Default AUC", fontsize=19, weight='semibold')
     axarr[0, 0].set_ylabel("Isolated AUC", fontsize=19, weight='semibold')
@@ -131,10 +134,14 @@ def plot_auc_comparisons(auc_dict, size_dict, type_dict, args):
 
 def plot_cohort_transfer(auc_dict, size_dict, type_dict, args):
     fig_size = 1 + len(args.cohorts) * 2.9
-    fig, axarr = plt.subplots(figsize=(fig_size, fig_size),
-                              nrows=len(args.cohorts) + 1,
-                              ncols=len(args.cohorts),
-                              gridspec_kw=dict(height_ratios=[6, 6, 1]))
+    pnt_size = len(auc_dict) ** -0.19
+
+    fig, axarr = plt.subplots(
+        figsize=(fig_size, fig_size * 18/17),
+        nrows=len(args.cohorts) + 1, ncols=len(args.cohorts),
+        gridspec_kw=dict(height_ratios=[31 * fig_size ** -0.97]
+                         * len(args.cohorts) + [1])
+        )
 
     for mtype in auc_dict['All']['Reg']:
         if type_dict[mtype] in variant_clrs:
@@ -142,16 +149,16 @@ def plot_cohort_transfer(auc_dict, size_dict, type_dict, args):
         else:
             mtype_clr = '0.5'
 
-        for coh, tst_coh in auc_dict['All']['Reg'][mtype]:
-            mtype_size = 0.051 * fig_size * size_dict[tst_coh, mtype]
-            mtype_size **= 0.43
+        for trn_coh, tst_coh in auc_dict['All']['Reg'][mtype]:
+            mtype_size = 0.1 * pnt_size * fig_size * size_dict[tst_coh, mtype]
+            mtype_size **= 0.41
 
-            ax_i = sorted(args.cohorts).index(coh)
+            ax_i = sorted(args.cohorts).index(trn_coh)
             ax_j = sorted(args.cohorts).index(tst_coh)
 
             axarr[ax_i, ax_j].plot(
-                auc_dict['All']['Reg'][mtype][(coh, tst_coh)],
-                auc_dict['Iso']['Reg'][mtype][(coh, tst_coh)],
+                auc_dict['All']['Reg'][mtype][(trn_coh, tst_coh)],
+                auc_dict['Iso']['Reg'][mtype][(trn_coh, tst_coh)],
                 marker='o', markersize=mtype_size, color=mtype_clr,
                 markeredgecolor='none', alpha=0.29
                 )
@@ -160,10 +167,12 @@ def plot_cohort_transfer(auc_dict, size_dict, type_dict, args):
                    for mtype_dict in samp_dict['Reg'].values()
                    for auc_val in mtype_dict.values()) - 0.01
 
-    for ax in axarr.flatten()[:-2]:
+    for ax in axarr.flatten()[:-len(args.cohorts)]:
+        ax.set_xticks([0.5, 0.7, 0.9], minor=False)
+        ax.set_yticks([0.5, 0.7, 0.9], minor=False)
+
         ax.plot([-1, 2], [-1, 2],
                 linewidth=1.5, linestyle='--', color='#550000', alpha=0.49)
-
         ax.axhline(y=0.5,
                    linewidth=0.9, linestyle='--', color='black', alpha=0.29)
         ax.axvline(x=0.5,
@@ -172,11 +181,12 @@ def plot_cohort_transfer(auc_dict, size_dict, type_dict, args):
         ax.grid(color='0.23', linewidth=0.7, alpha=0.21)
         ax.set_xlim(plot_min, 1.005)
         ax.set_ylim(plot_min, 1.005)
-        ax.tick_params(labelsize=4 + fig_size, pad=fig_size / 4.7)
+        ax.tick_params(labelsize=10 + fig_size / 2.3, pad=fig_size / 4.7)
 
-    fig.text(0.5, 2/15, "Default AUC", size=13 + fig_size * 0.63,
-             ha='center', va='top', fontweight='semibold')
-    fig.text(0, 0.5, "Isolated AUC", size=13 + fig_size * 0.63,
+    fig.text(0.5, 0.21 * fig_size ** -0.31, "Default AUC",
+             size=13 + fig_size * 0.89, ha='center', va='top',
+             fontweight='semibold')
+    fig.text(0, 0.5, "Isolated AUC", size=13 + fig_size * 0.89,
              rotation=90, ha='right', va='center', fontweight='semibold')
 
     fig.text(0.5, 1.02, "Training Cohort", size=13 + fig_size * 0.63,
@@ -195,22 +205,19 @@ def plot_cohort_transfer(auc_dict, size_dict, type_dict, args):
                           transform=axarr[i, -1].transAxes)
 
     for i in range(len(args.cohorts)):
-        for j in range(len(args.cohorts)):
-            axarr[i, j].set_xticks([0.5, 0.7, 0.9], minor=False)
-            axarr[i, j].set_yticks([0.5, 0.7, 0.9], minor=False)
+        axarr[-1, i].axis('off')
 
+        for j in range(len(args.cohorts)):
             if i != (len(args.cohorts) - 1):
                 axarr[i, j].set_xticklabels([])
             if j != 0:
                 axarr[i, j].set_yticklabels([])
 
-    axarr[2, 0].axis('off')
-    axarr[2, 1].axis('off')
-    fig.legend(lgnd_ptchs, lgnd_lbls, frameon=False, fontsize=15,
-               ncol=3, loc=8, handletextpad=0.09, markerscale=3.2,
-               bbox_to_anchor=(5/9, 0))
+    fig.legend(lgnd_ptchs, lgnd_lbls, frameon=False, ncol=3, loc=8,
+               fontsize=4 + fig_size * 1.7, handletextpad=0.09,
+               markerscale=3.2, bbox_to_anchor=(5/9, 0))
 
-    fig.tight_layout()
+    fig.tight_layout(w_pad=-1, h_pad=-1)
     fig.savefig(
         os.path.join(plot_dir, "{}__samps-{}".format('__'.join(args.cohorts),
                                                      args.samp_cutoff),
@@ -225,6 +232,7 @@ def plot_cohort_transfer(auc_dict, size_dict, type_dict, args):
 def plot_stability_comparisons(stab_dict, auc_dict,
                                size_dict, type_dict, args):
     fig, axarr = plt.subplots(figsize=(13, 12), nrows=2, ncols=2)
+    pnt_size = len(auc_dict) ** -0.19
 
     for mtype in auc_dict['All']['Reg']:
         if type_dict[mtype] in variant_clrs:
@@ -233,14 +241,14 @@ def plot_stability_comparisons(stab_dict, auc_dict,
             mtype_clr = '0.5'
 
         for coh, tst_coh in auc_dict['All']['Reg'][mtype]:
-            mtype_size = (0.49 * size_dict[tst_coh, mtype]) ** 0.43
+            mtype_size = (pnt_size * size_dict[tst_coh, mtype]) ** 0.43
 
             for i, smps in enumerate(['All', 'Iso']):
                 axarr[int(coh != tst_coh), i].plot(
                     auc_dict[smps]['Reg'][mtype][(coh, tst_coh)],
                     stab_dict[smps][mtype][(coh, tst_coh)],
                     marker='o', markersize=mtype_size,
-                    color=mtype_clr, alpha=0.19
+                    color=mtype_clr, alpha=0.21
                     )
 
     plot_xmin = min(auc_val for samp_dict in auc_dict.values()
@@ -310,6 +318,7 @@ def plot_stability_comparisons(stab_dict, auc_dict,
 
 def plot_holdout_error(auc_dict, size_dict, type_dict, args):
     fig, axarr = plt.subplots(figsize=(13, 12), nrows=2, ncols=2)
+    pnt_size = len(auc_dict) ** -0.19
 
     for mtype in auc_dict['All']['Reg']:
         if type_dict[mtype] in variant_clrs:
@@ -318,7 +327,7 @@ def plot_holdout_error(auc_dict, size_dict, type_dict, args):
             mtype_clr = '0.5'
 
         for coh, tst_coh in auc_dict['All']['Reg'][mtype]:
-            mtype_size = (0.49 * size_dict[tst_coh, mtype]) ** 0.43
+            mtype_size = (pnt_size * size_dict[tst_coh, mtype]) ** 0.43
 
             if coh == tst_coh:
                 for i, smps in enumerate(['All', 'Iso']):
@@ -326,7 +335,7 @@ def plot_holdout_error(auc_dict, size_dict, type_dict, args):
                         auc_dict[smps]['Reg'][mtype][(coh, tst_coh)],
                         auc_dict[smps]['Oth'][mtype][(coh, tst_coh)],
                         marker='o', markersize=mtype_size,
-                        color=mtype_clr, alpha=0.19
+                        color=mtype_clr, alpha=0.21
                         )
 
             elif (coh, tst_coh) in auc_dict['All']['Oth'][mtype]:
@@ -335,7 +344,7 @@ def plot_holdout_error(auc_dict, size_dict, type_dict, args):
                         auc_dict[smps]['Reg'][mtype][(coh, tst_coh)],
                         auc_dict[smps]['Oth'][mtype][(coh, tst_coh)],
                         marker='o', markersize=mtype_size,
-                        color=mtype_clr, alpha=0.19
+                        color=mtype_clr, alpha=0.21
                         )
 
     plot_min = min(auc_val for exp_dict in auc_dict.values()
@@ -393,6 +402,7 @@ def plot_holdout_error(auc_dict, size_dict, type_dict, args):
 
 def plot_holdout_comparison(auc_dict, size_dict, type_dict, args):
     fig, axarr = plt.subplots(figsize=(13, 12), nrows=2, ncols=2)
+    pnt_size = len(auc_dict) ** -0.19
 
     for mtype in auc_dict['All']['Reg']:
         if type_dict[mtype] in variant_clrs:
@@ -401,14 +411,14 @@ def plot_holdout_comparison(auc_dict, size_dict, type_dict, args):
             mtype_clr = '0.5'
 
         for coh, tst_coh in auc_dict['All']['Reg'][mtype]:
-            mtype_size = (0.49 * size_dict[tst_coh, mtype]) ** 0.43
+            mtype_size = (pnt_size * size_dict[tst_coh, mtype]) ** 0.43
 
             for i, smps in enumerate(['All', 'Iso']):
                 axarr[int(coh != tst_coh), i].plot(
                     auc_dict[smps]['Reg'][mtype][(coh, tst_coh)],
                     auc_dict['All']['Hld'][mtype][(coh, tst_coh)],
                     marker='o', markersize=mtype_size,
-                    color=mtype_clr, alpha=0.19
+                    color=mtype_clr, alpha=0.21
                     )
 
     plot_min = min(auc_val for exp_dict in auc_dict.values()

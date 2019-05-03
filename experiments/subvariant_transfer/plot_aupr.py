@@ -8,6 +8,10 @@ sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
 plot_dir = os.path.join(base_dir, 'plots', 'aupr')
 
 from HetMan.experiments.subvariant_transfer import *
+from HetMan.experiments.subvariant_transfer.utils import get_form
+from HetMan.experiments.subvariant_transfer.plot_auc import (
+    lgnd_ptchs, lgnd_lbls)
+from HetMan.experiments.subvariant_infer import variant_clrs
 from dryadic.features.mutations import MuType
 
 import argparse
@@ -20,7 +24,6 @@ from sklearn.metrics import average_precision_score as aupr
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
-import seaborn as sns
 
 plt.rcParams['axes.facecolor']='white'
 plt.rcParams['savefig.facecolor']='white'
@@ -28,75 +31,63 @@ plt.rcParams['axes.linewidth'] = 1.5
 plt.rcParams['axes.edgecolor'] = 'black'
 
 
-def plot_aupr_comparisons(aupr_dict, size_dict, args):
-    fig, axarr = plt.subplots(figsize=(13, 12), nrows=2, ncols=2)
+def plot_aupr_comparisons(aupr_dict, size_dict, form_dict, args):
+    fig, axarr = plt.subplots(figsize=(13, 13), nrows=2, ncols=2)
+    pnt_size = len(aupr_dict) ** -0.19
 
-    cohort_cmap = sns.hls_palette(len(args.cohorts), l=.4, s=.71)
-    coh_clrs = {coh: cohort_cmap[sorted(args.cohorts).index(coh)]
-                for coh in args.cohorts}
+    for mtype in aupr_dict['All']['All']:
+        if form_dict[mtype] in variant_clrs:
+            mtype_clr = variant_clrs[form_dict[mtype]]
+        else:
+            mtype_clr = '0.5'
 
-    for mtype in aupr_dict['All']:
-        for trn_coh, tst_coh in aupr_dict['All'][mtype]:
-            mtype_size = (0.49 * size_dict[tst_coh, mtype]) ** 0.43
+        for trn_coh, tst_coh in aupr_dict['All']['All'][mtype]:
+            mtype_size = 0.87 * (pnt_size * size_dict[tst_coh, mtype]) ** 0.43
 
-            if trn_coh == tst_coh:
-                axarr[0, 0].plot(aupr_dict['All'][mtype][(trn_coh, tst_coh)],
-                                 aupr_dict['Iso'][mtype][(trn_coh, tst_coh)],
-                                 marker='o', markersize=mtype_size,
-                                 color=coh_clrs[tst_coh], alpha=0.19)
-
-                for trn_coh2, tst_coh2 in aupr_dict['All'][mtype]:
-                    if trn_coh2 == trn_coh and tst_coh2 != tst_coh:
-                        axarr[0, 1].plot(
-                            aupr_dict['All'][mtype][(trn_coh, tst_coh)],
-                            aupr_dict['All'][mtype][(trn_coh, tst_coh2)],
-                            marker='o', markersize=mtype_size, alpha=0.19,
-                            color=coh_clrs[tst_coh]
-                            )
-
-                        axarr[1, 0].plot(
-                            aupr_dict['Iso'][mtype][(trn_coh, tst_coh)],
-                            aupr_dict['Iso'][mtype][(trn_coh, tst_coh2)],
-                            marker='o', markersize=mtype_size, alpha=0.19,
-                            color=coh_clrs[tst_coh]
-                            )
-
-            else:
-                axarr[1, 1].plot(aupr_dict['All'][mtype][(trn_coh, tst_coh)],
-                                 aupr_dict['Iso'][mtype][(trn_coh, tst_coh)],
-                                 marker='o', markersize=mtype_size,
-                                 color=coh_clrs[tst_coh], alpha=0.19)
-
-    plot_max = max(aupr_val for exp_dict in aupr_dict.values()
-                   for mtype_dict in exp_dict.values()
-                   for aupr_val in mtype_dict.values()) + 0.02
+            for j, hld in enumerate(['All', 'Hld']):
+                axarr[int(trn_coh != tst_coh), j].plot(
+                    aupr_dict['All'][hld][mtype][(trn_coh, tst_coh)],
+                    aupr_dict['Iso'][hld][mtype][(trn_coh, tst_coh)],
+                    marker='o', markersize=mtype_size, color=mtype_clr,
+                    alpha=0.21
+                    )
 
     for ax in axarr.flatten():
+        ax.tick_params(labelsize=13, pad=2.9)
+        ax.grid(color='0.23', linewidth=0.7, alpha=0.21)
+
+        plt_max = max(ax.get_xlim()[1], ax.get_ylim()[1])
+        ax.set_xlim(0, plt_max)
+        ax.set_ylim(0, plt_max)
+
         ax.plot([-1, 2], [-1, 2],
                 linewidth=2.1, linestyle='--', color='#550000', alpha=0.43)
 
-        ax.grid(color='0.23', linewidth=0.7, alpha=0.21)
-        ax.set_xlim(0, plot_max)
-        ax.set_ylim(0, plot_max)
-        ax.tick_params(labelsize=13, pad=2.9)
+    axarr[0, 0].set_xlabel("Default AUPR\nw/ Held-out Samples",
+                           fontsize=17, weight='semibold')
+    axarr[0, 0].set_ylabel("Isolation AUPR\nw/ Held-out Samples",
+                           fontsize=17, weight='semibold')
 
-    axarr[0, 0].set_xlabel("Default AUPR", fontsize=19, weight='semibold')
-    axarr[0, 0].set_ylabel("Isolated AUPR", fontsize=19, weight='semibold')
+    axarr[0, 1].set_xlabel("Default AUPR\nw/o Held-out Samples",
+                           fontsize=17, weight='semibold')
+    axarr[0, 1].set_ylabel("Isolation AUPR\nw/o Held-out Samples",
+                           fontsize=17, weight='semibold')
 
-    axarr[0, 1].set_xlabel("Default AUPR", fontsize=19, weight='semibold')
-    axarr[0, 1].set_ylabel("Transfer Default AUPR",
-                           fontsize=19, weight='semibold')
+    axarr[1, 0].set_xlabel("Transfer Default AUPR\nw/ Held-out Samples",
+                           fontsize=17, weight='semibold')
+    axarr[1, 0].set_ylabel("Transfer Isolation AUPR\nw/ Held-out Samples",
+                           fontsize=17, weight='semibold')
 
-    axarr[1, 0].set_xlabel("Isolated AUPR", fontsize=19, weight='semibold')
-    axarr[1, 0].set_ylabel("Transfer Isolated AUPR",
-                           fontsize=19, weight='semibold')
+    axarr[1, 1].set_xlabel("Transfer Default AUPR\nw/o Held-out Samples",
+                           fontsize=17, weight='semibold')
+    axarr[1, 1].set_ylabel("Transfer Isolation AUPR\nw/o Held-out Samples",
+                           fontsize=17, weight='semibold')
 
-    axarr[1, 1].set_xlabel("Transfer Default AUPR",
-                           fontsize=19, weight='semibold')
-    axarr[1, 1].set_ylabel("Transfer Isolated AUPR",
-                           fontsize=19, weight='semibold')
+    fig.legend(lgnd_ptchs, lgnd_lbls, frameon=False, fontsize=19, ncol=3,
+               loc=8, handletextpad=0.06, markerscale=3.1,
+               bbox_to_anchor=(9/19, -1/61))
 
-    fig.tight_layout(w_pad=3.1, h_pad=2.7)
+    fig.tight_layout(w_pad=2.9, h_pad=2.1)
     fig.savefig(
         os.path.join(plot_dir, "{}__samps-{}".format('__'.join(args.cohorts),
                                                      args.samp_cutoff),
@@ -108,43 +99,58 @@ def plot_aupr_comparisons(aupr_dict, size_dict, args):
     plt.close()
 
 
-def plot_cohort_transfer(aupr_dict, size_dict, args):
+def plot_cohort_transfer(aupr_dict, size_dict, form_dict, args):
     fig_size = 1 + len(args.cohorts) * 2.9
-    fig, axarr = plt.subplots(figsize=(fig_size + 0.5, fig_size),
-                              nrows=len(args.cohorts),
-                              ncols=len(args.cohorts))
+    pnt_size = len(aupr_dict) ** -0.19
 
-    for mtype in aupr_dict['All']:
-        for trn_coh, tst_coh in aupr_dict['All'][mtype]:
-            mtype_size = 0.071 * fig_size * size_dict[tst_coh, mtype]
-            mtype_size **= 0.43
+    fig, axarr = plt.subplots(
+        figsize=(fig_size, fig_size * 17/18),
+        nrows=len(args.cohorts) + 1, ncols=len(args.cohorts),
+        gridspec_kw=dict(height_ratios=[43 * fig_size ** -0.97]
+                         * len(args.cohorts) + [1])
+        )
+
+    for mtype in aupr_dict['All']['All']:
+        if form_dict[mtype] in variant_clrs:
+            mtype_clr = variant_clrs[form_dict[mtype]]
+        else:
+            mtype_clr = '0.5'
+
+        for trn_coh, tst_coh in aupr_dict['All']['All'][mtype]:
+            mtype_size = 0.1 * pnt_size * fig_size * size_dict[tst_coh, mtype]
+            mtype_size **= 0.41
 
             ax_i = sorted(args.cohorts).index(trn_coh)
             ax_j = sorted(args.cohorts).index(tst_coh)
 
-            axarr[ax_i, ax_j].plot(aupr_dict['All'][mtype][(trn_coh, tst_coh)],
-                                   aupr_dict['Iso'][mtype][(trn_coh, tst_coh)],
-                                   marker='o', markersize=mtype_size,
-                                   color='black', markeredgecolor='none',
-                                   alpha=0.24)
+            axarr[ax_i, ax_j].plot(
+                aupr_dict['All']['Hld'][mtype][(trn_coh, tst_coh)],
+                aupr_dict['Iso']['Hld'][mtype][(trn_coh, tst_coh)],
+                marker='o', markersize=mtype_size, color=mtype_clr,
+                markeredgecolor='none', alpha=0.29
+                )
 
-    plot_max = max(aupr_val for exp_dict in aupr_dict.values()
-                   for mtype_dict in exp_dict.values()
-                   for aupr_val in mtype_dict.values()) + 0.01
+    for ax in axarr.flatten()[:-len(args.cohorts)]:
+        ax.tick_params(labelsize=7 + fig_size / 2.3, pad=fig_size / 4.7)
+        ax.grid(color='0.23', linewidth=0.7, alpha=0.21)
 
-    for ax in axarr.flatten():
+        plt_max = max(ax.get_xlim()[1], ax.get_ylim()[1])
+        ax.set_xlim(0, plt_max)
+        ax.set_ylim(0, plt_max)
+
+        ax.set_xticks([0, 0.25, 0.5, 0.75, 1], minor=False)
+        ax.set_yticks([0, 0.25, 0.5, 0.75, 1], minor=False)
         ax.plot([-1, 2], [-1, 2],
                 linewidth=1.7, linestyle='--', color='#550000', alpha=0.43)
 
-        ax.grid(color='0.23', linewidth=0.7, alpha=0.21)
-        ax.set_xlim(0, plot_max)
-        ax.set_ylim(0, plot_max)
-        ax.tick_params(labelsize=4 + fig_size, pad=fig_size / 4.7)
+    fig.text(0.5, 0.23 * fig_size ** -0.41,
+             "Default AUPR w/o Held-out Samples",
+             size=13 + fig_size * 0.63, ha='center', va='top',
+             fontweight='semibold')
 
-    fig.text(0.5, 0, "Default AUPR", size=13 + fig_size * 0.63,
-             ha='center', va='top', fontweight='semibold')
-    fig.text(0, 0.5, "Isolated AUPR", size=13 + fig_size * 0.63,
-             rotation=90, ha='right', va='center', fontweight='semibold')
+    fig.text(0, 0.5, "Isolation AUPR w/o Held-out Samples",
+             size=13 + fig_size * 0.63, rotation=90,
+             ha='right', va='center', fontweight='semibold')
 
     fig.text(0.5, 1.02, "Training Cohort", size=13 + fig_size * 0.63,
              ha='center', va='bottom', fontweight='semibold')
@@ -162,100 +168,19 @@ def plot_cohort_transfer(aupr_dict, size_dict, args):
                           transform=axarr[i, -1].transAxes)
 
     for i in range(len(args.cohorts)):
-        for j in range(len(args.cohorts)):
-            axarr[i, j].set_xticks([0, 0.25, 0.5, 0.75, 1], minor=False)
-            axarr[i, j].set_yticks([0, 0.25, 0.5, 0.75, 1], minor=False)
+        axarr[-1, i].axis('off')
 
-            if i != (len(args.cohorts) - 1):
-                axarr[i, j].set_xticklabels([])
-            if j != 0:
-                axarr[i, j].set_yticklabels([])
+    fig.legend(lgnd_ptchs, lgnd_lbls, frameon=False, ncol=3, loc=8,
+               fontsize=4 + fig_size * 1.7, handletextpad=0.09,
+               markerscale=3.2, bbox_to_anchor=(5/9, -0.01))
 
-    fig.tight_layout(w_pad=0.7, h_pad=1.3)
+    fig.tight_layout()
     fig.savefig(
         os.path.join(plot_dir, "{}__samps-{}".format('__'.join(args.cohorts),
                                                      args.samp_cutoff),
                      "{}_{}__cohort-transfer.svg".format(args.classif,
                                                          args.ex_mtype)),
         dpi=600, bbox_inches='tight', format='svg'
-        )
-
-    plt.close()
-
-
-def plot_holdout_comparison(aupr_dict, hld_dict, size_dict, args):
-    fig, axarr = plt.subplots(figsize=(13, 12), nrows=2, ncols=2)
-
-    cohort_cmap = sns.hls_palette(len(args.cohorts), l=.4, s=.71)
-    coh_clrs = {coh: cohort_cmap[sorted(args.cohorts).index(coh)]
-                for coh in args.cohorts}
-
-    for mtype in aupr_dict['All']:
-        for trn_coh, tst_coh in aupr_dict['All'][mtype]:
-            mtype_size = (0.49 * size_dict[tst_coh, mtype]) ** 0.43
-
-            if trn_coh == tst_coh:
-                axarr[0, 0].plot(aupr_dict['All'][mtype][(trn_coh, tst_coh)],
-                                 hld_dict[mtype][(trn_coh, tst_coh)],
-                                 marker='o', markersize=mtype_size,
-                                 color=coh_clrs[tst_coh], alpha=0.19)
-
-                axarr[0, 1].plot(aupr_dict['Iso'][mtype][(trn_coh, tst_coh)],
-                                 hld_dict[mtype][(trn_coh, tst_coh)],
-                                 marker='o', markersize=mtype_size,
-                                 color=coh_clrs[tst_coh], alpha=0.19)
-
-            else:
-                axarr[1, 0].plot(aupr_dict['All'][mtype][(trn_coh, tst_coh)],
-                                 hld_dict[mtype][(trn_coh, tst_coh)],
-                                 marker='o', markersize=mtype_size,
-                                 color=coh_clrs[tst_coh], alpha=0.19)
-
-                axarr[1, 1].plot(aupr_dict['Iso'][mtype][(trn_coh, tst_coh)],
-                                 hld_dict[mtype][(trn_coh, tst_coh)],
-                                 marker='o', markersize=mtype_size,
-                                 color=coh_clrs[tst_coh], alpha=0.19)
-
-    plot_max = max(max(aupr_val for exp_dict in aupr_dict.values()
-                       for mtype_dict in exp_dict.values()
-                       for aupr_val in mtype_dict.values()),
-                   max(aupr_val for mtype_dict in hld_dict.values()
-                       for aupr_val in mtype_dict.values())) + 0.02
-
-    for ax in axarr.flatten():
-        ax.plot([-1, 2], [-1, 2],
-                linewidth=2.1, linestyle='--', color='#550000', alpha=0.43)
-
-        ax.grid(color='0.23', linewidth=0.7, alpha=0.21)
-        ax.set_xlim(0, plot_max)
-        ax.set_ylim(0, plot_max)
-        ax.tick_params(labelsize=13, pad=2.9)
-
-    axarr[0, 0].set_xlabel("Default AUPR", fontsize=19, weight='semibold')
-    axarr[0, 0].set_ylabel("Default AUPR\nw/o Held-out Samples",
-                           fontsize=19, weight='semibold')
-
-    axarr[0, 1].set_xlabel("Isolated AUPR", fontsize=19, weight='semibold')
-    axarr[0, 1].set_ylabel("Default AUPR\nw/o Held-out Samples",
-                           fontsize=19, weight='semibold')
-
-    axarr[1, 0].set_xlabel("Transfer Default AUPR",
-                           fontsize=19, weight='semibold')
-    axarr[1, 0].set_ylabel("Transfer Default AUPR\nw/o Held-out Samples",
-                           fontsize=19, weight='semibold')
-
-    axarr[1, 1].set_xlabel("Transfer Isolated AUPR",
-                           fontsize=19, weight='semibold')
-    axarr[1, 1].set_ylabel("Transfer Default AUPR\nw/o Held-out Samples",
-                           fontsize=19, weight='semibold')
-
-    fig.tight_layout(w_pad=2.3, h_pad=2.3)
-    fig.savefig(
-        os.path.join(plot_dir, "{}__samps-{}".format('__'.join(args.cohorts),
-                                                     args.samp_cutoff),
-                     "{}_{}__holdout-comparison.svg".format(args.classif,
-                                                            args.ex_mtype)),
-        dpi=500, bbox_inches='tight', format='svg'
         )
 
     plt.close()
@@ -310,20 +235,22 @@ def main():
         for cohort in args.cohorts
         }
 
-    aupr_dict = {'All': dict(), 'Iso': dict()}
-    oth_dict = {'All': dict(), 'Iso': dict()}
-    hld_dict = dict()
+    aupr_dict = {'All': {'All': dict(), 'Hld': dict()},
+                 'Iso': {'All': dict(), 'Hld': dict()}}
     size_dict = dict()
+    form_dict = dict()
 
     # for each mutation task, calculate classifier performance when using
     # naive approach and when using isolation approach
     for (coh, mtype) in all_df.index:
-        if mtype not in aupr_dict['All']:
-            aupr_dict['All'][mtype] = dict()
-            aupr_dict['Iso'][mtype] = dict()
-            oth_dict['All'][mtype] = dict()
-            oth_dict['Iso'][mtype] = dict()
-            hld_dict[mtype] = dict()
+        if mtype not in form_dict:
+            form_dict[mtype] = get_form(mtype)
+
+        if mtype not in aupr_dict['All']['All']:
+            aupr_dict['All']['All'][mtype] = dict()
+            aupr_dict['All']['Hld'][mtype] = dict()
+            aupr_dict['Iso']['All'][mtype] = dict()
+            aupr_dict['Iso']['Hld'][mtype] = dict()
 
         use_gene, use_type = mtype.subtype_list()[0]
         mtype_lvls = use_type.get_sorted_levels()[1:]
@@ -357,23 +284,23 @@ def main():
             if mtype_size >= 20:
                 size_dict[test_coh, mtype] = mtype_size
 
-                cur_stat = mtype_stat[coh_stat[test_coh]]
                 coh_all_vals = all_vals[coh_stat[test_coh]]
                 coh_iso_vals = iso_vals[coh_stat[test_coh]]
+                cur_stat = mtype_stat[coh_stat[test_coh]]
+                hld_stat = ~(all_stat & ~mtype_stat)[coh_stat[test_coh]]
 
-                oth_stat = (all_stat & ~mtype_stat)[coh_stat[test_coh]]
-                none_stat = coh_stat[test_coh] & ~all_stat
-
-                aupr_dict['All'][mtype][(coh, test_coh)] = aupr(
+                aupr_dict['All']['All'][mtype][coh, test_coh] = aupr(
                     cur_stat, coh_all_vals)
-                aupr_dict['Iso'][mtype][(coh, test_coh)] = aupr(
-                    cur_stat[~oth_stat], coh_iso_vals[~oth_stat])
-                hld_dict[mtype][(coh, test_coh)] = aupr(
-                    cur_stat[~oth_stat], coh_all_vals[~oth_stat])
+                aupr_dict['All']['Hld'][mtype][coh, test_coh] = aupr(
+                    cur_stat[hld_stat], coh_all_vals[hld_stat])
 
-    plot_aupr_comparisons(aupr_dict, size_dict, args)
-    plot_cohort_transfer(aupr_dict, size_dict, args)
-    plot_holdout_comparison(aupr_dict, hld_dict, size_dict, args)
+                aupr_dict['Iso']['All'][mtype][coh, test_coh] = aupr(
+                    cur_stat, coh_iso_vals)
+                aupr_dict['Iso']['Hld'][mtype][coh, test_coh] = aupr(
+                    cur_stat[hld_stat], coh_iso_vals[hld_stat])
+
+    plot_aupr_comparisons(aupr_dict, size_dict, form_dict, args)
+    plot_cohort_transfer(aupr_dict, size_dict, form_dict, args)
 
 
 if __name__ == '__main__':
