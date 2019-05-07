@@ -1,12 +1,11 @@
 
 import os
-base_dir = os.path.dirname(__file__)
-
 import sys
+base_dir = os.path.dirname(__file__)
 sys.path.extend([os.path.join(base_dir, '../../..')])
+
 from HetMan.experiments.tcga_cluster import *
 from HetMan.experiments.variant_baseline.merge_tests import merge_cohort_data
-
 import argparse
 import numpy as np
 import pandas as pd
@@ -23,29 +22,29 @@ plt.rcParams['savefig.facecolor']='white'
 plt.rcParams['axes.edgecolor']='white'
 
 
-def plot_clustering(trans_expr, args, cdata, lum_data, pca_comps=(0, 1)):
+def plot_clustering(trans_expr, args, cdata, type_data, pca_comps=(0, 1)):
     fig, ax = plt.subplots(figsize=(9, 8))
 
     trans_expr = trans_expr[:, np.array(pca_comps)]
-    lum_stat = np.array([lum_data.SUBTYPE[lum_data.index.get_loc(samp)]
-                         if samp in lum_data.index else 'None'
-                         for samp in cdata.train_data()[0].index])
+    type_stat = np.array([type_data.SUBTYPE[type_data.index.get_loc(samp)]
+                          if samp in type_data.index else 'Not Available'
+                          for samp in cdata.train_data()[0].index])
 
-    lum_clrs = sns.color_palette('bright', n_colors=len(set(lum_stat)))
+    type_clrs = sns.color_palette('bright', n_colors=len(set(type_stat)))
     lgnd_lbls = []
     lgnd_marks = []
 
-    for lum, lum_clr in zip(sorted(set(lum_stat)), lum_clrs):
-        lum_indx = lum_stat == lum
+    for subtype, type_clr in zip(sorted(set(type_stat)), type_clrs):
+        type_indx = type_stat == subtype
 
-        ax.scatter(trans_expr[lum_indx, 0], trans_expr[lum_indx, 1],
-                   marker='o', s=31, c=lum_clr, alpha=0.27, edgecolor='none')
+        ax.scatter(trans_expr[type_indx, 0], trans_expr[type_indx, 1],
+                   marker='o', s=31, c=type_clr, alpha=0.27, edgecolor='none')
 
-        lgnd_lbls += ["{} ({})".format(lum, np.sum(lum_indx))]
+        lgnd_lbls += ["{} ({})".format(sub_type, np.sum(type_indx))]
         lgnd_marks += [Line2D([], [],
                               marker='o', linestyle='None',
                               markersize=23, alpha=0.43,
-                              markerfacecolor=lum_clr,
+                              markerfacecolor=type_clr,
                               markeredgecolor='none')]
 
     ax.set_xlabel("{} Component {}".format(args.transform, pca_comps[0] + 1),
@@ -87,22 +86,22 @@ def main():
     args = parser.parse_args()
     np.random.seed(args.use_seed)
     cdata = merge_cohort_data(args.out_dir)
-    lum_data = pd.read_csv(type_file, sep='\t', index_col=0, comment='#')
+    type_data = pd.read_csv(type_file, sep='\t', index_col=0, comment='#')
 
     if '_' in cdata.cohort:
         use_cohort = cdata.cohort.split('_')[0]
     else:
         use_cohort = cdata.cohort
 
-    if use_cohort not in lum_data.DISEASE.values:
+    if use_cohort not in type_data.DISEASE.values:
         raise ValueError("The source of this cohort ({}) does not "
                          "match those present in the TCGA subtypes "
                          "file!".format(use_cohort))
  
-    lum_data = lum_data[lum_data.DISEASE == use_cohort]
+    type_data = type_data[type_data.DISEASE == use_cohort]
     trans_expr = clust_algs[args.transform].fit_transform_coh(cdata)
 
-    plot_clustering(trans_expr.copy(), args, cdata, lum_data)
+    plot_clustering(trans_expr.copy(), args, cdata, type_data)
 
 
 if __name__ == "__main__":
