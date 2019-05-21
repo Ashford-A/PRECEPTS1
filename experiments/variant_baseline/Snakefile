@@ -10,14 +10,13 @@ TMPDIR = os.path.join(os.environ['TEMPDIR'],
                                             config['samp_cutoff']),
                       config['classif'])
 
-OUTDIR = os.path.join(
-    os.environ['DATADIR'], 'HetMan', 'variant_baseline', 'output',
-    "{}__{}__samps-{}".format(
-        config['expr_source'], config['cohort'], config['samp_cutoff'])
-    )
+OUTDIR = os.path.join(os.environ['DATADIR'], 'HetMan', 'variant_baseline',
+                      "{}__{}__samps-{}".format(config['expr_source'],
+                                                config['cohort'],
+                                                config['samp_cutoff']))
 
 
-localrules: target
+localrules: target, consolidate
 
 
 rule target:
@@ -38,11 +37,9 @@ rule classify:
         export OMP_NUM_THREADS=1;
         sleep $(( ({wildcards.cv_id} + 1) * ({wildcards.task_id} + 1) * $(shuf -i 1-11 -n 1) ));
  
-        python {LOCALDIR}/fit_tests.py -v \
-                {config[expr_source]} {config[cohort]} {config[samp_cutoff]} \
-                {config[classif]} --cv_id={wildcards.cv_id} \
-                --task_count={config[task_count]} --task_id={wildcards.task_id} \
-                --setup_dir={TMPDIR} --out_dir={TMPDIR}
+        python {LOCALDIR}/fit_tests.py {config[classif]} --use_dir={TMPDIR} \
+                --task_count={config[task_count]} \
+                --task_id={wildcards.task_id} --cv_id={wildcards.cv_id}
         """
 
 
@@ -60,12 +57,9 @@ rule consolidate:
 
     shell: """
         set +u; source activate HetMan; set -u;
-        python {LOCALDIR}/merge_tests.py \
-                {config[expr_source]} {config[cohort]} {config[samp_cutoff]} \
-                {config[classif]} --use_dir={TMPDIR}
+        python {LOCALDIR}/merge_tests.py --use_dir={TMPDIR}
 
-        out_tag={config[expr_source]}__{config[cohort]}__samps-{config[samp_cutoff]}
         cp {TMPDIR}/out-data.p {OUTDIR}/out-data__{config[classif]}.p
-        cp {TMPDIR}/setup/cohort-data_${{out_tag}}.p {OUTDIR}/cohort-data__{config[classif]}.p
+        cp {TMPDIR}/setup/cohort-data.p {OUTDIR}/cohort-data__{config[classif]}.p
         """
 
