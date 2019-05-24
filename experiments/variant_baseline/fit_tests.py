@@ -5,70 +5,45 @@ base_dir = os.path.dirname(__file__)
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
 from HetMan.experiments.variant_baseline import *
-from HetMan.experiments.variant_baseline.setup_tests import get_cohort_data
-
 import argparse
-from importlib import import_module
 import dill as pickle
+from importlib import import_module
 
 import time
 from sklearn.metrics import roc_auc_score
 from sklearn.metrics import average_precision_score as aupr_score
 
 
-def load_variants_list(setup_dir, expr_source, cohort, samp_cutoff):
-    var_file = "vars-list_{}__{}__samps-{}.p".format(
-        expr_source, cohort, samp_cutoff)
-
-    return pickle.load(open(os.path.join(setup_dir, 'setup', var_file), 'rb'))
-
-
 def main():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('expr_source', type=str,
-                        choices=list(expr_sources.keys()),
-                        help='which TCGA expression data source to use')
-    parser.add_argument('cohort', type=str, help="which TCGA cohort to use")
-
-    parser.add_argument(
-        'samp_cutoff', type=int,
-        help="minimum number of mutated samples needed to test a gene"
-        )
-
     parser.add_argument('classif', type=str,
-                        help='the name of a mutation classifier')
-    
-    parser.add_argument(
-        '--cv_id', type=int, default=6732,
-        help='the random seed to use for cross-validation draws'
-        )
- 
+                        help="the name of a mutation classifier")
+    parser.add_argument('--use_dir', type=str, default=base_dir)
+
     parser.add_argument(
         '--task_count', type=int, default=10,
-        help='how many parallel tasks the list of types to test is split into'
+        help="how many parallel tasks the list of types to test is split into"
         )
     parser.add_argument('--task_id', type=int, default=0,
-                        help='the subset of subtypes to assign to this task')
-
-    parser.add_argument('--setup_dir', type=str, default=base_dir)
-    parser.add_argument('--out_dir', type=str, default=base_dir)
-
-    parser.add_argument('--verbose', '-v', action='store_true',
-                        help='turns on diagnostic messages')
+                        help="the subset of subtypes to assign to this task")
+    parser.add_argument('--cv_id', type=int, default=6072,
+                        help="the seed to use for random sampling")
 
     args = parser.parse_args()
-    cdata = get_cohort_data(args.expr_source, args.cohort,
-                            cv_prop=0.75, cv_seed=2079 + 57 * args.cv_id)
+    setup_dir = os.path.join(args.use_dir, 'setup')
 
-    # load list of variants whose presence will be predicted
-    vars_list = load_variants_list(
-        args.setup_dir, args.expr_source, args.cohort, args.samp_cutoff)
+    with open(os.path.join(setup_dir, "vars-list.p"), 'rb') as fl:
+        vars_list = pickle.load(fl)
+
+    with open(os.path.join(setup_dir, "cohort-data.p"), 'rb') as fl:
+        cdata = pickle.load(fl)
+    cdata.update_seed(2079 + 57 * args.cv_id, test_prop=0.25)
 
     clf_info = args.classif.split('__')
     clf_module = import_module(
         'HetMan.experiments.variant_baseline.models.{}'.format(clf_info[0]))
-    mut_clf = getattr(clf_module, clf_info[1].capitalize())
+    mut_clf = getattr(clf_module, clf_info[1].capitalize())()
 
     out_acc = {mtype: {'tune': {'mean': None, 'std': None},
                        'train': {'AUC': None, 'AUPR': None},
@@ -82,10 +57,7 @@ def main():
 
     for i, mtype in enumerate(vars_list):
         if (i % args.task_count) == args.task_id:
-            clf = mut_clf()
-
-            if args.verbose:
-                print("Testing {} ...".format(mtype))
+            print("Testing {} ...".format(mtype))
 
             # get the gene that the variant is associated with and the list
             # of genes on the same chromosome as that gene
@@ -93,8 +65,8 @@ def main():
             ex_genes = {gene for gene, annot in cdata.gene_annot.items()
                         if annot['Chr'] == cdata.gene_annot[var_gene]['Chr']}
 
-            clf, cv_output = clf.tune_coh(
-                cdata, mtype, exclude_genes=ex_genes,
+            mut_clf, cv_output = mut_clf.tune_coh(
+                cdata, mtype, exclude_feats=ex_genes,
                 tune_splits=4, test_count=36, parallel_jobs=8
                 )
 
@@ -107,31 +79,32 @@ def main():
 
             out_acc[mtype]['tune']['mean'] = cv_output['mean_test_score']
             out_acc[mtype]['tune']['std'] = cv_output['std_test_score']
-            out_params[mtype] = {par: clf.get_params()[par]
+            out_params[mtype] = {par: mut_clf.get_params()[par]
                                  for par, _ in mut_clf.tune_priors}
 
             t_start = time.time()
-            clf.fit_coh(cdata, mtype, exclude_genes=ex_genes)
+            mut_clf.fit_coh(cdata, mtype, exclude_feats=ex_genes)
             t_end = time.time()
             out_time[mtype]['final']['fit'] = t_end - t_start
 
             pheno_list = dict()
             train_omics, pheno_list['train'] = cdata.train_data(
-                mtype, exclude_genes=ex_genes)
+                mtype, exclude_feats=ex_genes)
             test_omics, pheno_list['test'] = cdata.test_data(
-                mtype, exclude_genes=ex_genes)
+                mtype, exclude_feats=ex_genes)
 
             t_start = time.time()
             pred_scores = {
-                'train': clf.parse_preds(clf.predict_omic(train_omics)),
-                'test': clf.parse_preds(clf.predict_omic(test_omics))
+                'train': mut_clf.parse_preds(
+                    mut_clf.predict_omic(train_omics)),
+                'test': mut_clf.parse_preds(mut_clf.predict_omic(test_omics))
                 }
             out_time[mtype]['final']['score'] = time.time() - t_start
 
-            samp_sizes = {'train': (len(mtype.get_samples(cdata.train_mut))
-                                    / len(cdata.train_samps)),
-                          'test': (len(mtype.get_samples(cdata.test_mut))
-                                   / len(cdata.test_samps))}
+            samp_sizes = {'train': (sum(cdata.train_pheno(mtype))
+                                    / len(cdata.get_train_samples())),
+                          'test': (sum(cdata.test_pheno(mtype))
+                                   / len(cdata.get_test_samples()))}
 
             for samp_set, scores in pred_scores.items():
                 if len(set(pheno_list[samp_set])) == 2:
@@ -149,14 +122,12 @@ def main():
             del(out_params[mtype])
             del(out_time[mtype])
 
-    pickle.dump(
-        {'Acc': out_acc, 'Clf': mut_clf,
-         'Params': out_params, 'Time': out_time},
-        open(os.path.join(args.out_dir, 'output',
-                          'out__cv-{}_task-{}.p'.format(
-                              args.cv_id, args.task_id)),
-             'wb')
-        )
+    with open(os.path.join(args.use_dir, 'output',
+                           "out__cv-{}_task-{}.p".format(args.cv_id,
+                                                         args.task_id)),
+              'wb') as fl:
+        pickle.dump({'Acc': out_acc, 'Clf': mut_clf,
+                     'Params': out_params, 'Time': out_time}, fl)
 
 
 if __name__ == "__main__":
