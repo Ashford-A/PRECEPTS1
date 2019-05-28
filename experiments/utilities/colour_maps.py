@@ -1,5 +1,6 @@
 
-from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.colors import LinearSegmentedColormap, Normalize
+from matplotlib.cm import ScalarMappable
 
 
 simil_cmap = LinearSegmentedColormap('SimilCmap', {
@@ -41,4 +42,7 @@ auc_cmap = LinearSegmentedColormap('aucCmap', {
              (9.0/14, 0.863, 0.863),
              (1.0,  0.4, 0.4))
     })
+
+cor_cmap = ScalarMappable(norm=Normalize(vmin=-1, vmax=1),
+                          cmap=auc_cmap).to_rgba
 
