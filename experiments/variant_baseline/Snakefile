@@ -59,7 +59,7 @@ rule consolidate:
         set +u; source activate HetMan; set -u;
         python {LOCALDIR}/merge_tests.py --use_dir={TMPDIR}
 
-        cp {TMPDIR}/out-data.p {OUTDIR}/out-data__{config[classif]}.p
         cp {TMPDIR}/setup/cohort-data.p {OUTDIR}/cohort-data__{config[classif]}.p
+        cp {TMPDIR}/out-data.p {OUTDIR}/out-data__{config[classif]}.p
         """
 

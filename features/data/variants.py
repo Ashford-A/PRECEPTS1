@@ -66,7 +66,7 @@ def get_variants_mc3(syn):
         except OSError:
             i = i + 1
 
-    muts.Sample = muts.Sample.apply(lambda smp: "-".join(smp.split("-")[:4]))
+    muts.Sample = muts.Sample.apply(lambda smp: '-'.join(smp.split('-')[:4]))
     muts.PolyPhen = muts.PolyPhen.apply(
         lambda phen: (gsub('\)$', '', gsub('^.*\(', '', phen))
                       if phen != '.' else 0)

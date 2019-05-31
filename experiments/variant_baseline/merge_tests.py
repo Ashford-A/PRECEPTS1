@@ -5,11 +5,11 @@ base_dir = os.path.dirname(__file__)
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
 from HetMan.experiments.variant_baseline import *
-from HetMan.experiments.variant_baseline.fit_tests import load_variants_list
-
 import argparse
 import pandas as pd
 import dill as pickle
+
+from glob import glob
 from itertools import product
 from operator import itemgetter
 
@@ -18,118 +18,75 @@ class MergeError(Exception):
     pass
 
 
-def cdata_hash(cdata):
-    expr_hash = tuple(dict(cdata.omic_data.sum().round(5)).items())
-    mut_str = cdata.train_mut.get_newick()
+def merge_cohort_data(out_dir):
+    cdata_file = os.path.join(out_dir, "cohort-data.p")
 
-    return expr_hash, tuple(mut_str.count(k) for k in sorted(set(mut_str)))
-
-
-def merge_cohort_data(out_dir, cur_mdl=None):
-    meta_file = os.path.join(out_dir, "metadata.txt")
-
-    if not os.path.isfile(meta_file):
-        raise MergeError("Meta-data file for output directory\n{}\nnot "
-                         "present, directory is either locked due to a "
-                         "concurrent process running or meta-data file needs "
-                         "to be instantiated using:\n\ttouch {}".format(
-                             out_dir, meta_file))
-
-    with open(meta_file, 'r') as fl:
-        meta_data = fl.read()
-    os.remove(meta_file)
-
-    if len(meta_data) > 0:
-        meta_dict = [[meta_str.split(': ')[0],
-                      meta_str.split(': ')[1].split(', ')]
-                     for meta_str in meta_data.split('\n') if meta_str]
+    if os.path.isfile(cdata_file):
+        with open(cdata_file, 'rb') as fl:
+            cur_cdata = pickle.load(fl)
+            cur_hash = cur_cdata.data_hash()
+            cur_hash = tuple(cur_hash[0]), cur_hash[1]
 
     else:
-        meta_dict = []
+        cur_hash = None
 
-    cur_cdatas = {
-        fl.split('data_')[1].split('.p')[0]: pickle.load(
-            open(os.path.join(out_dir, fl), 'rb'))
-        for fl in os.listdir(os.path.join(out_dir)) if 'cohort-data_v' in fl
-        }
+    new_files = glob(os.path.join(out_dir, "cohort-data__*.p"))
+    new_mdls = [new_file.split("cohort-data__")[1].split(".p")[0]
+                for new_file in new_files]
 
-    new_cdatas = {
-        fl.split('data__')[1].split('.p')[0]: pickle.load(
-            open(os.path.join(out_dir, fl), 'rb'))
-        for fl in os.listdir(os.path.join(out_dir)) if 'cohort-data__' in fl
-        }
+    new_cdatas = {new_mdl: pickle.load(open(new_file, 'rb'))
+                  for new_mdl, new_file in zip(new_mdls, new_files)}
+    new_chsums = {mdl: cdata.data_hash() for mdl, cdata in new_cdatas.items()}
+    new_chsums = {k: (tuple(v[0]), v[1]) for k, v in new_chsums.items()}
 
     for mdl, cdata in new_cdatas.items():
-        if cdata.cv_seed != 0:
-            raise MergeError("Cohort for model {} does not have a "
-                             "cross-validation seed of zero!".format(mdl))
+        if cdata.get_seed() is not None:
+            raise MergeError("Cohort for model {} does not have the correct "
+                             "cross-validation seed!".format(mdl))
 
-        if cdata.test_samps is not None:
+        if cdata.get_test_samples():
             raise MergeError("Cohort for model {} does not have an empty "
                              "testing sample set!".format(mdl))
 
-    cur_chsums = {cdata_hash(cdata): vrs for vrs, cdata in cur_cdatas.items()}
-    new_chsums = {mdl: cdata_hash(cdata) for mdl, cdata in new_cdatas.items()}
+    assert len(set(new_chsums.values())) <= 1, (
+        "Inconsistent cohort hashes found for new "
+        "experiments in {} !".format(out_dir)
+        )
 
-    if len(cur_cdatas) > 0:
-        new_version = max(int(vrs[1:]) for vrs in cur_cdatas) + 1
-    else:
-        new_version = 0
-
-    for mdl, new_chsum in new_chsums.items():
-        os.remove(os.path.join(out_dir, "cohort-data__{}.p".format(mdl)))
-
-        if new_chsum not in cur_chsums:
-            vrs_str = 'v{}'.format(new_version)
-            new_fl = os.path.join(out_dir, "cohort-data_{}.p".format(vrs_str))
-
-            pickle.dump(new_cdatas[mdl], open(new_fl, 'wb'))
-            cur_cdatas[vrs_str] = new_cdatas[mdl]
-            del(new_cdatas[mdl])
-
-            cur_chsums[new_chsum] = vrs_str
-            meta_dict += [[vrs_str, [mdl]]]
-            new_version += 1
+    if new_files:
+        if cur_hash is not None:
+            assert tuple(new_chsums.values())[0] == cur_hash, (
+                "Cohort hash for new experiment in {} does not match hash "
+                "for cached cohort!".format(out_dir)
+                )
+            use_cdata = cur_cdata
 
         else:
-            meta_indx = [i for i, (vrs, _) in enumerate(meta_dict)
-                         if vrs == cur_chsums[new_chsum]]
-            if mdl not in meta_dict[meta_indx[0]][1]:
-                meta_dict[meta_indx[0]][1] += [mdl]
+            use_cdata = tuple(new_cdatas.values())[0]
+            with open(cdata_file, 'wb') as f:
+                pickle.dump(use_cdata, f)
 
-    if cur_mdl is None:
-        use_vrs = max(int(vrs[1:]) for vrs in cur_cdatas)
-        cdata = cur_cdatas['v{}'.format(use_vrs)]
+        for new_file in new_files:
+            os.remove(new_file)
 
     else:
-        pass
+        if cur_hash is None:
+            raise ValueError("No cohort datasets found in {}, has an "
+                             "experiment with these parameters been run to "
+                             "completion yet?".format(out_dir))
 
-    with open(meta_file, 'w') as fl:
-        fl.write('\n'.join("{}: {}".format(meta_val[0],
-                                           ', '.join(meta_val[1]))
-                           for meta_val in meta_dict))
+        else:
+            use_cdata = cur_cdata
 
-    return cdata
+    return use_cdata
 
 
 def main():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('expr_source', type=str,
-                        choices=list(expr_sources.keys()),
-                        help='which TCGA expression data source to use')
-    parser.add_argument('cohort', type=str, help="which TCGA cohort to use")
-
-    parser.add_argument(
-        'samp_cutoff', type=int,
-        help="minimum number of mutated samples needed to test a gene"
-        )
-
-    parser.add_argument('classif', type=str,
-                        help='the name of a mutation classifier')
     parser.add_argument('--use_dir', type=str, default=base_dir)
-
     args = parser.parse_args()
+
     out_files = [(fl, int(fl.split('out__cv-')[1].split('_task-')[0]),
                   int(fl.split('_task-')[1].split('.p')[0]))
                   for fl in os.listdir(os.path.join(args.use_dir, 'output'))
@@ -141,13 +98,18 @@ def main():
                                  'rb'))
                 for fl, _, _ in out_files]
 
-    use_clf = set(ols['Clf'] for ols in out_list)
+    use_clf = set(type(ols['Clf']) for ols in out_list)
     if len(use_clf) != 1:
-        raise ValueError("Each experiment must be run "
+        raise MergeError("Each experiment must be run "
                          "with exactly one classifier!")
 
-    vars_list = load_variants_list(
-        args.use_dir, args.expr_source, args.cohort, args.samp_cutoff)
+    use_tpr = set(ols['Clf'].tune_priors for ols in out_list)
+    if len(use_tpr) != 1:
+        raise MergeError("Each experiment must be run with the same tuning "
+                         "priors across all classifer instances!")
+
+    with open(os.path.join(args.use_dir, 'setup', "vars-list.p"), 'rb') as fl:
+        vars_list = pickle.load(fl)
 
     fit_acc = {
         samp_set: pd.concat([

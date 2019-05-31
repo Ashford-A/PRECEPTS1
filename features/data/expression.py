@@ -175,6 +175,12 @@ def get_expr_icgc(cohort, data_dir):
 
 
 def get_expr_toil(cohort, data_dir, collapse_txs=False):
+    """Loads TCGA RNAseq expression from Tatlow's kallisto calls.
+
+    Returns:
+        expr_data (:obj:`pd.DataFrame`, shape = [n_samps, n_genes])
+
+    """
     expr = pd.read_csv(os.path.join(data_dir, "TCGA",
                                     "TCGA_{}_tpm.tsv.gz".format(cohort)),
                        sep='\t', index_col=0)
@@ -197,5 +203,5 @@ def get_expr_toil(cohort, data_dir, collapse_txs=False):
         expr = expr.reorder_levels(['Gene', 'Transcript', 'ENSG', 'ENST',
                                     'OTTG', 'OTTT', 'Length', 'GeneType', ''])
 
-    return expr.transpose()
+    return expr.transpose()[~expr.columns.duplicated()]
 

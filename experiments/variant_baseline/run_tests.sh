@@ -69,14 +69,16 @@ then
 	snakemake --unlock
 fi
 
-dvc run -d setup/cohort-data.p -d setup/vars-list.p \
-       	-d $RUNDIR/fit_tests.py -d $RUNDIR/models/${classif%%'__'*}.py \
-	-o $FINALDIR/out-data__${classif}.p -f output.dvc --overwrite-dvcfile \
-	--remove-outs 'snakemake -s $RUNDIR/Snakefile -j 100 --latency-wait 120 \
+dvc run -d setup/cohort-data.p -d setup/vars-list.p -d $RUNDIR/fit_tests.py \
+	-d $RUNDIR/models/${classif%%'__'*}.py -o $FINALDIR/out-data__${classif}.p \
+	-f output.dvc --overwrite-dvcfile --remove-outs --no-commit \
+	'snakemake -s $RUNDIR/Snakefile -j 100 --latency-wait 120 \
 	--cluster-config $RUNDIR/cluster.json --cluster \
 	"sbatch -p {cluster.partition} -J {cluster.job-name} -t {cluster.time} \
 	-o {cluster.output} -e {cluster.error} -n {cluster.ntasks} -c {cluster.cpus-per-task} \
 	--mem-per-cpu {cluster.mem-per-cpu} --exclude=$ex_nodes --no-requeue" \
-	--config expr_source='"$expr_source"' cohort='"$cohort"' samp_cutoff='"$samp_cutoff"' \
-	classif='"$classif"' task_count='"$task_count"
+	--config expr_source='"$expr_source"' cohort='"$cohort"' \
+	samp_cutoff='"$samp_cutoff"' classif='"$classif"' task_count='"$task_count"
+
+cp output.dvc $FINALDIR/output__${classif}.dvc
 

@@ -98,7 +98,7 @@ def plot_acc_quartiles(auc_df, aupr_df, args, cdata):
     aupr_vals = aupr_df.quantile(q=0.25, axis=1)
 
     mtype_sizes = [
-        len(mtype.get_samples(cdata.train_mut)) / len(cdata.samples)
+        len(mtype.get_samples(cdata.mtree)) / len(cdata.get_samples())
         for mtype in auc_df.index
         ]
 
@@ -292,7 +292,7 @@ def plot_tuning_mtype(par_df, auc_df, use_clf, args, cdata):
 
     auc_vals = auc_df.quantile(q=0.25, axis=1)
     size_vec = [
-        198 * len(mtype.get_samples(cdata.train_mut)) / len(cdata.samples)
+        198 * len(mtype.get_samples(cdata.mtree)) / len(cdata.get_samples())
         for mtype in auc_vals.index
         ]
 
@@ -388,8 +388,8 @@ def plot_tuning_mtype_grid(par_df, auc_df, use_clf, args, cdata):
 
     auc_vals = auc_df.quantile(q=0.25, axis=1)
     auc_clrs = auc_vals.apply(auc_cmap)
-    size_vec = [461 * len(mtype.get_samples(cdata.train_mut)) /
-                (len(cdata.samples) * par_count)
+    size_vec = [461 * sum(cdata.train_pheno(mtype))
+                / (len(cdata.get_samples()) * par_count)
                 for mtype in auc_vals.index]
 
     for i, (par_name, tune_distr) in enumerate(use_clf.tune_priors):
@@ -610,7 +610,6 @@ def main():
         )
 
     parser.add_argument('expr_source', type=str,
-                        choices=list(expr_sources.keys()),
                         help="which TCGA expression data source was used")
     parser.add_argument('cohort', type=str, help="which TCGA cohort was used")
 
@@ -630,11 +629,11 @@ def main():
                              args.model_name.split('__')[0]),
                 exist_ok=True)
 
-    cdata = merge_cohort_data(os.path.join(base_dir, 'output', out_tag))
-    out_dict = pickle.load(open(os.path.join(base_dir, 'output', out_tag,
-                                             "out-data__{}.p".format(
-                                                 args.model_name)),
-                                'rb'))
+    cdata = merge_cohort_data(os.path.join(base_dir, out_tag))
+    with open(os.path.join(base_dir, out_tag,
+                           "out-data__{}.p".format(args.model_name)),
+              'rb') as fl:
+        out_dict = pickle.load(fl)
 
     plot_auc_distribution(out_dict['Fit']['test'].AUC, args)
     plot_acc_quartiles(out_dict['Fit']['test'].AUC,
