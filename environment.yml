@@ -199,7 +199,7 @@ dependencies:
     - cryptography==2.4.2
     - deprecation==2.0.5
     - distro==1.4.0
-    - dryad==0.4a8
+    - dryad==0.4b1
     - dvc==0.32.1
     - entrypoints==0.3
     - future==0.17.1
