@@ -59,11 +59,6 @@ dvc run -d $firehose_dir -d $gencode_file -d $gene_file -d $subtype_file \
 gene_count=$( cat setup/gene-count.txt )
 task_count=$(( $gene_count / $test_max + 1 ))
 
-if [ $task_count -gt 12 ]
-then
-	task_count=12
-fi
-
 if [ -d .snakemake ]
 then
 	snakemake --unlock
