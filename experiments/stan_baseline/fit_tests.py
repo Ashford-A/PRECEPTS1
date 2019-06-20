@@ -65,7 +65,7 @@ def main():
 
         mut_clf, cv_output = mut_clf.tune_coh(
             cdata, use_mtype, exclude_feats=ex_genes,
-            tune_splits=4, test_count=24, parallel_jobs=8
+            tune_splits=4, test_count=24, parallel_jobs=12
             )
 
         out_time[fmth]['tune']['fit']['avg'] = cv_output['mean_fit_time']
@@ -121,7 +121,7 @@ def main():
                            "out__cv-{}_task-{}.p".format(args.cv_id,
                                                          args.task_id)),
               'wb') as fl:
-        pickle.dump({'Acc': out_acc, 'Clf': mut_clf, 'Scores': out_scores,
+        pickle.dump({'Acc': out_acc, 'Clf': use_clf, 'Scores': out_scores,
                      'Params': out_params, 'Time': out_time,
                      'Sampl': out_sampl}, fl)
 
