@@ -5,11 +5,11 @@ base_dir = os.path.dirname(__file__)
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
 from HetMan.experiments.stan_baseline import *
+from HetMan.experiments.variant_baseline.merge_tests import MergeError
+
 import argparse
 import pandas as pd
 import dill as pickle
-
-from glob import glob
 from itertools import product
 from operator import itemgetter
 
@@ -54,7 +54,7 @@ def main():
                 for task_id, mtype in enumerate(vars_list)
                 }).transpose()
             for samp_set in ['train', 'test']}
-        for fmth in ['optim', 'sampl', 'varit']
+        for fmth in ['optim', 'varit', 'sampl']
         }
 
     for fmth in ['optim', 'sampl', 'varit']:
@@ -63,22 +63,32 @@ def main():
                 assert fit_acc[fmth][samp_set][acc_mth].shape[1] == 10, (
                     "Some CVs are missing from the accuracy results!")
 
-    tune_list = tuple(product(*[vals for _, vals in tuple(use_tpr)[0]]))
+    tune_indx = pd.MultiIndex.from_tuples(
+        tuple(product(*[vals for _, vals in tuple(use_tpr)[0]])),
+        names=[x[0] for x in tuple(use_tpr)[0]]
+        )
+
     tune_acc = {
-        stat_lbl: {
-            mtype: pd.concat([pd.DataFrame(ols['Acc'][fmth]['tune'][stat_lbl],
-                                           index=tune_list,
-                                           columns=[i // len(vars_list)])
-                              for i, ols in enumerate(out_list)
-                              if i % task_count == task_id], axis=1)
-            for task_id, mtype in enumerate(vars_list)
+        mtype: {
+            stat_lbl: pd.concat([
+                pd.DataFrame(ols['Acc'][fmth]['tune'][stat_lbl],
+                             index=tune_indx,
+                             columns=pd.MultiIndex.from_arrays(
+                                 [[fmth], [i // len(vars_list)]],
+                                 names=['fmth', 'CV']
+                                ))
+                for i, ols in enumerate(out_list)
+                for fmth in ['optim', 'varit', 'sampl']
+                if i % task_count == task_id
+                ], axis=1).sort_index(axis=1)
+            for stat_lbl in ['mean', 'std']
             }
-        for stat_lbl in ['mean', 'std']
+        for task_id, mtype in enumerate(vars_list)
         }
 
-    for stat_lbl in ['mean', 'std']:
-        for mtype in vars_list:
-            assert tune_acc[stat_lbl][mtype].shape == (18, 10), (
+    for mtype in vars_list:
+        for stat_lbl in ['mean', 'std']:
+            assert tune_acc[mtype][stat_lbl].shape == (18, 30), (
                 "Some CV parameter combinations are missing in the "
                 "tuning accuracy results!"
                 )
@@ -120,7 +130,8 @@ def main():
             pd.DataFrame.from_dict({
                 (mtype, stage_lbl, stat_lbl): pd.Series(
                     ols['Time'][fmth]['tune'][stage_lbl][stat_lbl],
-                    index=[(i // len(vars_list), *par) for par in tune_list]
+                    index=[(i // len(vars_list), *pars)
+                           for pars in tune_indx.values]
                     )
                 for stat_lbl in ['avg', 'std'] for stage_lbl in ['fit', 'score']
                 }, orient='index')

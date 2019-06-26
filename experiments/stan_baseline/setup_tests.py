@@ -22,8 +22,8 @@ def get_cohort_data(cohort, use_gene, cv_seed=None, test_prop=0):
     syn.login()
 
     if cohort == 'beatAML':
-        cdata = BeatAmlCohort(mut_genes=[use_gene],
-                              mut_levels=['Gene', 'Form', 'Exon', 'Protein'],
+        cdata = BeatAmlCohort(mut_levels=['Form', 'Exon', 'Protein'],
+                              mut_genes=[use_gene],
                               expr_file=beatAML_files['expr'],
                               samp_file=beatAML_files['samps'], syn=syn,
                               annot_file=annot_file, cv_seed=cv_seed,
