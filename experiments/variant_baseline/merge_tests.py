@@ -18,7 +18,7 @@ class MergeError(Exception):
     pass
 
 
-def merge_cohort_data(out_dir):
+def merge_cohort_data(out_dir, use_seed=None):
     cdata_file = os.path.join(out_dir, "cohort-data.p")
 
     if os.path.isfile(cdata_file):
@@ -40,7 +40,7 @@ def merge_cohort_data(out_dir):
     new_chsums = {k: (tuple(v[0]), v[1]) for k, v in new_chsums.items()}
 
     for mdl, cdata in new_cdatas.items():
-        if cdata.get_seed() is not None:
+        if cdata.get_seed() != use_seed:
             raise MergeError("Cohort for model {} does not have the correct "
                              "cross-validation seed!".format(mdl))
 

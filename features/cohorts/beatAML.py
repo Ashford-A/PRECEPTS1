@@ -15,6 +15,10 @@ class BeatAmlCohort(BaseMutationCohort):
                  syn, annot_file, domain_dir=None, cv_seed=None, test_prop=0):
         self.cohort = 'beatAML'
 
+        # TODO: incorporate supplemental mutation data, eg. laboratory-based
+        # data for FLT3 ITDs found here:
+        # https://www.nature.com/articles/s41586-018-0623-z
+
         expr = load_beat_expression_gn(expr_file)
         muts = load_beat_mutations(syn)
         samp_data = pd.read_csv(samp_file, sep='\t')
@@ -31,13 +35,19 @@ class BeatAmlCohort(BaseMutationCohort):
             'short_aa_change': 'Protein'
             })
 
-        muts.Form = muts.Form.map({'missense_variant': 'Missense_Mutation',
-                                   'frameshift_variant': 'Frame_Shift',
-                                   'inframe_deletion': 'In_Frame_Del',
-                                   'inframe_insertion': 'In_Frame_Ins',
-                                   'stop_gained': 'Nonsense_Mutation',
-                                   'splice_acceptor_variant': 'Splice_Site',
-                                   'splice_donor_variant': 'Splice_Site',})
+        muts.Form = muts.Form.map({
+            'missense_variant': 'Missense_Mutation',
+            'frameshift_variant': 'Frame_Shift',
+            'inframe_deletion': 'In_Frame_Del',
+            'inframe_insertion': 'In_Frame_Ins',
+            'stop_gained': 'Nonsense_Mutation',
+            'start_lost': 'Nonsense_Mutation',
+            'protein_altering_variant': 'Nonsense_Mutation',
+            'stop_lost': 'Nonsense_Mutation',
+            'internal_tandem_duplication': 'ITD',
+            'splice_acceptor_variant': 'Splice_Site',
+            'splice_donor_variant': 'Splice_Site',
+            })
 
         annot_data = get_gencode(annot_file, ['transcript'])
         use_genes = set(expr.columns) & set(annot_data.keys())

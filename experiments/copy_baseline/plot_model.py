@@ -124,10 +124,15 @@ def plot_tuning_profile(tune_dict, use_clf, args, cdata):
 
     tune_df = tune_dict['mean'] - tune_dict['std']
     tune_df.columns.names = [par for par, _ in use_clf.tune_priors]
+    tune_df = tune_df.groupby(
+        axis=1, level=tune_df.columns.names).quantile(q=0.25)
 
     for ax, (par_name, tune_distr) in zip(axarr.flatten(),
                                           use_clf.tune_priors):
-        tune_vals = tune_df.groupby(axis=1, level=par_name).quantile(q=0.25)
+        if len(tune_df.columns.names) > 1:
+            tune_vals = tune_df.groupby(axis=1, level=par_name).mean()
+        else:
+            tune_vals = tune_df
 
         if detect_log_distr(tune_distr):
             use_distr = [np.log10(par_val) for par_val in tune_distr]

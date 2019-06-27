@@ -77,13 +77,16 @@ def plot_auc_highlights(out_dict, args, cdata_dict):
         best_stat = plot_df.columns == auc_vals.idxmax()
         annot_values.loc[mtype, ~best_stat] = ''
 
-    mtype_sizes = {mtype: {src: mtype.get_samples(cdata.train_mut)
+    mtype_sizes = {mtype: {src: mtype.get_samples(cdata.mtree)
                            for src, cdata in cdata_dict.items()}
                    for mtype in use_mtypes}
-    for mtype, samp_dict in mtype_sizes.items():
-        assert len(set(frozenset(samps) for samps in samp_dict.values())) == 1
 
-    mtype_sizes = {mtype: len(tuple(samp_dict.values())[0])
+    for mtype, samp_dict in mtype_sizes.items():
+        if not auc_quarts.loc[mtype].isna().any():
+            assert len(set(frozenset(samps)
+                           for samps in samp_dict.values())) == 1
+
+    mtype_sizes = {mtype: max(len(samps) for samps in samp_dict.values())
                    for mtype, samp_dict in mtype_sizes.items()}
     mtype_lbls = ["{} ({})".format(str(mtype), mtype_sizes[mtype])
                   for mtype in plot_df.index]
@@ -188,16 +191,15 @@ def main():
     os.makedirs(plot_dir, exist_ok=True)
 
     # search for experiment output directories corresponding to this cohort
-    out_path = Path(os.path.join(base_dir, 'output'))
     out_datas = [
-        out_file.parts[-2:] for out_file in out_path.glob(
+        out_file.parts[-2:] for out_file in Path(base_dir).glob(
             "*__{}__samps-*/out-data__*.p".format(args.cohort))
         ]
 
     # get the experiment output directory for each combination of input
     # expression source and algorithm with the lowest sample incidence cutoff
     out_use = pd.DataFrame([
-        {'Source': out_data[0].split('__')[0],
+        {'Source': '__'.join(out_data[0].split('__')[:-2]),
          'Samps': int(out_data[0].split('__samps-')[1]),
          'Model': out_data[1].split('out-data__')[1].split('.p')[0]}
         for out_data in out_datas
@@ -208,16 +210,14 @@ def main():
     # expression source and sample cutoff
     cdata_dict = {
         (src, ctf): merge_cohort_data(os.path.join(
-            base_dir, 'output', "{}__{}__samps-{}".format(
-                src, args.cohort, ctf)
-            ))
+            base_dir, "{}__{}__samps-{}".format(src, args.cohort, ctf)))
         for src, ctf in set(out_use.index)
         }
 
     # load the experiment output for each combination of source and cutoff
     out_dict = {
         (src, mdl.values[0]): pickle.load(open(
-            os.path.join(base_dir, 'output',
+            os.path.join(base_dir,
                          "{}__{}__samps-{}".format(src, args.cohort, ctf),
                          "out-data__{}.p".format(mdl.values[0])),
             'rb'
