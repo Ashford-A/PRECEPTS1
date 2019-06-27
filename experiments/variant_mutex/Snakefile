@@ -1,0 +1,69 @@
+
+import os
+
+LOCALDIR = os.path.join(os.environ['CODEDIR'],
+                        'HetMan', 'experiments', 'variant_mutex')
+
+TMPDIR = os.path.join(os.environ['TEMPDIR'],
+                      'HetMan', 'variant_mutex',
+                      "{}__samps-{}".format(config['cohort'],
+                                            config['samp_cutoff']),
+                      config['classif'])
+
+OUTDIR = os.path.join(os.environ['DATADIR'], 'HetMan', 'variant_mutex',
+                      "{}__samps-{}".format(config['cohort'],
+                                            config['samp_cutoff']))
+
+
+localrules: target
+
+
+rule target:
+    input:
+        expand("{outdir}/out-data__{classif}.p",
+               outdir=OUTDIR, classif=config['classif']),
+        expand("{outdir}/out-simil__{classif}.p",
+               outdir=OUTDIR, classif=config['classif']),
+
+    threads: 1
+
+
+rule classify:
+    output: "{TMPDIR}/output/out_task-{task_id}.p"
+
+    threads: 12
+
+    shell: """
+        set +u; source activate HetMan; set -u;
+        export OMP_NUM_THREADS=1;
+        sleep $(( ({wildcards.task_id} + 1) * $(shuf -i 1-13 -n 1) ));
+
+        python {LOCALDIR}/fit_mutex.py {config[classif]} --use_dir={TMPDIR} \
+                --task_count={config[task_count]} \
+                --task_id={wildcards.task_id}
+        """
+
+
+rule consolidate:
+    input:
+        expand("{tmpdir}/output/out_task-{task_id}.p",
+               tmpdir=TMPDIR, task_id=range(config['task_count']))
+
+    output:
+        expand("{outdir}/out-data__{classif}.p",
+               outdir=OUTDIR, classif=config['classif']),
+        expand("{outdir}/out-simil__{classif}.p",
+               outdir=OUTDIR, classif=config['classif']),
+
+    threads: 1
+
+    shell: """
+        set +u; source activate HetMan; set -u;
+        python {LOCALDIR}/merge_mutex.py {TMPDIR}
+
+        cp {TMPDIR}/setup/cohort-data.p \
+                {OUTDIR}/cohort-data__{config[classif]}.p
+        cp {TMPDIR}/out-data.p {OUTDIR}/out-data__{config[classif]}.p
+        cp {TMPDIR}/out-simil.p {OUTDIR}/out-simil__{config[classif]}.p
+        """
+
