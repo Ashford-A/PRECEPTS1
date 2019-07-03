@@ -9,6 +9,7 @@ plot_dir = os.path.join(base_dir, 'plots', 'tuning')
 
 from HetMan.experiments.variant_mutex import *
 from HetMan.experiments.variant_baseline.plot_model import detect_log_distr
+from HetMan.experiments.utilities.pcawg_colours import cohort_clrs
 
 import argparse
 from pathlib import Path
@@ -22,6 +23,18 @@ import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
 plt.style.use('fivethirtyeight')
+
+
+def choose_coh_colour(cohort):
+    if cohort == 'beatAML':
+        use_clr = cohort_clrs['LAML']
+    elif cohort.split('_')[0] in cohort_clrs:
+        use_clr = cohort_clrs[cohort.split('_')[0]]
+
+    else:
+        raise ValueError("No colour available for cohort {} !".format(cohort))
+
+    return use_clr
 
 
 def plot_tuning_auc(tune_dict, simil_dict, prior_vals, args):
@@ -62,8 +75,8 @@ def plot_tuning_auc(tune_dict, simil_dict, prior_vals, args):
             ax.scatter(
                 par_vals.loc[coh].sort_index().values.tolist(),
                 auc_df.loc[coh].sort_index().values.tolist(),
-                s=(size_df.loc[coh].sort_index().values * 129).tolist(),
-                alpha=0.17
+                s=(size_df.loc[coh].sort_index().values * 81).tolist(),
+                c=choose_coh_colour(coh), alpha=0.41, edgecolor='none'
                 )
 
         ax.set_xlim(plt_xmin, plt_xmax)
@@ -90,7 +103,7 @@ def plot_tuning_auc(tune_dict, simil_dict, prior_vals, args):
 def main():
     parser = argparse.ArgumentParser(
         "Plots the tuning characteristics of a model in classifying "
-        "the mutation status of paired mutations in a given cohort."
+        "the mutation status of paired mutations across all tested cohorts."
         )
 
     # parse command line arguments, create directory where plots will be saved
@@ -129,7 +142,10 @@ def main():
                   'rb') as f:
             simil_dict[coh] = pickle.load(f)
 
+    assert len(set(prior_dict.values())) == 1, (
+        "Experiments have been run with different tuning priors!")
     prior_vals = tuple(prior_dict.values())[0]
+
     plot_tuning_auc(tune_dict, simil_dict, prior_vals, args)
 
 
