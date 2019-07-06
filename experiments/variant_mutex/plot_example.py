@@ -56,16 +56,21 @@ def plot_base_classification(good_exs, stat_dict, out_infer, auc_dict,
     ovlp_test = fisher_exact(stat_tbl.iloc[:2, :2])
 
     if '_' in args.cohort:
-        ax.text(0, 1, "{}({})".format(*args.cohort.split('_')),
-                size=21, ha='left', va='top', weight='semibold')
+        coh_lbl = "{}({})".format(*args.cohort.split('_'))
     else:
-        ax.text(0, 1, args.cohort,
-                size=21, ha='left', va='top', weight='semibold')
+        coh_lbl = args.cohort
 
+    ax.text(0, 1, "Inferring mutation similarity\nin {}".format(coh_lbl),
+            size=20, ha='left', va='top', weight='semibold')
     ax.add_patch(ptchs.Rectangle((0, 0.61), 0.71, 0.3,
                                  facecolor='#FFEF8F', alpha=0.21))
-    ax.text(1.7 * ex_prop, 0.76, "Firehose RNA-seq expression",
-            size=18, weight='semibold', ha='left', va='center')
+
+    if args.cohort == 'beatAML':
+        ax.text(1.7 * ex_prop, 0.76, "Kallisto RNA-seq expression",
+                size=18, weight='semibold', ha='left', va='center')
+    else:
+        ax.text(1.7 * ex_prop, 0.76, "Firehose RNA-seq expression",
+                size=18, weight='semibold', ha='left', va='center')
 
     ax.text(-0.01, 0.76, "{} tumour samples".format(len(cdata.get_samples())),
             size=15, ha='right', va='center', rotation=90)
@@ -77,9 +82,14 @@ def plot_base_classification(good_exs, stat_dict, out_infer, auc_dict,
                                  facecolor=variant_clrs['WT'], alpha=0.31))
     ax.add_patch(ptchs.Rectangle((0.79, 0.61), 0.03, 0.3,
                                  facecolor=variant_clrs['WT'], alpha=0.31))
-    ax.text(0.83, 0.81,
-            "mc3\nvariant calls\n&\nFirehose\nGISTIC2\nCNA calls",
-            size=12, weight='semibold', ha='left', va='center')
+
+    if args.cohort == 'beatAML':
+        ax.text(0.83, 0.81, "variant calls",
+                size=12, weight='semibold', ha='left', va='center')
+    else:
+        ax.text(0.83, 0.81,
+                "mc3\nvariant calls\n&\nFirehose\nGISTIC2\nCNA calls",
+                size=12, weight='semibold', ha='left', va='center')
 
     ax.text(0.56 * ex_prop, 0.58, '1', size=16, ha='right', va='top',
             bbox={'boxstyle': 'circle', 'facecolor': 'white', 'linewidth': 2})
@@ -168,17 +178,17 @@ def plot_base_classification(good_exs, stat_dict, out_infer, auc_dict,
             bbox={'boxstyle': 'circle', 'facecolor': 'white', 'linewidth': 2})
 
     ax.text(0.03, 0.51,
-            "Train classifier to\nseparate the {}\nsamples with\n{}\nand "
-            "without\n{} from\n{} samples with\nneither mutation.".format(
+            "Train classifier\nto separate the\n{} samples with\n{}\nand "
+            "without\n{}\nfrom {} samples\nwith neither\nmutation.".format(
                 stat_tbl.loc[True, False], mtype_str1, mtype_str2,
                 stat_tbl.loc[False, False]
                 ),
             size=13, ha='left', va='top')
 
-    ax.add_patch(ptchs.Rectangle((0.31, 0.42), 0.11, 0.05,
+    ax.add_patch(ptchs.Rectangle((0.27, 0.42), 0.11, 0.05,
                                  facecolor='#FFEF8F', alpha=0.37,
                                  hatch='\\\\'))
-    ax.add_patch(ptchs.Rectangle((0.31, 0.35), 0.11, 0.05,
+    ax.add_patch(ptchs.Rectangle((0.27, 0.35), 0.11, 0.05,
                                  facecolor='#FFEF8F', alpha=0.37))
 
     infer_vals1 = np.array(out_infer.loc[[(use_mtype1, use_mtype2)], 0][0])
@@ -190,13 +200,13 @@ def plot_base_classification(good_exs, stat_dict, out_infer, auc_dict,
     oth_vals1 = np.concatenate(infer_vals1[~stat_dict[use_mtype1]
                                            & stat_dict[use_mtype2]])
 
-    ax.add_patch(ptchs.FancyArrow(0.43, 0.41, dx=0.05, dy=0, width=0.008,
+    ax.add_patch(ptchs.FancyArrow(0.39, 0.41, dx=0.05, dy=0, width=0.008,
                                   length_includes_head=True, head_length=0.02,
                                   linewidth=2.3, facecolor='white',
                                   edgecolor='black'))
 
     vio_ax1 = inset_axes(ax, width='100%', height='100%', loc=10, borderpad=0,
-                         bbox_to_anchor=(0.49, 0.31, 0.08, 0.2),
+                         bbox_to_anchor=(0.45, 0.31, 0.08, 0.2),
                          bbox_transform=ax.transAxes)
     vio_ax1.axis('off')
 
@@ -205,16 +215,16 @@ def plot_base_classification(good_exs, stat_dict, out_infer, auc_dict,
     sns.kdeplot(mut_vals1, shade=True, color=variant_clrs['Point'],
                 vertical=True, linewidth=0, cut=0, ax=vio_ax1)
 
-    ax.text(0.49, 0.51,
+    ax.text(0.45, 0.51,
             "task AUC: {:.3f}".format(auc_dict[use_mtype1, use_mtype2][0]),
             size=12, ha='center', va='bottom')
 
     oth_ax1 = inset_axes(ax, width='100%', height='100%', loc=10, borderpad=0,
-                         bbox_to_anchor=(0.59, 0.31, 0.08, 0.2),
+                         bbox_to_anchor=(0.55, 0.31, 0.08, 0.2),
                          bbox_transform=ax.transAxes)
     oth_ax1.axis('off')
 
-    ax.add_patch(ptchs.Rectangle((0.6, 0.47), 0.11, 0.05,
+    ax.add_patch(ptchs.Rectangle((0.59, 0.5), 0.11, 0.05,
                                  facecolor='#FFEF8F', alpha=0.37,
                                  hatch='//'))
 
@@ -230,30 +240,27 @@ def plot_base_classification(good_exs, stat_dict, out_infer, auc_dict,
                     color=variant_clrs['Point'], linestyle=':', alpha=0.71,
                     clip_on=False)
 
-    oth_ax1.text(oth_ax1.get_xlim()[1] * 0.85, np.mean(mut_vals1),
-                 "{:.2f} \u2192 1".format(np.mean(mut_vals1)),
-                 size=9, ha='left', va='center')
-    oth_ax1.text(oth_ax1.get_xlim()[1] * 0.85, np.mean(wt_vals1),
-                 "{:.2f} \u2192 0".format(np.mean(wt_vals1)),
-                 size=9, ha='left', va='center')
+    oth_ax1.text(oth_ax1.get_xlim()[0], np.mean(mut_vals1),
+                 "{:.3g} \u2192 1".format(np.mean(mut_vals1)),
+                 size=9, ha='right', va='bottom')
+    oth_ax1.text(oth_ax1.get_xlim()[0], np.mean(wt_vals1),
+                 "{:.3g} \u2192 0".format(np.mean(wt_vals1)),
+                 size=9, ha='right', va='bottom')
 
-    oth_ax1.axhline(y=np.mean(oth_vals1), xmin=0, xmax=0.99, linewidth=3.3,
+    oth_ax1.axhline(y=np.mean(oth_vals1), xmin=0, xmax=0.89, linewidth=3.3,
                     color=variant_clrs['Point'], linestyle=':', alpha=0.71,
                     clip_on=False)
 
-    oth_ax1.text(oth_ax1.get_xlim()[1] * 1.09, np.mean(oth_vals1),
-                 "{:.2f} \u2192 {:.2f}".format(
-                     np.mean(oth_vals1), (
-                         (np.mean(oth_vals1) - np.mean(wt_vals1))
-                         / (np.mean(mut_vals1) - np.mean(wt_vals1))
-                        )
-                    ),
-                 size=11, ha='left', va='center')
+    siml1 = np.mean(oth_vals1) - np.mean(wt_vals1)
+    siml1 /= np.mean(mut_vals1) - np.mean(wt_vals1)
+    oth_ax1.text(oth_ax1.get_xlim()[1] * 0.9, np.mean(oth_vals1),
+                 "{:.3g}\u2192({:.3g})".format(np.mean(oth_vals1), siml1),
+                 size=11, ha='left', va='center', weight='semibold')
 
-    ax.text(0.77, 0.48, '3', ha='right', va='top', size=16,
+    ax.text(0.76, 0.5, '3', ha='right', va='top', size=16,
             bbox={'boxstyle': 'circle', 'facecolor': 'white', 'linewidth': 2})
 
-    ax.text(0.79, 0.49,
+    ax.text(0.78, 0.51,
             "Use trained classifiers\nto predict mutation\nscores for {} "
             "held-out\nsamples with\n{}\nand without\n{}.".format(
                 stat_tbl.loc[False, True], mtype_str2, mtype_str1),
@@ -305,7 +312,7 @@ def plot_base_classification(good_exs, stat_dict, out_infer, auc_dict,
                          bbox_transform=ax.transAxes)
     oth_ax2.axis('off')
 
-    ax.add_patch(ptchs.Rectangle((0.33, 0.2), 0.11, 0.05,
+    ax.add_patch(ptchs.Rectangle((0.35, 0.21), 0.11, 0.05,
                                  facecolor='#FFEF8F', alpha=0.37,
                                  hatch='\\\\'))
 
@@ -321,25 +328,31 @@ def plot_base_classification(good_exs, stat_dict, out_infer, auc_dict,
                     color=variant_clrs['Point'], linestyle=':', alpha=0.71,
                     clip_on=False)
 
-    oth_ax2.text(oth_ax2.get_xlim()[1] * 0.85, np.mean(mut_vals2),
-                 "{:.2f} \u2192 1".format(np.mean(mut_vals2)),
-                 size=9, ha='left', va='center')
-    oth_ax2.text(oth_ax2.get_xlim()[1] * 0.85, np.mean(wt_vals2),
-                 "{:.2f} \u2192 0".format(np.mean(wt_vals2)),
-                 size=9, ha='left', va='center')
+    oth_ax2.text(oth_ax2.get_xlim()[0], np.mean(mut_vals2),
+                 "{:.3g} \u2192 1".format(np.mean(mut_vals2)),
+                 size=9, ha='right', va='bottom')
+    oth_ax2.text(oth_ax2.get_xlim()[0], np.mean(wt_vals2),
+                 "{:.3g} \u2192 0".format(np.mean(wt_vals2)),
+                 size=9, ha='right', va='bottom')
 
     oth_ax2.axhline(y=np.mean(oth_vals2), xmin=0, xmax=1.05, linewidth=3.3,
                     color=variant_clrs['Point'], linestyle=':', alpha=0.71,
                     clip_on=False)
 
+    siml2 = np.mean(oth_vals2) - np.mean(wt_vals2)
+    siml2 /= np.mean(mut_vals2) - np.mean(wt_vals2)
     oth_ax2.text(oth_ax2.get_xlim()[1] * 1.09, np.mean(oth_vals2),
-                 "{:.2f} \u2192 {:.2f}".format(
-                     np.mean(oth_vals2), (
-                         (np.mean(oth_vals2) - np.mean(wt_vals2))
-                         / (np.mean(mut_vals2) - np.mean(wt_vals2))
-                        )
-                    ),
-                 size=11, ha='left', va='center')
+                 "{:.3g}\u2192({:.3g})".format(np.mean(oth_vals2), siml2),
+                 size=11, ha='left', va='center', weight='semibold')
+
+    ax.text(0.55, 0.29, '5', ha='right', va='top', size=16,
+            bbox={'boxstyle': 'circle', 'facecolor': 'white', 'linewidth': 2})
+    ax.text(0.57, 0.3,
+            "Combine the M1\u21d2M2 score calculated\nin (3) and the "
+            "M1\u21d0M2 score calculated\nin (4) to infer the "
+            "transcriptomic\nsimilarity M1\u21d4M2: ({:.3g})".format(
+                (siml1 + siml2) / 2),
+            size=13, ha='left', va='top')
 
     plt.tight_layout(pad=-0.4, w_pad=0.5, h_pad=0)
     plt.savefig(os.path.join(

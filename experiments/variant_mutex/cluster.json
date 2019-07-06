@@ -20,8 +20,8 @@
 
     'consolidate' : {
         'job-name' : "var-mutex_cnsl",
-        'output' : "slurm/consol_{wildcards.task_id}.out",
-        'error' : "slurm/consol_{wildcards.task_id}.err",
+        'output' : "slurm/consolidate.out",
+        'error' : "slurm/consolidate.err",
         'time' : "35:55:00",
         'cpus-per-task' : 1,
         'mem-per-cpu': 8000,
