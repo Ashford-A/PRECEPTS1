@@ -21,7 +21,7 @@ localrules: target, consolidate
 
 rule target:
     input:
-        expand("{outdir}/out-data__{classif}.p",
+        expand("{outdir}/out-data__{classif}.p.gz",
                outdir=OUTDIR, classif=config['classif'])
 
     threads: 1
@@ -35,7 +35,7 @@ rule classify:
     shell: """
         set +u; source activate HetMan; set -u;
         export OMP_NUM_THREADS=1;
-        sleep $(( ({wildcards.cv_id} + 1) * ({wildcards.task_id} + 1) * $(shuf -i 1-11 -n 1) ));
+        sleep $(( ({wildcards.cv_id} + 1) * ({wildcards.task_id} + 1) * $(shuf -i 1-9 -n 1) ));
  
         python {LOCALDIR}/fit_tests.py {config[classif]} --use_dir={TMPDIR} \
                 --task_count={config[task_count]} \
@@ -47,19 +47,19 @@ rule consolidate:
     input:
         expand("{tmpdir}/output/out__cv-{cv_id}_task-{task_id}.p",
                tmpdir=TMPDIR,
-               cv_id=range(25), task_id=range(config['task_count']))
+               cv_id=range(51), task_id=range(config['task_count']))
 
     output:
-        expand("{outdir}/out-data__{classif}.p",
+        expand("{outdir}/out-data__{classif}.p.gz",
                outdir=OUTDIR, classif=config['classif'])
 
     threads: 1
 
     shell: """
         set +u; source activate HetMan; set -u;
-        python {LOCALDIR}/merge_tests.py --use_dir={TMPDIR}
+        python {LOCALDIR}/merge_tests.py {TMPDIR}
 
         cp {TMPDIR}/setup/cohort-data.p {OUTDIR}/cohort-data__{config[classif]}.p
-        cp {TMPDIR}/out-data.p {OUTDIR}/out-data__{config[classif]}.p
+        cp {TMPDIR}/out-data.p.gz {OUTDIR}/out-data__{config[classif]}.p.gz
         """
 

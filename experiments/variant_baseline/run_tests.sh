@@ -27,9 +27,9 @@ do
 done
 
 # decide where intermediate files will be stored, find code source directory and input files
-out_tag=${expr_source}__${cohort}__samps-${samp_cutoff}
-OUTDIR=$TEMPDIR/HetMan/variant_baseline/$expr_source/${cohort}__samps-${samp_cutoff}/$classif
-FINALDIR=$DATADIR/HetMan/variant_baseline/$out_tag
+out_tag=${cohort}__samps-${samp_cutoff}
+OUTDIR=$TEMPDIR/HetMan/variant_baseline/$expr_source/$out_tag/$classif
+FINALDIR=$DATADIR/HetMan/variant_baseline/${expr_source}__$out_tag
 
 export RUNDIR=$CODEDIR/HetMan/experiments/variant_baseline
 source $RUNDIR/files.sh
@@ -41,7 +41,8 @@ then
 fi
 
 # create intermediate and final output directories, move to working directory
-mkdir -p $FINALDIR
+mkdir -p $FINALDIR $TEMPDIR/HetMan/variant_baseline/$expr_source/setup
+mkdir -p $TEMPDIR/HetMan/variant_baseline/$expr_source/$out_tag/setup
 mkdir -p $OUTDIR/setup $OUTDIR/output $OUTDIR/slurm
 cd $OUTDIR
 
@@ -54,7 +55,7 @@ dvc run -d $firehose_dir -d $mc3_file -d $gencode_file -d $gene_file -d $subtype
 	-d $RUNDIR/setup_tests.py -d $CODEDIR/HetMan/environment.yml \
 	-o setup/cohort-data.p -o setup/vars-list.p \
 	-m setup/vars-count.txt -f setup.dvc --overwrite-dvcfile \
-	python $RUNDIR/setup_tests.py $expr_source $cohort $samp_cutoff --setup_dir $OUTDIR
+	python $RUNDIR/setup_tests.py $expr_source $cohort $samp_cutoff $OUTDIR
 
 vars_count=$( cat setup/vars-count.txt )
 task_count=$(( $vars_count / $test_max + 1 ))
