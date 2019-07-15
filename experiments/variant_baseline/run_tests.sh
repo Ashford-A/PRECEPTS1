@@ -66,7 +66,7 @@ then
 fi
 
 dvc run -d setup/cohort-data.p -d setup/vars-list.p -d $RUNDIR/fit_tests.py \
-	-d $RUNDIR/models/${classif%%'__'*}.py -o $FINALDIR/out-data__${classif}.p \
+	-d $RUNDIR/models/${classif%%'__'*}.py -o $FINALDIR/out-data__${classif}.p.gz \
 	-f output.dvc --overwrite-dvcfile --remove-outs --no-commit \
 	'snakemake -s $RUNDIR/Snakefile -j 100 --latency-wait 120 \
 	--cluster-config $RUNDIR/cluster.json --cluster \

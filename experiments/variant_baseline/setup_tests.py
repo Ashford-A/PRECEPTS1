@@ -35,8 +35,13 @@ def get_cohort_data(cohort, expr_source, cv_seed=None):
         ]
 
     if cohort == 'beatAML':
-        cdata = BeatAmlCohort(mut_genes=use_genes.tolist(),
-                              mut_levels=['Gene', 'Form', 'Exon', 'Protein'],
+        if expr_source != 'toil__gns':
+            raise ValueError("Only gene-level Kallisto calls are available "
+                             "for the beatAML cohort!")
+
+        cdata = BeatAmlCohort(mut_levels=['Gene', 'Form_base', 'Protein'],
+                              mut_genes=use_genes.tolist(),
+                              expr_source=expr_source,
                               expr_file=beatAML_files['expr'],
                               samp_file=beatAML_files['samps'], syn=syn,
                               annot_file=annot_file, cv_seed=cv_seed,
@@ -84,13 +89,16 @@ def main():
     out_path = os.path.join(args.out_dir, 'setup')
 
     coh_list = list_cohorts(
-        args.expr_source,
+        args.expr_source.split('__')[0],
         expr_dir=expr_sources[args.expr_source.split('__')[0]],
         copy_dir=copy_dir
-        )
-    use_feats = None
+        ) | {args.cohort}
 
-    for coh in random.sample(coh_list | {args.cohort}, k=len(coh_list) + 1):
+    use_feats = None
+    if args.expr_source == 'toil__gns':
+        coh_list |= {'beatAML'}
+
+    for coh in random.sample(coh_list, k=len(coh_list)):
         coh_tag = "{}__cohort-data.p".format(coh)
 
         if coh == args.cohort:

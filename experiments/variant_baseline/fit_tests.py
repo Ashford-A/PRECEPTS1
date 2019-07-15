@@ -152,22 +152,21 @@ def main():
 
             else:
                 out_scores[mtype] = [
-                    mut_clf.parse_preds(vals) for vals in mut_clf.infer_coh(
+                    mut_clf.parse_preds(vals)[0]
+                    for vals in mut_clf.infer_coh(
                         cdata, mtype, include_feats=use_genes,
                         infer_splits=5, infer_folds=5, parallel_jobs=5
                         )
                     ]
 
-            out_trnsf[mtype] = dict(zip(
-                coh_dict.keys(),
-                Parallel(n_jobs=8, pre_dispatch=8)(
-                    delayed(mut_clf.predict_omic)(
+            out_trnsf[mtype] = dict(zip(coh_dict.keys(), [
+                mut_clf.parse_preds(vals) for vals in Parallel(
+                    n_jobs=8, pre_dispatch=8)(delayed(mut_clf.predict_omic)(
                         pickle.load(open(coh_fl, 'rb')).train_data(
                             mtype, include_feats=use_genes)[0]
                         )
-                    for coh_fl in coh_dict.values()
-                    )
-                ))
+                        for coh_fl in coh_dict.values())
+                ]))
 
         else:
             del(out_acc[mtype])
