@@ -10,23 +10,168 @@ plot_dir = os.path.join(base_dir, 'plots', 'model')
 from HetMan.experiments.variant_baseline import *
 from HetMan.experiments.variant_baseline.merge_tests import merge_cohort_data
 from HetMan.experiments.variant_baseline.plot_tuning import detect_log_distr
+
+from HetMan.experiments.subvariant_infer import variant_clrs
 from HetMan.experiments.utilities import auc_cmap
 from HetMan.experiments.utilities.scatter_plotting import place_annot
+from sklearn.kernel_ridge import KernelRidge
 
 import argparse
+from pathlib import Path
 import dill as pickle
+import bz2
 import numpy as np
+import pandas as pd
+from scipy.stats import spearmanr
 from itertools import combinations as combn
 
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 import seaborn as sns
 
 plt.style.use('fivethirtyeight')
 plt.rcParams['axes.facecolor']='white'
 plt.rcParams['savefig.facecolor']='white'
 plt.rcParams['axes.edgecolor']='white'
+
+cv_clrs = {'random': '#806915', 'fivefold': '#0E5342', 'infer': '#5E104A'}
+
+
+def plot_label_stability(score_dict, auc_df, args, cdata):
+    fig, axarr = plt.subplots(figsize=(16, 9),
+                              nrows=2, ncols=5, sharex=True, sharey=True)
+
+    auc_bins = pd.qcut(auc_df.quantile(q=0.25, axis=1), 5)
+    pred_vec = np.linspace(0, 1, 1000)
+    pheno_df = pd.DataFrame({mtype: np.array(cdata.train_pheno(mtype))
+                             for mtype in auc_bins.index},
+                            index=sorted(cdata.get_train_samples()))
+
+    stat_dict = {
+        cv_mth: {
+            'Mean': score_dict[cv_mth].applymap(
+                lambda x: np.mean([y for y in x if y == y])),
+            'Var': score_dict[cv_mth].applymap(
+                lambda x: np.var([y for y in x if y == y], ddof=1))
+            }
+        for cv_mth in ['random', 'fivefold']
+        }
+
+    for i, (phn, phn_df) in enumerate([('WT', ~pheno_df), ('Mut', pheno_df)]):
+        for j, (abin, auc_vals) in enumerate(auc_bins.groupby(by=auc_bins)):
+
+            val_dict = {
+                cv_mth: pd.DataFrame({
+                    stat_lbl: stat_df[auc_vals.index].where(
+                        phn_df.loc[stat_df.index,
+                                   auc_vals.index]).melt().dropna().value
+                    for stat_lbl, stat_df in cv_dict.items()
+                    })
+                for cv_mth, cv_dict in stat_dict.items()
+                }
+
+            val_dict = {cv_mth: val_df.loc[~val_df.isna().any(axis=1), :]
+                        for cv_mth, val_df in val_dict.items()}
+
+            clf_dict = {
+                cv_mth: KernelRidge(alpha=1e-4, kernel='rbf').fit(
+                    val_df.Mean.values.reshape(-1, 1),
+                    val_df.Var.values.reshape(-1, 1)
+                    )
+                for cv_mth, val_df in val_dict.items()
+                }
+
+            for cv_mth, cv_clf in clf_dict.items():
+                axarr[i, j].plot(pred_vec,
+                                 cv_clf.predict(pred_vec.reshape(-1, 1)),
+                                 color=cv_clrs[cv_mth], linewidth=2.3,
+                                 alpha=0.61)
+
+            axarr[i, j].set_ylim([0, 13/11])
+
+    lgnd_ptchs = [Patch(color=cv_clrs['random'], alpha=0.51, label="random"),
+                  Patch(color=cv_clrs['fivefold'],
+                        alpha=0.51, label="five-fold")]
+
+    fig.legend(handles=lgnd_ptchs, frameon=False, fontsize=23, ncol=2, loc=8,
+               handletextpad=0.7, bbox_to_anchor=(0.5, -1/33))
+
+    fig.tight_layout(w_pad=1.7, h_pad=2.3)
+    fig.savefig(
+        os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
+                     args.model_name.split('__')[0],
+                     "{}__label-stability.svg".format(
+                         args.model_name.split('__')[1])),
+        bbox_inches='tight', format='svg'
+        )
+
+    plt.close()
+
+
+def plot_label_correlation(score_dict, auc_df, args, cdata):
+    fig, ax = plt.subplots(figsize=(13, 8))
+
+    score_vals = {
+        'fold': score_dict['fivefold'].applymap(
+            lambda x: [y for y in x if y == y]),
+        'infer': score_dict['infer']
+        }
+
+    auc_vals = auc_df.quantile(q=0.25, axis=1)
+    corr_dict = {mtype: {'inter': [-1] * 5, 'intra': np.empty((5, 5))}
+                 for mtype in score_dict['fivefold']}
+
+    for mtype in score_dict['fivefold']:
+        fold_vals = np.stack(score_vals['fold'][mtype])
+
+        for i in range(5):
+            corr_dict[mtype]['inter'][i] = spearmanr(
+                fold_vals[:, i], score_vals['infer'][mtype]).correlation
+
+            for j in set(range(5)) - set(range(i + 1)):
+                corr_dict[mtype]['intra'][i, j] = spearmanr(
+                    fold_vals[:, i], fold_vals[:, j]).correlation
+
+        inter_corr = np.median(corr_dict[mtype]['inter'])
+        intra_corr = np.median(
+            corr_dict[mtype]['intra'][np.triu_indices(5, k=1)])
+
+        ax.scatter(auc_vals[mtype], inter_corr, s=67, c=cv_clrs['infer'],
+                   marker='o', alpha=0.37, edgecolors='none')
+        ax.scatter(auc_vals[mtype], intra_corr, s=83, c=cv_clrs['fivefold'],
+                   marker='o', alpha=0.37, edgecolors='none')
+
+        if inter_corr > intra_corr:
+            ax.axvline(auc_vals[mtype], ymin=intra_corr, ymax=inter_corr,
+                       color=cv_clrs['infer'], alpha=0.23, linewidth=2.9)
+        else:
+            ax.axvline(auc_vals[mtype], ymin=inter_corr, ymax=intra_corr,
+                       color=cv_clrs['fivefold'], alpha=0.23, linewidth=2.9)
+
+    ax.set_ylim([0, 1])
+    plt.xlabel('Median Correlation', fontsize=27, weight='semibold')
+    plt.ylabel('AUC', fontsize=27, weight='semibold')
+
+    lgnd_ptchs = [Patch(color=cv_clrs['fivefold'],
+                        alpha=0.51, label="within folds"),
+                  Patch(color=cv_clrs['infer'],
+                        alpha=0.51, label="each fold with inferred")]
+
+    fig.legend(handles=lgnd_ptchs, frameon=False, fontsize=23, ncol=2, loc=8,
+               handletextpad=0.7, bbox_to_anchor=(0.5, -0.04))
+
+    fig.tight_layout(pad=2)
+    fig.savefig(
+        os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
+                     args.model_name.split('__')[0],
+                     "{}__label-correlation.svg".format(
+                         args.model_name.split('__')[1])),
+        bbox_inches='tight', format='svg'
+        )
+
+    plt.close()
 
 
 def plot_auc_distribution(auc_df, args):
@@ -67,13 +212,11 @@ def plot_auc_distribution(auc_df, args):
             flr_locs[i, 0] = txt_pos
 
     fig.savefig(
-        os.path.join(plot_dir,
-                     "{}__{}__samps-{}".format(args.expr_source, args.cohort,
-                                               args.samp_cutoff),
+        os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
                      args.model_name.split('__')[0],
                      "{}__auc-distribution.svg".format(
                          args.model_name.split('__')[1])),
-        dpi=300, bbox_inches='tight', format='svg'
+        bbox_inches='tight', format='svg'
         )
 
     plt.close()
@@ -128,13 +271,11 @@ def plot_acc_quartiles(auc_df, aupr_df, args, cdata):
 
     fig.tight_layout(w_pad=2.2, h_pad=5.1)
     fig.savefig(
-        os.path.join(plot_dir,
-                     "{}__{}__samps-{}".format(args.expr_source, args.cohort,
-                                               args.samp_cutoff),
+        os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
                      args.model_name.split('__')[0],
                      "{}__acc-quartiles.svg".format(
                          args.model_name.split('__')[1])),
-        dpi=350, bbox_inches='tight', format='svg'
+        bbox_inches='tight', format='svg'
         )
 
     plt.close()
@@ -225,13 +366,11 @@ def plot_tuning_mtype(par_df, auc_df, use_clf, args, cdata):
  
     plt.tight_layout(h_pad=0)
     fig.savefig(
-        os.path.join(plot_dir,
-                     "{}__{}__samps-{}".format(args.expr_source, args.cohort,
-                                               args.samp_cutoff),
+        os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
                      args.model_name.split('__')[0],
                      "{}__tuning-mtype.svg".format(
                          args.model_name.split('__')[1])),
-        dpi=300, bbox_inches='tight', format='svg'
+        bbox_inches='tight', format='svg'
         )
 
     plt.close()
@@ -380,13 +519,11 @@ def plot_tuning_mtype_grid(par_df, auc_df, use_clf, args, cdata):
 
     plt.tight_layout()
     fig.savefig(
-        os.path.join(plot_dir,
-                     "{}__{}__samps-{}".format(args.expr_source, args.cohort,
-                                               args.samp_cutoff),
+        os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
                      args.model_name.split('__')[0],
                      "{}__tuning-mtype-grid.svg".format(
                          args.model_name.split('__')[1])),
-        dpi=300, bbox_inches='tight', format='svg'
+        bbox_inches='tight', format='svg'
         )
 
     plt.close()
@@ -401,28 +538,37 @@ def main():
     parser.add_argument('expr_source', type=str,
                         help="which TCGA expression data source was used")
     parser.add_argument('cohort', type=str, help="which TCGA cohort was used")
-
-    parser.add_argument(
-        'samp_cutoff', type=int,
-        help="minimum number of mutated samples needed to test a gene"
-        )
-
     parser.add_argument('model_name', type=str,
                         help="which mutation classifier was tested")
 
     args = parser.parse_args()
+    os.makedirs(os.path.join(
+        plot_dir, '__'.join([args.expr_source, args.cohort]),
+        args.model_name.split('__')[0]
+        ), exist_ok=True)
+
+    use_ctf = min(
+        int(out_file.parts[-2].split('__samps-')[1])
+        for out_file in Path(base_dir).glob(
+            "{}__{}__samps-*/out-data__{}.p.gz".format(
+                args.expr_source, args.cohort, args.model_name)
+            )
+        )
+
     out_tag = "{}__{}__samps-{}".format(
-        args.expr_source, args.cohort, args.samp_cutoff)
-
-    os.makedirs(os.path.join(plot_dir, out_tag,
-                             args.model_name.split('__')[0]),
-                exist_ok=True)
-
+        args.expr_source, args.cohort, use_ctf)
     cdata = merge_cohort_data(os.path.join(base_dir, out_tag))
-    with open(os.path.join(base_dir, out_tag,
-                           "out-data__{}.p".format(args.model_name)),
-              'rb') as fl:
+
+    with bz2.BZ2File(os.path.join(base_dir, out_tag,
+                                  "out-data__{}.p.gz".format(
+                                      args.model_name)),
+                     'r') as fl:
         out_dict = pickle.load(fl)
+
+    plot_label_stability(out_dict['Scores'], out_dict['Fit']['test'].AUC,
+                         args, cdata)
+    plot_label_correlation(out_dict['Scores'], out_dict['Fit']['test'].AUC,
+                           args, cdata)
 
     plot_auc_distribution(out_dict['Fit']['test'].AUC, args)
     plot_acc_quartiles(out_dict['Fit']['test'].AUC,
