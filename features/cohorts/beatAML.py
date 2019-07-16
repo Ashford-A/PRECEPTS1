@@ -2,24 +2,47 @@
 from dryadic.features.cohorts import BaseMutationCohort
 from dryadic.features.cohorts.utils import (
     get_gencode, log_norm, drop_duplicate_genes)
-from ...experiments.beatAML_analysis.utils import load_beat_expression_gn, load_beat_mutations
 
 import numpy as np
 import pandas as pd
 
 
+def load_beat_expression(expr_source, expr_file):
+    if expr_source == 'toil__gns':
+        expr_mat = pd.read_csv(expr_file, sep='\t', index_col=0)
+
+    elif expr_source == 'toil__txs':
+        expr_mat = pd.read_csv(expr_file, sep='\t', index_col=0)
+
+        tx_gene = pd.read_csv(tx_map, sep='\t', index_col=0)
+        expr_mat = expr_mat.loc[
+            expr_mat.index.isin(tx_gene.index)].transpose()
+
+        expr_mat.columns = pd.MultiIndex.from_arrays(
+            [tx_gene.loc[expr_mat.columns]['gene'], expr_mat.columns],
+            names=['Gene', 'Transcript']
+            )
+
+    return log_norm(expr_mat.fillna(0.0))
+
+
+def load_beat_mutations(syn):
+    return pd.read_csv(syn.get('syn18683049').path, sep='\t')
+
+
 class BeatAmlCohort(BaseMutationCohort):
 
     def __init__(self,
-                 mut_levels, mut_genes, expr_file, samp_file,
-                 syn, annot_file, domain_dir=None, cv_seed=None, test_prop=0):
+                 mut_levels, mut_genes, expr_source, expr_file, samp_file,
+                 syn, annot_file, domain_dir=None, cv_seed=None, test_prop=0,
+                 **coh_args):
         self.cohort = 'beatAML'
 
         # TODO: incorporate supplemental mutation data, eg. laboratory-based
         # data for FLT3 ITDs found here:
         # https://www.nature.com/articles/s41586-018-0623-z
 
-        expr = load_beat_expression_gn(expr_file)
+        expr = load_beat_expression(expr_source, expr_file)
         muts = load_beat_mutations(syn)
         samp_data = pd.read_csv(samp_file, sep='\t')
 

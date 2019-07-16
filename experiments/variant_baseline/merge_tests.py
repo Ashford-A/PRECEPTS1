@@ -137,6 +137,8 @@ def main():
 
     tune_list = tuple(product(*[
         vals for _, vals in tuple(use_clf)[0].tune_priors]))
+    assert len({len(pars) for pars in tune_list}) == 1, (
+        "Inconsistent list of tuning parameters!")
 
     tune_acc = {
         stat_lbl: pd.concat([
@@ -165,7 +167,7 @@ def main():
         for use_task in range(task_count)
         ], axis=0)
 
-    assert par_df.shape == (len(vars_list), 51), (
+    assert par_df.shape == (len(vars_list), 51 * len(tune_list[0])), (
         "Tuned parameter selections missing for some tested mutations!")
 
     tune_time = {

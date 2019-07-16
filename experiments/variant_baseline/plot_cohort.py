@@ -12,12 +12,14 @@ from HetMan.experiments.variant_baseline.merge_tests import merge_cohort_data
 from HetMan.experiments.utilities import auc_cmap
 from HetMan.experiments.utilities.scatter_plotting import place_annot
 
+import argparse
+from pathlib import Path
+import bz2
+import dill as pickle
+
 import numpy as np
 import pandas as pd
 
-import argparse
-from pathlib import Path
-import dill as pickle
 from functools import reduce
 from operator import and_
 from operator import itemgetter
@@ -107,8 +109,8 @@ def plot_auc_highlights(out_dict, args, cdata_dict):
     plt.xlabel('Model', size=fig_size * 2.43, weight='semibold')
 
     fig.savefig(
-        os.path.join(plot_dir, '{}__auc-highlights.png'.format(args.cohort)),
-        dpi=250, bbox_inches='tight'
+        os.path.join(plot_dir, '{}__auc-highlights.svg'.format(args.cohort)),
+        bbox_inches='tight', format='svg'
         )
 
     plt.close()
@@ -172,8 +174,8 @@ def plot_aupr_time(out_dict, args):
     plt.tight_layout(h_pad=3.3)
 
     fig.savefig(
-        os.path.join(plot_dir, '{}__aupr-time.png'.format(args.cohort)),
-        dpi=250, bbox_inches='tight'
+        os.path.join(plot_dir, '{}__aupr-time.svg'.format(args.cohort)),
+        bbox_inches='tight', format='svg'
         )
 
     plt.close()
@@ -193,7 +195,7 @@ def main():
     # search for experiment output directories corresponding to this cohort
     out_datas = [
         out_file.parts[-2:] for out_file in Path(base_dir).glob(
-            "*__{}__samps-*/out-data__*.p".format(args.cohort))
+            "*__{}__samps-*/out-data__*.p.gz".format(args.cohort))
         ]
 
     # get the experiment output directory for each combination of input
@@ -216,12 +218,10 @@ def main():
 
     # load the experiment output for each combination of source and cutoff
     out_dict = {
-        (src, mdl.values[0]): pickle.load(open(
-            os.path.join(base_dir,
-                         "{}__{}__samps-{}".format(src, args.cohort, ctf),
-                         "out-data__{}.p".format(mdl.values[0])),
-            'rb'
-            ))
+        (src, mdl.values[0]): pickle.load(bz2.BZ2File(os.path.join(
+            base_dir, "{}__{}__samps-{}".format(src, args.cohort, ctf),
+            "out-data__{}.p.gz".format(mdl.values[0])
+            ), 'r'))
         for (src, ctf), mdl in out_use.iterrows()
         }
 

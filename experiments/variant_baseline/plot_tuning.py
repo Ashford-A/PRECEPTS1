@@ -13,6 +13,7 @@ from HetMan.experiments.utilities import auc_cmap
 
 import argparse
 import dill as pickle
+import bz2
 import numpy as np
 import pandas as pd
 from itertools import product
@@ -77,6 +78,8 @@ def plot_tuning_distribution(par_df, auc_df, use_clf, args, cdata):
         )
 
     auc_vals = auc_df.values.flatten()
+    par_df = par_df.iloc[:, :-len(use_clf.tune_priors)]
+
     for ax, (par_name, tune_distr) in zip(axarr.flatten(),
                                           use_clf.tune_priors):
         ax.set_title(par_name, size=29, weight='semibold')
@@ -264,16 +267,16 @@ def main():
                 exist_ok=True)
 
     cdata = merge_cohort_data(os.path.join(base_dir, out_tag))
-    with open(os.path.join(base_dir, out_tag,
-                           "out-data__{}.p".format(args.model_name)),
-              'rb') as fl:
+    with bz2.BZ2File(os.path.join(base_dir, out_tag,
+                                  "out-data__{}.p.gz".format(
+                                      args.model_name)),
+                     'r') as fl:
         out_dict = pickle.load(fl)
 
     plot_generalization_error(out_dict['Fit']['train'].AUC,
                               out_dict['Fit']['test'].AUC, args)
-    plot_tuning_distribution(out_dict['Params'].iloc[:, :-1],
-                             out_dict['Fit']['test'].AUC, out_dict['Clf'],
-                             args, cdata)
+    plot_tuning_distribution(out_dict['Params'], out_dict['Fit']['test'].AUC,
+                             out_dict['Clf'], args, cdata)
 
     plot_tuning_profile(out_dict['Tune']['Acc'], out_dict['Clf'], args, cdata)
     if len(out_dict['Clf'].tune_priors) == 2:

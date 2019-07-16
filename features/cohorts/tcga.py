@@ -127,15 +127,17 @@ def list_cohorts(data_source, **data_args):
                    for pth in Path(data_args['expr_dir']).glob(
                        "stddata__*/**/*__RSEM_genes_normalized__*")}
 
-        cohorts &= {pth.parent.parent.name
-                    for pth in Path(data_args['copy_dir']).glob(
-                        "analyses__*/**/*CopyNumber_Gistic2.Level_4*")}
-
     elif data_source == 'toil':
-        pass
+        cohorts = {pth.name.split('TCGA_')[1].split('_tpm')[0]
+                   for pth in Path(data_args['expr_dir']).glob(
+                       "TCGA/TCGA_*_tpm.tsv.gz")}
 
     else:
         raise ValueError("Unrecognized source of expression data!")
+
+    cohorts &= {pth.parent.parent.name
+                for pth in Path(data_args['copy_dir']).glob(
+                    "analyses__*/**/*CopyNumber_Gistic2.Level_4*")}
 
     return cohorts
 
