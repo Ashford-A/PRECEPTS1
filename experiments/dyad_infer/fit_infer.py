@@ -4,7 +4,7 @@ import sys
 base_dir = os.path.dirname(__file__)
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
-from HetMan.experiments.variant_mutex import *
+from HetMan.experiments.dyad_infer import *
 from dryadic.learning.classifiers import *
 
 import argparse
@@ -25,15 +25,21 @@ def main():
     parser.add_argument('--task_id', type=int, default=0,
                         help='the subset of subtypes to assign to this task')
 
+    # parse command line arguments, locate directory where intermediate
+    # files are stored
     args = parser.parse_args()
     setup_dir = os.path.join(args.use_dir, 'setup')
 
+    # load cohort expression and mutation data
     with open(os.path.join(setup_dir, "cohort-data.p"), 'rb') as cdata_f:
         cdata = pickle.load(cdata_f)
 
+    # load list of mutation pairs to be tested
     with open(os.path.join(setup_dir, "pairs-list.p"), 'rb') as muts_f:
         pairs_list = pickle.load(muts_f)
 
+    # load the mutation classifier and modify it to output raw score labels
+    # instead of class probabilities
     clf = eval(args.classif)
     clf.predict_proba = clf.calc_pred_labels
     mut_clf = clf()
@@ -46,66 +52,44 @@ def main():
         if (i % args.task_count) == args.task_id:
             print("Testing {} x {} ...".format(mtype1, mtype2))
 
-            if mtype2.is_empty():
-                use_gene = mtype1.subtype_list()[0][0]
+            use_gene1 = mtype1.subtype_list()[0][0]
+            use_gene2 = mtype2.subtype_list()[0][0]
+            use_samps1 = mtype1.get_samples(cdata.mtree)
+            use_samps2 = mtype2.get_samples(cdata.mtree)
 
-                ex_genes = {
-                    gene for gene, annot in cdata.gene_annot.items()
-                    if annot['Chr'] == cdata.gene_annot[use_gene]['Chr']
-                    }
+            ex_genes = {
+                gene for gene, annot in cdata.gene_annot.items()
+                if annot['Chr'] in {cdata.gene_annot[use_gene1]['Chr'],
+                                    cdata.gene_annot[use_gene2]['Chr']}
+                }
 
-                mut_clf.tune_coh(cdata, mtype1, exclude_feats=ex_genes,
-                                 tune_splits=4, test_count=24,
-                                 parallel_jobs=12)
+            mut_clf.tune_coh(cdata, mtype1, exclude_feats=ex_genes,
+                             exclude_samps=use_samps2, tune_splits=4,
+                             test_count=24, parallel_jobs=12)
 
-                clf_params = mut_clf.get_params()
-                for par, _ in mut_clf.tune_priors:
-                    out_tune[(mtype1, mtype2)][0][par] = clf_params[par]
+            clf_params = mut_clf.get_params()
+            for par, _ in mut_clf.tune_priors:
+                out_tune[(mtype1, mtype2)][0][par] = clf_params[par]
 
-                out_inf[(mtype1, mtype2)][0] = mut_clf.infer_coh(
-                    cdata, mtype1, exclude_feats=ex_genes,
-                    infer_splits=48, infer_folds=4, parallel_jobs=12
-                    )
+            out_inf[(mtype1, mtype2)][0] = mut_clf.infer_coh(
+                cdata, mtype1,
+                exclude_feats=ex_genes, force_test_samps=use_samps2,
+                infer_splits=48, infer_folds=4, parallel_jobs=12
+                )
 
-            else:
-                use_gene1 = mtype1.subtype_list()[0][0]
-                use_gene2 = mtype2.subtype_list()[0][0]
-                use_samps1 = mtype1.get_samples(cdata.mtree)
-                use_samps2 = mtype2.get_samples(cdata.mtree)
+            mut_clf.tune_coh(cdata, mtype2, exclude_feats=ex_genes,
+                             exclude_samps=use_samps1, tune_splits=4,
+                             test_count=24, parallel_jobs=12)
 
-                ex_genes = {
-                    gene for gene, annot in cdata.gene_annot.items()
-                    if annot['Chr'] in {cdata.gene_annot[use_gene1]['Chr'],
-                                        cdata.gene_annot[use_gene2]['Chr']}
-                    }
+            clf_params = mut_clf.get_params()
+            for par, _ in mut_clf.tune_priors:
+                out_tune[(mtype1, mtype2)][1][par] = clf_params[par]
 
-                mut_clf.tune_coh(cdata, mtype1, exclude_feats=ex_genes,
-                                 exclude_samps=use_samps2, tune_splits=4,
-                                 test_count=24, parallel_jobs=12)
-
-                clf_params = mut_clf.get_params()
-                for par, _ in mut_clf.tune_priors:
-                    out_tune[(mtype1, mtype2)][0][par] = clf_params[par]
-
-                out_inf[(mtype1, mtype2)][0] = mut_clf.infer_coh(
-                    cdata, mtype1,
-                    exclude_feats=ex_genes, force_test_samps=use_samps2,
-                    infer_splits=48, infer_folds=4, parallel_jobs=12
-                    )
-
-                mut_clf.tune_coh(cdata, mtype2, exclude_feats=ex_genes,
-                                 exclude_samps=use_samps1, tune_splits=4,
-                                 test_count=24, parallel_jobs=12)
-
-                clf_params = mut_clf.get_params()
-                for par, _ in mut_clf.tune_priors:
-                    out_tune[(mtype1, mtype2)][1][par] = clf_params[par]
-
-                out_inf[(mtype1, mtype2)][1] = mut_clf.infer_coh(
-                    cdata, mtype2,
-                    exclude_feats=ex_genes, force_test_samps=use_samps1,
-                    infer_splits=48, infer_folds=4, parallel_jobs=12
-                    )
+            out_inf[(mtype1, mtype2)][1] = mut_clf.infer_coh(
+                cdata, mtype2,
+                exclude_feats=ex_genes, force_test_samps=use_samps1,
+                infer_splits=48, infer_folds=4, parallel_jobs=12
+                )
 
         else:
             del(out_tune[(mtype1, mtype2)])

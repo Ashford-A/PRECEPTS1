@@ -4,7 +4,7 @@ import sys
 base_dir = os.path.dirname(__file__)
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
-from HetMan.experiments.variant_mutex import *
+from HetMan.experiments.dyad_infer import *
 from HetMan.experiments.utilities.load_input import parse_subtypes
 from HetMan.features.cohorts.tcga import MutationCohort
 from HetMan.features.cohorts.beatAML import BeatAmlCohort
@@ -35,8 +35,10 @@ def get_cohort_data(cohort):
         ]
 
     if cohort == 'beatAML':
-        cdata = BeatAmlCohort(mut_genes=use_genes.tolist(),
-                              mut_levels=['Gene', 'Form', 'Exon', 'Protein'],
+        cdata = BeatAmlCohort(mut_levels=['Gene', 'Form_base', 'Form',
+                                          'Exon', 'Location', 'Protein'],
+                              mut_genes=use_genes.tolist(),
+                              expr_source='toil__gns',
                               expr_file=beatAML_files['expr'],
                               samp_file=beatAML_files['samps'], syn=syn,
                               annot_file=annot_file, cv_seed=671, test_prop=0)
@@ -125,11 +127,6 @@ def main():
         if (len(samps1 - samps2) >= args.samp_cutoff
             and len(samps2 - samps1) >= args.samp_cutoff
             and (mtype1 & mtype2).is_empty())
-        }
-
-    pairs_list |= {
-        (mtype, MuType([])) for mtype in reduce(
-            or_, [set(mtypes) for mtypes in pairs_list])
         }
 
     with open(os.path.join(out_path, "pairs-list.p"), 'wb') as f:

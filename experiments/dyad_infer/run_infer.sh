@@ -1,7 +1,5 @@
 #!/bin/bash
-
-#SBATCH --job-name=var-mutex
-#SBATCH --partition=exacloud
+#SBATCH --job-name=dyad-infer
 #SBATCH --verbose
 
 
@@ -18,15 +16,16 @@ do
 		m)	export test_max=$OPTARG;;
 		r)	rewrite=true;;
 		[?])	echo "Usage: $0 [-t] TCGA cohort [-s] minimum sample cutoff" \
-			     "[-c] mutation classifier [-m] maximum tests per node";
+			     "[-c] mutation classifier [-m] maximum tests per node" \
+			     "[-r] whether existing results should be rewritten"
 			exit 1;;
 	esac
 done
 
 # decide where intermediate files will be stored, find code source directory and input files
-OUTDIR=$TEMPDIR/HetMan/variant_mutex/${cohort}__samps-${samp_cutoff}/$classif
-FINALDIR=$DATADIR/HetMan/variant_mutex/${cohort}__samps-${samp_cutoff}
-export RUNDIR=$CODEDIR/HetMan/experiments/variant_mutex
+OUTDIR=$TEMPDIR/HetMan/dyad_infer/${cohort}__samps-${samp_cutoff}/$classif
+FINALDIR=$DATADIR/HetMan/dyad_infer/${cohort}__samps-${samp_cutoff}
+export RUNDIR=$CODEDIR/HetMan/experiments/dyad_infer
 source $RUNDIR/files.sh
 
 # if we want to rewrite the experiment, remove the intermediate output directory
@@ -40,27 +39,31 @@ mkdir -p $FINALDIR
 mkdir -p $OUTDIR/setup $OUTDIR/output $OUTDIR/slurm
 cd $OUTDIR
 
+# initiate version control in this directory if it hasn't been already
 if [ ! -d .dvc ]
 then
 	dvc init --no-scm
 fi
 
+# enumerate the pairs of mutations that will be tested in this experiment
 dvc run -d $firehose_dir -d $mc3_file -d $gencode_file -d $gene_file -d $subtype_file \
-	-d $RUNDIR/setup_mutex.py -d $CODEDIR/HetMan/environment.yml \
+	-d $RUNDIR/setup_infer.py -d $CODEDIR/HetMan/environment.yml \
 	-o setup/cohort-data.p -o setup/pairs-list.p -m setup/pairs-count.txt \
-	-f setup.dvc --overwrite-dvcfile python $RUNDIR/setup_mutex.py $cohort \
+	-f setup.dvc --overwrite-dvcfile python $RUNDIR/setup_infer.py $cohort \
 	$samp_cutoff --setup_dir=$OUTDIR
 
+# calculate how many parallel tasks the pairs of mutations will tested over
 pairs_count=$(cat setup/pairs-count.txt)
 task_count=$(( $(( $pairs_count - 1 )) / $test_max + 1 ))
 
+# remove the Snakemake locks on the working directory if present
 if [ -d .snakemake ]
 then
 	snakemake --unlock
 fi
 
-dvc run -d setup/cohort-data.p -d setup/pairs-list.p -d $RUNDIR/fit_mutex.py \
-	-o $FINALDIR/out-data__${classif}.p -f output.dvc --overwrite-dvcfile \
+dvc run -d setup/cohort-data.p -d setup/pairs-list.p -d $RUNDIR/fit_infer.py \
+	-o $FINALDIR/out-data__${classif}.p.gz -f output.dvc --overwrite-dvcfile \
 	--remove-outs --no-commit 'snakemake -s $RUNDIR/Snakefile -j 100 --latency-wait 120 \
 	--cluster-config $RUNDIR/cluster.json --cluster "sbatch -p {cluster.partition} \
 	-J {cluster.job-name} -t {cluster.time} -o {cluster.output} -e {cluster.error} \

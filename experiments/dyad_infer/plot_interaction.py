@@ -2,24 +2,25 @@
 import os
 import sys
 
-base_dir = os.path.join(os.environ['DATADIR'],
-                        'HetMan', 'variant_mutex')
+base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'dyad_infer')
 sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
 plot_dir = os.path.join(base_dir, 'plots', 'interaction')
 
-from HetMan.experiments.variant_mutex import *
+from HetMan.experiments.dyad_infer import *
 from HetMan.experiments.subvariant_infer import variant_mtypes, variant_clrs
 mtype_dict = dict(variant_mtypes)
 
 import argparse
+from pathlib import Path
 import dill as pickle
+import bz2
 import numpy as np
 import pandas as pd
 
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
-from matplotlib.path import Path
+from matplotlib.path import Path as PlotPath
 from matplotlib.patches import PathPatch
 
 
@@ -48,7 +49,9 @@ def create_twotone_circle(xy, clrs, scale=1, **ptchargs):
     BEZR45 = SQRT2 * BEZR
     GAPADJ = 1 / 79
 
-    path_codes = [Path.MOVETO] + [Path.CURVE4] * 12 + [Path.CLOSEPOLY]
+    path_codes = [PlotPath.MOVETO] + [PlotPath.CURVE4] * 12
+    path_codes += [PlotPath.CLOSEPOLY]
+
     path_verts = np.array([[0.0, -1.0], [BEZR, -1.0],
                            [SQRT2-BEZR45, -SQRT2-BEZR45], [SQRT2, -SQRT2],
                            [SQRT2+BEZR45, -SQRT2+BEZR45], [1.0, -BEZR],
@@ -57,9 +60,9 @@ def create_twotone_circle(xy, clrs, scale=1, **ptchargs):
                            [SQRT2-BEZR45, SQRT2+BEZR45], [BEZR, 1.0],
                            [0.0, 1.0], [0.0, -1.0]])
 
-    circ_ptchs = [PathPatch(Path((path_verts - [GAPADJ, 0]) * [2 * i - 1, 1]
-                                 * scale + np.array(xy),
-                                 path_codes),
+    circ_ptchs = [PathPatch(PlotPath((path_verts - [GAPADJ, 0])
+                                     * [2 * i - 1, 1] * scale + np.array(xy),
+                                     path_codes),
                             facecolor=clr, edgecolor='none', alpha=0.29,
                             **ptchargs)
                   for i, clr in enumerate(clrs)]
@@ -121,9 +124,7 @@ def plot_mutual_similarity(use_mtypes, stat_dict, mutex_dict, siml_dict,
                size=17, weight='semibold')
     plt.ylabel("Transcriptomic Similarity", size=17, weight='semibold')
 
-    plt.savefig(os.path.join(plot_dir,
-                             "{}__samps-{}".format(args.cohort,
-                                                   args.samp_cutoff),
+    plt.savefig(os.path.join(plot_dir, args.cohort,
                              "mutual-simil_{}.svg".format(args.classif)),
                 bbox_inches='tight', format='svg')
 
@@ -186,9 +187,7 @@ def plot_mutual_synergy(use_mtypes, stat_dict, mutex_dict, siml_dict, args):
                size=17, weight='semibold')
     plt.ylabel("Transcriptomic Synergy", size=17, weight='semibold')
 
-    plt.savefig(os.path.join(plot_dir,
-                             "{}__samps-{}".format(args.cohort,
-                                                   args.samp_cutoff),
+    plt.savefig(os.path.join(plot_dir, args.cohort,
                              "mutual-synergy_{}.svg".format(args.classif)),
                 bbox_inches='tight', format='svg')
 
@@ -245,9 +244,7 @@ def plot_similarity_synergy(use_mtypes, stat_dict, siml_dict, args):
     plt.xlabel("Transcriptomic Similarity", size=17, weight='semibold')
     plt.ylabel("Transcriptomic Synergy", size=17, weight='semibold')
 
-    plt.savefig(os.path.join(plot_dir,
-                             "{}__samps-{}".format(args.cohort,
-                                                   args.samp_cutoff),
+    plt.savefig(os.path.join(plot_dir, args.cohort,
                              "simil-syner_{}.svg".format(args.classif)),
                 bbox_inches='tight', format='svg')
 
@@ -300,9 +297,7 @@ def plot_similarity_symmetry(use_mtypes, stat_dict, siml_dict, args):
     plt.ylabel("Transcriptomic Similarity\nMutation 2 \u21d2 Mutation 1",
                size=17, weight='semibold')
 
-    plt.savefig(os.path.join(plot_dir,
-                             "{}__samps-{}".format(args.cohort,
-                                                   args.samp_cutoff),
+    plt.savefig(os.path.join(plot_dir, args.cohort,
                              "simil-symmetry_{}.svg".format(args.classif)),
                 bbox_inches='tight', format='svg')
 
@@ -313,18 +308,23 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('cohort', help='a TCGA cohort')
-    parser.add_argument('samp_cutoff')
     parser.add_argument('classif', help='a mutation classifier')
 
     # parse command line arguments, create directory where plots will be saved
     args = parser.parse_args()
-    out_tag = "{}__samps-{}".format(args.cohort, args.samp_cutoff)
-    os.makedirs(os.path.join(plot_dir, out_tag), exist_ok=True)
+    os.makedirs(os.path.join(plot_dir, args.cohort), exist_ok=True)
+
+    use_ctf = min(
+        int(out_file.parts[-2].split('__samps-')[1])
+        for out_file in Path(base_dir).glob(
+            "{}__samps-*/out-data__{}.p.gz".format(args.cohort, args.classif))
+        )
+    out_tag = "{}__samps-{}".format(args.cohort, use_ctf)
 
     # load inferred mutation relationship metrics generated by the experiment
-    with open(os.path.join(base_dir, out_tag,
-                           "out-simil__{}.p".format(args.classif)),
-              'rb') as f:
+    with bz2.BZ2File(os.path.join(base_dir, out_tag,
+                                  "out-simil__{}.p.gz".format(args.classif)),
+                     'r') as f:
         stat_dict, auc_dict, mutex_dict, siml_dict = pickle.load(f)
 
     # find mutation pairs for which the classifier was able to successfully

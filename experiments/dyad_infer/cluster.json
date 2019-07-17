@@ -10,7 +10,7 @@
     },
 
     'classify' : {
-        'job-name' : "var-mutex_fit",
+        'job-name' : "dyad-infer_fit",
         'output' : "slurm/classify_{wildcards.task_id}.out",
         'error' : "slurm/classify_{wildcards.task_id}.err",
         'time' : "35:55:00",
@@ -19,7 +19,7 @@
     },
 
     'consolidate' : {
-        'job-name' : "var-mutex_cnsl",
+        'job-name' : "dyad-infer_cnsl",
         'output' : "slurm/consolidate.out",
         'error' : "slurm/consolidate.err",
         'time' : "35:55:00",

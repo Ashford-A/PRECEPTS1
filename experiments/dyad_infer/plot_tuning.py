@@ -39,8 +39,7 @@ def choose_coh_colour(cohort):
 
 def plot_tuning_auc(tune_dict, simil_dict, prior_vals, args):
     fig, axarr = plt.subplots(figsize=(17, 1 + 7 * len(prior_vals)),
-                              nrows=len(prior_vals), ncols=1,
-                              squeeze=False)
+                              nrows=len(prior_vals), ncols=1, squeeze=False)
 
     tune_df = pd.concat(tune_dict.values(),
                         keys=tune_dict.keys(), names=['Cohort'])

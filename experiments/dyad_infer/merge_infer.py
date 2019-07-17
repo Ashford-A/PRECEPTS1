@@ -7,8 +7,9 @@ sys.path.extend([os.path.join(base_dir, '../../..')])
 import argparse
 import pandas as pd
 import dill as pickle
+import bz2
 from glob import glob
-from HetMan.experiments.variant_mutex.utils import compare_pairs
+from HetMan.experiments.dyad_infer.utils import compare_pairs
 
 
 def main():
@@ -50,18 +51,18 @@ def main():
                     "tested pairs!".format(mtype1, mtype2)
                     )
 
-    with open(os.path.join(args.use_dir, "out-data.p"), 'wb') as fl:
+    with bz2.BZ2File(os.path.join(args.use_dir, "out-data.p.gz"), 'w') as fl:
         pickle.dump({'Infer': out_dfs['Infer'], 'Tune': out_dfs['Tune'],
                      'Clf': tuple(use_clfs)[0],
-                     'TunePriors': tuple(use_tune)[0]}, fl)
+                     'TunePriors': tuple(use_tune)[0]}, fl, protocol=-1)
 
     with open(os.path.join(args.use_dir,
                            'setup', "cohort-data.p"), 'rb') as fl:
         cdata = pickle.load(fl)
 
-    with open(os.path.join(args.use_dir, "out-simil.p"), 'wb') as fl:
+    with bz2.BZ2File(os.path.join(args.use_dir, "out-simil.p.gz"), 'w') as fl:
         pickle.dump(compare_pairs(out_dfs['Infer'], cdata,
-                                  get_similarities=True), fl)
+                                  get_similarities=True), fl, protocol=-1)
 
 
 if __name__ == "__main__":
