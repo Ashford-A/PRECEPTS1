@@ -1,29 +1,22 @@
 
-"""Enumerating the subtypes of a gene in a cohort to be isolated.
-
-"""
-
 import os
 import sys
-
-sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
-if 'BASEDIR' in os.environ:
-    base_dir = os.environ['BASEDIR']
-else:
-    base_dir = os.path.dirname(__file__)
+base_dir = os.path.dirname(__file__)
+sys.path.extend([os.path.join(base_dir, '../../..')])
 
 from HetMan.experiments.subvariant_infer import *
 from HetMan.experiments.utilities.load_input import load_firehose_cohort
+from HetMan.features.cohorts.beatAML import BeatAmlCohort
 from dryadic.features.mutations import MuType, MutComb
 
 import argparse
 import pandas as pd
-import hashlib
 import dill as pickle
 
 from functools import reduce
 from operator import or_
 from itertools import combinations as combn
+from itertools import product
 
 
 class Mcomb(MutComb):
@@ -150,71 +143,68 @@ def main():
     # create optional command line arguments
     parser.add_argument('--samp_cutoff', type=int, default=20,
                         help='subtype sample frequency threshold')
-    parser.add_argument('--verbose', '-v', action='store_true',
-                        help='turns on diagnostic messages')
+    parser.add_argument('--setup_dir', type=str, default=base_dir)
 
     # parse command line arguments
     args = parser.parse_args()
+    out_path = os.path.join(args.setup_dir, 'setup')
     use_lvls = args.mut_levels.split('__')
 
-    # create directory where found subtypes will be stored, load cohort
-    # expression and mutation data
-    out_path = os.path.join(base_dir, 'setup', args.cohort, args.gene)
-    os.makedirs(out_path, exist_ok=True)
-    cdata = load_firehose_cohort(args.cohort, [args.gene], use_lvls)
+    if args.cohort == 'beatAML':
+        cdata = BeatAmlCohort(use_lvls, [args.gene], expr_source='toil__gns',
+                              expr_file=beatAML_files['expr'],
+                              samp_file=beatAML_files['samps'], syn=syn,
+                              annot_file=annot_file, cv_seed=709, test_prop=0)
 
-    with open(os.path.join(out_path, 'cohort_data__levels_{}.p'.format(
-            args.mut_levels)), 'wb') as f:
+    else:
+        cdata = load_firehose_cohort(args.cohort, [args.gene], use_lvls,
+                                     cv_seed=709, test_prop=0)
+
+    with open(os.path.join(out_path, "cohort-data.p"), 'wb') as f:
         pickle.dump(cdata, f)
-
-    if args.verbose:
-        print("Looking for combinations of subtypes of mutations in gene {} "
-              "present in at least {} of the samples in TCGA cohort {} at "
-              "annotation levels {}.\n".format(
-                  args.gene, args.samp_cutoff, args.cohort, use_lvls)
-             )
 
     use_mtypes = {
         mtype for mtype in (
-            cdata.train_mut.branchtypes(min_size=args.samp_cutoff)
+            cdata.mtree.branchtypes(min_size=args.samp_cutoff)
             - {MuType({('Scale', 'Copy'): None})}
             | {MuType({('Scale', 'Copy'): {
                 ('Copy', ('DeepGain', 'ShalGain')): None}})}
             | {MuType({('Scale', 'Copy'): {
                 ('Copy', ('DeepDel', 'ShalDel')): None}})}
             )
-        if (args.samp_cutoff <= len(mtype.get_samples(cdata.train_mut))
-            <= (len(cdata.samples) - args.samp_cutoff))
+        if (args.samp_cutoff <= len(mtype.get_samples(cdata.mtree))
+            <= (len(cdata.get_samples()) - args.samp_cutoff))
         }
 
-    use_mcombs = {ExMcomb(cdata.train_mut, mtype) for mtype in use_mtypes}
+    if args.mut_levels != 'Location__Protein':
+        use_mtypes -= {MuType({('Scale', 'Point'): None})}
+
+    use_mtypes -= {mtype1 for mtype1, mtype2 in product(use_mtypes, repeat=2)
+                   if mtype1 != mtype2 and mtype1.is_supertype(mtype2)
+                   and (mtype1.get_samples(cdata.mtree)
+                        == mtype2.get_samples(cdata.mtree))}
+
     use_pairs = {(mtype1, mtype2) for mtype1, mtype2 in combn(use_mtypes, 2)
                  if (mtype1 & mtype2).is_empty()}
-    use_mcombs |= {Mcomb(*pair) for pair in use_pairs}
-    use_mcombs |= {ExMcomb(cdata.train_mut, *pair) for pair in use_pairs}
+    use_mcombs = {Mcomb(*pair) for pair in use_pairs}
+    use_mcombs |= {ExMcomb(cdata.mtree, *pair) for pair in use_pairs}
 
+    if args.mut_levels != 'Location__Protein':
+        use_mtypes = {
+            mtype for mtype in use_mtypes
+            if (mtype & MuType({('Scale', 'Copy'): None})).is_empty()
+            }
+
+    use_mcombs |= {ExMcomb(cdata.mtree, mtype) for mtype in use_mtypes}
     use_mtypes |= {mcomb for mcomb in use_mcombs
                    if (args.samp_cutoff
-                       <= len(mcomb.get_samples(cdata.train_mut))
-                       <= (len(cdata.samples) - args.samp_cutoff))}
+                       <= len(mcomb.get_samples(cdata.mtree))
+                       <= (len(cdata.get_samples()) - args.samp_cutoff))}
 
-    pth_sfx = "__samps_{}__levels_{}".format(args.samp_cutoff,
-                                               args.mut_levels)
-
-    # save the list of found non-duplicate subtypes to file
-    pickle.dump(sorted(use_mtypes),
-                open(os.path.join(out_path, "mtypes_list" + pth_sfx + ".p"),
-                     'wb'))
-
-    # save the number of found subtypes to file
-    with open(os.path.join(
-            out_path, "mtypes_count" + pth_sfx + ".txt"), 'w') as fl:
+    with open(os.path.join(out_path, "muts-list.p"), 'wb') as f:
+        pickle.dump(sorted(use_mtypes), f)
+    with open(os.path.join(out_path, "muts-count.txt"), 'w') as fl:
         fl.write(str(len(use_mtypes)))
-
-    with open(os.path.join(
-            out_path, "cdata-hash" + pth_sfx + ".txt"), 'w') as fl:
-        fl.write(hashlib.md5(pd.util.hash_pandas_object(
-            cdata.omic_data).to_csv().encode()).hexdigest())
 
 
 if __name__ == '__main__':

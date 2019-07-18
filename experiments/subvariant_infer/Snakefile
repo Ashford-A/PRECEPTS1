@@ -22,8 +22,9 @@ localrules: target
 
 rule target:
     input:
-        expand("{outdir}/out-data__{mut_levels}_{classif}.p", outdir=OUTDIR,
-               mut_levels=config['mut_levels'], classif=config['classif'])
+        expand("{outdir}/out-data__{mut_levels}__{classif}.p.gz",
+               outdir=OUTDIR, mut_levels=config['mut_levels'],
+               classif=config['classif'])
 
     threads: 1
 
@@ -38,11 +39,9 @@ rule infer:
         export OMP_NUM_THREADS=1;
         sleep $(( ({wildcards.task_id} + 1) * $(shuf -i 1-13 -n 1) ));
  
-        python {LOCALDIR}/fit_infer.py {config[cohort]} \
-                {config[classif]} {config[gene]} {config[mut_levels]} \
-                --samp_cutoff={config[samp_cutoff]} \
-                --task_count={config[task_count]} \
-                --task_id={wildcards.task_id} --use_dir={TMPDIR}
+        python {LOCALDIR}/fit_infer.py {config[classif]} {config[gene]} \
+                --use_dir={TMPDIR} --task_count={config[task_count]} \
+                --task_id={wildcards.task_id}
         """
 
 
@@ -52,8 +51,9 @@ rule consolidate:
                tmpdir=TMPDIR, task_id=range(config['task_count']))
 
     output:
-        expand("{outdir}/out-data__{mut_levels}_{classif}.p", outdir=OUTDIR,
-               mut_levels=config['mut_levels'], classif=config['classif'])
+        expand("{outdir}/out-data__{mut_levels}__{classif}.p.gz",
+               outdir=OUTDIR, mut_levels=config['mut_levels'],
+               classif=config['classif'])
 
     threads: 1
 
@@ -61,11 +61,8 @@ rule consolidate:
         set +u; source activate HetMan; set -u;
         python {LOCALDIR}/merge_infer.py {TMPDIR}
 
-        out_tag={config[mut_levels]}_{config[classif]}
-        cp {TMPDIR}/out-data.p {OUTDIR}/out-data__${{out_tag}}.p
+        out_tag={config[mut_levels]}__{config[classif]}
         cp {TMPDIR}/setup/cohort-data.p {OUTDIR}/cohort-data__${{out_tag}}.p
-
-        profiler $( grep 'Submitted' {TMPDIR}/.snakemake/log/*.log | cut -d ' ' -f 10 | cut -d "'" -f 1 ) \
-                | grep 'batch' | grep -v 'Requests' > slurm/usage.txt
+        cp {TMPDIR}/out-data.p.gz {OUTDIR}/out-data__${{out_tag}}.p.gz
         """
 
