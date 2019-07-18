@@ -67,11 +67,14 @@ def main():
         help="minimum number of mutated samples needed to test a gene"
         )
 
+    # parse command line arguments, identify directory where intermediate
+    # files are to be stored, load cohort expression and mutation data
     parser.add_argument('--setup_dir', type=str, default=base_dir)
     args = parser.parse_args()
     out_path = os.path.join(args.setup_dir, 'setup')
     cdata = get_cohort_data(args.cohort)
 
+    # save cohort data to file for use by future tasks
     with open(os.path.join(out_path, "cohort-data.p"), 'wb') as cdata_fl:
         pickle.dump(cdata, cdata_fl)
 
@@ -118,9 +121,9 @@ def main():
                       and (mtype1.get_samples(cdata.mtree)
                            == mtype2.get_samples(cdata.mtree)))}
 
-    # get the samples carrying each remaining mutation
+    # find the pairs of remaining mutations that do not have overlapping
+    # definitions and have enough samples with exactly one mutation in the pair
     samp_dict = {mtype: mtype.get_samples(cdata.mtree) for mtype in vars_list}
-
     pairs_list = {
         tuple(sorted([mtype1, mtype2]))
         for (mtype1, samps1), (mtype2, samps2) in combn(samp_dict.items(), 2)
@@ -129,6 +132,7 @@ def main():
             and (mtype1 & mtype2).is_empty())
         }
 
+    # save the enumerate pairs to file along with a count of the pairs
     with open(os.path.join(out_path, "pairs-list.p"), 'wb') as f:
         pickle.dump(sorted(pairs_list), f)
     with open(os.path.join(out_path, "pairs-count.txt"), 'w') as fl:

@@ -1,7 +1,5 @@
 #!/bin/bash
-
 #SBATCH --job-name=var-baseline
-#SBATCH --partition=exacloud
 #SBATCH --verbose
 
 
