@@ -2,8 +2,7 @@
 import os
 import sys
 
-base_dir = os.path.join(os.environ['DATADIR'],
-                        'HetMan', 'variant_baseline')
+base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'variant_baseline')
 sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
 plot_dir = os.path.join(base_dir, 'plots', 'tuning')
 
