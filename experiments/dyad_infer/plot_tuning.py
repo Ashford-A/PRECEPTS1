@@ -2,17 +2,17 @@
 import os
 import sys
 
-base_dir = os.path.join(os.environ['DATADIR'],
-                        'HetMan', 'variant_mutex')
+base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'dyad_infer')
 sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
 plot_dir = os.path.join(base_dir, 'plots', 'tuning')
 
-from HetMan.experiments.variant_mutex import *
+from HetMan.experiments.dyad_infer import *
 from HetMan.experiments.variant_baseline.plot_model import detect_log_distr
 from HetMan.experiments.utilities.pcawg_colours import cohort_clrs
 
 import argparse
 from pathlib import Path
+import bz2
 import dill as pickle
 
 import numpy as np
@@ -112,7 +112,7 @@ def main():
 
     out_datas = [
         out_file.parts[-2:] for out_file in Path(base_dir).glob(
-            "*__samps-*/out-data__{}.p".format(args.classif))
+            "*__samps-*/out-data__{}.p.gz".format(args.classif))
         ]
 
     out_use = pd.DataFrame(
@@ -128,17 +128,19 @@ def main():
     for coh, ctf in out_use.iterrows():
         out_tag = "{}__samps-{}".format(coh, ctf.values[0])
 
-        with open(os.path.join(base_dir, out_tag,
-                               "out-data__{}.p".format(args.classif)),
-                  'rb') as f:
-
+        with bz2.BZ2File(os.path.join(base_dir, out_tag,
+                                      "out-data__{}.p.gz".format(
+                                          args.classif)),
+                         'r') as f:
             out_dict = pickle.load(f)
+
             tune_dict[coh] = out_dict['Tune']
             prior_dict[coh] = out_dict['TunePriors']
 
-        with open(os.path.join(base_dir, out_tag,
-                               "out-simil__{}.p".format(args.classif)),
-                  'rb') as f:
+        with bz2.BZ2File(os.path.join(base_dir, out_tag,
+                                      "out-simil__{}.p.gz".format(
+                                          args.classif)),
+                         'r') as f:
             simil_dict[coh] = pickle.load(f)
 
     assert len(set(prior_dict.values())) == 1, (
