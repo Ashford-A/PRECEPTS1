@@ -61,12 +61,13 @@ task_count=$(( $vars_count / $test_max + 1 ))
 if [ -d .snakemake ]
 then
 	snakemake --unlock
+	rm .snakemake/locks/*
 fi
 
 dvc run -d setup/cohort-data.p -d setup/vars-list.p -d $RUNDIR/fit_tests.py \
 	-d $RUNDIR/models/${classif%%'__'*}.py -o $FINALDIR/out-data__${classif}.p.gz \
 	-f output.dvc --overwrite-dvcfile --remove-outs --no-commit \
-	'snakemake -s $RUNDIR/Snakefile -j 100 --latency-wait 120 \
+	'snakemake -s $RUNDIR/Snakefile -j 102 --latency-wait 120 \
 	--cluster-config $RUNDIR/cluster.json --cluster \
 	"sbatch -p {cluster.partition} -J {cluster.job-name} -t {cluster.time} \
 	-o {cluster.output} -e {cluster.error} -n {cluster.ntasks} -c {cluster.cpus-per-task} \

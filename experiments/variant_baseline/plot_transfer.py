@@ -10,6 +10,7 @@ from HetMan.experiments.variant_baseline import *
 from HetMan.experiments.variant_baseline.merge_tests import merge_cohort_data
 from HetMan.experiments.utilities import auc_cmap
 from HetMan.experiments.variant_baseline.plot_model import cv_clrs
+from HetMan.experiments.utilities.pcawg_colours import cohort_clrs
 
 import argparse
 from pathlib import Path
@@ -19,6 +20,7 @@ import bz2
 import numpy as np
 import pandas as pd
 from operator import itemgetter
+from itertools import combinations as combn
 
 import matplotlib as mpl
 mpl.use('Agg')
@@ -119,16 +121,122 @@ def plot_label_stability(corr_df, auc_df, auc_vals, stat_dict, args):
     plt.close()
 
 
+def plot_auc_comparison(out_dict, stat_dict, auc_vals, args):
+    fig, axarr = plt.subplots(figsize=(14, 14), nrows=4, ncols=4)
+
+    auc_dict = {
+        coh: {
+            mtype: {
+                'random': (
+                    np.greater.outer(
+                        trnsf_vals[mtype].iloc[mut_stat, :25],
+                        trnsf_vals[mtype].iloc[~mut_stat, :25]
+                        ).mean()
+                    + np.equal.outer(
+                        trnsf_vals[mtype].iloc[mut_stat, :25],
+                        trnsf_vals[mtype].iloc[~mut_stat, :25]
+                        ).mean()
+                    / 2
+                    ),
+                'fivefold': (
+                    np.greater.outer(
+                        trnsf_vals[mtype].iloc[mut_stat, 25:50],
+                        trnsf_vals[mtype].iloc[~mut_stat, 25:50]
+                        ).mean()
+                    + np.equal.outer(
+                        trnsf_vals[mtype].iloc[mut_stat, 25:50],
+                        trnsf_vals[mtype].iloc[~mut_stat, 25:50]
+                        ).mean()
+                    / 2
+                    ),
+                'infer': (
+                    np.greater.outer(
+                        trnsf_vals[mtype].iloc[mut_stat, -1],
+                        trnsf_vals[mtype].iloc[~mut_stat, -1]
+                        ).mean()
+                    + np.equal.outer(
+                        trnsf_vals[mtype].iloc[mut_stat, -1],
+                        trnsf_vals[mtype].iloc[~mut_stat, -1]
+                        ).mean()
+                    / 2
+                    )
+                }
+            for mtype, mut_stat in stat_dict[coh].items()
+            if mut_stat.sum() >= 20
+            }
+        for coh, trnsf_vals in out_dict['Trnsf'].items()
+        }
+
+    use_min = 0.48
+    for coh, mtype_dict in auc_dict.items():
+        for mtype, cv_dict in mtype_dict.items():
+            for i, cv_mth in enumerate(['random', 'fivefold', 'infer']):
+                axarr[i + 1, 0].scatter(auc_vals[mtype], cv_dict[cv_mth],
+                                        s=21, c=cohort_clrs[coh],
+                                        alpha=0.34, edgecolors='none')
+
+                use_min = min(axarr[i + 1, 0].get_xlim()[0], use_min)
+                use_min = min(axarr[i + 1, 0].get_ylim()[0], use_min)
+
+            for (i, cv_mth1), (j, cv_mth2) in combn(enumerate(
+                    ['random', 'fivefold', 'infer']), 2):
+                axarr[j + 1, i + 1].scatter(
+                    cv_dict[cv_mth1], cv_dict[cv_mth2],
+                    s=21, c=cohort_clrs[coh], alpha=0.34, edgecolors='none'
+                    )
+
+                use_min = min(axarr[j + 1, i + 1].get_xlim()[0], use_min)
+                use_min = min(axarr[j + 1, i + 1].get_ylim()[0], use_min)
+
+    for i in range(4):
+        if i < 3:
+            for j in range(4):
+                axarr[i, j].set_xticklabels([])
+        else:
+            axarr[i, -1].set_xticklabels([])
+
+        if i == 0:
+            axarr[i, 0].set_yticklabels([])
+        for j in range(1, 4):
+            axarr[i, j].set_yticklabels([])
+
+        for j in range(i + 1, 4):
+            axarr[j, i].plot([-1, 2], [-1, 2], linewidth=1.4,
+                             alpha=0.37, color='black', linestyle=':')
+
+    for ax in axarr.flatten():
+        ax.grid(linewidth=0.9, alpha=0.47)
+        ax.set_xlim(use_min, 1.01)
+        ax.set_ylim(use_min, 1.01)
+
+    for i, cv_mth in enumerate(['original\n', 'random\ntransfer\n',
+                                'fivefold\ntransfer\n', 'infer\ntransfer\n']):
+        axarr[i, i].grid(False)
+
+        axarr[i, i].text(0.5, 0.61, "{} AUC".format(cv_mth), fontsize=25,
+                         ha='center', va='center', weight='semibold',
+                         transform=axarr[i, i].transAxes)
+
+    fig.tight_layout(w_pad=1.9, h_pad=2.3)
+    fig.savefig(
+        os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
+                     args.model_name.split('__')[0],
+                     "{}__auc-comparison.svg".format(
+                         args.model_name.split('__')[1])),
+        bbox_inches='tight', format='svg'
+        )
+
+    plt.close()
+
+
 def main():
     parser = argparse.ArgumentParser(
         "Plots the performance of a model in predicting the presence of "
         "mutations in cohorts other than the one it was trained on."
         )
 
-    parser.add_argument('temp_dir', type=str)
     parser.add_argument('expr_source', type=str,
                         help="which TCGA expression data source was used")
-
     parser.add_argument('cohort', type=str, help="which TCGA cohort was used")
     parser.add_argument('model_name', type=str,
                         help="which mutation classifier was tested")
@@ -164,22 +272,28 @@ def main():
     for coh, trnsf_df in out_dict['Trnsf'].items():
         stat_dict[coh] = dict()
 
-        with open(os.path.join(args.temp_dir, 'variant_baseline',
-                               args.expr_source, 'setup',
+        with open(os.path.join(os.environ['TEMPDIR'], 'HetMan',
+                               'variant_baseline', args.expr_source, 'setup',
                                "{}__cohort-data.p".format(coh)), 'rb') as f:
             trnsf_cdata = pickle.load(f)
 
         if coh in args.cohort:
-            sub_stat = trnsf_cdata.train_data()[0].index.isin(
-                cdata.get_train_samples())
+            sub_stat = np.array([smp in cdata.get_train_samples()
+                                 for smp in trnsf_cdata.get_train_samples()])
 
             if (~sub_stat).any():
-                out_dict['Trnsf'][coh][mtype] = out_dict[
-                    'Trnsf'][coh][mtype].iloc[~sub_stat, :]
+                out_dict['Trnsf'][coh] = out_dict['Trnsf'][coh].iloc[
+                    ~sub_stat, :]
 
                 for mtype in use_mtypes:
-                    stat_dict[coh][mtype] = np.array(
-                        trnsf_cdata.train_pheno(mtype))[~sub_stat]
+                    trnsf_stat = np.array(trnsf_cdata.train_pheno(mtype))
+                    stat_dict[coh][mtype] = trnsf_stat[~sub_stat]
+
+                    assert (np.bincount(trnsf_stat[sub_stat])
+                            == np.bincount(cdata.train_pheno(mtype))).all(), (
+                                "{} cohort used for transfer learning does "
+                                "not match the one used for primary learning!"
+                                )
 
             else:
                 del(out_dict['Trnsf'][coh])
@@ -241,6 +355,7 @@ def main():
 
     plot_transfer_aucs(auc_df, auc_vals, stat_dict, args)
     plot_label_stability(corr_df, auc_df, auc_vals, stat_dict, args)
+    plot_auc_comparison(out_dict, stat_dict, auc_vals, args)
 
 
 if __name__ == "__main__":

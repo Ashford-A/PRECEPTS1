@@ -90,10 +90,28 @@ def main():
     parser.add_argument('use_dir', type=str, default=base_dir)
     args = parser.parse_args()
 
+    for cdata_fl in os.listdir(os.path.join(args.use_dir, 'setup')):
+        if "__cohort-data.p" in cdata_fl:
+            with open(os.path.join(args.use_dir, 'setup', cdata_fl),
+                      'rb') as f:
+                trnsf_cdata = pickle.load(f)
+
+            with open(os.path.join(args.use_dir, '..', '..', 'setup',
+                                   cdata_fl),
+                      'rb') as f:
+                old_cdata = pickle.load(f)
+
+            if trnsf_cdata.data_hash() != old_cdata.data_hash():
+                raise MergeError("Cohort file {} used for transfer learning "
+                                 "does not match its original "
+                                 "version!".format(cdata_fl))
+
+            os.remove(os.path.join(args.use_dir, 'setup', cdata_fl))
+
     out_files = [(fl, int(fl.split('out__cv-')[1].split('_task-')[0]),
                   int(fl.split('_task-')[1].split('.p')[0]))
                   for fl in os.listdir(os.path.join(args.use_dir, 'output'))
-                 if 'out__cv-' in fl]
+                 if "out__cv-" in fl]
 
     out_files = sorted(out_files, key=itemgetter(1, 2))
     task_count = len(set(task for _, _, task in out_files))
