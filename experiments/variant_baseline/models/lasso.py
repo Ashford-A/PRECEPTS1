@@ -1,9 +1,9 @@
 
 from dryadic.learning.pipelines import PresencePipe
 from dryadic.learning.selection import SelectMeanVar
+from dryadic.learning.scalers import center_scale
 
 import numpy as np
-from scipy import stats
 from sklearn.preprocessing import StandardScaler, RobustScaler, MinMaxScaler
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import average_precision_score
@@ -21,7 +21,7 @@ class Base(PresencePipe):
     """
 
     tune_priors = (
-        ('fit__C', tuple(10 ** np.linspace(-2.25, 10, 36))),
+        ('fit__C', tuple(10 ** np.linspace(-4.25, 8, 36))),
         )
 
     feat_inst = SelectMeanVar(mean_perc=95, var_perc=95)
@@ -53,8 +53,25 @@ class Meanvar(Base):
 
 
 class Norm_robust(Base):
+    """LASSO regression with feature scaling that is robust to outliers.
+
+    Note that we reuse the same tuning grid for the `C` hyper-parameter as in
+    the `Base` case since empirical results suggest that tuning behaviour is
+    roughly the same between the two versions of the classifier.
+    """
 
     norm_inst = RobustScaler()
+
+
+class Norm_white(Base):
+
+    norm_inst2 = center_scale
+
+    def __init__(self):
+        super(Base, self).__init__([
+            ('feat', self.feat_inst), ('norm', self.norm_inst),
+            ('norm2', self.norm_inst2), ('fit', self.fit_inst)
+            ])
 
 
 class Norm_minmax(Base):
@@ -86,11 +103,4 @@ class Tune_aupr(Base):
             pheno_score = average_precision_score(actual_pheno, pred_pheno)
 
         return pheno_score
-
-
-class Tune_distr(Base):
-
-    tune_priors = (
-        ('fit__C', stats.lognorm(scale=0.1, s=4)),
-        )
 

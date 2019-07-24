@@ -61,5 +61,9 @@ rule consolidate:
 
         cp {TMPDIR}/setup/cohort-data.p {OUTDIR}/cohort-data__{config[classif]}.p
         cp {TMPDIR}/out-data.p.gz {OUTDIR}/out-data__{config[classif]}.p.gz
+
+        python {LOCALDIR}/plot_experiment.py \
+                {config[expr_source]} {config[cohort]} {config[samp_cutoff]} \
+                {config[classif]}
         """
 

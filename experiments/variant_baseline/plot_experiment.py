@@ -4,7 +4,7 @@ import sys
 
 base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'variant_baseline')
 sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
-plot_dir = os.path.join(base_dir, 'plots', 'model')
+plot_dir = os.path.join(base_dir, 'plots', 'experiment')
 
 from HetMan.experiments.variant_baseline import *
 from HetMan.experiments.variant_baseline.merge_tests import merge_cohort_data
@@ -16,9 +16,9 @@ from HetMan.experiments.utilities.scatter_plotting import place_annot
 from sklearn.kernel_ridge import KernelRidge
 
 import argparse
-from pathlib import Path
-import dill as pickle
 import bz2
+import dill as pickle
+
 import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
@@ -79,7 +79,7 @@ def plot_label_stability(score_dict, auc_df, args, cdata):
                     val_df.Mean.values.reshape(-1, 1),
                     val_df.Var.values.reshape(-1, 1)
                     )
-                for cv_mth, val_df in val_dict.items()
+                for cv_mth, val_df in val_dict.items() if val_df.shape[0] > 1
                 }
 
             for cv_mth, cv_clf in clf_dict.items():
@@ -89,6 +89,9 @@ def plot_label_stability(score_dict, auc_df, args, cdata):
                                  alpha=0.61)
 
             axarr[i, j].set_ylim([0, 13/11])
+            if i == 0:
+                axarr[i, j].set_title(
+                    "{:.3f} - {:.3f}".format(abin.left, abin.right))
 
     lgnd_ptchs = [Patch(color=cv_clrs['random'], alpha=0.51, label="random"),
                   Patch(color=cv_clrs['fivefold'],
@@ -99,7 +102,8 @@ def plot_label_stability(score_dict, auc_df, args, cdata):
 
     fig.tight_layout(w_pad=1.7, h_pad=2.3)
     fig.savefig(
-        os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
+        os.path.join(plot_dir, args.expr_source,
+                     "{}__samps-{}".format(args.cohort, args.samp_cutoff),
                      args.model_name.split('__')[0],
                      "{}__label-stability.svg".format(
                          args.model_name.split('__')[1])),
@@ -150,11 +154,11 @@ def plot_label_correlation(score_dict, auc_df, args, cdata):
                        color=cv_clrs['fivefold'], alpha=0.23, linewidth=2.9)
 
     ax.set_ylim([0, 1])
-    plt.xlabel('Median Correlation', fontsize=27, weight='semibold')
-    plt.ylabel('AUC', fontsize=27, weight='semibold')
+    plt.xlabel('AUC', fontsize=27, weight='semibold')
+    plt.ylabel('Median Correlation', fontsize=27, weight='semibold')
 
     lgnd_ptchs = [Patch(color=cv_clrs['fivefold'],
-                        alpha=0.51, label="within folds"),
+                        alpha=0.51, label="within fivefolds"),
                   Patch(color=cv_clrs['infer'],
                         alpha=0.51, label="each fold with inferred")]
 
@@ -163,7 +167,8 @@ def plot_label_correlation(score_dict, auc_df, args, cdata):
 
     fig.tight_layout(pad=2)
     fig.savefig(
-        os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
+        os.path.join(plot_dir, args.expr_source,
+                     "{}__samps-{}".format(args.cohort, args.samp_cutoff),
                      args.model_name.split('__')[0],
                      "{}__label-correlation.svg".format(
                          args.model_name.split('__')[1])),
@@ -211,7 +216,8 @@ def plot_auc_distribution(auc_df, args):
             flr_locs[i, 0] = txt_pos
 
     fig.savefig(
-        os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
+        os.path.join(plot_dir, args.expr_source,
+                     "{}__samps-{}".format(args.cohort, args.samp_cutoff),
                      args.model_name.split('__')[0],
                      "{}__auc-distribution.svg".format(
                          args.model_name.split('__')[1])),
@@ -270,7 +276,8 @@ def plot_acc_quartiles(auc_df, aupr_df, args, cdata):
 
     fig.tight_layout(w_pad=2.2, h_pad=5.1)
     fig.savefig(
-        os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
+        os.path.join(plot_dir, args.expr_source,
+                     "{}__samps-{}".format(args.cohort, args.samp_cutoff),
                      args.model_name.split('__')[0],
                      "{}__acc-quartiles.svg".format(
                          args.model_name.split('__')[1])),
@@ -365,7 +372,8 @@ def plot_tuning_mtype(par_df, auc_df, use_clf, args, cdata):
  
     plt.tight_layout(h_pad=0)
     fig.savefig(
-        os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
+        os.path.join(plot_dir, args.expr_source,
+                     "{}__samps-{}".format(args.cohort, args.samp_cutoff),
                      args.model_name.split('__')[0],
                      "{}__tuning-mtype.svg".format(
                          args.model_name.split('__')[1])),
@@ -518,7 +526,8 @@ def plot_tuning_mtype_grid(par_df, auc_df, use_clf, args, cdata):
 
     plt.tight_layout()
     fig.savefig(
-        os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
+        os.path.join(plot_dir, args.expr_source,
+                     "{}__samps-{}".format(args.cohort, args.samp_cutoff),
                      args.model_name.split('__')[0],
                      "{}__tuning-mtype-grid.svg".format(
                          args.model_name.split('__')[1])),
@@ -529,35 +538,32 @@ def plot_tuning_mtype_grid(par_df, auc_df, use_clf, args, cdata):
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        "Plots the performance and tuning characteristics of a model in "
-        "classifying the mutation status of the genes in a given cohort."
-        )
+    parser = argparse.ArgumentParser("Plots general information about a "
+                                     "particular run of the experiment.")
 
     parser.add_argument('expr_source', type=str,
                         help="which TCGA expression data source was used")
     parser.add_argument('cohort', type=str, help="which TCGA cohort was used")
+
+    parser.add_argument(
+        'samp_cutoff', type=int,
+        help="minimum number of mutated samples needed to test a gene"
+        )
+
     parser.add_argument('model_name', type=str,
                         help="which mutation classifier was tested")
 
     args = parser.parse_args()
-    os.makedirs(os.path.join(
-        plot_dir, '__'.join([args.expr_source, args.cohort]),
-        args.model_name.split('__')[0]
-        ), exist_ok=True)
-
-    use_ctf = min(
-        int(out_file.parts[-2].split('__samps-')[1])
-        for out_file in Path(base_dir).glob(
-            "{}__{}__samps-*/out-data__{}.p.gz".format(
-                args.expr_source, args.cohort, args.model_name)
-            )
-        )
-
     out_tag = "{}__{}__samps-{}".format(
-        args.expr_source, args.cohort, use_ctf)
-    cdata = merge_cohort_data(os.path.join(base_dir, out_tag))
+        args.expr_source, args.cohort, args.samp_cutoff)
 
+    os.makedirs(os.path.join(plot_dir, args.expr_source,
+                             "{}__samps-{}".format(args.cohort,
+                                                   args.samp_cutoff),
+                             args.model_name.split('__')[0]),
+                exist_ok=True)
+
+    cdata = merge_cohort_data(os.path.join(base_dir, out_tag))
     with bz2.BZ2File(os.path.join(base_dir, out_tag,
                                   "out-data__{}.p.gz".format(
                                       args.model_name)),

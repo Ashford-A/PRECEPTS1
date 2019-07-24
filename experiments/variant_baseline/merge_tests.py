@@ -6,8 +6,8 @@ sys.path.extend([os.path.join(base_dir, '../../..')])
 
 from HetMan.experiments.variant_baseline import *
 import argparse
-import dill as pickle
 import bz2
+import dill as pickle
 
 import numpy as np
 import pandas as pd

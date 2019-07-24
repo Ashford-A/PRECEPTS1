@@ -11,8 +11,10 @@ from HetMan.experiments.variant_baseline.merge_tests import merge_cohort_data
 from HetMan.experiments.utilities import auc_cmap
 
 import argparse
-import dill as pickle
+from pathlib import Path
 import bz2
+import dill as pickle
+
 import numpy as np
 import pandas as pd
 from itertools import product
@@ -58,9 +60,7 @@ def plot_generalization_error(train_aucs, test_aucs, args):
     g.ax_joint.set_ylabel('Testing Fit AUC', fontsize=22, weight='semibold')
 
     g.savefig(
-        os.path.join(plot_dir,
-                     "{}__{}__samps-{}".format(args.expr_source, args.cohort,
-                                               args.samp_cutoff),
+        os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
                      args.model_name.split('__')[0],
                      "{}__generalization.svg".format(
                          args.model_name.split('__')[1])),
@@ -108,9 +108,7 @@ def plot_tuning_distribution(par_df, auc_df, use_clf, args, cdata):
 
     fig.tight_layout()
     fig.savefig(
-        os.path.join(plot_dir,
-                     "{}__{}__samps-{}".format(args.expr_source, args.cohort,
-                                               args.samp_cutoff),
+        os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
                      args.model_name.split('__')[0],
                      "{}__tuning-distribution.svg".format(
                          args.model_name.split('__')[1])),
@@ -161,9 +159,7 @@ def plot_tuning_profile(tune_dict, use_clf, args, cdata):
 
     fig.tight_layout()
     fig.savefig(
-        os.path.join(plot_dir,
-                     "{}__{}__samps-{}".format(args.expr_source, args.cohort,
-                                               args.samp_cutoff),
+        os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
                      args.model_name.split('__')[0],
                      "{}__tuning-profile.svg".format(
                          args.model_name.split('__')[1])),
@@ -228,9 +224,7 @@ def plot_tuning_profile_grid(tune_dict, use_clf, args, cdata):
 
     fig.tight_layout()
     fig.savefig(
-        os.path.join(plot_dir,
-                     "{}__{}__samps-{}".format(args.expr_source, args.cohort,
-                                               args.samp_cutoff),
+        os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
                      args.model_name.split('__')[0],
                      "{}__tuning-profile-grid.svg".format(
                          args.model_name.split('__')[1])),
@@ -248,24 +242,27 @@ def main():
     parser.add_argument('expr_source', type=str,
                         help="which TCGA expression data source was used")
     parser.add_argument('cohort', type=str, help="which TCGA cohort was used")
-
-    parser.add_argument(
-        'samp_cutoff', type=int,
-        help="minimum number of mutated samples needed to test a gene"
-        )
-
     parser.add_argument('model_name', type=str,
                         help="which mutation classifier was tested")
 
     args = parser.parse_args()
+    os.makedirs(os.path.join(
+        plot_dir, '__'.join([args.expr_source, args.cohort]),
+        args.model_name.split('__')[0]
+        ), exist_ok=True)
+
+    use_ctf = min(
+        int(out_file.parts[-2].split('__samps-')[1])
+        for out_file in Path(base_dir).glob(
+            "{}__{}__samps-*/out-data__{}.p.gz".format(
+                args.expr_source, args.cohort, args.model_name)
+            )
+        )
+
     out_tag = "{}__{}__samps-{}".format(
-        args.expr_source, args.cohort, args.samp_cutoff)
-
-    os.makedirs(os.path.join(plot_dir, out_tag,
-                             args.model_name.split('__')[0]),
-                exist_ok=True)
-
+        args.expr_source, args.cohort, use_ctf)
     cdata = merge_cohort_data(os.path.join(base_dir, out_tag))
+
     with bz2.BZ2File(os.path.join(base_dir, out_tag,
                                   "out-data__{}.p.gz".format(
                                       args.model_name)),
