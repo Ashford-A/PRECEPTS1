@@ -1,7 +1,5 @@
 #!/bin/bash
-
 #SBATCH --job-name=copy-baseline
-#SBATCH --partition=exacloud
 #SBATCH --verbose
 
 
@@ -27,9 +25,9 @@ do
 done
 
 # decide where intermediate files will be stored, find code source directory and input files
-out_tag=${expr_source}__${cohort}__samps-${samp_cutoff}
-OUTDIR=$TEMPDIR/HetMan/copy_baseline/$expr_source/${cohort}__samps-${samp_cutoff}/$regress
-FINALDIR=$DATADIR/HetMan/copy_baseline/$out_tag
+out_tag=${cohort}__samps-${samp_cutoff}
+OUTDIR=$TEMPDIR/HetMan/copy_baseline/$expr_source/${out_tag}/$regress
+FINALDIR=$DATADIR/HetMan/copy_baseline/${expr_source}__$out_tag
 
 export RUNDIR=$CODEDIR/HetMan/experiments/copy_baseline
 source $RUNDIR/files.sh
@@ -41,7 +39,8 @@ then
 fi
 
 # create intermediate and final output directories, move to working directory
-mkdir -p $FINALDIR
+mkdir -p $FINALDIR $TEMPDIR/HetMan/copy_baseline/$expr_source/setup
+mkdir -p $TEMPDIR/HetMan/copy_baseline/$expr_source/$out_tag/setup
 mkdir -p $OUTDIR/setup $OUTDIR/output $OUTDIR/slurm
 cd $OUTDIR
 
@@ -54,7 +53,7 @@ dvc run -d $firehose_dir -d $gencode_file -d $gene_file -d $subtype_file \
 	-d $RUNDIR/setup_tests.py -d $CODEDIR/HetMan/environment.yml \
 	-o setup/cohort-data.p -o setup/gene-list.p \
 	-m setup/gene-count.txt -f setup.dvc --overwrite-dvcfile \
-	python $RUNDIR/setup_tests.py $expr_source $cohort $samp_cutoff --setup_dir $OUTDIR
+	python $RUNDIR/setup_tests.py $expr_source $cohort $samp_cutoff $OUTDIR
 
 gene_count=$( cat setup/gene-count.txt )
 task_count=$(( $gene_count / $test_max + 1 ))
@@ -62,12 +61,13 @@ task_count=$(( $gene_count / $test_max + 1 ))
 if [ -d .snakemake ]
 then
 	snakemake --unlock
+	rm .snakemake/locks/*
 fi
 
 dvc run -d setup/cohort-data.p -d setup/gene-list.p -d $RUNDIR/fit_tests.py \
 	-d $RUNDIR/models/${regress%%'__'*}.py -o $FINALDIR/out-data__${regress}.p \
 	-f output.dvc --overwrite-dvcfile --remove-outs --no-commit \
-	'snakemake -s $RUNDIR/Snakefile -j 100 --latency-wait 120 \
+	'snakemake -s $RUNDIR/Snakefile -j 102 --latency-wait 120 \
 	--cluster-config $RUNDIR/cluster.json --cluster \
 	"sbatch -p {cluster.partition} -J {cluster.job-name} -t {cluster.time} \
 	-o {cluster.output} -e {cluster.error} -n {cluster.ntasks} -c {cluster.cpus-per-task} \

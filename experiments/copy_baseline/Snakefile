@@ -47,7 +47,7 @@ rule consolidate:
     input:
         expand("{tmpdir}/output/out__cv-{cv_id}_task-{task_id}.p",
                tmpdir=TMPDIR,
-               cv_id=range(25), task_id=range(config['task_count']))
+               cv_id=range(51), task_id=range(config['task_count']))
 
     output:
         expand("{outdir}/out-data__{regress}.p",
@@ -57,9 +57,13 @@ rule consolidate:
 
     shell: """
         set +u; source activate HetMan; set -u;
-        python {LOCALDIR}/merge_tests.py --use_dir={TMPDIR}
+        python {LOCALDIR}/../variant_baseline/merge_tests.py {TMPDIR}
 
-        cp {TMPDIR}/out-data.p {OUTDIR}/out-data__{config[regress]}.p
         cp {TMPDIR}/setup/cohort-data.p {OUTDIR}/cohort-data__{config[regress]}.p
+        cp {TMPDIR}/out-data.p.gz {OUTDIR}/out-data__{config[regress]}.p.gz
+
+        python {LOCALDIR}/plot_experiment.py \
+                {config[expr_source]} {config[cohort]} {config[samp_cutoff]} \
+                {config[regress]}
         """
 

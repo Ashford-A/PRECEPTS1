@@ -6,16 +6,16 @@ sys.path.extend([os.path.join(base_dir, '../../..')])
 
 from HetMan.experiments.copy_baseline import *
 from HetMan.experiments.utilities.load_input import parse_subtypes
-from HetMan.features.cohorts.tcga import CopyCohort
+from HetMan.features.cohorts.tcga import CopyCohort, list_cohorts
 from HetMan.features.data.copies import get_copies_firehose
 
 import argparse
 import pandas as pd
 import dill as pickle
+import random
 
 
-def get_cohort_data(cohort, expr_source, samp_cutoff,
-                    cv_seed=None, test_prop=0):
+def get_cohort_data(cohort, expr_source, samp_cutoff, cv_seed=None):
     coh_base = cohort.split('_')[0]
 
     gene_df = pd.read_csv(gene_list, sep='\t', skiprows=1, index_col=0)
@@ -40,7 +40,7 @@ def get_cohort_data(cohort, expr_source, samp_cutoff,
                        copy_source='Firehose', annot_file=annot_file,
                        type_file=type_file, expr_dir=expr_sources[src_base],
                        copy_dir=copy_dir, collapse_txs=collapse_txs,
-                       cv_seed=cv_seed, test_prop=test_prop,
+                       cv_seed=cv_seed, test_prop=0,
                        annot_fields=['transcript'],
                        use_types=parse_subtypes(cohort))
 
@@ -59,19 +59,81 @@ def main():
         help="minimum number of affected samples needed to test a mutation"
         )
 
-    parser.add_argument('--setup_dir', type=str, default=base_dir)
+    parser.add_argument('out_dir', type=str)
     args = parser.parse_args()
-    out_path = os.path.join(args.setup_dir, 'setup')
+    base_path = os.path.join(args.out_dir.split('copy_baseline')[0],
+                             'copy_baseline')
+    coh_path = os.path.join(base_path, args.expr_source, 'setup')
 
-    cdata = get_cohort_data(args.cohort, args.expr_source, args.samp_cutoff)
-    with open(os.path.join(out_path, "cohort-data.p"), 'wb') as f:
-        pickle.dump(cdata, f)
+    out_tag = "{}__samps-{}".format(args.cohort, args.samp_cutoff)
+    gene_path = os.path.join(base_path, args.expr_source, out_tag, 'setup')
+    out_path = os.path.join(args.out_dir, 'setup')
 
-    # save the enumerated altered genes, and the number of such genes, to file
-    with open(os.path.join(out_path, "gene-list.p"), 'wb') as fl:
-        pickle.dump(sorted(cdata.copy_mat.columns), fl)
-    with open(os.path.join(out_path, "gene-count.txt"), 'w') as f:
-        f.write(str(cdata.copy_mat.shape[1]))
+    coh_list = list_cohorts(
+        args.expr_source.split('__')[0],
+        expr_dir=expr_sources[args.expr_source.split('__')[0]],
+        copy_dir=copy_dir
+        ) | {args.cohort}
+
+    use_feats = None
+    for coh in random.sample(coh_list, k=len(coh_list)):
+        coh_tag = "{}__cohort-data.p".format(coh)
+
+        if coh == args.cohort:
+            copy_tag = "cohort-data.p"
+        else:
+            copy_tag = "{}__cohort-data.p".format(coh)
+
+        if os.path.exists(os.path.join(coh_path, coh_tag)):
+            os.system("cp {} {}".format(os.path.join(coh_path, coh_tag),
+                                        os.path.join(out_path, copy_tag)))
+
+            with open(os.path.join(out_path, copy_tag), 'rb') as f:
+                cdata = pickle.load(f)
+
+        else:
+            cdata = get_cohort_data(coh, args.expr_source, args.samp_cutoff)
+
+            with open(os.path.join(coh_path, coh_tag), 'wb') as f:
+                pickle.dump(cdata, f)
+            with open(os.path.join(out_path, copy_tag), 'wb') as f:
+                pickle.dump(cdata, f)
+
+        if use_feats is None:
+            use_feats = set(cdata.get_features())
+        else:
+            use_feats &= set(cdata.get_features())
+
+    with open(os.path.join(out_path, "feat-list.p"), 'wb') as f:
+        pickle.dump(use_feats, f)
+
+    if os.path.exists(os.path.join(gene_path, "gene-list.p")):
+        os.system("cp {} {}".format(os.path.join(gene_path, "gene-list.p"),
+                                    os.path.join(out_path, "gene-list.p")))
+
+    else:
+        with open(os.path.join(out_path, "cohort-data.p".format(args.cohort)),
+                  'rb') as f:
+            cdata = pickle.load(f)
+
+        # save the enumerated altered genes, and the number of such genes, to file
+        with open(os.path.join(out_path, "gene-list.p"), 'wb') as fl:
+            pickle.dump(sorted(cdata.copy_mat.columns), fl)
+        with open(os.path.join(out_path, "gene-count.txt"), 'w') as f:
+            f.write(str(cdata.copy_mat.shape[1]))
+
+    if os.path.exists(os.path.join(gene_path, "gene-count.txt")):
+        os.system("cp {} {}".format(os.path.join(gene_path, "gene-count.txt"),
+                                    os.path.join(out_path, "gene-count.txt")))
+
+    else:
+        with open(os.path.join(out_path, "gene-list.p"), 'rb') as f:
+            gene_list = pickle.load(f)
+
+        with open(os.path.join(gene_path, "gene-count.txt"), 'w') as f:
+            f.write(str(len(gene_list)))
+        with open(os.path.join(out_path, "gene-count.txt"), 'w') as f:
+            f.write(str(len(gene_list)))
 
 
 if __name__ == '__main__':
