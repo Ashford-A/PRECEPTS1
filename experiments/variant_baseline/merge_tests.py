@@ -119,12 +119,14 @@ def main():
                                  'rb'))
                 for fl, _, _ in out_files]
 
-    use_clf = set(ols['Clf'] for ols in out_list)
+    use_clf = set(ols['Clf'] if 'Clf' in ols else ols['Rgr']
+                  for ols in out_list)
     if len(use_clf) != 1:
         raise MergeError("Each experiment must be run "
                          "with exactly one classifier!")
 
-    use_tpr = set(ols['Clf'].tune_priors for ols in out_list)
+    use_tpr = set(ols['Clf'].tune_priors if 'Clf' in ols else ols['Rgr']
+                  for ols in out_list)
     if len(use_tpr) != 1:
         raise MergeError("Each experiment must be run with the same tuning "
                          "priors across all classifer instances!")
@@ -132,8 +134,16 @@ def main():
     with open(os.path.join(args.use_dir,
                            'setup', "cohort-data.p"), 'rb') as fl:
         cdata = pickle.load(fl)
-    with open(os.path.join(args.use_dir, 'setup', "vars-list.p"), 'rb') as fl:
-        vars_list = pickle.load(fl)
+
+    if os.path.isfile(os.path.join(args.use_dir, 'setup', "vars-list.p")):
+        with open(os.path.join(args.use_dir, 'setup', "vars-list.p"),
+                  'rb') as fl:
+            vars_list = pickle.load(fl)
+
+    else:
+        with open(os.path.join(args.use_dir, 'setup', "gene-list.p"),
+                  'rb') as fl:
+            vars_list = pickle.load(fl)
 
     fit_acc = {
         samp_set: pd.concat([
@@ -243,12 +253,12 @@ def main():
             random.seed((cv_id // 5) * 1811 + 9)
             random.shuffle(cdata_samps)
 
-            cdata.update_split(2077 + 57 * cv_id,
+            cdata.update_split(2079 + 57 * cv_id,
                                test_samps=cdata_samps[(cv_id % 5)::5])
             test_samps = cdata.get_test_samples()
 
         else:
-            cdata.update_split(2077 + 57 * cv_id, test_prop=0.2)
+            cdata.update_split(2079 + 57 * cv_id, test_prop=0.2)
             test_samps = cdata.get_test_samples()
 
         score_list[cv_id] = pd.concat([

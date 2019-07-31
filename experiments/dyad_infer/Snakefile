@@ -55,7 +55,7 @@ rule consolidate:
         expand("{outdir}/out-simil__{classif}.p.gz",
                outdir=OUTDIR, classif=config['classif']),
 
-    threads: 1
+    threads: 12
 
     shell: """
         set +u; source activate HetMan; set -u;
@@ -65,5 +65,8 @@ rule consolidate:
                 {OUTDIR}/cohort-data__{config[classif]}.p
         cp {TMPDIR}/out-data.p.gz {OUTDIR}/out-data__{config[classif]}.p.gz
         cp {TMPDIR}/out-simil.p.gz {OUTDIR}/out-simil__{config[classif]}.p.gz
+
+        python {LOCALDIR}/plot_experiment.py \
+                {config[cohort]} {config[samp_cutoff]} {config[classif]}
         """
 

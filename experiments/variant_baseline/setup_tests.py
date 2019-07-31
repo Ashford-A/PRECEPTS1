@@ -93,6 +93,7 @@ def main():
         expr_dir=expr_sources[args.expr_source.split('__')[0]],
         copy_dir=copy_dir
         ) | {args.cohort}
+        #) | {args.cohort} | {'beatAML'}
 
     use_feats = None
     if args.expr_source == 'toil__gns':

@@ -61,7 +61,7 @@ task_count=$(( $vars_count / $test_max + 1 ))
 if [ -d .snakemake ]
 then
 	snakemake --unlock
-	rm .snakemake/locks/*
+	rm -rf .snakemake/locks/*
 fi
 
 dvc run -d setup/cohort-data.p -d setup/vars-list.p -d $RUNDIR/fit_tests.py \

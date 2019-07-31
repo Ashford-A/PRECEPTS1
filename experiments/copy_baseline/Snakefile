@@ -21,7 +21,7 @@ localrules: target, consolidate
 
 rule target:
     input:
-        expand("{outdir}/out-data__{regress}.p",
+        expand("{outdir}/out-data__{regress}.p.gz",
                outdir=OUTDIR, regress=config['regress'])
 
     threads: 1
@@ -50,7 +50,7 @@ rule consolidate:
                cv_id=range(51), task_id=range(config['task_count']))
 
     output:
-        expand("{outdir}/out-data__{regress}.p",
+        expand("{outdir}/out-data__{regress}.p.gz",
                outdir=OUTDIR, regress=config['regress'])
 
     threads: 1

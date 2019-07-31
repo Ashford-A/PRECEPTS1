@@ -60,6 +60,7 @@ task_count=$(( $(( $pairs_count - 1 )) / $test_max + 1 ))
 if [ -d .snakemake ]
 then
 	snakemake --unlock
+	rm -rf .snakemake/locks/*
 fi
 
 dvc run -d setup/cohort-data.p -d setup/pairs-list.p -d $RUNDIR/fit_infer.py \
