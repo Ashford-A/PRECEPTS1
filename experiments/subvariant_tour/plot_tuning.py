@@ -60,7 +60,7 @@ def plot_tuning_auc(out_dict, auc_dict, args):
                 for (cis_lbl, _), val in vals.iteritems():
                     ax.scatter(par_fnc(val), auc_df.loc[mtype, cis_lbl],
                                marker=src_mrks[src],
-                               s=491 * np.mean(phn_dict[mtype]),
+                               s=391 * np.mean(phn_dict[mtype]),
                                c=coh_clrs[coh], alpha=0.17, edgecolor='none')
 
         ax.set_xlim(plt_xmin, plt_xmax)
@@ -111,7 +111,7 @@ def main():
     cdata_dict = dict()
     auc_dict = dict()
 
-    for (src, coh, lvls), ctf in tuple(out_use.iteritems())[2:]:
+    for (src, coh, lvls), ctf in out_use.iteritems():
         with bz2.BZ2File(os.path.join(base_dir,
                                       "{}__{}__samps-{}".format(
                                           src, coh, ctf),
