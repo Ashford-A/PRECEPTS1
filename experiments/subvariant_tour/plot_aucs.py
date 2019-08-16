@@ -16,13 +16,16 @@ from glob import glob
 from pathlib import Path
 import bz2
 import dill as pickle
+
 import numpy as np
 import pandas as pd
+import re
 
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
 from colorsys import hls_to_rgb
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 plt.style.use('fivethirtyeight')
 plt.rcParams['axes.facecolor']='white'
@@ -31,18 +34,46 @@ plt.rcParams['axes.edgecolor']='white'
 
 
 def get_fancy_label(mtype):
-    use_lbls = str(mtype).split(':')[1:]
- 
-    if len(use_lbls[0]) > 10:
-        use_lbls[0] = "{} ...".format(use_lbls[0][:10])
+    sub_keys = mtype.subkeys()
 
-    if len(use_lbls) > 1 and len(use_lbls[1]) > 12:
-        use_lbls[1] = "{} ...".format(use_lbls[1][:12])
-    if len(use_lbls) > 2 and len(use_lbls[2]) > 20:
-        use_lbls[2] = "{} ...".format(use_lbls[2][:20])
+    if len(sub_keys) <= 2:
+        use_lbls = []
 
-    use_lbl = '\n'.join(use_lbls)
-    use_lbl = use_lbl.replace('None', 'NoDomain')
+        for lbl_key in sub_keys:
+            sub_lbls = str(MuType(lbl_key)).split(':')[1:]
+
+            for i in range(len(sub_lbls)):
+                if sub_lbls[i].count('|') >= 2:
+                    sub_lbls[i] = "3+ sub-mutations"
+
+                sub_lbls[i] = sub_lbls[i].replace("None", "no domain")
+                sub_lbls[i] = sub_lbls[i].replace("_Mutation", "")
+                sub_lbls[i] = sub_lbls[i].replace("_", "")
+                sub_lbls[i] = sub_lbls[i].replace("|", " or ")
+
+                dom_mtch = re.search("(^[:]|^)SM[0-9]", sub_lbls[i])
+                while dom_mtch:
+                    sub_lbls[i] = "{}Domain:SMART-{}".format(
+                        sub_lbls[i][:dom_mtch.span()[0]],
+                        sub_lbls[i][(dom_mtch.span()[1] - 1):]
+                        )
+                    dom_mtch = re.search("SM[0-9]", sub_lbls[i])
+
+                exn_mtch = re.search("[0-9]+/[0-9]+", sub_lbls[i])
+                while exn_mtch:
+                    print(exn_mtch)
+                    exn_mtch = False
+                    """
+                     = "Exon:{}{}".format(
+                        sub_lbls[i][:(exn_mtch.span()[0] + 1)],
+                        sub_lbls[i][(exn_mtch.span()[1] - 1):]
+                        )
+                    """
+            use_lbls += ['\nwith '.join(sub_lbls)]
+        use_lbl = '\nand '.join(use_lbls)
+
+    else:
+        use_lbl = "grouping of\n3+ mutation types"
 
     return use_lbl
 
@@ -53,13 +84,13 @@ def place_labels(pnt_dict):
     for pnt, (sz, _) in pnt_dict.items():
         use_sz = (sz ** 0.5) / 1955
 
-        if not any(((pnt[0] - 0.09 - use_sz) < pnt2[0] <= pnt[0]
+        if not any(((pnt[0] - 0.13 - use_sz) < pnt2[0] <= pnt[0]
                     and ((pnt[1] - 0.03 - use_sz) < pnt2[1]
                          < (pnt[1] + 0.03 + use_sz)))
                    for pnt2 in pnt_dict if pnt2 != pnt):
             lbl_pos[pnt] = ((pnt[0] - use_sz, pnt[1]), 'right')
 
-        elif not any((pnt[0] <= pnt2[0] < (pnt[0] + 0.09 + use_sz))
+        elif not any((pnt[0] <= pnt2[0] < (pnt[0] + 0.13 + use_sz))
                       and ((pnt[1] - 0.03 - use_sz) < pnt2[1]
                            < (pnt[1] + 0.03 + use_sz))
                      for pnt2 in pnt_dict if pnt2 != pnt):
@@ -74,8 +105,8 @@ def place_labels(pnt_dict):
                 new_pos = 0.05 * np.random.randn(2) + [pnt[0], pnt[1]]
                 new_pos = new_pos.round(5).clip(0.55, 0.95).tolist()
 
-                if not any((((new_pos[0] - 0.08)
-                             < pnt2[0] <= (new_pos[0] + 0.08))
+                if not any((((new_pos[0] - 0.1)
+                             < pnt2[0] <= (new_pos[0] + 0.1))
                             and ((new_pos[1] - 0.04) < pnt2[1]
                                  < (new_pos[1] + 0.04)))
                            for pnt2 in pnt_dict if pnt2 != pnt):
@@ -87,7 +118,7 @@ def place_labels(pnt_dict):
 
 def plot_auc_comparisons(auc_vals, pheno_dict, args):
     fig, ax = plt.subplots(figsize=(11, 10))
-    np.random.seed(104)
+    np.random.seed(3742)
 
     pnt_dict = dict()
     clr_dict = dict()
@@ -106,20 +137,23 @@ def plot_auc_comparisons(auc_vals, pheno_dict, args):
             best_indx = auc_vec.index.get_loc(best_subtype)
 
             if auc_vec[best_indx] > 0.6:
+                base_size = np.mean(pheno_dict[base_mtype])
+                best_prop = np.mean(pheno_dict[best_subtype]) / base_size
+
                 pnt_dict[auc_vec[base_indx], auc_vec[best_indx]] = (
-                    2119 * np.mean(pheno_dict[base_mtype]),
-                    (gene, get_fancy_label(best_subtype))
-                    )
+                    2119 * base_size, (gene, get_fancy_label(best_subtype)))
 
-                ax.scatter(auc_vec[base_indx], auc_vec[best_indx], c='white',
-                           s=2119 * np.mean(pheno_dict[base_mtype]),
-                           alpha=0.61, edgecolor=clr_dict[gene],
-                           linewidths=1.3)
+                pie_size = base_size ** 0.5
+                pie_ax = inset_axes(ax, width=pie_size, height=pie_size,
+                                    bbox_to_anchor=(auc_vec[base_indx],
+                                                    auc_vec[best_indx]),
+                                    bbox_transform=ax.transData, loc=10,
+                                    axes_kwargs=dict(aspect='equal'),
+                                    borderpad=0)
 
-                ax.scatter(auc_vec[base_indx], auc_vec[best_indx],
-                           c=clr_dict[gene],
-                           s=2119 * np.mean(pheno_dict[best_subtype]),
-                           alpha=0.61, edgecolor='none')
+                pie_ax.pie(x=[best_prop, 1 - best_prop], explode=[0.29, 0],
+                           colors=[clr_dict[gene] + (0.77,),
+                                   clr_dict[gene] + (0.29,)])
 
     lbl_pos = place_labels(pnt_dict)
     for (pnt_x, pnt_y), pos in lbl_pos.items():
@@ -152,10 +186,12 @@ def plot_auc_comparisons(auc_vals, pheno_dict, args):
     ax.set_xlim([0.48, 1.01])
     ax.set_ylim([0.48, 1.01])
     ax.set_xlabel('AUC using all point mutations', size=23, weight='semibold')
-    ax.set_ylabel('sub-mutation AUC', size=23, weight='semibold')
+    ax.set_ylabel('AUC of best found subgrouping', size=23, weight='semibold')
 
-    ax.plot([-1, 2], [-1, 2],
-            linewidth=2.3, linestyle='--', color='#550000', alpha=0.41)
+    ax.plot([0.48, 1.0005], [1, 1], color='black', linewidth=1.9, alpha=0.89)
+    ax.plot([1, 1], [0.48, 1.0005], color='black', linewidth=1.9, alpha=0.89)
+    ax.plot([0.49, 0.997], [0.49, 0.997],
+            linewidth=2.1, linestyle='--', color='#550000', alpha=0.41)
 
     fig.tight_layout(w_pad=2.3, h_pad=1.9)
     plt.savefig(
