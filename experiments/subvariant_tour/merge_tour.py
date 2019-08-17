@@ -15,6 +15,74 @@ from itertools import product
 from itertools import combinations as combn
 
 
+def merge_cohort_data(out_dir, mut_lvls, use_seed=None):
+    cdata_file = os.path.join(out_dir, "cohort-data__{}.p".format(mut_lvls))
+
+    if os.path.isfile(cdata_file):
+        with open(cdata_file, 'rb') as fl:
+            cur_cdata = pickle.load(fl)
+            cur_hash = cur_cdata.data_hash()
+            cur_hash = tuple(cur_hash[0]), cur_hash[1]
+
+    else:
+        cur_hash = None
+
+    #TODO: handle case where input `mut_lvls` is malformed
+    # eg. Domain_SMART instead of Domain_SMART__Form_base
+    new_files = glob(os.path.join(out_dir,
+                                  "cohort-data__{}__*.p".format(mut_lvls)))
+    new_mdls = [
+        new_file.split("cohort-data__{}__".format(mut_lvls))[1].split(".p")[0]
+        for new_file in new_files
+        ]
+
+    new_cdatas = {new_mdl: pickle.load(open(new_file, 'rb'))
+                  for new_mdl, new_file in zip(new_mdls, new_files)}
+    new_chsums = {mdl: cdata.data_hash() for mdl, cdata in new_cdatas.items()}
+    new_chsums = {k: (tuple(v[0]), v[1]) for k, v in new_chsums.items()}
+
+    for mdl, cdata in new_cdatas.items():
+        if cdata.get_seed() != use_seed:
+            raise MergeError("Cohort for model {} does not have the correct "
+                             "cross-validation seed!".format(mdl))
+
+        if cdata.get_test_samples():
+            raise MergeError("Cohort for model {} does not have an empty "
+                             "testing sample set!".format(mdl))
+
+    assert len(set(new_chsums.values())) <= 1, (
+        "Inconsistent cohort hashes found for new "
+        "experiments in {} !".format(out_dir)
+        )
+
+    if new_files:
+        if cur_hash is not None:
+            assert tuple(new_chsums.values())[0] == cur_hash, (
+                "Cohort hash for new experiment in {} does not match hash "
+                "for cached cohort!".format(out_dir)
+                )
+            use_cdata = cur_cdata
+
+        else:
+            use_cdata = tuple(new_cdatas.values())[0]
+            with open(cdata_file, 'wb') as f:
+                pickle.dump(use_cdata, f)
+
+        for new_file in new_files:
+            os.remove(new_file)
+
+    else:
+        if cur_hash is None:
+            raise ValueError("No cohort datasets found in {}, has an "
+                             "experiment with these parameters been run to "
+                             "completion yet?".format(out_dir))
+
+        else:
+            use_cdata = cur_cdata
+
+    return use_cdata
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('use_dir', type=str, default=base_dir)

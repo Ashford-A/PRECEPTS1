@@ -8,7 +8,7 @@ plot_dir = os.path.join(base_dir, 'plots', 'aucs')
 
 from HetMan.experiments.subvariant_tour import *
 from HetMan.experiments.subvariant_tour.utils import calculate_aucs
-from HetMan.experiments.subvariant_infer.merge_infer import merge_cohort_data
+from HetMan.experiments.subvariant_tour.merge_tour import merge_cohort_data
 from dryadic.features.mutations import MuType
 
 import argparse
@@ -57,18 +57,16 @@ def get_fancy_label(mtype):
                         sub_lbls[i][:dom_mtch.span()[0]],
                         sub_lbls[i][(dom_mtch.span()[1] - 1):]
                         )
-                    dom_mtch = re.search("SM[0-9]", sub_lbls[i])
+                    dom_mtch = re.search("(^[:]|^)SM[0-9]", sub_lbls[i])
 
-                exn_mtch = re.search("[0-9]+/[0-9]+", sub_lbls[i])
+                exn_mtch = re.search("([0-9]+)/([0-9]+)", sub_lbls[i])
                 while exn_mtch:
-                    print(exn_mtch)
-                    exn_mtch = False
-                    """
-                     = "Exon:{}{}".format(
-                        sub_lbls[i][:(exn_mtch.span()[0] + 1)],
-                        sub_lbls[i][(exn_mtch.span()[1] - 1):]
+                    sub_lbls[i] = "Exon:{}{}".format(
+                        exn_mtch.groups()[0],
+                        sub_lbls[i][exn_mtch.span()[1]:]
                         )
-                    """
+                    exn_mtch = re.search("([0-9]+)/([0-9]+)", sub_lbls[i])
+
             use_lbls += ['\nwith '.join(sub_lbls)]
         use_lbl = '\nand '.join(use_lbls)
 
@@ -82,7 +80,7 @@ def place_labels(pnt_dict):
     lbl_pos = {pnt: None for pnt in pnt_dict}
 
     for pnt, (sz, _) in pnt_dict.items():
-        use_sz = (sz ** 0.5) / 1955
+        use_sz = (sz ** 0.53) / 1843
 
         if not any(((pnt[0] - 0.13 - use_sz) < pnt2[0] <= pnt[0]
                     and ((pnt[1] - 0.03 - use_sz) < pnt2[1]
@@ -116,7 +114,7 @@ def place_labels(pnt_dict):
     return lbl_pos
 
 
-def plot_auc_comparisons(auc_vals, pheno_dict, args):
+def plot_sub_comparisons(auc_vals, pheno_dict, args):
     fig, ax = plt.subplots(figsize=(11, 10))
     np.random.seed(3742)
 
@@ -169,9 +167,9 @@ def plot_auc_comparisons(auc_vals, pheno_dict, args):
         ln_lngth = np.sqrt((x_delta ** 2) + (y_delta ** 2))
 
         # if the label is sufficiently far away from its point...
-        if ln_lngth > 0.01:
+        pnt_sz = (pnt_dict[pnt_x, pnt_y][0] ** 0.43) / 1077
+        if ln_lngth > 0.01 + pnt_sz:
             use_clr = clr_dict[pnt_dict[pnt_x, pnt_y][1][0]]
-            pnt_sz = (pnt_dict[pnt_x, pnt_y][0] ** 0.43) / 1077
             lbl_sz = pnt_dict[pnt_x, pnt_y][1][1].count('\n')
 
             pnt_gap = pnt_sz / ln_lngth
@@ -185,18 +183,17 @@ def plot_auc_comparisons(auc_vals, pheno_dict, args):
 
     ax.set_xlim([0.48, 1.01])
     ax.set_ylim([0.48, 1.01])
-    ax.set_xlabel('AUC using all point mutations', size=23, weight='semibold')
-    ax.set_ylabel('AUC of best found subgrouping', size=23, weight='semibold')
+    ax.set_xlabel("AUC using all point mutations", size=23, weight='semibold')
+    ax.set_ylabel("AUC of best found subgrouping", size=23, weight='semibold')
 
     ax.plot([0.48, 1.0005], [1, 1], color='black', linewidth=1.9, alpha=0.89)
     ax.plot([1, 1], [0.48, 1.0005], color='black', linewidth=1.9, alpha=0.89)
     ax.plot([0.49, 0.997], [0.49, 0.997],
             linewidth=2.1, linestyle='--', color='#550000', alpha=0.41)
 
-    fig.tight_layout(w_pad=2.3, h_pad=1.9)
     plt.savefig(
         os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
-                     "auc-comparisons_{}.svg".format(args.classif)),
+                     "sub-comparisons_{}.svg".format(args.classif)),
         bbox_inches='tight', format='svg'
         )
 
@@ -260,11 +257,11 @@ def main():
 
     pheno_dict = {mtype: phn for _, phn_dict in out_dict.values()
                   for mtype, phn in phn_dict.items()}
-    auc_df = {cis_lbl: pd.concat([auc_df[cis_lbl]
-                                  for auc_df, _ in out_dict.values()])
-              for cis_lbl in cis_lbls}
+    auc_dfs = {cis_lbl: pd.concat([auc_df[cis_lbl]
+                                   for auc_df, _ in out_dict.values()])
+               for cis_lbl in cis_lbls}
 
-    plot_auc_comparisons(auc_df['Chrm'], pheno_dict, args)
+    plot_sub_comparisons(auc_dfs['Chrm'], pheno_dict, args)
 
 
 if __name__ == '__main__':
