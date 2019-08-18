@@ -7,14 +7,16 @@ sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
 plot_dir = os.path.join(base_dir, 'plots', 'experiment')
 
 from HetMan.experiments.subvariant_tour import *
-from HetMan.experiments.subvariant_infer.merge_infer import merge_cohort_data
+from HetMan.experiments.subvariant_tour.merge_tour import merge_cohort_data
 from HetMan.experiments.subvariant_infer import variant_clrs
 
 import argparse
 import bz2
 import dill as pickle
+
 import numpy as np
 import pandas as pd
+from itertools import combinations as combn
 
 import matplotlib as mpl
 mpl.use('Agg')
@@ -34,7 +36,7 @@ def lbl_norm(lbls, wt_val, mut_val):
     return np.mean(norm_lbls), np.var(norm_lbls)
 
 
-def plot_stability_comparison(infer_dfs, auc_df, pheno_dict, args, cdata):
+def plot_label_stability(infer_dfs, auc_df, pheno_dict, args):
     fig, axarr = plt.subplots(figsize=(13, 8), nrows=3, ncols=4)
 
     use_aucs = auc_df.round(4)
@@ -120,24 +122,8 @@ def plot_stability_comparison(infer_dfs, auc_df, pheno_dict, args, cdata):
     plt.close()
 
 
-def plot_auc_stability(infer_dfs, pheno_dict, args, cdata):
+def plot_auc_stability(aucs_df, pheno_dict, args):
     fig, ax = plt.subplots(figsize=(13, 8))
-
-    aucs_df = pd.DataFrame({cis_lbl: {mtype: [
-        np.greater.outer(
-            np.array([vals[i]
-                      for vals in infer_vals.values[pheno_dict[mtype]]]),
-            np.array([vals[i]
-                      for vals in infer_vals.values[~pheno_dict[mtype]]])
-            ).mean() + 0.5 * np.equal.outer(
-                np.array([vals[i]
-                          for vals in infer_vals.values[pheno_dict[mtype]]]),
-                np.array([vals[i]
-                          for vals in infer_vals.values[~pheno_dict[mtype]]])
-                ).mean()
-        for i in range(20)
-        ] for mtype, infer_vals in infer_df.iterrows()}
-        for cis_lbl, infer_df in infer_dfs.items()})
 
     stat_dict = {'Mean': aucs_df.applymap(np.mean),
                  'Var': aucs_df.applymap(np.std)}
@@ -164,11 +150,56 @@ def plot_auc_stability(infer_dfs, pheno_dict, args, cdata):
     plt.close()
 
 
+def plot_auc_comparisons(auc_df, aucs_df, pheno_dict, args):
+    fig, axarr = plt.subplots(figsize=(13, 12), nrows=3, ncols=3)
+
+    var_df = aucs_df.applymap(np.var).applymap(np.log10)
+    auc_rng = np.percentile(auc_df.values, q=[0, 100])
+    var_rng = np.percentile(var_df.values, q=[0, 100])
+
+    for i, cis_lbl in enumerate(cis_lbls):
+        axarr[i, i].axis('off')
+        axarr[i, i].text(0.5, 0.5, cis_lbl, size=23,
+                         weight='semibold', ha='center', va='center')
+
+    for (i, cis_lbl1), (j, cis_lbl2) in combn(enumerate(cis_lbls), 2):
+        for mtype in auc_df.index:
+            mtype_size = 211 * np.mean(pheno_dict[mtype])
+
+            axarr[i, j].scatter(
+                auc_df.loc[mtype, cis_lbl1], auc_df.loc[mtype, cis_lbl2],
+                marker='o', s=mtype_size, alpha=0.41, edgecolor='none'
+                )
+
+            axarr[j, i].scatter(
+                var_df.loc[mtype, cis_lbl2], var_df.loc[mtype, cis_lbl1],
+                marker='o', s=mtype_size, alpha=0.41, edgecolor='none'
+                )
+
+        axarr[i, j].plot([auc_rng[0], auc_rng[1]], [auc_rng[0], auc_rng[1]],
+                         linewidth=1.3, linestyle='--', color='#550000',
+                         alpha=0.53)
+
+        axarr[j, i].plot([var_rng[0], var_rng[1]], [var_rng[0], var_rng[1]],
+                         linewidth=1.3, linestyle='--', color='#550000',
+                         alpha=0.53)
+
+    fig.tight_layout(w_pad=1.9, h_pad=1.9)
+    plt.savefig(
+        os.path.join(plot_dir,
+                     "{}__{}__samps-{}".format(
+                         args.expr_source, args.cohort, args.samp_cutoff),
+                     "auc-comparisons_{}__{}.svg".format(
+                         args.mut_levels, args.classif)),
+        bbox_inches='tight', format='svg'
+        )
+
+    plt.close()
+
+
 def main():
     parser = argparse.ArgumentParser(
-        "Plots the structure across the inferred similarities of pairs of "
-        "mutations tested in a given experiment."
-        )
+        "Plots general information about a particular run of the experiment.")
 
     parser.add_argument('expr_source',
                         help="a source of expression data", type=str)
@@ -212,8 +243,25 @@ def main():
         }
         for cis_lbl, infer_df in infer_dfs.items()})
 
-    plot_stability_comparison(infer_dfs, auc_df, pheno_dict, args, cdata)
-    plot_auc_stability(infer_dfs, pheno_dict, args, cdata)
+    aucs_df = pd.DataFrame({cis_lbl: {mtype: [
+        np.greater.outer(
+            np.array([vals[i]
+                      for vals in infer_vals.values[pheno_dict[mtype]]]),
+            np.array([vals[i]
+                      for vals in infer_vals.values[~pheno_dict[mtype]]])
+            ).mean() + 0.5 * np.equal.outer(
+                np.array([vals[i]
+                          for vals in infer_vals.values[pheno_dict[mtype]]]),
+                np.array([vals[i]
+                          for vals in infer_vals.values[~pheno_dict[mtype]]])
+                ).mean()
+        for i in range(20)
+        ] for mtype, infer_vals in infer_df.iterrows()}
+        for cis_lbl, infer_df in infer_dfs.items()})
+
+    plot_label_stability(infer_dfs, auc_df, pheno_dict, args)
+    plot_auc_stability(aucs_df, pheno_dict, args)
+    plot_auc_comparisons(auc_df, aucs_df, pheno_dict, args)
 
 
 if __name__ == '__main__':
