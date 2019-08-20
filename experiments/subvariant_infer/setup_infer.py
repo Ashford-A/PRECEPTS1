@@ -7,7 +7,7 @@ sys.path.extend([os.path.join(base_dir, '../../..')])
 from HetMan.experiments.subvariant_infer import *
 from HetMan.experiments.subvariant_infer.utils import (
     Mcomb, ExMcomb, RandomType)
-from HetMan.experiments.subvariant_infer.merge_infer import merge_cohort_data
+from HetMan.experiments.subvariant_tour.merge_tour import merge_cohort_data
 
 from HetMan.experiments.subvariant_tour.utils import calculate_aucs
 from HetMan.experiments.utilities.load_input import load_firehose_cohort
@@ -28,6 +28,21 @@ from functools import reduce
 from operator import and_
 from itertools import combinations as combn
 from itertools import product
+
+
+def get_cohort_data(cohort, mut_levels, use_genes):
+    if coh == 'beatAML':
+        return BeatAmlCohort(
+            ['Gene'] + mut_levels.split('__'), use_genes,
+            expr_source='toil__gns', expr_file=beatAML_files['expr'],
+            samp_file=beatAML_files['samps'], syn=syn, annot_file=annot_file,
+            domain_dir=domain_dir, cv_seed=709, test_prop=0
+            )
+
+    else:
+        return load_firehose_cohort(coh, use_genes,
+                                    ['Gene'] + mut_levels.split('__'),
+                                    cv_seed=709, test_prop=0)
 
 
 def main():
@@ -117,7 +132,7 @@ def main():
             ('Scale', 'Point'): mtype.subtype_list()[0][1]}})
         for mtype in sorted(set(auc_vals.index) - {base_mtype})
         if ((mtype in infer_dict[lvls].index and (good_indx[mtype]
-                                                  or random.random() <= 0.1))
+                                                  or random.random() <= 0.2))
             or mtype.subtype_list()[0][1] in cdata_dict[lvls].mtree[
                 args.gene]['Point'].branchtypes(min_size=ctf))
         } for lvls, ctf in sorted(out_use.iteritems())}
@@ -126,31 +141,32 @@ def main():
     use_mtypes['Random'] = set()
 
     for lvls, cdata in cdata_dict.items():
-        mtype_sizes = [len(mtype.get_samples(cdata.mtree))
-                       for mtype in use_mtypes[lvls]]
-        max_size = max(max_size, max(mtype_sizes))
+        if use_mtypes[lvls]:
+            mtype_sizes = [len(mtype.get_samples(cdata.mtree))
+                           for mtype in use_mtypes[lvls]]
+            max_size = max(max_size, max(mtype_sizes))
 
-        use_mtypes['Random'] |= {
-            RandomType(size_dist=mtype_size,
-                       base_mtype=MuType({('Gene', args.gene): {(
-                           'Scale', 'Point'): None}}),
-                       seed=seed)
-            for mtype_size, seed in product(mtype_sizes, range(89, 99))
-            }
+            use_mtypes['Random'] |= {
+                RandomType(size_dist=mtype_size,
+                           base_mtype=MuType({('Gene', args.gene): {(
+                               'Scale', 'Point'): None}}),
+                           seed=seed)
+                for mtype_size, seed in product(mtype_sizes, range(89, 99))
+                }
 
     max_size = int(
         (max_size + len(cdata.mtree[args.gene]['Point'].get_samples())) / 2)
 
     use_mtypes['Random'] |= {
-        RandomType(size_dist=[int(out_use.min()), max_size], seed=seed)
-        for seed in range((max_size - out_use.min()) * 2)
+        RandomType(size_dist=[int(out_use.min()), max_size], seed=seed + 39)
+        for seed in range((max_size - out_use.min()) * 4)
         }
     use_mtypes['Random'] |= {
         RandomType(size_dist=[int(out_use.min()), max_size],
                    base_mtype=MuType({('Gene', args.gene): {(
                        'Scale', 'Point'): None}}),
-                   seed=seed)
-        for seed in range((max_size - out_use.min()) * 2)
+                   seed=seed + 103)
+        for seed in range((max_size - out_use.min()) * 4)
         }
 
     use_mtypes['Exon__Location__Protein'] |= {base_mtype}
@@ -175,7 +191,12 @@ def main():
         }
 
     for lvls in out_use.index:
-        use_mtree = cdata_dict[lvls].mtree
+        all_mtypes = [MuType(cdata_dict[lvls].mtree[args.gene].allkey())]
+
+        all_mtypes += [all_mtypes[0] - MuType({('Scale', 'Copy'): {(
+            'Copy', ('ShalGain', 'ShalDel')): None}})]
+        all_mtypes = [MuType({('Gene', args.gene): all_mtype})
+                      for all_mtype in all_mtypes]
 
         use_pairs = {(mtype1, mtype2)
                      for mtype1, mtype2 in combn(use_mtypes[lvls]
@@ -183,18 +204,22 @@ def main():
                      if (mtype1 & mtype2).is_empty()}
 
         use_mcombs = {Mcomb(*pair) for pair in use_pairs}
-        use_mcombs |= {ExMcomb(use_mtree, *pair) for pair in use_pairs}
-        use_mcombs |= {ExMcomb(use_mtree, mtype)
-                       for mtype in use_mtypes[lvls]}
+        use_mcombs |= {ExMcomb(all_mtype, *pair)
+                       for pair in use_pairs for all_mtype in all_mtypes}
+        use_mcombs |= {ExMcomb(all_mtype, mtype) for mtype in use_mtypes[lvls]
+                       for all_mtype in all_mtypes}
 
         if lvls == 'Exon__Location__Protein':
-            use_mcombs |= {ExMcomb(use_mtree, mtype)
-                           for mtype in use_mtypes['Copy']}
+            use_mcombs |= {ExMcomb(all_mtype, mtype)
+                           for mtype in use_mtypes['Copy']
+                           for all_mtype in all_mtypes}
 
-        use_mtypes[lvls] |= {mcomb for mcomb in use_mcombs
-                             if (out_use.min()
-                                 <= len(mcomb.get_samples(use_mtree))
-                                 <= (samp_count - out_use.min()))}
+        use_mtypes[lvls] |= {
+            mcomb for mcomb in use_mcombs
+            if (out_use.min()
+                <= len(mcomb.get_samples(cdata_dict[lvls].mtree))
+                <= (samp_count - out_use.min()))
+            }
 
     mtype_list = [(lvls, mtype) for lvls, mtypes in use_mtypes.items()
                   for mtype in mtypes]
@@ -221,47 +246,25 @@ def main():
             copy_tag = "{}__cohort-dict.p".format(coh)
 
         if os.path.exists(os.path.join(coh_path, coh_tag)):
-            with open(os.path.join(coh_path, coh_tag), 'rb') as f:
-                cdata_dict = pickle.load(f)
+            try:
+                with open(os.path.join(coh_path, coh_tag), 'rb') as f:
+                    cdata_dict = pickle.load(f)
 
-            for lvls in set(out_use.index) - set(cdata_dict.keys()):
-                if coh == 'beatAML':
-                    if 'Domain' not in lvls:
-                        cdata_dict[lvls] = BeatAmlCohort(
-                            ['Gene'] + lvls.split('__'), use_genes,
-                            expr_source='toil__gns',
-                            expr_file=beatAML_files['expr'],
-                            samp_file=beatAML_files['samps'], syn=syn,
-                            annot_file=annot_file, domain_dir=domain_dir,
-                            cv_seed=709, test_prop=0
-                            )
-
-                else:
-                    cdata_dict[lvls] = load_firehose_cohort(
-                        coh, use_genes, ['Gene'] + lvls.split('__'),
-                        cv_seed=709, test_prop=0
-                        )
-
-        else:
-            if coh == 'beatAML':
-                cdata_dict = {
-                    lvls: BeatAmlCohort(['Gene'] + lvls.split('__'),
-                                        use_genes, expr_source='toil__gns',
-                                        expr_file=beatAML_files['expr'],
-                                        samp_file=beatAML_files['samps'],
-                                        syn=syn, annot_file=annot_file,
-                                        domain_dir=domain_dir,
-                                        cv_seed=709, test_prop=0)
-                    for lvls in out_use.index if 'Domain' not in lvls
-                    }
+            except EOFError:
+                cdata_dict = {lvls: get_cohort_data(coh, use_genes, lvls)
+                              for lvls in out_use.index
+                              if not (coh == 'beatAML' and 'Domain' in lvls)}
 
             else:
-                cdata_dict = {
-                    lvls: load_firehose_cohort(coh, use_genes,
-                                               ['Gene'] + lvls.split('__'),
-                                               cv_seed=709, test_prop=0)
-                    for lvls in out_use.index
-                    }
+                for lvls in (set(out_use.index) - set(cdata_dict.keys())):
+                    if not (coh == 'beatAML' and 'Domain' in lvls):
+                        cdata_dict[lvls] = get_cohort_data(
+                            coh, use_genes, lvls)
+
+        else:
+            cdata_dict = {lvls: get_cohort_data(coh, use_genes, lvls)
+                          for lvls in out_use.index
+                          if not (coh == 'beatAML' and 'Domain' in lvls)}
 
         if use_feats is None:
             use_feats = reduce(and_, [set(cdata.get_features())
