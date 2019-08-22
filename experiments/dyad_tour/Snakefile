@@ -1,0 +1,74 @@
+
+import os
+
+LOCALDIR = os.path.join(os.environ['CODEDIR'],
+                        'HetMan', 'experiments', 'dyad_tour')
+
+TMPDIR = os.path.join(os.environ['TEMPDIR'],
+                      'HetMan', 'dyad_tour', config['expr_source'],
+                      "{}__samps-{}".format(config['cohort'],
+                                            config['samp_cutoff']),
+                      config['mut_levels'], config['classif'])
+
+OUTDIR = os.path.join(os.environ['DATADIR'], 'HetMan', 'dyad_tour',
+                      "{}__{}__samps-{}".format(config['expr_source'],
+                                                config['cohort'],
+                                                config['samp_cutoff']))
+
+
+localrules: target
+
+
+rule target:
+    input:
+        expand("{outdir}/out-data__{mut_levels}__{classif}.p.gz",
+               outdir=OUTDIR, mut_levels=config['mut_levels'],
+               classif=config['classif']),
+        expand("{outdir}/out-simil__{mut_levels}__{classif}.p.gz",
+               outdir=OUTDIR, mut_levels=config['mut_levels'],
+               classif=config['classif'])
+
+    threads: 1
+
+
+rule tour:
+    output: "{TMPDIR}/output/out_task-{task_id}.p"
+
+    threads: 8
+
+    shell: """
+        set +u; source activate HetMan; set -u;
+        export OMP_NUM_THREADS=1;
+        sleep $(( ({wildcards.task_id} + 1) * $(shuf -i 1-13 -n 1) ));
+
+        python {LOCALDIR}/fit_tour.py {config[classif]} --use_dir={TMPDIR} \
+                --task_count={config[task_count]} \
+                --task_id={wildcards.task_id}
+        """
+
+
+rule consolidate:
+    input:
+        expand("{tmpdir}/output/out_task-{task_id}.p",
+               tmpdir=TMPDIR, task_id=range(config['task_count']))
+
+    output:
+        expand("{outdir}/out-data__{mut_levels}__{classif}.p.gz",
+               outdir=OUTDIR, mut_levels=config['mut_levels'],
+               classif=config['classif']),
+        expand("{outdir}/out-simil__{mut_levels}__{classif}.p.gz",
+               outdir=OUTDIR, mut_levels=config['mut_levels'],
+               classif=config['classif']),
+
+    threads: 1
+
+    shell: """
+        set +u; source activate HetMan; set -u;
+        python {LOCALDIR}/merge_tour.py {TMPDIR}
+
+        out_tag={config[mut_levels]}__{config[classif]}
+        cp {TMPDIR}/setup/cohort-data.p {OUTDIR}/cohort-data__${{out_tag}}.p
+        cp {TMPDIR}/out-data.p.gz {OUTDIR}/out-data__${{out_tag}}.p.gz
+        cp {TMPDIR}/out-simil.p.gz {OUTDIR}/out-simil__${{out_tag}}.p.gz
+        """
+
