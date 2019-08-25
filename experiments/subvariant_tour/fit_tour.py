@@ -4,12 +4,13 @@ import sys
 base_dir = os.path.dirname(__file__)
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
-from HetMan.experiments.subvariant_tour import *
+from HetMan.experiments.subvariant_tour import cis_lbls
+from HetMan.experiments.subvariant_tour.utils import RandomType
 from dryadic.learning.classifiers import *
-from dryadic.features.mutations import MuType
 
 import argparse
 import dill as pickle
+import random
 
 
 def get_excluded_genes(cis_lbl, cur_gene, gene_annot):
@@ -64,6 +65,9 @@ def main():
     clf.predict_proba = clf.calc_pred_labels
     mut_clf = clf()
 
+    mtype_genes = {mtype: mtype.subtype_list()[0][0] for mtype in mtype_list
+                   if not isinstance(mtype, RandomType)}
+
     out_tune = {mtype: {cis_lbl: {par: None for par, _ in mut_clf.tune_priors}
                         for cis_lbl in cis_lbls}
                 for mtype in mtype_list}
@@ -71,18 +75,23 @@ def main():
                for mtype in mtype_list}
 
     # for each subtype, check if it has been assigned to this task
-    for i, mtype in enumerate(mtype_list):
+    for i, mtype in enumerate(mtype_list[::-1]):
         if (i % args.task_count) == args.task_id:
             print("Testing {} ...".format(mtype))
 
+            if isinstance(mtype, RandomType):
+                use_gene = random.choice(list(mtype_genes.values()))
+            else:
+                use_gene = mtype_genes[mtype]
+
             for cis_lbl in cis_lbls:
-                ex_genes = get_excluded_genes(
-                    cis_lbl, mtype.subtype_list()[0][0], cdata.gene_annot)
+                ex_genes = get_excluded_genes(cis_lbl, use_gene,
+                                              cdata.gene_annot)
 
                 # tune the hyper-parameters of the classifier
                 mut_clf, cv_output = mut_clf.tune_coh(
                     cdata, mtype, exclude_feats=ex_genes,
-                    tune_splits=4, test_count=36, parallel_jobs=8
+                    tune_splits=4, test_count=24, parallel_jobs=8
                     )
 
                 # save the tuned values of the hyper-parameters
@@ -92,7 +101,7 @@ def main():
 
                 out_inf[mtype][cis_lbl] = mut_clf.infer_coh(
                     cdata, mtype, exclude_feats=ex_genes,
-                    infer_splits=80, infer_folds=4, parallel_jobs=8
+                    infer_splits=40, infer_folds=4, parallel_jobs=8
                     )
 
         else:

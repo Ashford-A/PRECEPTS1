@@ -5,7 +5,10 @@ base_dir = os.path.dirname(__file__)
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
 from HetMan.experiments.subvariant_tour import *
+from HetMan.experiments.subvariant_tour import pnt_mtype
+from HetMan.experiments.subvariant_tour.utils import RandomType
 from HetMan.experiments.utilities.load_input import parse_subtypes
+
 from HetMan.features.cohorts.tcga import MutationCohort
 from HetMan.features.cohorts.beatAML import BeatAmlCohort
 from dryadic.features.mutations import MuType
@@ -60,7 +63,7 @@ def get_cohort_data(cohort, expr_source, mut_levels):
                                expr_dir=expr_sources[source_base],
                                copy_dir=copy_dir, collapse_txs=collapse_txs,
                                syn=syn, cv_seed=8713, test_prop=0,
-                               annot_fields=['transcript'],
+                               annot_fields=['transcript', 'exon'],
                                use_types=parse_subtypes(cohort))
 
     return cdata
@@ -116,6 +119,11 @@ def main():
 
             use_mtypes |= {MuType({('Gene', gene): mtype})
                            for mtype in gene_mtypes}
+
+    use_mtypes |= {RandomType(size_dist=len(mtype.get_samples(cdata.mtree)),
+                              seed=i + 10307)
+                   for i, (mtype, _) in enumerate(product(use_mtypes,
+                                                          range(2)))}
 
     with open(os.path.join(out_path, "muts-list.p"), 'wb') as f:
         pickle.dump(sorted(use_mtypes), f)

@@ -23,6 +23,9 @@ rule target:
     input:
         expand("{outdir}/out-data__{mut_levels}__{classif}.p.gz",
                outdir=OUTDIR, mut_levels=config['mut_levels'],
+               classif=config['classif']),
+        expand("{outdir}/out-aucs__{mut_levels}__{classif}.p.gz",
+               outdir=OUTDIR, mut_levels=config['mut_levels'],
                classif=config['classif'])
 
     threads: 1
@@ -52,9 +55,12 @@ rule consolidate:
     output:
         expand("{outdir}/out-data__{mut_levels}__{classif}.p.gz",
                outdir=OUTDIR, mut_levels=config['mut_levels'],
+               classif=config['classif']),
+        expand("{outdir}/out-aucs__{mut_levels}__{classif}.p.gz",
+               outdir=OUTDIR, mut_levels=config['mut_levels'],
                classif=config['classif'])
 
-    threads: 1
+    threads: 12
 
     shell: """
         set +u; source activate HetMan; set -u;
@@ -63,6 +69,7 @@ rule consolidate:
         out_tag={config[mut_levels]}__{config[classif]}
         cp {TMPDIR}/setup/cohort-data.p {OUTDIR}/cohort-data__${{out_tag}}.p
         cp {TMPDIR}/out-data.p.gz {OUTDIR}/out-data__${{out_tag}}.p.gz
+        cp {TMPDIR}/out-aucs.p.gz {OUTDIR}/out-aucs__${{out_tag}}.p.gz
 
         python {LOCALDIR}/plot_experiment.py {config[expr_source]} \
                 {config[cohort]} {config[samp_cutoff]} \
