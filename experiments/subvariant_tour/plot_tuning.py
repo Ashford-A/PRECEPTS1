@@ -6,9 +6,8 @@ base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'subvariant_tour')
 sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
 plot_dir = os.path.join(base_dir, 'plots', 'tuning')
 
-from HetMan.experiments.subvariant_tour import *
 from HetMan.experiments.subvariant_tour.utils import calculate_aucs
-from HetMan.experiments.subvariant_infer.merge_infer import merge_cohort_data
+from HetMan.experiments.subvariant_tour.merge_tour import merge_cohort_data
 from HetMan.experiments.variant_baseline.plot_tuning import detect_log_distr
 
 import argparse

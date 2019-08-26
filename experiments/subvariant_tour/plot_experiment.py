@@ -6,7 +6,7 @@ base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'subvariant_tour')
 sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
 plot_dir = os.path.join(base_dir, 'plots', 'experiment')
 
-from HetMan.experiments.subvariant_tour import *
+from HetMan.experiments.subvariant_tour import cis_lbls
 from HetMan.experiments.subvariant_tour.merge_tour import merge_cohort_data
 from HetMan.experiments.subvariant_infer import variant_clrs
 
@@ -255,7 +255,7 @@ def main():
                 np.array([vals[i]
                           for vals in infer_vals.values[~pheno_dict[mtype]]])
                 ).mean()
-        for i in range(20)
+        for i in range(10)
         ] for mtype, infer_vals in infer_df.iterrows()}
         for cis_lbl, infer_df in infer_dfs.items()})
 

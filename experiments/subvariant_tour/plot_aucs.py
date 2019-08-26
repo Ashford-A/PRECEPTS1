@@ -6,9 +6,10 @@ base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'subvariant_tour')
 sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
 plot_dir = os.path.join(base_dir, 'plots', 'aucs')
 
-from HetMan.experiments.subvariant_tour import *
-from HetMan.experiments.subvariant_tour.utils import calculate_aucs
+from HetMan.experiments.subvariant_tour import cis_lbls, pnt_mtype
 from HetMan.experiments.subvariant_tour.merge_tour import merge_cohort_data
+from HetMan.experiments.subvariant_tour.utils import RandomType
+from HetMan.experiments.subvariant_infer import variant_clrs
 from dryadic.features.mutations import MuType
 
 import argparse
@@ -24,6 +25,8 @@ import re
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
+import seaborn as sns
+
 from colorsys import hls_to_rgb
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
@@ -40,13 +43,24 @@ def get_fancy_label(mtype):
         use_lbls = []
 
         for lbl_key in sub_keys:
-            sub_lbls = str(MuType(lbl_key)).split(':')[1:]
+            sub_mtype = MuType(lbl_key)
+
+            #TODO: come up with a better way to detect if a mutation type
+            # corresponds to a singleton hotspot
+            if ('Protein' in sub_mtype.get_levels()
+                    and not any('Form' in lvl
+                                for lvl in sub_mtype.get_levels())):
+                sub_lbls = [str(sub_mtype).split(':')[-1]]
+
+            else:
+                sub_lbls = str(sub_mtype).split(':')[1:]
 
             for i in range(len(sub_lbls)):
                 if sub_lbls[i].count('|') >= 2:
                     sub_lbls[i] = "3+ sub-mutations"
 
-                sub_lbls[i] = sub_lbls[i].replace("None", "no domain")
+                sub_lbls[i] = sub_lbls[i].replace(
+                    "None", "no overlapping domain")
                 sub_lbls[i] = sub_lbls[i].replace("_Mutation", "")
                 sub_lbls[i] = sub_lbls[i].replace("_", "")
                 sub_lbls[i] = sub_lbls[i].replace("|", " or ")
@@ -77,27 +91,27 @@ def get_fancy_label(mtype):
 
 
 def place_labels(pnt_dict):
-    lbl_pos = {pnt: None for pnt in pnt_dict}
+    lbl_pos = dict()
 
-    for pnt, (sz, _) in pnt_dict.items():
-        use_sz = (sz ** 0.53) / 1843
+    for pnt, (sz, lbls) in pnt_dict.items():
+        if lbls[0]:
+            lbl_pos[pnt] = None
+            use_sz = (sz ** 0.53) / 1843
 
-        if not any(((pnt[0] - 0.13 - use_sz) < pnt2[0] <= pnt[0]
-                    and ((pnt[1] - 0.03 - use_sz) < pnt2[1]
-                         < (pnt[1] + 0.03 + use_sz)))
-                   for pnt2 in pnt_dict if pnt2 != pnt):
-            lbl_pos[pnt] = ((pnt[0] - use_sz, pnt[1]), 'right')
+            if not any(((pnt[0] - 0.13 - use_sz) < pnt2[0] <= pnt[0]
+                        and ((pnt[1] - 0.03 - use_sz) < pnt2[1]
+                             < (pnt[1] + 0.03 + use_sz)))
+                       for pnt2 in pnt_dict if pnt2 != pnt):
+                lbl_pos[pnt] = ((pnt[0] - use_sz, pnt[1]), 'right')
 
-        elif not any((pnt[0] <= pnt2[0] < (pnt[0] + 0.13 + use_sz))
-                      and ((pnt[1] - 0.03 - use_sz) < pnt2[1]
-                           < (pnt[1] + 0.03 + use_sz))
-                     for pnt2 in pnt_dict if pnt2 != pnt):
-            lbl_pos[pnt] = ((pnt[0] + use_sz, pnt[1]), 'left')
+            elif not any((pnt[0] <= pnt2[0] < (pnt[0] + 0.13 + use_sz))
+                          and ((pnt[1] - 0.03 - use_sz) < pnt2[1]
+                               < (pnt[1] + 0.03 + use_sz))
+                         for pnt2 in pnt_dict if pnt2 != pnt):
+                lbl_pos[pnt] = ((pnt[0] + use_sz, pnt[1]), 'left')
 
     while any(pos is None for pos in lbl_pos.values()):
-        old_pnts = tuple(pnt_dict.keys())
-
-        for pnt in old_pnts:
+        for pnt in tuple(pnt_dict):
             if (pnt in lbl_pos and lbl_pos[pnt] is None
                     and pnt_dict[pnt][1] is not None):
                 new_pos = 0.05 * np.random.randn(2) + [pnt[0], pnt[1]]
@@ -114,10 +128,107 @@ def place_labels(pnt_dict):
     return lbl_pos
 
 
+def plot_random_comparison(auc_vals, pheno_dict, args):
+    fig, (viol_ax, sctr_ax) = plt.subplots(
+        figsize=(11, 7), nrows=1, ncols=2,
+        gridspec_kw=dict(width_ratios=[1, 2])
+        )
+
+    mtype_genes = pd.Series([mtype.subtype_list()[0][0]
+                             for mtype in auc_vals.index
+                             if len(mtype.subtype_list()) > 0])
+
+    sbgp_genes = mtype_genes.value_counts()[
+        mtype_genes.value_counts() > 1].index
+    lbl_order = ['Random', 'Point w/o Sub', 'Point w/ Sub', 'Subgrouping']
+
+    gene_stat = pd.Series({
+        mtype: ('Random' if isinstance(mtype, RandomType)
+                else 'Point w/ Sub'
+                if (mtype.subtype_list()[0][1] == pnt_mtype
+                    and mtype.subtype_list()[0][0] in sbgp_genes)
+                else 'Point w/o Sub'
+                if (mtype.subtype_list()[0][1] == pnt_mtype
+                    and not mtype.subtype_list()[0][0] in sbgp_genes)
+                else 'Subgrouping')
+        for mtype in auc_vals.index
+        })
+
+    sns.violinplot(x=gene_stat, y=auc_vals, ax=viol_ax, order=lbl_order,
+                   palette=['0.61', *[variant_clrs['Point']] * 3],
+                   cut=0, linewidth=0, width=0.93)
+
+    viol_ax.set_xlabel('')
+    viol_ax.set_ylabel('AUC', size=23, weight='semibold')
+    viol_ax.set_xticklabels(lbl_order, rotation=37, ha='right', size=18)
+
+    viol_ax.get_children()[2].set_linewidth(3.1)
+    viol_ax.get_children()[4].set_linewidth(3.1)
+    viol_ax.get_children()[2].set_facecolor('white')
+    viol_ax.get_children()[2].set_edgecolor(variant_clrs['Point'])
+    viol_ax.get_children()[4].set_edgecolor(variant_clrs['Point'])
+
+    for i, lbl in enumerate(lbl_order):
+        viol_ax.get_children()[i * 2].set_alpha(0.41)
+
+        viol_ax.text(i - 0.13, viol_ax.get_ylim()[1],
+                     "n={}".format((gene_stat == lbl).sum()),
+                     size=15, rotation=37, ha='left', va='bottom')
+
+    size_dict = dict()
+    for mtype in auc_vals.index:
+        if isinstance(mtype, RandomType):
+            if mtype.size_dist in size_dict:
+                size_dict[mtype.size_dist] += [mtype]
+            else:
+                size_dict[mtype.size_dist] = [mtype]
+
+    for mtype in gene_stat.index[gene_stat == 'Point w/o Sub']:
+        sctr_ax.scatter(auc_vals[mtype],
+                        auc_vals[size_dict[np.sum(pheno_dict[mtype])]].max(),
+                        s=701 * np.mean(pheno_dict[mtype]), facecolor='none',
+                        alpha=0.11, edgecolor=variant_clrs['Point'],
+                        linewidth=1.7)
+
+    for mtype in gene_stat.index[gene_stat == 'Point w/ Sub']:
+        sctr_ax.scatter(auc_vals[mtype],
+                        auc_vals[size_dict[np.sum(pheno_dict[mtype])]].max(),
+                        s=701 * np.mean(pheno_dict[mtype]),
+                        facecolor=variant_clrs['Point'], alpha=0.11,
+                        edgecolor=variant_clrs['Point'], linewidth=1.7)
+
+    for mtype in gene_stat.index[gene_stat == 'Subgrouping']:
+        sctr_ax.scatter(auc_vals[mtype],
+                        auc_vals[size_dict[np.sum(pheno_dict[mtype])]].max(),
+                        s=701 * np.mean(pheno_dict[mtype]),
+                        facecolor=variant_clrs['Point'], alpha=0.11,
+                        edgecolor='none')
+
+    sctr_ax.set_xlabel('AUC of Oncogene Mutation', size=20, weight='semibold')
+    sctr_ax.set_ylabel('AUC of Size-Matched\nRandom Sample Set',
+                       size=20, weight='semibold')
+
+    sctr_ax.set_xlim(viol_ax.get_ylim())
+    sctr_ax.set_ylim(viol_ax.get_ylim())
+    sctr_ax.plot(viol_ax.get_ylim(), viol_ax.get_ylim(),
+                 linewidth=1.7, linestyle='--', color='#550000', alpha=0.41)
+
+    plt.tight_layout(w_pad=2.7)
+    plt.savefig(
+        os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
+                     "random-comparison_{}.svg".format(args.classif)),
+        bbox_inches='tight', format='svg'
+        )
+
+    plt.close()
+
+
 def plot_sub_comparisons(auc_vals, pheno_dict, args):
     fig, ax = plt.subplots(figsize=(11, 10))
     np.random.seed(3742)
 
+    auc_vals = auc_vals[[not isinstance(mtype, RandomType)
+                         for mtype in auc_vals.index]]
     pnt_dict = dict()
     clr_dict = dict()
 
@@ -138,8 +249,15 @@ def plot_sub_comparisons(auc_vals, pheno_dict, args):
                 base_size = np.mean(pheno_dict[base_mtype])
                 best_prop = np.mean(pheno_dict[best_subtype]) / base_size
 
-                pnt_dict[auc_vec[base_indx], auc_vec[best_indx]] = (
-                    2119 * base_size, (gene, get_fancy_label(best_subtype)))
+                if auc_vec[best_indx] > 0.7:
+                    pnt_dict[auc_vec[base_indx], auc_vec[best_indx]] = (
+                        2119 * base_size, (gene,
+                                           get_fancy_label(best_subtype))
+                        )
+
+                else:
+                    pnt_dict[auc_vec[base_indx], auc_vec[best_indx]] = (
+                        2119 * base_size, ('', ''))
 
                 pie_size = base_size ** 0.5
                 pie_ax = inset_axes(ax, width=pie_size, height=pie_size,
@@ -235,25 +353,14 @@ def main():
                          "with mutation levels `Exon__Location__Protein` "
                          "which tests genes' base mutations!")
 
-    cdata_dict = {
-        lvls: merge_cohort_data(os.path.join(
-            base_dir, "{}__{}__samps-{}".format(
-                args.expr_source, args.cohort, ctf)
-            ), lvls, use_seed=8713)
-        for lvls, ctf in out_use.iteritems()
-        }
-
-    infer_dict = {
+    out_dict = {
         lvls: pickle.load(bz2.BZ2File(os.path.join(
             base_dir, "{}__{}__samps-{}".format(
                 args.expr_source, args.cohort, ctf),
-            "out-data__{}__{}.p.gz".format(lvls, args.classif)
-            ), 'r'))['Infer']
+            "out-aucs__{}__{}.p.gz".format(lvls, args.classif)
+            ), 'r'))
         for lvls, ctf in out_use.iteritems()
         }
-
-    out_dict = {lvls: calculate_aucs(infer_dfs, cdata_dict[lvls])
-                for lvls, infer_dfs in infer_dict.items()}
 
     pheno_dict = {mtype: phn for _, phn_dict in out_dict.values()
                   for mtype, phn in phn_dict.items()}
@@ -261,6 +368,7 @@ def main():
                                    for auc_df, _ in out_dict.values()])
                for cis_lbl in cis_lbls}
 
+    plot_random_comparison(auc_dfs['Chrm'], pheno_dict, args)
     plot_sub_comparisons(auc_dfs['Chrm'], pheno_dict, args)
 
 
