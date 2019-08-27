@@ -10,6 +10,7 @@ from HetMan.experiments.subvariant_tour import *
 from HetMan.experiments.subvariant_infer import variant_clrs
 from HetMan.experiments.subvariant_tour.merge_tour import merge_cohort_data
 from dryadic.features.data.domains import get_protein_domains
+from dryadic.features.mutations import MuType, MuTree
 
 import argparse
 from pathlib import Path
@@ -40,8 +41,8 @@ plt.rcParams['axes.edgecolor']='white'
 def plot_mutation_lollipop(cdata_dict, domain_dict, args):
     fig, main_ax = plt.subplots(figsize=(10, 4))
 
-    base_cdict = tuple(cdata_dict.values())[0]['Loc']
-    use_mtree = base_cdict.mtree[args.gene]['Point']
+    base_cdata = tuple(cdata_dict.values())[0]['Loc']
+    use_mtree = base_cdata.mtree[args.gene]['Point']
 
     loc_counts = sorted([(int(loc), len(loc_muts))
                          for exn, exn_muts in use_mtree
@@ -69,7 +70,7 @@ def plot_mutation_lollipop(cdata_dict, domain_dict, args):
                     size=8, ha='left', va='bottom'
                     )
 
-    gn_annot = base_cdict.gene_annot[args.gene]
+    gn_annot = base_cdata.gene_annot[args.gene]
     main_tx = [
         tx_id for tx_id, tx_annot in gn_annot['Transcripts'].items()
         if tx_annot['transcript_name'] == '{}-001'.format(args.gene)
@@ -127,11 +128,11 @@ def plot_mutation_lollipop(cdata_dict, domain_dict, args):
     main_ax.add_collection(PatchCollection(
         exn_patches, alpha=0.4, linewidth=1.4, color='#002C91'))
 
-    main_ax.text(loc_counts[0][0] - exn_pos / 107, max_count * -0.05,
+    main_ax.text(loc_counts[0][0] - exn_pos / 25, max_count * -0.05,
                  "{}\nDomains".format('SMART'), size=7,
                  ha='right', va='top', linespacing=0.65, rotation=37)
 
-    main_ax.text(loc_counts[0][0] - exn_pos / 107, max_count * -0.16,
+    main_ax.text(loc_counts[0][0] - exn_pos / 25, max_count * -0.16,
                  "{}-001\nExons".format(args.gene), size=7,
                  ha='right', va='top', linespacing=0.65, rotation=37)
 
@@ -139,7 +140,7 @@ def plot_mutation_lollipop(cdata_dict, domain_dict, args):
         0.02, 0.79,
         "{} {}-mutated samples\n{:.1%} of {} cohort affected".format(
             len(use_mtree), args.gene,
-            len(use_mtree) / len(base_cdict.get_samples()), args.cohort,
+            len(use_mtree) / len(base_cdata.get_samples()), args.cohort,
             ),
         size=11, va='bottom', transform=main_ax.transAxes
         )
@@ -148,13 +149,131 @@ def plot_mutation_lollipop(cdata_dict, domain_dict, args):
     main_ax.set_ylabel("# of Mutated Samples", size=15, weight='semibold')
     main_ax.grid(linewidth=0.31)
 
-    main_ax.set_xlim(loc_counts[0][0] - exn_pos / 217, exn_pos * 1.01)
+    main_ax.set_xlim(loc_counts[0][0] - exn_pos / 29, exn_pos * 1.03)
     main_ax.set_ylim(max_count / -3.6, max_count * 1.07)
     main_ax.set_yticks([tck for tck in main_ax.get_yticks() if tck >= 0])
 
     # save the plot to file
     fig.savefig(os.path.join(
         plot_dir, "mut-lollipop_{}__{}.svg".format(args.cohort, args.gene)
+        ), bbox_inches='tight', format='svg')
+
+    plt.close()
+
+
+def clean_label(lbl, lvl):
+    if lvl == 'Exon':
+        use_lbl = lbl.split('/')[0]
+
+    elif lvl == 'Location':
+        use_lbl = "aa{}".format(lbl)
+
+    elif lvl == 'Protein':
+        use_lbl = lbl[2:].replace('del', 'd').replace('ins', 'i')
+
+    elif 'Form' in lvl:
+        use_lbl = lbl.replace('_Mutation', '').replace('_', '')
+
+    elif 'Domain_' in lvl:
+        use_lbl = lbl.replace('None', 'no overlapping domain')
+
+    else:
+        use_lbl = lbl
+
+    return use_lbl
+
+
+def recurse_labels(ax, mtree, ptchs, xlims, ymax, all_size, cur_j=0):
+    all_wdth = len(MuType(mtree.allkey()).subkeys())
+    cur_x = xlims[0]
+
+    for lbl, muts in mtree:
+        if isinstance(muts, MuTree):
+            lf_wdth = len(MuType(muts.allkey()).subkeys())
+        else:
+            lf_wdth = 1
+
+        lbl_prop = (lf_wdth / all_wdth) * (xlims[1] - xlims[0])
+        ax.plot([cur_x + lbl_prop / 2, (xlims[0] + xlims[1]) / 2],
+                [ymax - 0.18 - cur_j, ymax + 0.19 - cur_j],
+                c='0.71', linewidth=1.3, solid_capstyle='round')
+
+        ptchs.append(Rect((cur_x + lbl_prop * 0.12, ymax - 0.8 - cur_j),
+                          lbl_prop * 0.76, 0.6))
+
+        mut_lbl = clean_label(lbl, mtree.mut_level)
+        if (lbl_prop / all_size) > 1/41 and len(tuple(mtree)) > 1:
+            if len(muts) == 1:
+                mut_lbl = "{}\n(1 sample)".format(mut_lbl)
+            else:
+                mut_lbl = "{}\n({} samps)".format(mut_lbl, len(muts))
+
+        if (lbl_prop / all_size) <= 1/51:
+            use_rot = 90
+        else:
+            use_rot = 0
+
+        ax.text(cur_x + lbl_prop / 2, ymax - 0.5 - cur_j, mut_lbl,
+                size=9 - 2.5 * cur_j, ha='center', va='center',
+                rotation=use_rot)
+
+        if isinstance(muts, MuTree):
+            ax, ptchs = recurse_labels(ax, muts, ptchs,
+                                       (cur_x + lbl_prop * 0.06,
+                                        cur_x + lbl_prop * 0.94),
+                                       ymax, all_size, cur_j + 1)
+
+        cur_x += lbl_prop
+
+    return ax, ptchs
+
+
+def plot_mutation_tree(cdata_dict, domain_dict, args):
+    base_cdict = tuple(cdata_dict.values())[0]
+    lvls_key = ['Loc'] + [lvls for lvls in set(base_cdict) - {'Loc'}]
+
+    use_mtrees = [base_cdict[lvl_k].mtree[args.gene]['Point']
+                  for lvl_k in lvls_key]
+    lvls_list = [['Exon', 'Location', 'Protein']]
+    lvls_list += [lvl_k.split('__') for lvl_k in lvls_key[1:]]
+
+    fig, axarr = plt.subplots(
+        figsize=(14, 0.3 + 1.9 * len(lvls_key)), nrows=len(lvls_key), ncols=1,
+        gridspec_kw=dict(
+            height_ratios=[1 + len(lvls_ls) for lvls_ls in lvls_list])
+        )
+
+    for ax, use_mtree, use_lvls in zip(axarr, use_mtrees, lvls_list):
+        ax.axis('off')
+        mut_ptchs = []
+        leaf_count = len(MuType(use_mtree.allkey()).subkeys())
+
+        for i, lvl in enumerate(use_lvls):
+            ax.text(leaf_count / -23, len(use_lvls) - i - 0.5, lvl,
+                    size=12, ha='right', va='center')
+
+        ax.text(leaf_count / 2, len(use_lvls) + 0.61,
+                "All {} Point Mutations\n({} samples)".format(
+                    args.gene, len(use_mtree)),
+                size=11, ha='center', va='center')
+
+        mut_ptchs.append(Rect((leaf_count * 0.29, len(use_lvls) + 0.23),
+                              leaf_count * 0.42, 1.03, clip_on=False))
+
+        ax, mut_ptchs = recurse_labels(ax, use_mtree, mut_ptchs,
+                                       (0, leaf_count), len(use_lvls),
+                                       leaf_count)
+
+        ax.add_collection(PatchCollection(mut_ptchs, alpha=0.4, linewidth=0,
+                                          facecolor=variant_clrs['Point']))
+
+        ax.set_xlim(0, leaf_count * 1.03)
+        ax.set_ylim(0, len(use_lvls) + 1)
+
+    # save the plot to file
+    fig.tight_layout(h_pad=0)
+    fig.savefig(os.path.join(
+        plot_dir, "mut-tree_{}__{}.svg".format(args.cohort, args.gene)
         ), bbox_inches='tight', format='svg')
 
     plt.close()
@@ -236,6 +355,7 @@ def main():
         }
 
     plot_mutation_lollipop(cdata_dict, domn_dict, args)
+    plot_mutation_tree(cdata_dict, domn_dict, args)
 
 
 if __name__ == '__main__':
