@@ -64,6 +64,7 @@ def main():
     clf = eval(args.classif)
     clf.predict_proba = clf.calc_pred_labels
     mut_clf = clf()
+    random.seed(7712)
 
     mtype_genes = {mtype: mtype.subtype_list()[0][0] for mtype in mtype_list
                    if not isinstance(mtype, RandomType)}

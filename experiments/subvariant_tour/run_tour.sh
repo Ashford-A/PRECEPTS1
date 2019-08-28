@@ -72,7 +72,7 @@ fi
 dvc run -d setup/cohort-data.p -d setup/muts-list.p -d $RUNDIR/fit_tour.py \
 	-o $FINALDIR/out-data__${mut_levels}__${classif}.p.gz -f output.dvc \
 	--overwrite-dvcfile --remove-outs --no-commit \
-	'snakemake -s $RUNDIR/Snakefile -j 50 --latency-wait 120 \
+	'snakemake -s $RUNDIR/Snakefile -j 100 --latency-wait 120 \
 	--cluster-config $RUNDIR/cluster.json --cluster "sbatch -p {cluster.partition} \
 	-J {cluster.job-name} -t {cluster.time} -o {cluster.output} -e {cluster.error} \
 	-n {cluster.ntasks} -c {cluster.cpus-per-task} --mem-per-cpu {cluster.mem-per-cpu} \

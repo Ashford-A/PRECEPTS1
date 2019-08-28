@@ -8,6 +8,7 @@ class RandomType(MuType):
 
     def __init__(self, base_mtype=None, size_dist=None, seed=None):
         self.base_mtype = base_mtype
+        self.seed = seed
 
         if size_dist is None and base_mtype is None:
             raise ValueError("Must provide either a mutation type to sample "
@@ -47,7 +48,7 @@ class RandomType(MuType):
 
     def __hash__(self):
         value = 0x302378 ^ (hash(self.base_mtype) * hash(self.size_dist)
-                            * hash(self.size_rv.random_state))
+                            * hash(self.seed))
 
         if value == -1:
             value = -2
@@ -64,7 +65,7 @@ class RandomType(MuType):
 
     def __repr__(self):
         use_str = "random samples using {} with seed {}".format(
-            self.size_rv, self.size_rv.random_state)
+            str(self.size_dist), self.seed)
 
         if self.base_mtype:
             use_str = "({}) {}".format(str(self.base_mtype), use_str)
@@ -82,7 +83,7 @@ class RandomType(MuType):
             return False
         elif self.size_dist != other.size_dist:
             return False
-        elif self.size_rv.random_state != other.size_rv.random_state:
+        elif self.seed != other.seed:
             return False
 
         else:
@@ -94,26 +95,23 @@ class RandomType(MuType):
                 return False
             elif self.base_mtype is not None and other.base_mtype is None:
                 return True
-            elif self.base_mtype is not None and other.base_mtype is not None:
+            elif (self.base_mtype is not None and other.base_mtype is not None
+                    and self.base_mtype != other.base_mtype):
                 return self.base_mtype < other.base_mtype
 
-            elif isinstance(self.size_dist, int):
-                if isinstance(other.size_dist, tuple):
-                    return True
-
-            elif isinstance(self.size_dist, tuple):
-                if isinstance(other.size_dist, int):
-                    return False
-
-            #TODO: how to define sort order when size sampling distribution
-            # and random state seed are the same?
-            elif self.size_dist < other.size_dist:
+            elif (isinstance(self.size_dist, int)
+                    and isinstance(other.size_dist, tuple)):
                 return True
-            elif self.size_rv.random_state < other.size_rv.random_state:
-                return True
+
+            elif (isinstance(self.size_dist, tuple)
+                    and isinstance(other.size_dist, int)):
+                return False
+
+            elif self.size_dist != other.size_dist:
+                return self.size_dist < other.size_dist
 
             else:
-                return False
+                return self.seed < other.seed
 
         elif isinstance(other, (MuType, MutComb)):
             return True
@@ -122,7 +120,7 @@ class RandomType(MuType):
             return NotImplemented
 
     def get_samples(self, mtree):
-        random.seed(self.size_rv.random_state)
+        random.seed(self.seed)
         use_size = self.size_rv.rvs()
 
         if self.base_mtype:

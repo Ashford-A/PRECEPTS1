@@ -4,13 +4,17 @@ import sys
 base_dir = os.path.dirname(__file__)
 sys.path.extend([os.path.join(base_dir, '../../..')])
 
-from HetMan.experiments.subvariant_tour import *
 import argparse
+from glob import glob
 import bz2
 import dill as pickle
 
-from glob import glob
+import numpy as np
 import pandas as pd
+from sklearn.externals.joblib import Parallel, delayed
+
+from HetMan.experiments.subvariant_tour import cis_lbls
+from HetMan.experiments.subvariant_tour.utils import RandomType
 from itertools import product
 from itertools import combinations as combn
 
@@ -83,6 +87,25 @@ def merge_cohort_data(out_dir, mut_lvls, use_seed=None):
     return use_cdata
 
 
+def compare_muts(*muts_lists):
+    return len(set(tuple(sorted(str(mtype) for mtype in muts_list))
+                   for muts_list in muts_lists)) == 1
+
+
+def calculate_auc(pheno_dict, infer_vals, mtype):
+    auc_val = np.greater.outer(
+        np.concatenate(infer_vals.values[pheno_dict[mtype]]),
+        np.concatenate(infer_vals.values[~pheno_dict[mtype]])
+        ).mean()
+    
+    auc_val += 0.5 * np.equal.outer(
+        np.concatenate(infer_vals.values[pheno_dict[mtype]]),
+        np.concatenate(infer_vals.values[~pheno_dict[mtype]])
+        ).mean()
+
+    return auc_val
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('use_dir', type=str, default=base_dir)
@@ -116,29 +139,50 @@ def main():
         for k in ['Infer', 'Tune']}
 
     for cis_lbl in cis_lbls:
-        assert sorted(out_dfs['Infer'][cis_lbl].index) == sorted(muts_list), (
+        assert compare_muts(out_dfs['Infer'][cis_lbl].index, muts_list), (
             "Mutations for which predictions were made do not match the list "
             "of mutations enumerated during setup!"
             )
 
     for cis_lbl1, cis_lbl2 in combn(cis_lbls, 2):
-        assert (sorted(out_dfs['Infer'][cis_lbl1].index)
-                    == sorted(out_dfs['Infer'][cis_lbl2].index)), (
-            "Mutations tested using cis-exclusion strategy {} do not match "
-            "those tested using strategy {}!".format(cis_lbl1, cis_lbl2)
-            )
+        assert compare_muts(
+            out_dfs['Infer'][cis_lbl1].index,
+            out_dfs['Infer'][cis_lbl2].index
+            ), ("Mutations tested using cis-exclusion strategy {} do "
+                "not match those tested using strategy {}!".format(
+                    cis_lbl1, cis_lbl2))
 
     for cis_lbl1, cis_lbl2 in product(cis_lbls, repeat=2):
-        assert (sorted(out_dfs['Infer'][cis_lbl1].index)
-                    == sorted(out_dfs['Tune'][cis_lbl2].index)), (
-            "Mutations with predicted scores do not match those for which "
-            "tuned hyper-parameter values are available!"
-            )
+        assert compare_muts(
+            out_dfs['Infer'][cis_lbl1].index,
+            out_dfs['Tune'][cis_lbl2].index
+            ), ("Mutations with predicted scores do not match those for "
+                "which tuned hyper-parameter values are available!")
 
     with bz2.BZ2File(os.path.join(args.use_dir, "out-data.p.gz"), 'w') as fl:
         pickle.dump({'Infer': out_dfs['Infer'],
                      'Tune': pd.concat(out_dfs['Tune'], axis=1),
                      'Clf': tuple(use_clfs)[0]}, fl, protocol=-1)
+
+    with open(os.path.join(args.use_dir,
+                           'setup', "cohort-data.p"), 'rb') as fl:
+        cdata = pickle.load(fl)
+
+    pheno_dict = {mtype: np.array(cdata.train_pheno(mtype))
+                  for mtype in tuple(out_dfs['Infer'].values())[0].index}
+
+    auc_df = pd.DataFrame({
+        cis_lbl: dict(zip(infer_df.index, Parallel(
+            backend='threading', n_jobs=12, pre_dispatch=12)(
+                delayed(calculate_auc)(pheno_dict, infer_vals, mtype)
+                for mtype, infer_vals in infer_df.iterrows()
+                )
+            ))
+        for cis_lbl, infer_df in out_dfs['Infer'].items()
+        })
+
+    with bz2.BZ2File(os.path.join(args.use_dir, "out-aucs.p.gz"), 'w') as fl:
+        pickle.dump((auc_df, pheno_dict), fl, protocol=-1)
 
 
 if __name__ == "__main__":
