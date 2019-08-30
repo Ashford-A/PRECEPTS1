@@ -180,6 +180,9 @@ def clean_level(lvl):
     elif lvl == 'Location':
         use_lvl = "Amino Acid"
 
+    elif lvl == 'Protein':
+        use_lvl = "AA Substitution"
+
     else:
         use_lvl = lvl
 
@@ -190,11 +193,8 @@ def clean_label(lbl, lvl):
     if lvl == 'Exon':
         use_lbl = lbl.split('/')[0]
 
-    elif lvl == 'Location':
-        use_lbl = "aa{}".format(lbl)
-
     elif lvl == 'Protein':
-        use_lbl = lbl[2:].replace('del', 'd').replace('ins', 'i')
+        use_lbl = re.sub("[0-9]+", "->", lbl, count=1)[2:]
 
     elif 'Form' in lvl:
         use_lbl = lbl.replace('_Mutation', '').replace('_', '')
@@ -208,12 +208,34 @@ def clean_label(lbl, lvl):
     return use_lbl
 
 
+def sort_levels(lbls, lvl):
+    if lvl == 'Exon' or lvl == 'Location':
+        sort_indx = sorted(range(len(lbls)),
+                           key=lambda k: (int(lbls[k].split('/')[0])
+                                          if lbls[k] != '.' else 0))
+
+    elif 'Domain_' in lvl:
+        sort_indx = [lbls.index('None')]
+
+        sort_indx += (sorted(range(sort_indx[0]), key=lambda k: lbls[k])
+                      + sorted(range(sort_indx[0] + 1, len(lbls)),
+                               key=lambda k: lbls[k]))
+
+    else:
+        sort_indx = range(len(lbls))
+
+    return [lbls[i] for i in sort_indx]
+
+
 def recurse_labels(ax, mtree, xlims, ymax, all_size,
                    cur_j=0, clr_mtype=False, add_lbls=True):
     all_wdth = len(MuType(mtree.allkey()).subkeys())
     cur_x = xlims[0]
+    muts_dict = dict(mtree)
 
-    for lbl, muts in mtree:
+    for lbl in sort_levels(list(muts_dict.keys()), mtree.mut_level):
+        muts = muts_dict[lbl]
+
         if isinstance(muts, MuTree):
             lf_wdth = len(MuType(muts.allkey()).subkeys())
         else:
@@ -232,13 +254,13 @@ def recurse_labels(ax, mtree, xlims, ymax, all_size,
                 else:
                     mut_lbl = "{}\n({} samps)".format(mut_lbl, len(muts))
 
-            if (lbl_prop / all_size) <= 1/51:
+            if (lbl_prop / all_size) <= 1/41:
                 use_rot = 90
             else:
                 use_rot = 0
 
             ax.text(cur_x + lbl_prop / 2, ymax - 0.5 - cur_j, mut_lbl,
-                    size=9 - 2.5 * cur_j, ha='center', va='center',
+                    size=8.5 - 2.3 * cur_j, ha='center', va='center',
                     rotation=use_rot)
 
         if clr_mtype is False or clr_mtype == pnt_mtype:
@@ -253,13 +275,14 @@ def recurse_labels(ax, mtree, xlims, ymax, all_size,
             use_clr = variant_clrs['WT']
             sub_mtype = clr_mtype
 
-        elif clr_mtype.subtype_list()[0][0] == lbl:
-            use_clr = variant_clrs['Point']
-            sub_mtype = clr_mtype.subtype_list()[0][1]
-
         else:
             use_clr = variant_clrs['WT']
             sub_mtype = MuType({})
+
+            for mut_lbl, mut_sub in clr_mtype.subtype_list():
+                if mut_lbl == lbl:
+                    use_clr = variant_clrs['Point']
+                    sub_mtype = mut_sub
 
         if clr_mtype is False:
             sub_lbls = True
@@ -283,12 +306,12 @@ def recurse_labels(ax, mtree, xlims, ymax, all_size,
 
 def plot_mutation_tree(cdata_dict, domain_dict, args):
     base_cdict = tuple(cdata_dict.values())[0]
-    lvls_key = ['Loc'] + [lvls for lvls in set(base_cdict) - {'Loc'}]
+    lvls_key = ['Loc'] + sorted(set(base_cdict) - {'Loc'})[::-1]
 
     use_mtrees = [base_cdict[lvl_k].mtree[args.gene]['Point']
                   for lvl_k in lvls_key]
     lvls_list = [['Exon', 'Location', 'Protein']]
-    lvls_list += [lvl_k.split('__') for lvl_k in sorted(lvls_key[1:])[::-1]]
+    lvls_list += [lvl_k.split('__') for lvl_k in lvls_key[1:]]
 
     fig, axarr = plt.subplots(
         figsize=(14, 0.3 + 1.9 * len(lvls_key)), nrows=len(lvls_key), ncols=1,
@@ -331,16 +354,56 @@ def plot_mutation_tree(cdata_dict, domain_dict, args):
 
 def plot_mutation_classif(infer_dict, out_dict, cdata_dict, args):
     base_cdict = tuple(cdata_dict.values())[0]
+
     lvls_key = ['Loc'] * 2 + sorted(
         lvls for lvls in set(base_cdict) - {'Loc'})[::-1]
-
     use_mtrees = [base_cdict[lvl_k].mtree[args.gene]['Point']
                   for lvl_k in lvls_key]
-    lvls_list = [['Exon', 'Location', 'Protein']] * 2
-    lvls_list += [lvl_k.split('__') for lvl_k in lvls_key[2:]]
 
-    fig = plt.figure(figsize=(12, 0.3 + 2.1 * len(lvls_key)))
-    gs = gridspec.GridSpec(nrows=len(lvls_key), ncols=3,
+    lvls_mtypes = [
+        [lvls, None, None] for lvls in ([['Exon', 'Location', 'Protein']] * 2
+                                        + [lvl_k.split('__')
+                                           for lvl_k in lvls_key[2:]])
+        ]
+
+    for i, (use_mtree, lvls_k) in enumerate(zip(use_mtrees, lvls_key)):
+        use_outs = [
+            (src, clf, auc_df.Chrm, phn_dict)
+            for (src, lvls, clf), (auc_df, phn_dict) in out_dict.items()
+            if ((lvls_k == 'Loc' and lvls == 'Exon__Location__Protein')
+                or lvls_k != 'Loc' and lvls == lvls_k)
+            ]
+
+        if i == 0:
+            lvls_mtypes[i][1] = MuType({('Gene', args.gene): pnt_mtype})
+
+        else:
+            cur_mtypes = {mtype.subtype_list()[0][1]
+                          for mtype, phn in use_outs[0][3].items()
+                          if (not isinstance(mtype, RandomType)
+                              and mtype.subtype_list()[0][0] == args.gene
+                              and mtype.subtype_list()[0][1] != pnt_mtype
+                              and np.sum(phn) < len(use_mtree.get_samples()))}
+
+            if cur_mtypes:
+                lvls_mtypes[i][1] = MuType({
+                    ('Gene', args.gene): random.choice(sorted(cur_mtypes))})
+
+        if lvls_mtypes[i][1] is not None:
+            lvls_mtypes[i][2] = sorted(
+                [(src, clf,
+                  auc_vals[lvls_mtypes[i][1]], phn_dict[lvls_mtypes[i][1]])
+                 for (src, clf, auc_vals, phn_dict) in use_outs],
+                key=itemgetter(2)
+                )[-1]
+
+    lvls_mtypes = [(lvls, mtype, mtree, use_out)
+                   for (lvls, mtype, use_out), mtree in zip(lvls_mtypes,
+                                                            use_mtrees)
+                   if mtype is not None]
+
+    fig = plt.figure(figsize=(12, 0.3 + 2.1 * len(lvls_mtypes)))
+    gs = gridspec.GridSpec(nrows=len(lvls_mtypes), ncols=3,
                            width_ratios=[1, 7, 4])
 
     wild_ax = fig.add_subplot(gs[:, 0])
@@ -358,35 +421,10 @@ def plot_mutation_classif(infer_dict, out_dict, cdata_dict, args):
         size=21, ha='center', va='center', rotation=90
         )
 
-    for i, (use_mtree, use_lvls, lvls_k) in enumerate(zip(
-            use_mtrees, lvls_list, lvls_key)):
+    for i, (use_lvls, plt_mtype, use_mtree,
+            (use_src, use_clf, use_auc, use_phn)) in enumerate(lvls_mtypes):
         tree_ax = fig.add_subplot(gs[i, 1])
         tree_ax.axis('off')
-
-        use_outs = [
-            (src, clf, auc_df.Chrm, phn_dict)
-            for (src, lvls, clf), (auc_df, phn_dict) in out_dict.items()
-            if lvls == '__'.join(use_lvls)
-            ]
-
-        if i == 0:
-            plt_mtype = MuType({('Gene', args.gene): pnt_mtype})
-
-        else:
-            plt_mtype = MuType({
-                ('Gene', args.gene): random.choice(sorted(
-                    base_cdict[lvls_k].mtree[
-                        args.gene]['Point'].branchtypes(min_size=25)
-                    & {mtype.subtype_list()[0][1] for mtype in use_outs[0][3]
-                       if not isinstance(mtype, RandomType)}
-                    ))
-                })
-
-        use_src, use_clf, use_auc, use_phn = sorted(
-            [(src, clf, auc_vals[plt_mtype], phn_dict[plt_mtype])
-             for (src, clf, auc_vals, phn_dict) in use_outs],
-            key=itemgetter(2)
-            )[-1]
 
         leaf_count = len(MuType(use_mtree.allkey()).subkeys())
         tree_ax.add_patch(Rect((leaf_count * 0.35, len(use_lvls) + 0.23),
