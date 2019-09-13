@@ -24,7 +24,7 @@ from itertools import combinations as combn
 from itertools import product
 
 
-def get_cohort_data(cohort, expr_source, mut_levels):
+def get_cohort_data(cohort, expr_source):
     syn = synapseclient.Synapse()
     syn.cache.cache_root_dir = syn_root
     syn.login()
@@ -42,29 +42,29 @@ def get_cohort_data(cohort, expr_source, mut_levels):
             raise ValueError("Only gene-level Kallisto calls are available "
                              "for the beatAML cohort!")
 
-        cdata = BeatAmlCohort(mut_levels=['Gene'] + list(mut_levels),
-                              mut_genes=use_genes.tolist(),
-                              expr_source=expr_source,
-                              expr_file=beatAML_files['expr'],
-                              samp_file=beatAML_files['samps'], syn=syn,
-                              annot_file=annot_file, cv_seed=8713, test_prop=0)
+        cdata = BeatAmlCohort(
+            mut_levels=[['Gene', 'Exon', 'Location', 'Protein']],
+            mut_genes=use_genes.tolist(), expr_source=expr_source,
+            expr_file=beatAML_files['expr'], samp_file=beatAML_files['samps'],
+            syn=syn, annot_file=annot_file, cv_seed=8713, test_prop=0
+            )
 
     else:
         source_info = expr_source.split('__')
         source_base = source_info[0]
         collapse_txs = not (len(source_info) > 1 and source_info[1] == 'txs')
 
-        cdata = MutationCohort(cohort=cohort.split('_')[0],
-                               mut_levels=['Gene'] + list(mut_levels),
-                               mut_genes=use_genes.tolist(),
-                               expr_source=source_base, var_source='mc3',
-                               copy_source='Firehose', annot_file=annot_file,
-                               domain_dir=domain_dir, type_file=type_file,
-                               expr_dir=expr_sources[source_base],
-                               copy_dir=copy_dir, collapse_txs=collapse_txs,
-                               syn=syn, cv_seed=8713, test_prop=0,
-                               annot_fields=['transcript', 'exon'],
-                               use_types=parse_subtypes(cohort))
+        cdata = MutationCohort(
+            cohort=cohort.split('_')[0],
+            mut_levels=[['Gene', 'Exon', 'Location', 'Protein']],
+            mut_genes=use_genes.tolist(), expr_source=source_base,
+            var_source='mc3', copy_source='Firehose', annot_file=annot_file,
+            domain_dir=domain_dir, type_file=type_file,
+            expr_dir=expr_sources[source_base], copy_dir=copy_dir,
+            collapse_txs=collapse_txs, syn=syn, cv_seed=8713, test_prop=0,
+            annot_fields=['transcript', 'exon'],
+            use_types=parse_subtypes(cohort)
+            )
 
     return cdata
 
@@ -93,12 +93,28 @@ def main():
     out_path = os.path.join(args.out_dir, 'setup')
     use_lvls = args.mut_levels.split('__')
 
-    cdata = get_cohort_data(args.cohort, args.expr_source, use_lvls)
-    with open(os.path.join(out_path, "cohort-data.p"), 'wb') as f:
-        pickle.dump(cdata, f)
+    coh_path = os.path.join(
+        args.out_dir.split('subvariant_tour')[0], 'subvariant_tour',
+        args.expr_source, "{}__samps-{}".format(
+            args.cohort, args.samp_cutoff),
+        "cohort-data.p"
+        )
 
+    if os.path.exists(coh_path):
+        try:
+            with open(coh_path, 'rb') as f:
+                cdata = pickle.load(f)
+
+        except EOFError:
+            cdata = get_cohort_data(args.cohort, args.expr_source)
+
+    else:
+        cdata = get_cohort_data(args.cohort, args.expr_source)
+
+    lbls_key = ('Gene', 'Scale', 'Copy', 'Exon', 'Location', 'Protein')
     use_mtypes = set()
-    for gene, muts in cdata.mtree:
+
+    for gene, muts in cdata.mtrees[lbls_key]:
         if len(pnt_mtype.get_samples(muts)) >= args.samp_cutoff:
             gene_mtypes = {
                 mtype for mtype in muts['Point'].combtypes(
@@ -110,8 +126,8 @@ def main():
             gene_mtypes -= {
                 mtype1 for mtype1, mtype2 in product(gene_mtypes, repeat=2)
                 if mtype1 != mtype2 and mtype1.is_supertype(mtype2)
-                and (mtype1.get_samples(cdata.mtree)
-                     == mtype2.get_samples(cdata.mtree))
+                and (mtype1.get_samples(cdata.mtrees[lbls_key])
+                     == mtype2.get_samples(cdata.mtrees[lbls_key]))
                 }
 
             if args.mut_levels == 'Exon__Location__Protein':
@@ -120,15 +136,19 @@ def main():
             use_mtypes |= {MuType({('Gene', gene): mtype})
                            for mtype in gene_mtypes}
 
-    use_mtypes |= {RandomType(size_dist=len(mtype.get_samples(cdata.mtree)),
-                              seed=i + 10307)
-                   for i, (mtype, _) in enumerate(product(use_mtypes,
-                                                          range(2)))}
+    use_mtypes |= {
+        RandomType(size_dist=len(mtype.get_samples(cdata.mtrees[lbls_key])),
+                   seed=i + 10307)
+        for i, (mtype, _) in enumerate(product(use_mtypes, range(2)))
+        }
 
     with open(os.path.join(out_path, "muts-list.p"), 'wb') as f:
-        pickle.dump(sorted(use_mtypes), f)
+        pickle.dump(sorted(use_mtypes), f, protocol=-1)
     with open(os.path.join(out_path, "muts-count.txt"), 'w') as fl:
         fl.write(str(len(use_mtypes)))
+
+    with open(coh_path, 'wb') as f:
+        pickle.dump(cdata, f, protocol=-1)
 
 
 if __name__ == '__main__':

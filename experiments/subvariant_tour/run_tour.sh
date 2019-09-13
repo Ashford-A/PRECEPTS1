@@ -54,7 +54,7 @@ fi
 # enumerate the mutation types that will be tested in this experiment
 dvc run -d $firehose_dir -d $mc3_file -d $gencode_file -d $subtype_file \
 	-d $RUNDIR/setup_tour.py -d $CODEDIR/HetMan/environment.yml \
-	-o setup/cohort-data.p -o setup/muts-list.p -m setup/muts-count.txt \
+	-o ../../cohort-data.p -o setup/muts-list.p -m setup/muts-count.txt \
 	-f setup.dvc --overwrite-dvcfile python $RUNDIR/setup_tour.py \
 	$expr_source $cohort $samp_cutoff $mut_levels $OUTDIR
 
@@ -69,7 +69,7 @@ then
 	rm -rf .snakemake/locks/*
 fi
 
-dvc run -d setup/cohort-data.p -d setup/muts-list.p -d $RUNDIR/fit_tour.py \
+dvc run -d ../../cohort-data.p -d setup/muts-list.p -d $RUNDIR/fit_tour.py \
 	-o $FINALDIR/out-data__${mut_levels}__${classif}.p.gz -f output.dvc \
 	--overwrite-dvcfile --remove-outs --no-commit \
 	'snakemake -s $RUNDIR/Snakefile -j 100 --latency-wait 120 \

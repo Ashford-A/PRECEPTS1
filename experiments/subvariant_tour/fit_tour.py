@@ -55,8 +55,9 @@ def main():
 
     args = parser.parse_args()
     setup_dir = os.path.join(args.use_dir, 'setup')
+    coh_path = os.path.join(args.use_dir, '..', '..', "cohort-data.p")
 
-    with open(os.path.join(setup_dir, "cohort-data.p"), 'rb') as cdata_f:
+    with open(coh_path, 'rb') as cdata_f:
         cdata = pickle.load(cdata_f)
     with open(os.path.join(setup_dir, "muts-list.p"), 'rb') as muts_f:
         mtype_list = pickle.load(muts_f)
@@ -66,7 +67,7 @@ def main():
     mut_clf = clf()
     random.seed(7712)
 
-    mtype_genes = {mtype: mtype.subtype_list()[0][0] for mtype in mtype_list
+    mtype_genes = {mtype: mtype.get_labels()[0] for mtype in mtype_list
                    if not isinstance(mtype, RandomType)}
 
     out_tune = {mtype: {cis_lbl: {par: None for par, _ in mut_clf.tune_priors}
@@ -85,6 +86,7 @@ def main():
             else:
                 use_gene = mtype_genes[mtype]
 
+            print(use_gene)
             for cis_lbl in cis_lbls:
                 ex_genes = get_excluded_genes(cis_lbl, use_gene,
                                               cdata.gene_annot)
