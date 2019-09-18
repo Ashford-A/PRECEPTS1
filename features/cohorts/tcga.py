@@ -81,10 +81,8 @@ def add_variant_data(cohort, var_source, copy_source, expr, gene_annot,
     else:
         raise ValueError("Unrecognized source of copy number data!")
 
-    copy_df = pd.DataFrame(copy_data.stack())
-    copy_df = copy_df.reset_index(level=copy_df.index.names)
+    copy_df = pd.DataFrame(copy_data.stack()).reset_index()
     copy_df.columns = ['Sample', 'Gene', 'Copy']
-
     expr_match, var_match, copy_match = match_tcga_samples(
         expr.index, variants.Sample, copy_df.Sample)
 
@@ -192,6 +190,7 @@ class MutationCohort(BaseMutationCohort):
     def __init__(self,
                  cohort, mut_levels, mut_genes, expr_source, var_source,
                  copy_source, annot_file, domain_dir=None, type_file=None,
+                 leaf_annot=('ref_count', 'alt_count'),
                  cv_seed=None, test_prop=0, **coh_args):
         self.cohort = cohort
 
@@ -231,47 +230,40 @@ class MutationCohort(BaseMutationCohort):
         expr = expr.loc[use_samps]
         variants = variants.loc[variants.Sample.isin(use_samps)]
         copy_df = copy_df.loc[copy_df.Sample.isin(use_samps)]
-
-        if mut_genes:
-            self.alleles = variants.loc[
-                variants.Gene.isin(mut_genes),
-                ['Sample', 'Protein', 'ref_count', 'alt_count']
-                ]
+        variants['Scale'] = 'Point'
+        copy_df['Scale'] = 'Copy'
 
         # add a mutation level indicating if a mutation is a CNA or not by
         # first figuring out where to situate it relative to the other
         # levels...
-        if 'Gene' in mut_levels:
-            scale_lvl = mut_levels.index('Gene') + 1
-        else:
-            scale_lvl = 0
+        for i in range(len(mut_levels)):
+            if 'Gene' in mut_levels[i]:
+                scale_lvl = mut_levels[i].index('Gene') + 1
+            else:
+                scale_lvl = 0
 
-        # ...and then inserting the new level, and adding its corresponding
-        # values to the mutation and copy number alteration datasets
-        mut_levels.insert(scale_lvl, 'Scale')
-        mut_levels.insert(scale_lvl + 1, 'Copy')
-        variants['Scale'] = 'Point'
-        copy_df['Scale'] = 'Copy'
+            # ...and then inserting the new level, and adding its corresponding
+            # values to the mutation and copy number alteration datasets
+            mut_levels[i].insert(scale_lvl, 'Scale')
+            mut_levels[i].insert(scale_lvl + 1, 'Copy')
 
         super().__init__(expr, pd.concat([variants, copy_df], sort=True),
                          mut_levels, mut_genes, domain_dir,
-                         cv_seed, test_prop)
+                         leaf_annot, cv_seed, test_prop)
 
 
 class CopyCohort(BaseCopyCohort):
 
     def __init__(self,
                  cohort, copy_genes, expr_source, copy_source, annot_file,
-                 type_file=None, cv_seed=None, test_prop=0, **coh_args):
+                 type_file, annot_fields=None, use_types=None, cv_seed=None,
+                 test_prop=0, **coh_args):
         self.cohort = cohort
 
         # load expression and gene annotation datasets
         expr = drop_duplicate_genes(get_expr_data(cohort, expr_source,
                                                   **coh_args))
-        if 'annot_fields' in coh_args:
-            annot_data = get_gencode(annot_file, coh_args['annot_fields'])
-        else:
-            annot_data = get_gencode(annot_file)
+        annot_data = get_gencode(annot_file, annot_fields)
 
         # restructure annotation data around expression gene labels
         self.gene_annot = {
@@ -299,26 +291,33 @@ class CopyCohort(BaseCopyCohort):
             ]
         expr_df.index = [expr_match[old_samp] for old_samp in expr_df.index]
 
+        self.event_feats = copies.columns[
+            copies.columns.str.match("[0-9]+(p|q).?")]
         copy_df = copies.loc[copies.index.isin(copy_match),
-                             copies.columns.isin(self.gene_annot)]
-        copy_df.index = [copy_match[samp] for samp in copy_df.index]
+                             (copies.columns.isin(self.gene_annot)
+                              | copies.columns.isin(self.event_feats))]
 
-        if (type_file is not None and 'use_types' in coh_args
-                and coh_args['use_types'] is not None):
+        self.gene_annot.update(zip(
+            self.event_feats,
+            [{'Chr': "chr{}".format(lbl)}
+             for lbl in self.event_feats.str.replace("(p|q).*", "")]
+            ))
+
+        copy_df.index = [copy_match[samp] for samp in copy_df.index]
+        use_samps = set(expr_df.index)
+
+        if use_types is not None:
             type_data = pd.read_csv(type_file,
                                     sep='\t', index_col=0, comment='#')
-            type_data = type_data[type_data.DISEASE == cohort]
+            type_data = type_data[type_data.DISEASE == cohort] 
 
-            use_samps = set(type_data.index[type_data.SUBTYPE.isin(
-                coh_args['use_types'])])
-            use_samps &= set(expr_df.index)
-
-        else:
-            use_samps = expr_df.index
+            use_samps &= set(type_data.index[
+                type_data.SUBTYPE.isin(use_types)])
 
         expr_df = expr_df.loc[use_samps]
         copy_df = copy_df.loc[copy_df.index.isin(use_samps),
-                              set(copy_genes) & set(copy_df.columns)]
+                              (set(copy_genes) & set(copy_df.columns))
+                              | set(self.event_feats)]
         copy_genes = [copy_gene for copy_gene in copy_genes
                       if copy_gene in copy_df.columns]
 

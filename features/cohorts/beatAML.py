@@ -55,24 +55,32 @@ class BeatAmlCohort(BaseMutationCohort):
         muts = muts.loc[muts.Sample.isin(use_samps)]
         muts = muts.rename(columns={
             'symbol': 'Gene', 'chosen_consequence': 'Form', 'exon': 'Exon',
-            'short_aa_change': 'Protein'
+            'short_aa_change': 'Protein', 'allele_reads': 'alt_count',
+            'polyphen': 'PolyPhen'
             })
 
         muts.Form = muts.Form.map({
             'missense_variant': 'Missense_Mutation',
-            'frameshift_variant': 'Frame_Shift',
+            'frameshift_variant': 'frameshift_variant',
             'inframe_deletion': 'In_Frame_Del',
             'inframe_insertion': 'In_Frame_Ins',
             'stop_gained': 'Nonsense_Mutation',
-            'start_lost': 'Nonsense_Mutation',
+            'start_lost': 'Translation_Start_Site',
             'protein_altering_variant': 'Nonsense_Mutation',
-            'stop_lost': 'Nonsense_Mutation',
+            'stop_lost': 'Nonstop_Mutation',
             'internal_tandem_duplication': 'ITD',
             'splice_acceptor_variant': 'Splice_Site',
             'splice_donor_variant': 'Splice_Site',
             })
 
-        annot_data = get_gencode(annot_file, ['transcript'])
+        muts.loc[(muts.Form == 'frameshift_variant')
+                 & (muts.variant_class == 'insertion'),
+                 'Form'] = 'Frame_Shift_Ins'
+        muts.loc[(muts.Form == 'frameshift_variant')
+                 & (muts.variant_class == 'deletion'),
+                 'Form'] = 'Frame_Shift_Del'
+
+        annot_data = get_gencode(annot_file, ['transcript', 'exon'])
         use_genes = set(expr.columns) & set(annot_data.keys())
         expr = expr[list(use_genes)]
         expr.columns = [annot_data[gn]['gene_name'] for gn in expr.columns] 
@@ -90,7 +98,9 @@ class BeatAmlCohort(BaseMutationCohort):
         muts = muts.loc[muts.Gene.isin(self.gene_annot.keys())]
         mut_levels.insert(scale_lvl, 'Scale')
         muts['Scale'] = 'Point'
+        muts['ref_count'] = muts['total_reads'] - muts['alt_count']
 
         super().__init__(expr, muts, mut_levels, mut_genes,
-                         domain_dir, cv_seed, test_prop)
+                         domain_dir, ('alt_count', 'ref_count'),
+                         cv_seed, test_prop)
 
