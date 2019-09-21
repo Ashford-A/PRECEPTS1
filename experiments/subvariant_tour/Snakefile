@@ -21,10 +21,7 @@ localrules: target
 
 rule target:
     input:
-        expand("{outdir}/out-data__{mut_levels}__{classif}.p.gz",
-               outdir=OUTDIR, mut_levels=config['mut_levels'],
-               classif=config['classif']),
-        expand("{outdir}/out-aucs__{mut_levels}__{classif}.p.gz",
+        expand("{outdir}/out-conf__{mut_levels}__{classif}.p.gz",
                outdir=OUTDIR, mut_levels=config['mut_levels'],
                classif=config['classif'])
 
@@ -53,10 +50,7 @@ rule consolidate:
                tmpdir=TMPDIR, task_id=range(config['task_count']))
 
     output:
-        expand("{outdir}/out-data__{mut_levels}__{classif}.p.gz",
-               outdir=OUTDIR, mut_levels=config['mut_levels'],
-               classif=config['classif']),
-        expand("{outdir}/out-aucs__{mut_levels}__{classif}.p.gz",
+        expand("{outdir}/out-conf__{mut_levels}__{classif}.p.gz",
                outdir=OUTDIR, mut_levels=config['mut_levels'],
                classif=config['classif'])
 
@@ -67,9 +61,11 @@ rule consolidate:
         python {LOCALDIR}/merge_tour.py {TMPDIR}
 
         out_tag={config[mut_levels]}__{config[classif]}
-        cp {TMPDIR}/setup/cohort-data.p {OUTDIR}/cohort-data__${{out_tag}}.p
+        cp {TMPDIR}/../../cohort-data.p {OUTDIR}/cohort-data_${{out_tag}}.p
         cp {TMPDIR}/out-data.p.gz {OUTDIR}/out-data__${{out_tag}}.p.gz
+        cp {TMPDIR}/out-pheno.p.gz {OUTDIR}/out-pheno__${{out_tag}}.p.gz
         cp {TMPDIR}/out-aucs.p.gz {OUTDIR}/out-aucs__${{out_tag}}.p.gz
+        cp {TMPDIR}/out-conf.p.gz {OUTDIR}/out-conf__${{out_tag}}.p.gz
 
         python {LOCALDIR}/plot_experiment.py {config[expr_source]} \
                 {config[cohort]} {config[samp_cutoff]} \

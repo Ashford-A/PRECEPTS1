@@ -338,7 +338,8 @@ def main():
     out_datas = [
         out_file.parts[-2:] for out_file in Path(base_dir).glob(
             "{}__{}__samps-*/out-data__*__{}.p.gz".format(
-                args.expr_source, args.cohort, args.classif))
+                args.expr_source, args.cohort, args.classif)
+            )
         ]
 
     out_use = pd.DataFrame([
@@ -353,7 +354,16 @@ def main():
                          "with mutation levels `Exon__Location__Protein` "
                          "which tests genes' base mutations!")
 
-    out_dict = {
+    pheno_dict = {
+        mtype: phn for lvls, ctf in out_use.iteritems()
+        for mtype, phn in pickle.load(bz2.BZ2File(os.path.join(
+            base_dir, "{}__{}__samps-{}".format(
+                args.expr_source, args.cohort, ctf),
+            "out-pheno__{}__{}.p.gz".format(lvls, args.classif)
+            ), 'r')).items()
+        }
+
+    auc_dict = {
         lvls: pickle.load(bz2.BZ2File(os.path.join(
             base_dir, "{}__{}__samps-{}".format(
                 args.expr_source, args.cohort, ctf),
@@ -362,11 +372,12 @@ def main():
         for lvls, ctf in out_use.iteritems()
         }
 
-    pheno_dict = {mtype: phn for _, phn_dict in out_dict.values()
-                  for mtype, phn in phn_dict.items()}
     auc_dfs = {cis_lbl: pd.concat([auc_df[cis_lbl]
-                                   for auc_df, _ in out_dict.values()])
+                                   for auc_df in auc_dict.values()])
                for cis_lbl in cis_lbls}
+
+    for cis_lbl in cis_lbls:
+        assert auc_dfs[cis_lbl].index.isin(pheno_dict).all()
 
     plot_random_comparison(auc_dfs['Chrm'], pheno_dict, args)
     plot_sub_comparisons(auc_dfs['Chrm'], pheno_dict, args)

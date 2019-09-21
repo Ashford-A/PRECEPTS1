@@ -54,7 +54,7 @@ fi
 # enumerate the mutation types that will be tested in this experiment
 dvc run -d $firehose_dir -d $mc3_file -d $gencode_file -d $subtype_file \
 	-d $RUNDIR/setup_tour.py -d $CODEDIR/HetMan/environment.yml \
-	-o ../../cohort-data.p -o setup/muts-list.p -m setup/muts-count.txt \
+	-o setup/muts-list.p -m setup/muts-count.txt \
 	-f setup.dvc --overwrite-dvcfile python $RUNDIR/setup_tour.py \
 	$expr_source $cohort $samp_cutoff $mut_levels $OUTDIR
 

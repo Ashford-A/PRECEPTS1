@@ -6,23 +6,16 @@ import random
 
 class RandomType(MuType):
 
-    def __init__(self, base_mtype=None, size_dist=None, seed=None):
+    def __init__(self, size_dist, base_mtype=None, seed=None):
+        self.size_dist = size_dist
         self.base_mtype = base_mtype
         self.seed = seed
 
-        if size_dist is None and base_mtype is None:
-            raise ValueError("Must provide either a mutation type to sample "
-                             "over or a discrete probability distribution!")
-
-        elif isinstance(size_dist, int):
-            self.size_dist = size_dist
-
+        if isinstance(size_dist, int):
             self.size_rv = rv_discrete(a=size_dist, b=size_dist,
                                        values=([size_dist], [1]), seed=seed)
 
         elif len(size_dist) == 2 and isinstance(size_dist[0], int):
-            self.size_dist = tuple(size_dist)
-
             self.size_rv = rv_discrete(
                 a=size_dist[0], b=size_dist[1],
                 values=([x for x in range(size_dist[0], size_dist[1] + 1)],
@@ -32,8 +25,6 @@ class RandomType(MuType):
                 )
 
         elif isinstance(size_dist, set):
-            self.size_dist = tuple(size_dist)
-
             self.size_rv = rv_discrete(
                 a=min(size_dist), b=max(size_dist),
                 values=(sorted(size_dist),
@@ -42,9 +33,16 @@ class RandomType(MuType):
                 )
 
         else:
-            raise ValueError("Unrecognized size distribution!")
+            raise ValueError("Unrecognized size distribution "
+                             "`{}` !".format(size_dist))
 
         super().__init__([])
+
+    def __getstate__(self):
+        return self.size_dist, self.base_mtype, self.seed
+
+    def __setstate__(self, state):
+        self.__init__(state[0], base_mtype=state[1], seed=state[2])
 
     def __hash__(self):
         value = 0x302378 ^ (hash(self.base_mtype) * hash(self.size_dist)
@@ -118,6 +116,9 @@ class RandomType(MuType):
 
         else:
             return NotImplemented
+
+    def get_sorted_levels(self):
+        return None
 
     def get_samples(self, mtree):
         random.seed(self.seed)

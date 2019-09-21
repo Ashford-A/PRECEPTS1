@@ -40,7 +40,8 @@ def plot_label_stability(infer_dfs, auc_df, pheno_dict, args):
     fig, axarr = plt.subplots(figsize=(13, 8), nrows=3, ncols=4)
 
     use_aucs = auc_df.round(4)
-    auc_bins = pd.qcut(use_aucs.values.flatten(), 4, precision=5).categories
+    auc_bins = pd.qcut(use_aucs.values.flatten(),
+                       q=[0., 0.5, 0.8, 0.9, 1.], precision=5).categories
 
     for i, cis_lbl in enumerate(cis_lbls):
         axarr[i, 0].set_ylabel(cis_lbl, fontsize=21)
@@ -57,13 +58,13 @@ def plot_label_stability(infer_dfs, auc_df, pheno_dict, args):
                 ) for mtype, infr_vals in infer_mat.iterrows()}
 
             wt_vals = np.vstack([
-                np.vstack(infer_mat.ix[mtype, ~pheno_dict[mtype]].apply(
+                np.vstack(infer_mat.loc[mtype, ~pheno_dict[mtype]].apply(
                     lambda vals: lbl_norm(vals, wt_val, mut_val)).values)
                 for mtype, (wt_val, mut_val) in mtype_norms.items()
                 ])
 
             mut_vals = np.vstack([
-                np.vstack(infer_mat.ix[mtype, pheno_dict[mtype]].apply(
+                np.vstack(infer_mat.loc[mtype, pheno_dict[mtype]].apply(
                     lambda vals: lbl_norm(vals, wt_val, mut_val)).values)
                 for mtype, (wt_val, mut_val) in mtype_norms.items()
                 ])

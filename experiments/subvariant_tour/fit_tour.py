@@ -63,16 +63,21 @@ def main():
         mtype_list = pickle.load(muts_f)
 
     clf = eval(args.classif)
-    clf.predict_proba = clf.calc_pred_labels
     mut_clf = clf()
     random.seed(7712)
 
     mtype_genes = {mtype: mtype.get_labels()[0] for mtype in mtype_list
                    if not isinstance(mtype, RandomType)}
 
-    out_tune = {mtype: {cis_lbl: {par: None for par, _ in mut_clf.tune_priors}
+    out_pars = {mtype: {cis_lbl: {par: None for par, _ in mut_clf.tune_priors}
                         for cis_lbl in cis_lbls}
                 for mtype in mtype_list}
+
+    out_time = {mtype: {cis_lbl: dict() for cis_lbl in cis_lbls}
+                for mtype in mtype_list}
+    out_acc = {mtype: {cis_lbl: dict() for cis_lbl in cis_lbls}
+               for mtype in mtype_list}
+
     out_inf = {mtype: {cis_lbl: None for cis_lbl in cis_lbls}
                for mtype in mtype_list}
 
@@ -86,7 +91,6 @@ def main():
             else:
                 use_gene = mtype_genes[mtype]
 
-            print(use_gene)
             for cis_lbl in cis_lbls:
                 ex_genes = get_excluded_genes(cis_lbl, use_gene,
                                               cdata.gene_annot)
@@ -100,7 +104,13 @@ def main():
                 # save the tuned values of the hyper-parameters
                 clf_params = mut_clf.get_params()
                 for par, _ in mut_clf.tune_priors:
-                    out_tune[mtype][cis_lbl][par] = clf_params[par]
+                    out_pars[mtype][cis_lbl][par] = clf_params[par]
+
+                out_time[mtype][cis_lbl]['avg'] = cv_output['mean_fit_time']
+                out_time[mtype][cis_lbl]['std'] = cv_output['std_fit_time']
+                out_acc[mtype][cis_lbl]['avg'] = cv_output['mean_test_score']
+                out_acc[mtype][cis_lbl]['std'] = cv_output['std_test_score']
+                out_acc[mtype][cis_lbl]['par'] = cv_output['params']
 
                 out_inf[mtype][cis_lbl] = mut_clf.infer_coh(
                     cdata, mtype, exclude_feats=ex_genes,
@@ -108,14 +118,17 @@ def main():
                     )
 
         else:
-            del(out_tune[mtype])
+            del(out_pars[mtype])
+            del(out_time[mtype])
+            del(out_acc[mtype])
             del(out_inf[mtype])
 
     with open(os.path.join(args.use_dir, 'output',
                            "out_task-{}.p".format(args.task_id)),
               'wb') as fl:
-        pickle.dump({'Infer': out_inf, 'Tune': out_tune,
-                     'Clf': mut_clf.__class__}, fl)
+        pickle.dump({'Infer': out_inf, 'Pars': out_pars, 'Time': out_time,
+                     'Acc': out_acc, 'Clf': mut_clf.__class__},
+                    fl, protocol=-1)
 
 
 if __name__ == "__main__":
