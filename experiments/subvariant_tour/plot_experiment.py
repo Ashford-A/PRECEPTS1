@@ -217,9 +217,7 @@ def main():
     out_tag = "{}__{}__samps-{}".format(
         args.expr_source, args.cohort, args.samp_cutoff)
     os.makedirs(os.path.join(plot_dir, out_tag), exist_ok=True)
-
-    cdata = merge_cohort_data(os.path.join(base_dir, out_tag),
-                              args.mut_levels, use_seed=8713)
+    cdata = merge_cohort_data(os.path.join(base_dir, out_tag), use_seed=8713)
 
     with bz2.BZ2File(os.path.join(base_dir, out_tag,
                                   "out-data__{}__{}.p.gz".format(

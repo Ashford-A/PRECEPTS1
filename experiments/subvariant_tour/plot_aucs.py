@@ -8,7 +8,8 @@ plot_dir = os.path.join(base_dir, 'plots', 'aucs')
 
 from HetMan.experiments.subvariant_tour import cis_lbls, pnt_mtype
 from HetMan.experiments.subvariant_tour.merge_tour import merge_cohort_data
-from HetMan.experiments.subvariant_tour.utils import RandomType
+from HetMan.experiments.subvariant_tour.utils import (
+    get_fancy_label, RandomType)
 from HetMan.experiments.subvariant_infer import variant_clrs
 from dryadic.features.mutations import MuType
 
@@ -20,7 +21,6 @@ import dill as pickle
 
 import numpy as np
 import pandas as pd
-import re
 
 import matplotlib as mpl
 mpl.use('Agg')
@@ -34,60 +34,6 @@ plt.style.use('fivethirtyeight')
 plt.rcParams['axes.facecolor']='white'
 plt.rcParams['savefig.facecolor']='white'
 plt.rcParams['axes.edgecolor']='white'
-
-
-def get_fancy_label(mtype):
-    sub_keys = mtype.subkeys()
-
-    if len(sub_keys) <= 2:
-        use_lbls = []
-
-        for lbl_key in sub_keys:
-            sub_mtype = MuType(lbl_key)
-
-            #TODO: come up with a better way to detect if a mutation type
-            # corresponds to a singleton hotspot
-            if ('Protein' in sub_mtype.get_levels()
-                    and not any('Form' in lvl
-                                for lvl in sub_mtype.get_levels())):
-                sub_lbls = [str(sub_mtype).split(':')[-1]]
-
-            else:
-                sub_lbls = str(sub_mtype).split(':')[1:]
-
-            for i in range(len(sub_lbls)):
-                if sub_lbls[i].count('|') >= 2:
-                    sub_lbls[i] = "3+ sub-mutations"
-
-                sub_lbls[i] = sub_lbls[i].replace(
-                    "None", "no overlapping domain")
-                sub_lbls[i] = sub_lbls[i].replace("_Mutation", "")
-                sub_lbls[i] = sub_lbls[i].replace("_", "")
-                sub_lbls[i] = sub_lbls[i].replace("|", " or ")
-
-                dom_mtch = re.search("(^[:]|^)SM[0-9]", sub_lbls[i])
-                while dom_mtch:
-                    sub_lbls[i] = "{}Domain:SMART-{}".format(
-                        sub_lbls[i][:dom_mtch.span()[0]],
-                        sub_lbls[i][(dom_mtch.span()[1] - 1):]
-                        )
-                    dom_mtch = re.search("(^[:]|^)SM[0-9]", sub_lbls[i])
-
-                exn_mtch = re.search("([0-9]+)/([0-9]+)", sub_lbls[i])
-                while exn_mtch:
-                    sub_lbls[i] = "Exon:{}{}".format(
-                        exn_mtch.groups()[0],
-                        sub_lbls[i][exn_mtch.span()[1]:]
-                        )
-                    exn_mtch = re.search("([0-9]+)/([0-9]+)", sub_lbls[i])
-
-            use_lbls += ['\nwith '.join(sub_lbls)]
-        use_lbl = '\nand '.join(use_lbls)
-
-    else:
-        use_lbl = "grouping of\n3+ mutation types"
-
-    return use_lbl
 
 
 def place_labels(pnt_dict):
@@ -110,11 +56,14 @@ def place_labels(pnt_dict):
                          for pnt2 in pnt_dict if pnt2 != pnt):
                 lbl_pos[pnt] = ((pnt[0] + use_sz, pnt[1]), 'left')
 
-    while any(pos is None for pos in lbl_pos.values()):
+    i = 1091
+    while i < 16371 and any(lbl is None for lbl in lbl_pos.values()):
+        i += 1
+
         for pnt in tuple(pnt_dict):
             if (pnt in lbl_pos and lbl_pos[pnt] is None
                     and pnt_dict[pnt][1] is not None):
-                new_pos = 0.05 * np.random.randn(2) + [pnt[0], pnt[1]]
+                new_pos = (i / 110007) * np.random.randn(2) + [pnt[0], pnt[1]]
                 new_pos = new_pos.round(5).clip(0.55, 0.95).tolist()
 
                 if not any((((new_pos[0] - 0.1)
@@ -125,13 +74,13 @@ def place_labels(pnt_dict):
                     lbl_pos[pnt] = new_pos, 'center'
                     pnt_dict[tuple(new_pos)] = (0, None)
 
-    return lbl_pos
+    return {pos: lbl for pos, lbl in lbl_pos.items() if lbl}
 
 
 def plot_random_comparison(auc_vals, pheno_dict, args):
     fig, (viol_ax, sctr_ax) = plt.subplots(
         figsize=(11, 7), nrows=1, ncols=2,
-        gridspec_kw=dict(width_ratios=[1, 2])
+        gridspec_kw=dict(width_ratios=[1, 1.51])
         )
 
     mtype_genes = pd.Series([mtype.subtype_list()[0][0]
@@ -224,7 +173,7 @@ def plot_random_comparison(auc_vals, pheno_dict, args):
 
 
 def plot_sub_comparisons(auc_vals, pheno_dict, args):
-    fig, ax = plt.subplots(figsize=(11, 10))
+    fig, ax = plt.subplots(figsize=(11, 11))
     np.random.seed(3742)
 
     auc_vals = auc_vals[[not isinstance(mtype, RandomType)

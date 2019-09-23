@@ -61,7 +61,7 @@ rule consolidate:
         python {LOCALDIR}/merge_tour.py {TMPDIR}
 
         out_tag={config[mut_levels]}__{config[classif]}
-        cp {TMPDIR}/../../cohort-data.p {OUTDIR}/cohort-data_${{out_tag}}.p
+        cp {TMPDIR}/../../cohort-data.p {OUTDIR}/cohort-data__${{out_tag}}.p
         cp {TMPDIR}/out-data.p.gz {OUTDIR}/out-data__${{out_tag}}.p.gz
         cp {TMPDIR}/out-pheno.p.gz {OUTDIR}/out-pheno__${{out_tag}}.p.gz
         cp {TMPDIR}/out-aucs.p.gz {OUTDIR}/out-aucs__${{out_tag}}.p.gz
