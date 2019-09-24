@@ -36,23 +36,24 @@ plt.rcParams['savefig.facecolor']='white'
 plt.rcParams['axes.edgecolor']='white'
 
 
-def place_labels(pnt_dict):
+def place_labels(pnt_dict, lims=(0.48, 1.01)):
     lbl_pos = dict()
+    lim_gap = lims[1] - lims[0]
 
     for pnt, (sz, lbls) in pnt_dict.items():
         if lbls[0]:
             lbl_pos[pnt] = None
-            use_sz = (sz ** 0.53) / 1843
+            use_sz = (sz ** 0.31) * (lim_gap / 281)
 
-            if not any(((pnt[0] - 0.13 - use_sz) < pnt2[0] <= pnt[0]
-                        and ((pnt[1] - 0.03 - use_sz) < pnt2[1]
-                             < (pnt[1] + 0.03 + use_sz)))
+            if not any(((pnt[0] - lim_gap / 4 - use_sz) < pnt2[0] <= pnt[0]
+                        and ((pnt[1] - lim_gap / 17.5 - use_sz) < pnt2[1]
+                             < (pnt[1] + lim_gap / 17.5 + use_sz)))
                        for pnt2 in pnt_dict if pnt2 != pnt):
                 lbl_pos[pnt] = ((pnt[0] - use_sz, pnt[1]), 'right')
 
-            elif not any((pnt[0] <= pnt2[0] < (pnt[0] + 0.13 + use_sz))
-                          and ((pnt[1] - 0.03 - use_sz) < pnt2[1]
-                               < (pnt[1] + 0.03 + use_sz))
+            elif not any((pnt[0] <= pnt2[0] < (pnt[0] + lim_gap / 4 + use_sz))
+                          and ((pnt[1] - lim_gap / 17.5 - use_sz) < pnt2[1]
+                               < (pnt[1] + lim_gap / 17.5 + use_sz))
                          for pnt2 in pnt_dict if pnt2 != pnt):
                 lbl_pos[pnt] = ((pnt[0] + use_sz, pnt[1]), 'left')
 
@@ -64,12 +65,14 @@ def place_labels(pnt_dict):
             if (pnt in lbl_pos and lbl_pos[pnt] is None
                     and pnt_dict[pnt][1] is not None):
                 new_pos = (i / 110007) * np.random.randn(2) + [pnt[0], pnt[1]]
-                new_pos = new_pos.round(5).clip(0.55, 0.95).tolist()
 
-                if not any((((new_pos[0] - 0.1)
-                             < pnt2[0] <= (new_pos[0] + 0.1))
-                            and ((new_pos[1] - 0.04) < pnt2[1]
-                                 < (new_pos[1] + 0.04)))
+                new_pos = new_pos.round(5).clip(
+                    lims[0] + 0.06, lims[1] - 0.06).tolist()
+
+                if not any((((new_pos[0] - lim_gap / 5.3)
+                             < pnt2[0] <= (new_pos[0] + lim_gap / 5.3))
+                            and ((new_pos[1] - lim_gap / 13) < pnt2[1]
+                                 < (new_pos[1] + lim_gap / 13)))
                            for pnt2 in pnt_dict if pnt2 != pnt):
                     lbl_pos[pnt] = new_pos, 'center'
                     pnt_dict[tuple(new_pos)] = (0, None)
@@ -176,28 +179,40 @@ def plot_sub_comparisons(auc_vals, pheno_dict, args):
     fig, ax = plt.subplots(figsize=(11, 11))
     np.random.seed(3742)
 
+    # filter out experiment results for mutations representing randomly
+    # chosen sets of samples rather than actual mutations
     auc_vals = auc_vals[[not isinstance(mtype, RandomType)
                          for mtype in auc_vals.index]]
     pnt_dict = dict()
     clr_dict = dict()
 
+    # for each gene whose mutations were tested, pick a random colour
+    # to use for plotting the results for the gene
     for gene, auc_vec in auc_vals.groupby(
             lambda mtype: mtype.subtype_list()[0][0]):
         clr_dict[gene] = hls_to_rgb(
             h=np.random.uniform(size=1)[0], l=0.5, s=0.8)
 
+        # if there were subgroupings tested for the gene, find the results
+        # for the mutation representing all point mutations for this gene...
         if len(auc_vec) > 1:
             base_mtype = MuType({('Gene', gene): pnt_mtype})
             base_indx = auc_vec.index.get_loc(base_mtype)
 
+            # ...as well as the results for the best subgrouping of
+            # mutations found for this gene
             best_subtype = auc_vec[:base_indx].append(
                 auc_vec[(base_indx + 1):]).idxmax()
             best_indx = auc_vec.index.get_loc(best_subtype)
 
+            # if the AUC for the optimal subgrouping is good enough, plot it
+            # against the AUC for all point mutations of the gene...
             if auc_vec[best_indx] > 0.6:
                 base_size = np.mean(pheno_dict[base_mtype])
                 best_prop = np.mean(pheno_dict[best_subtype]) / base_size
 
+                # ...and if it is really good then add a label with the gene
+                # name and a description of the best found subgrouping
                 if auc_vec[best_indx] > 0.7:
                     pnt_dict[auc_vec[base_indx], auc_vec[best_indx]] = (
                         2119 * base_size, (gene,
@@ -253,10 +268,15 @@ def plot_sub_comparisons(auc_vals, pheno_dict, args):
     ax.set_xlabel("AUC using all point mutations", size=23, weight='semibold')
     ax.set_ylabel("AUC of best found subgrouping", size=23, weight='semibold')
 
+    ax.plot([0.48, 1], [0.5, 0.5],
+            color='black', linewidth=1.3, linestyle=':', alpha=0.71)
+    ax.plot([0.5, 0.5], [0.48, 1],
+            color='black', linewidth=1.3, linestyle=':', alpha=0.71)
+
     ax.plot([0.48, 1.0005], [1, 1], color='black', linewidth=1.9, alpha=0.89)
     ax.plot([1, 1], [0.48, 1.0005], color='black', linewidth=1.9, alpha=0.89)
     ax.plot([0.49, 0.997], [0.49, 0.997],
-            linewidth=2.1, linestyle='--', color='#550000', alpha=0.41)
+            color='#550000', linewidth=2.1, linestyle='--', alpha=0.41)
 
     plt.savefig(
         os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),

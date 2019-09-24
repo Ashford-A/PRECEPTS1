@@ -11,6 +11,8 @@ from HetMan.experiments.utilities.load_input import parse_subtypes
 
 from HetMan.features.cohorts.tcga import MutationCohort
 from HetMan.features.cohorts.beatAML import BeatAmlCohort
+from HetMan.features.cohorts.metabric import MetabricCohort
+from HetMan.features.cohorts.iorio import IorioCohort
 from dryadic.features.mutations import MuType
 
 import argparse
@@ -47,6 +49,41 @@ def get_cohort_data(cohort, expr_source):
             mut_genes=use_genes.tolist(), expr_source=expr_source,
             expr_file=beatAML_files['expr'], samp_file=beatAML_files['samps'],
             syn=syn, annot_file=annot_file, cv_seed=8713, test_prop=0
+            )
+
+    elif cohort.split('_')[0] == 'METABRIC':
+        if expr_source != 'microarray':
+            raise ValueError("Only Illumina microarray mRNA calls are "
+                             "available for the METABRIC cohort!")
+
+        if '_' in cohort:
+            use_subtypes = cohort.split('_')[1]
+        else:
+            use_subtypes = None
+
+        cdata = MetabricCohort(
+            mut_levels=[['Gene', 'Exon', 'Location', 'Protein']],
+            mut_genes=use_genes.tolist(), expr_source=expr_source,
+            metabric_dir=metabric_dir, annot_file=annot_file,
+            domain_dir=domain_dir, use_types=use_subtypes,
+            cv_seed=8713, test_prop=0
+            )
+
+    elif cohort.split('_')[0] == 'Iorio':
+        if expr_source != 'microarray':
+            raise ValueError("Only microarray mRNA calls are available "
+                             "for the Iorio CCLE cohort!")
+
+        if '_' in cohort:
+            use_types = cohort.split('_')[1]
+        else:
+            use_types = None
+
+        cdata = IorioCohort(
+            mut_levels=[['Gene', 'Exon', 'Location', 'Protein']],
+            mut_genes=use_genes.tolist(), expr_source=expr_source,
+            iorio_dir=iorio_dir, annot_file=annot_file, domain_dir=domain_dir,
+            use_types=use_types, cv_seed=8713, test_prop=0
             )
 
     else:
@@ -91,7 +128,7 @@ def main():
     # parse command line arguments
     args = parser.parse_args()
     out_path = os.path.join(args.out_dir, 'setup')
-    use_lvls = args.mut_levels.split('__')
+    use_lvls = tuple(args.mut_levels.split('__'))
 
     coh_path = os.path.join(
         args.out_dir.split('subvariant_tour')[0], 'subvariant_tour',
@@ -111,8 +148,10 @@ def main():
     else:
         cdata = get_cohort_data(args.cohort, args.expr_source)
 
-    lbls_key = ('Gene', 'Scale', 'Copy', 'Exon', 'Location', 'Protein')
     use_mtypes = set()
+    lbls_key = ('Gene', 'Scale', 'Copy') + use_lvls
+    if lbls_key not in cdata.mtrees:
+        cdata.add_mut_lvls(lbls_key)
 
     for gene, muts in cdata.mtrees[lbls_key]:
         if len(pnt_mtype.get_samples(muts)) >= args.samp_cutoff:
@@ -126,8 +165,7 @@ def main():
             gene_mtypes -= {
                 mtype1 for mtype1, mtype2 in product(gene_mtypes, repeat=2)
                 if mtype1 != mtype2 and mtype1.is_supertype(mtype2)
-                and (mtype1.get_samples(cdata.mtrees[lbls_key])
-                     == mtype2.get_samples(cdata.mtrees[lbls_key]))
+                and mtype1.get_samples(muts) == mtype2.get_samples(muts)
                 }
 
             if args.mut_levels == 'Exon__Location__Protein':
