@@ -1,7 +1,9 @@
 
-from .data_dirs import expr_dir, copy_dir, syn_root, domain_dir, annot_file
-from .setup_infer import Mcomb
+from .data_dirs import (expr_dir, copy_dir, syn_root, domain_dir,
+                        annot_file, beatAML_files)
+
 from dryadic.features.mutations import MuType
+from .utils import Mcomb
 
 
 # define major mutation types
@@ -12,6 +14,10 @@ variant_mtypes = (
     ('Gain', MuType({('Scale', 'Copy'): {(
         'Copy', ('ShalGain', 'DeepGain')): None}}))
     )
+
+def shal_mtype(gene):
+    return MuType({('Gene', gene): {('Scale', 'Copy'): {(
+        'Copy', ('ShalDel', 'ShalGain')): None}}})
 
 # define plotting colours for the major mutation types
 variant_clrs = {'WT': "0.29", 'Point': "#0D29FF",
@@ -27,5 +33,6 @@ variant_mcombs = (
 mcomb_clrs = {'Point+Loss': "#7C30B0", 'Point+Gain': "#25A497"}
 
 
-__all__ = ['expr_dir', 'copy_dir', 'syn_root', 'domain_dir', 'annot_file']
+__all__ = ['expr_dir', 'copy_dir', 'syn_root', 'domain_dir',
+           'annot_file', 'beatAML_files']
 

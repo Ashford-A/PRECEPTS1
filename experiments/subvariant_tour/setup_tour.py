@@ -48,7 +48,9 @@ def get_cohort_data(cohort, expr_source):
             mut_levels=[['Gene', 'Exon', 'Location', 'Protein']],
             mut_genes=use_genes.tolist(), expr_source=expr_source,
             expr_file=beatAML_files['expr'], samp_file=beatAML_files['samps'],
-            syn=syn, annot_file=annot_file, cv_seed=8713, test_prop=0
+            syn=syn, annot_file=annot_file, domain_dir=domain_dir,
+            leaf_annot=('ref_count', 'alt_count', 'PolyPhen'),
+            cv_seed=8713, test_prop=0
             )
 
     elif cohort.split('_')[0] == 'METABRIC':
@@ -97,6 +99,7 @@ def get_cohort_data(cohort, expr_source):
             mut_genes=use_genes.tolist(), expr_source=source_base,
             var_source='mc3', copy_source='Firehose', annot_file=annot_file,
             domain_dir=domain_dir, type_file=type_file,
+            leaf_annot=('ref_count', 'alt_count', 'PolyPhen'),
             expr_dir=expr_sources[source_base], copy_dir=copy_dir,
             collapse_txs=collapse_txs, syn=syn, cv_seed=8713, test_prop=0,
             annot_fields=['transcript', 'exon'],
@@ -149,7 +152,7 @@ def main():
         cdata = get_cohort_data(args.cohort, args.expr_source)
 
     use_mtypes = set()
-    lbls_key = ('Gene', 'Scale', 'Copy') + use_lvls
+    lbls_key = ('Gene', 'Scale') + use_lvls
     if lbls_key not in cdata.mtrees:
         cdata.add_mut_lvls(lbls_key)
 

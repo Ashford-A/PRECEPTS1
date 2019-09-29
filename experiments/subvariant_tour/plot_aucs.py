@@ -43,17 +43,18 @@ def place_labels(pnt_dict, lims=(0.48, 1.01)):
     for pnt, (sz, lbls) in pnt_dict.items():
         if lbls[0]:
             lbl_pos[pnt] = None
+            lbl_gap = (3 + lbls.count('\n')) / 61
             use_sz = (sz ** 0.31) * (lim_gap / 281)
 
             if not any(((pnt[0] - lim_gap / 4 - use_sz) < pnt2[0] <= pnt[0]
-                        and ((pnt[1] - lim_gap / 17.5 - use_sz) < pnt2[1]
-                             < (pnt[1] + lim_gap / 17.5 + use_sz)))
+                        and ((pnt[1] - lim_gap * lbl_gap - use_sz) < pnt2[1]
+                             < (pnt[1] + lim_gap * lbl_gap + use_sz)))
                        for pnt2 in pnt_dict if pnt2 != pnt):
                 lbl_pos[pnt] = ((pnt[0] - use_sz, pnt[1]), 'right')
 
             elif not any((pnt[0] <= pnt2[0] < (pnt[0] + lim_gap / 4 + use_sz))
-                          and ((pnt[1] - lim_gap / 17.5 - use_sz) < pnt2[1]
-                               < (pnt[1] + lim_gap / 17.5 + use_sz))
+                          and ((pnt[1] - lim_gap * lbl_gap - use_sz) < pnt2[1]
+                               < (pnt[1] + lim_gap * lbl_gap + use_sz))
                          for pnt2 in pnt_dict if pnt2 != pnt):
                 lbl_pos[pnt] = ((pnt[0] + use_sz, pnt[1]), 'left')
 
@@ -71,8 +72,9 @@ def place_labels(pnt_dict, lims=(0.48, 1.01)):
 
                 if not any((((new_pos[0] - lim_gap / 5.3)
                              < pnt2[0] <= (new_pos[0] + lim_gap / 5.3))
-                            and ((new_pos[1] - lim_gap / 13) < pnt2[1]
-                                 < (new_pos[1] + lim_gap / 13)))
+                            and ((new_pos[1] - lim_gap * lbl_gap * 1.3)
+                                 < pnt2[1]
+                                 < (new_pos[1] + lim_gap * lbl_gap * 1.3)))
                            for pnt2 in pnt_dict if pnt2 != pnt):
                     lbl_pos[pnt] = new_pos, 'center'
                     pnt_dict[tuple(new_pos)] = (0, None)
@@ -306,7 +308,7 @@ def main():
 
     out_datas = [
         out_file.parts[-2:] for out_file in Path(base_dir).glob(
-            "{}__{}__samps-*/out-data__*__{}.p.gz".format(
+            "{}__{}__samps-*/out-conf__*__{}.p.gz".format(
                 args.expr_source, args.cohort, args.classif)
             )
         ]
@@ -314,7 +316,7 @@ def main():
     out_use = pd.DataFrame([
         {'Samps': int(out_data[0].split('__samps-')[1]),
          'Levels': '__'.join(out_data[1].split(
-             'out-data__')[1].split('__')[:-1])}
+             'out-conf__')[1].split('__')[:-1])}
         for out_data in out_datas
         ]).groupby(['Levels'])['Samps'].min()
 
@@ -323,33 +325,33 @@ def main():
                          "with mutation levels `Exon__Location__Protein` "
                          "which tests genes' base mutations!")
 
-    pheno_dict = {
-        mtype: phn for lvls, ctf in out_use.iteritems()
-        for mtype, phn in pickle.load(bz2.BZ2File(os.path.join(
-            base_dir, "{}__{}__samps-{}".format(
-                args.expr_source, args.cohort, ctf),
-            "out-pheno__{}__{}.p.gz".format(lvls, args.classif)
-            ), 'r')).items()
-        }
+    phn_dict = dict()
+    auc_dict = dict()
 
-    auc_dict = {
-        lvls: pickle.load(bz2.BZ2File(os.path.join(
-            base_dir, "{}__{}__samps-{}".format(
-                args.expr_source, args.cohort, ctf),
-            "out-aucs__{}__{}.p.gz".format(lvls, args.classif)
-            ), 'r'))
-        for lvls, ctf in out_use.iteritems()
-        }
+    for lvls, ctf in out_use.iteritems():
+        with bz2.BZ2File(os.path.join(
+                base_dir, "{}__{}__samps-{}".format(
+                    args.expr_source, args.cohort, ctf),
+                "out-pheno__{}__{}.p.gz".format(lvls, args.classif)
+                ), 'r') as f:
+            phn_dict.update(pickle.load(f))
+
+        with bz2.BZ2File(os.path.join(
+                base_dir, "{}__{}__samps-{}".format(
+                    args.expr_source, args.cohort, ctf),
+                "out-aucs__{}__{}.p.gz".format(lvls, args.classif)
+                ), 'r') as f:
+            auc_dict[lvls] = pickle.load(f)
 
     auc_dfs = {cis_lbl: pd.concat([auc_df[cis_lbl]
                                    for auc_df in auc_dict.values()])
                for cis_lbl in cis_lbls}
 
     for cis_lbl in cis_lbls:
-        assert auc_dfs[cis_lbl].index.isin(pheno_dict).all()
+        assert auc_dfs[cis_lbl].index.isin(phn_dict).all()
 
-    plot_random_comparison(auc_dfs['Chrm'], pheno_dict, args)
-    plot_sub_comparisons(auc_dfs['Chrm'], pheno_dict, args)
+    plot_random_comparison(auc_dfs['Chrm'], phn_dict, args)
+    plot_sub_comparisons(auc_dfs['Chrm'], phn_dict, args)
 
 
 if __name__ == '__main__':

@@ -17,11 +17,11 @@ do
 		c)	classif=$OPTARG;;
 		m)	test_max=$OPTARG;;
 		r)      rewrite=true;;
-		[?])    echo "Usage: [-e] expression source directory" \
-			     "$0 [-t] TCGA cohort [-s] minimum sample cutoff " \
-			     "[-l] mutation annotation levels " \
-			     "[-c] mutation classifier [-m] maximum tests per node" \
-			     "[-r] whether existing results should be rewritten"
+		[?])    echo "Usage: $0 [-e] cohort expression source" \
+				"[-t] tumour cohort [-s] minimum sample cutoff " \
+				"[-l] mutation annotation levels " \
+				"[-c] mutation classifier [-m] maximum tests per node" \
+				"[-r] rewrite existing results?"
 			exit 1;;
 	esac
 done

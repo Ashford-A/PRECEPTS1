@@ -75,6 +75,8 @@ def merge_cohort_data(out_dir, use_seed=None):
                 "`{}` !".format(both_lvl, mdl1, mdl2)
                 )
 
+    # TODO: keep union of all found mutation trees
+    # instead of just the first set
     if new_files:
         if cur_hash is not None:
             for new_mdl, new_chsum in new_chsums.items():
@@ -114,11 +116,6 @@ def merge_cohort_data(out_dir, use_seed=None):
 
 
 def compare_muts(*muts_lists):
-    """
-    return len(set(tuple(sorted([mut for mut in muts_list
-                                 if not isinstance(mut, RandomType)]))
-                   for muts_list in muts_lists)) == 1
-    """
     return len(set(tuple(sorted(muts_list))
                    for muts_list in muts_lists)) == 1
 

@@ -5,11 +5,11 @@ from scipy.stats import rv_discrete
 import random
 
 
-def get_fancy_label(mtype):
+def get_fancy_label(mtype, max_subs=2):
     sub_keys = [skey['Gene', mtype.get_labels()[0]]
                 for skey in mtype.subkeys()]
 
-    if len(sub_keys) <= 2:
+    if len(sub_keys) <= max_subs:
         use_lbls = []
 
         for lbl_key in sub_keys:
@@ -62,11 +62,12 @@ def get_fancy_label(mtype):
 
     else:
         mtype_lvls = mtype.get_sorted_levels()[1:]
+        use_lbl = "grouping of {}+".format(max_subs + 1)
 
         if len(mtype_lvls) == 1:
-            use_lbl = "grouping of 3+ {}s".format(mtype_lvls[0].lower())
+            use_lbl = ' '.join([use_lbl, "{}s".format(mtype_lvls[0].lower())])
         else:
-            use_lbl = "grouping of\n3+ mutation types"
+            use_lbl = ' '.join([use_lbl, "mutation types"])
 
     return use_lbl
 

@@ -22,9 +22,9 @@
         'job-name' : "subv-infer_cnsl",
         'output' : "slurm/consolidate.out",
         'error' : "slurm/consolidate.err",
-        'time' : "1:00:00",
-        'cpus-per-task' : 1,
-        'mem-per-cpu': 8000,
+        'time' : "35:55:00",
+        'cpus-per-task' : 12,
+        'mem-per-cpu': 2000,
     },
 }
 
