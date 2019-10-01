@@ -21,6 +21,7 @@ import dill as pickle
 
 import numpy as np
 import pandas as pd
+import statsmodels.formula.api as smf
 
 import matplotlib as mpl
 mpl.use('Agg')
@@ -43,7 +44,7 @@ def place_labels(pnt_dict, lims=(0.48, 1.01)):
     for pnt, (sz, lbls) in pnt_dict.items():
         if lbls[0]:
             lbl_pos[pnt] = None
-            lbl_gap = (3 + lbls.count('\n')) / 61
+            lbl_gap = (5 + 2 * lbls.count('\n')) / 83
             use_sz = (sz ** 0.31) * (lim_gap / 281)
 
             if not any(((pnt[0] - lim_gap / 4 - use_sz) < pnt2[0] <= pnt[0]
@@ -70,8 +71,8 @@ def place_labels(pnt_dict, lims=(0.48, 1.01)):
                 new_pos = new_pos.round(5).clip(
                     lims[0] + 0.06, lims[1] - 0.06).tolist()
 
-                if not any((((new_pos[0] - lim_gap / 5.3)
-                             < pnt2[0] <= (new_pos[0] + lim_gap / 5.3))
+                if not any((((new_pos[0] - lim_gap / 4.3)
+                             < pnt2[0] <= (new_pos[0] + lim_gap / 4.3))
                             and ((new_pos[1] - lim_gap * lbl_gap * 1.3)
                                  < pnt2[1]
                                  < (new_pos[1] + lim_gap * lbl_gap * 1.3)))
@@ -100,10 +101,10 @@ def plot_random_comparison(auc_vals, pheno_dict, args):
         mtype: ('Random' if isinstance(mtype, RandomType)
                 else 'Point w/ Sub'
                 if (mtype.subtype_list()[0][1] == pnt_mtype
-                    and mtype.subtype_list()[0][0] in sbgp_genes)
+                    and mtype.get_labels()[0] in sbgp_genes)
                 else 'Point w/o Sub'
                 if (mtype.subtype_list()[0][1] == pnt_mtype
-                    and not mtype.subtype_list()[0][0] in sbgp_genes)
+                    and not mtype.get_labels()[0] in sbgp_genes)
                 else 'Subgrouping')
         for mtype in auc_vals.index
         })
@@ -137,26 +138,22 @@ def plot_random_comparison(auc_vals, pheno_dict, args):
             else:
                 size_dict[mtype.size_dist] = [mtype]
 
-    for mtype in gene_stat.index[gene_stat == 'Point w/o Sub']:
-        sctr_ax.scatter(auc_vals[mtype],
-                        auc_vals[size_dict[np.sum(pheno_dict[mtype])]].max(),
-                        s=701 * np.mean(pheno_dict[mtype]), facecolor='none',
-                        alpha=0.11, edgecolor=variant_clrs['Point'],
-                        linewidth=1.7)
+    for mtype_stat, face_clr, edge_clr, ln_wdth in zip(
+            lbl_order[1:],
+            ['none', variant_clrs['Point'], variant_clrs['Point']],
+            [variant_clrs['Point'], variant_clrs['Point'], 'none'],
+            [1.7, 1.7, 0]
+            ):
 
-    for mtype in gene_stat.index[gene_stat == 'Point w/ Sub']:
-        sctr_ax.scatter(auc_vals[mtype],
-                        auc_vals[size_dict[np.sum(pheno_dict[mtype])]].max(),
-                        s=701 * np.mean(pheno_dict[mtype]),
-                        facecolor=variant_clrs['Point'], alpha=0.11,
-                        edgecolor=variant_clrs['Point'], linewidth=1.7)
+        plt_mtypes = gene_stat.index[gene_stat == mtype_stat]
+        size_rtypes = [size_dict[np.sum(pheno_dict[mtype])]
+                       for mtype in plt_mtypes]
+        mean_vals = [701 * np.mean(pheno_dict[mtype]) for mtype in plt_mtypes]
 
-    for mtype in gene_stat.index[gene_stat == 'Subgrouping']:
-        sctr_ax.scatter(auc_vals[mtype],
-                        auc_vals[size_dict[np.sum(pheno_dict[mtype])]].max(),
-                        s=701 * np.mean(pheno_dict[mtype]),
-                        facecolor=variant_clrs['Point'], alpha=0.11,
-                        edgecolor='none')
+        sctr_ax.scatter([auc_vals[plt_mtype] for plt_mtype in plt_mtypes],
+                        [auc_vals[rtype].max() for rtype in size_rtypes],
+                        s=mean_vals, alpha=0.11, facecolor=face_clr,
+                        edgecolor=edge_clr, linewidth=ln_wdth)
 
     sctr_ax.set_xlabel('AUC of Oncogene Mutation', size=20, weight='semibold')
     sctr_ax.set_ylabel('AUC of Size-Matched\nRandom Sample Set',
@@ -177,23 +174,71 @@ def plot_random_comparison(auc_vals, pheno_dict, args):
     plt.close()
 
 
-def plot_sub_comparisons(auc_vals, pheno_dict, args):
+def plot_size_comparison(auc_vals, pheno_dict, clr_dict, args):
+    fig, ax = plt.subplots(figsize=(13, 8))
+
+    # filter out experiment results for mutations representing randomly
+    # chosen sets of samples rather than actual mutations
+    mtype_aucs = auc_vals[[not isinstance(mtype, RandomType)
+                           for mtype in auc_vals.index]]
+
+    plot_df = pd.DataFrame({
+        'Size': [pheno_dict[mtype].sum() for mtype in mtype_aucs.index],
+        'AUC': mtype_aucs.values,
+        'Gene': [mtype.get_labels()[0] for mtype in mtype_aucs.index]
+        })
+
+    clr_vals = [clr_dict[mtype.get_labels()[0]] for mtype in mtype_aucs.index]
+    ax.scatter(plot_df.Size, plot_df.AUC,
+               c=[clr_dict[gn] for gn in plot_df.Gene],
+               s=23, alpha=0.17, edgecolor='none')
+
+    size_lm = smf.ols('AUC ~ C(Gene) + Size', data=plot_df).fit()
+    coef_vals = size_lm.params.sort_values()[::-1]
+    gene_coefs = coef_vals[coef_vals.index.str.match('^C(Gene)*')]
+
+    coef_lbl = '\n'.join(
+        ["Size Coef: {:.3g}".format(coef_vals.Size)]
+        + ["{} Coef: {:.3g}".format(gn.split("[T.")[1].split("]")[0], coef)
+           for gn, coef in gene_coefs[:4].iteritems()]
+        )
+
+    ax.text(0.97, 0.07, coef_lbl,
+            size=14, ha='right', va='bottom', transform=ax.transAxes)
+    ax.set_xlabel("# of Samples Affected", size=20, weight='semibold')
+    ax.set_ylabel("AUC", size=20, weight='semibold')
+
+    ax.set_xlim([10, ax.get_xlim()[1]])
+    ax.set_ylim([ax.get_ylim()[0], 1.01])
+
+    ax.plot(ax.get_xlim(), [0.5, 0.5],
+            color='black', linewidth=1.3, linestyle=':', alpha=0.71)
+    ax.plot(ax.get_xlim(), [1.0, 1.0],
+            color='black', linewidth=1.9, alpha=0.89)
+
+    plt.tight_layout(w_pad=2.7)
+    plt.savefig(
+        os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
+                     "size-comparison_{}.svg".format(args.classif)),
+        bbox_inches='tight', format='svg'
+        )
+
+    plt.close()
+
+
+def plot_sub_comparisons(auc_vals, pheno_dict, clr_dict, args):
     fig, ax = plt.subplots(figsize=(11, 11))
-    np.random.seed(3742)
+    pnt_dict = dict()
 
     # filter out experiment results for mutations representing randomly
     # chosen sets of samples rather than actual mutations
     auc_vals = auc_vals[[not isinstance(mtype, RandomType)
                          for mtype in auc_vals.index]]
-    pnt_dict = dict()
-    clr_dict = dict()
 
     # for each gene whose mutations were tested, pick a random colour
     # to use for plotting the results for the gene
     for gene, auc_vec in auc_vals.groupby(
-            lambda mtype: mtype.subtype_list()[0][0]):
-        clr_dict[gene] = hls_to_rgb(
-            h=np.random.uniform(size=1)[0], l=0.5, s=0.8)
+            lambda mtype: mtype.get_labels()[0]):
 
         # if there were subgroupings tested for the gene, find the results
         # for the mutation representing all point mutations for this gene...
@@ -300,6 +345,11 @@ def main():
     parser.add_argument('cohort', help="a TCGA cohort", type=str)
     parser.add_argument('classif', help="a mutation classifier", type=str)
 
+    parser.add_argument(
+        '--seed', default=3401, type=int,
+        help="the random seed to use for setting plotting colours"
+        )
+
     # parse command line arguments, create directory where plots will be saved
     args = parser.parse_args()
     os.makedirs(os.path.join(plot_dir,
@@ -350,8 +400,15 @@ def main():
     for cis_lbl in cis_lbls:
         assert auc_dfs[cis_lbl].index.isin(phn_dict).all()
 
+    np.random.seed(args.seed)
+    clr_dict = {gene: hls_to_rgb(h=np.random.uniform(size=1)[0], l=0.5, s=0.8)
+                for gene in sorted({mtype.get_labels()[0]
+                                    for mtype in auc_dfs['Chrm'].index
+                                    if not isinstance(mtype, RandomType)})}
+
     plot_random_comparison(auc_dfs['Chrm'], phn_dict, args)
-    plot_sub_comparisons(auc_dfs['Chrm'], phn_dict, args)
+    plot_size_comparison(auc_dfs['Chrm'], phn_dict, clr_dict, args)
+    plot_sub_comparisons(auc_dfs['Chrm'], phn_dict, clr_dict, args)
 
 
 if __name__ == '__main__':
