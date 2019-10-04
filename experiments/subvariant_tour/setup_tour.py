@@ -165,6 +165,8 @@ def main():
                     <= (len(cdata.get_samples()) - args.samp_cutoff))
                 }
 
+            #TODO: remove subgroupings that happen to contain all of the
+            # point mutations of a gene
             gene_mtypes -= {
                 mtype1 for mtype1, mtype2 in product(gene_mtypes, repeat=2)
                 if mtype1 != mtype2 and mtype1.is_supertype(mtype2)

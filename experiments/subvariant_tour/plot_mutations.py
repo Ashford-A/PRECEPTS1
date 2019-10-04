@@ -4,13 +4,12 @@ import sys
 
 base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'subvariant_tour')
 sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
-plot_dir = os.path.join(base_dir, 'plots', 'gene')
+plot_dir = os.path.join(base_dir, 'plots', 'mutations')
 
-from HetMan.experiments.subvariant_tour import *
-from HetMan.experiments.subvariant_tour import pnt_mtype
+from HetMan.experiments.subvariant_tour import domain_dir, pnt_mtype
 from HetMan.experiments.subvariant_tour.merge_tour import merge_cohort_data
-from HetMan.experiments.subvariant_tour.utils import RandomType
-from HetMan.experiments.subvariant_tour.plot_aucs import get_fancy_label
+from HetMan.experiments.subvariant_tour.utils import (
+    get_fancy_label, RandomType)
 
 from HetMan.experiments.subvariant_infer import variant_clrs
 from dryadic.features.data.domains import get_protein_domains
@@ -25,8 +24,7 @@ import dill as pickle
 import numpy as np
 import pandas as pd
 
-from functools import reduce
-from operator import or_, itemgetter
+from operator import itemgetter
 import re
 import random
 
@@ -47,24 +45,35 @@ plt.rcParams['savefig.facecolor']='white'
 plt.rcParams['axes.edgecolor']='white'
 
 
-def plot_mutation_lollipop(cdata_dict, domain_dict, args):
+def plot_lollipop(cdata_dict, domain_dict, args):
     fig, main_ax = plt.subplots(figsize=(10, 4))
 
-    base_cdata = tuple(cdata_dict.values())[0]['Loc']
-    use_mtree = base_cdata.mtree[args.gene]['Point']
+    base_cdata = tuple(cdata_dict.values())[0]
+    gn_annot = base_cdata.gene_annot[args.gene]
+    base_lvls = 'Gene', 'Scale', 'Copy', 'Exon', 'Location', 'Protein'
+    loc_mtree = base_cdata.mtrees[base_lvls][args.gene]['Point']
+
+    domn_lvls = [('Gene', 'Transcript',
+                  '_'.join(['Domain', domn_nm]), 'Location')
+                 for domn_nm in domain_dict]
+
+    for lvls in [base_lvls] + domn_lvls:
+        if lvls not in base_cdata.mtrees:
+            base_cdata.add_mut_lvls(lvls)
 
     loc_counts = sorted([(int(loc), len(loc_muts))
-                         for exn, exn_muts in use_mtree
+                         for exn, exn_muts in loc_mtree
                          for loc, loc_muts in exn_muts if loc != '.'],
                         key=itemgetter(0))
     max_count = max(count for _, count in loc_counts)
 
-    mrks, stms, basl = main_ax.stem(*zip(*loc_counts))
+    mrks, stms, basl = main_ax.stem(*zip(*loc_counts),
+                                    use_line_collection=True)
     plt.setp(mrks, markersize=5, markeredgecolor='black', zorder=5)
     plt.setp(stms, linewidth=0.8, color='black', zorder=1)
     plt.setp(basl, linewidth=1.1, color='black', zorder=2)
 
-    for exn, exn_muts in use_mtree:
+    for exn, exn_muts in loc_mtree:
         for loc, loc_muts in exn_muts:
             if len(loc_muts) >= 10:
                 mut_lbls = sorted(lbl for lbl, _ in loc_muts)
@@ -79,77 +88,90 @@ def plot_mutation_lollipop(cdata_dict, domain_dict, args):
                     size=8, ha='left', va='bottom'
                     )
 
-    gn_annot = base_cdata.gene_annot[args.gene]
-    main_tx = [
-        tx_id for tx_id, tx_annot in gn_annot['Transcripts'].items()
-        if tx_annot['transcript_name'] == '{}-001'.format(args.gene)
-        ][0]
-
     prot_patches = []
-    gene_doms = domain_dict['SMART'][
-        (domain_dict['SMART'].Gene == gn_annot['Ens'])
-        & (domain_dict['SMART'].Transcript == main_tx)
-        ]
+    for i, lvls in enumerate(domn_lvls):
+        tx_mtree = base_cdata.mtrees[lvls][args.gene]
+        tx_id = tuple(tx_mtree)[0][0]
+        tx_annot = gn_annot['Transcripts'][tx_id]
 
-    for dom_id, dom_start, dom_end in zip(gene_doms.DomainID,
-                                          gene_doms.DomainStart,
-                                          gene_doms.DomainEnd):
+        domn_nm = lvls[2].split('_')[1]
+        domn_df = domain_dict[domn_nm]
+        gene_domns = domn_df[(domn_df.Gene == gn_annot['Ens'])
+                             & (domn_df.Transcript == tx_id)]
 
-        prot_patches.append(Rect((dom_start, max_count * -0.12),
-                                 dom_end - dom_start, max_count * 0.08))
-        main_ax.text((dom_start + dom_end) / 2, max_count * -0.086, dom_id,
-                     size=9, ha='center', va='center')
+        for domn_id, domn_start, domn_end in zip(gene_domns.DomainID,
+                                                 gene_domns.DomainStart,
+                                                 gene_domns.DomainEnd):
+            prot_patches.append(Rect(
+                (domn_start, -max_count * (0.22 + i * 0.1)),
+                domn_end - domn_start, max_count * 0.08
+                ))
+
+            main_ax.text((domn_start + domn_end) / 2,
+                         -max_count * (0.185 + i * 0.1),
+                         domn_id, size=9, ha='center', va='center')
 
     main_ax.add_collection(PatchCollection(
         prot_patches, alpha=0.4, linewidth=0, color='#D99100'))
 
     exn_patches = []
     exn_pos = 1
-
-    for i, exn_annot in enumerate(gn_annot['Exons']):
+    for i, exn_annot in enumerate(tx_annot['Exons']):
         exn_len = exn_annot['End'] - exn_annot['Start'] + 1
 
-        if 'UTR' in exn_annot:
-            for utr_annot in exn_annot['UTR']:
-                exn_len -= utr_annot['End'] - utr_annot['Start']
+        if 'UTRs' in tx_annot:
+            for utr_annot in tx_annot['UTRs']:
+                if (exn_annot['Start'] <= utr_annot['Start']
+                        <= exn_annot['End'] <= utr_annot['End']):
+                    exn_len -= exn_annot['End'] - utr_annot['Start'] + 1
+
+                elif (exn_annot['Start'] <= utr_annot['Start']
+                        <= utr_annot['End'] <= exn_annot['End']):
+                    exn_len -= utr_annot['End'] - utr_annot['Start'] + 1
 
         if exn_len > 0 and exn_pos <= loc_counts[-1][0]:
-            exn_len /= 3
+            exn_len //= 3
 
-            if i == (len(gn_annot['Exons']) - 1):
+            if i == (len(tx_annot['Exons']) - 1):
                 if (exn_pos + exn_len) > loc_counts[-1][0]:
                     exn_len = loc_counts[-1][0] - exn_pos + 10
 
             if (exn_pos + exn_len) >= loc_counts[0][0]:
-                exn_patches.append(Rect((exn_pos, max_count * -0.23),
+                exn_patches.append(Rect((exn_pos, max_count * -0.11),
                                         exn_len, max_count * 0.08,
                                         color='green'))
 
                 main_ax.text(max(exn_pos + exn_len / 2, loc_counts[0][0] + 5),
-                             max_count * -0.196,
-                             "{}/{}".format(i + 1, len(gn_annot['Exons'])),
+                             max_count * -0.075, exn_annot['number'],
                              size=min(11, (531 * exn_len
                                            / loc_counts[-1][0]) ** 0.6),
                              ha='center', va='center')
 
             exn_pos += exn_len
 
+    for i, domn_nm in enumerate(domain_dict):
+        main_ax.text(loc_counts[0][0] - exn_pos / 25,
+                     -max_count * (0.17 + i * 0.1),
+                     "{}\nDomains".format(domn_nm), size=7,
+                     ha='right', va='top', linespacing=0.65, rotation=37)
+
     main_ax.add_collection(PatchCollection(
         exn_patches, alpha=0.4, linewidth=1.4, color='#002C91'))
 
-    main_ax.text(loc_counts[0][0] - exn_pos / 25, max_count * -0.05,
-                 "{}\nDomains".format('SMART'), size=7,
+    main_ax.text(loc_counts[0][0] - exn_pos / 25, max_count * -0.06,
+                 "{}\nExons".format(tx_annot['transcript_name']), size=7,
                  ha='right', va='top', linespacing=0.65, rotation=37)
 
-    main_ax.text(loc_counts[0][0] - exn_pos / 25, max_count * -0.16,
-                 "{}-001\nExons".format(args.gene), size=7,
-                 ha='right', va='top', linespacing=0.65, rotation=37)
+    if '_' in args.cohort:
+        coh_lbl = "{}({})".format(*args.cohort.split('_'))
+    else:
+        coh_lbl = str(args.cohort)
 
     main_ax.text(
         0.02, 0.79,
-        "{} {}-mutated samples\n{:.1%} of {} cohort affected".format(
-            len(use_mtree), args.gene,
-            len(use_mtree) / len(base_cdata.get_samples()), args.cohort,
+        "{} {}-mutated samples\n{:.1%} of {} affected".format(
+            len(loc_mtree), args.gene,
+            len(loc_mtree) / len(base_cdata.get_samples()), coh_lbl,
             ),
         size=11, va='bottom', transform=main_ax.transAxes
         )
@@ -159,12 +181,13 @@ def plot_mutation_lollipop(cdata_dict, domain_dict, args):
     main_ax.grid(linewidth=0.31)
 
     main_ax.set_xlim(loc_counts[0][0] - exn_pos / 29, exn_pos * 1.03)
-    main_ax.set_ylim(max_count / -3.6, max_count * 1.07)
+    main_ax.set_ylim(-max_count * (0.03 + len(domain_dict) * 0.15),
+                     max_count * 20 / 19)
     main_ax.set_yticks([tck for tck in main_ax.get_yticks() if tck >= 0])
 
     # save the plot to file
     fig.savefig(os.path.join(
-        plot_dir, "mut-lollipop_{}__{}.svg".format(args.cohort, args.gene)
+        plot_dir, "lollipop_{}__{}.svg".format(args.cohort, args.gene)
         ), bbox_inches='tight', format='svg')
 
     plt.close()
@@ -215,7 +238,7 @@ def sort_levels(lbls, lvl):
                                           if lbls[k] != '.' else 0))
 
     elif 'Domain_' in lvl:
-        sort_indx = [lbls.index('None')]
+        sort_indx = [lbls.index('none')]
 
         sort_indx += (sorted(range(sort_indx[0]), key=lambda k: lbls[k])
                       + sorted(range(sort_indx[0] + 1, len(lbls)),
@@ -244,7 +267,7 @@ def recurse_labels(ax, mtree, xlims, ymax, all_size,
         lbl_prop = (lf_wdth / all_wdth) * (xlims[1] - xlims[0])
         ax.plot([cur_x + lbl_prop / 2, (xlims[0] + xlims[1]) / 2],
                 [ymax - 0.18 - cur_j, ymax + 0.19 - cur_j],
-                c='0.71', linewidth=1.3, solid_capstyle='round')
+                c='black', linewidth=0.9, solid_capstyle='round')
 
         if add_lbls:
             mut_lbl = clean_label(lbl, mtree.mut_level)
@@ -254,13 +277,13 @@ def recurse_labels(ax, mtree, xlims, ymax, all_size,
                 else:
                     mut_lbl = "{}\n({} samps)".format(mut_lbl, len(muts))
 
-            if (lbl_prop / all_size) <= 1/41:
+            if (lbl_prop / all_size) <= 1/23:
                 use_rot = 90
             else:
                 use_rot = 0
 
             ax.text(cur_x + lbl_prop / 2, ymax - 0.5 - cur_j, mut_lbl,
-                    size=8.5 - 2.3 * cur_j, ha='center', va='center',
+                    size=14 - 2.9 * cur_j, ha='center', va='center',
                     rotation=use_rot)
 
         if clr_mtype is False or clr_mtype == pnt_mtype:
@@ -304,176 +327,151 @@ def recurse_labels(ax, mtree, xlims, ymax, all_size,
     return ax
 
 
-def plot_mutation_tree(cdata_dict, domain_dict, args):
-    base_cdict = tuple(cdata_dict.values())[0]
-    lvls_key = ['Loc'] + sorted(set(base_cdict) - {'Loc'})[::-1]
+def plot_tree_classif(infer_dict, phn_dict, auc_dict, use_lvls,
+                      cdata_dict, args):
+    base_cdata = tuple(cdata_dict.values())[0]
+    base_lvls = 'Exon__Location__Protein'
 
-    use_mtrees = [base_cdict[lvl_k].mtree[args.gene]['Point']
-                  for lvl_k in lvls_key]
-    lvls_list = [['Exon', 'Location', 'Protein']]
-    lvls_list += [lvl_k.split('__') for lvl_k in lvls_key[1:]]
+    lvls_k = tuple(use_lvls.split('__'))
+    base_cdata.add_mut_lvls(('Gene', ) + lvls_k)
+    use_mtree = base_cdata.mtrees[('Gene', ) + lvls_k][args.gene]
 
-    fig, axarr = plt.subplots(
-        figsize=(14, 0.3 + 1.9 * len(lvls_key)), nrows=len(lvls_key), ncols=1,
-        gridspec_kw=dict(
-            height_ratios=[1 + len(lvls_ls) for lvls_ls in lvls_list])
-        )
+    use_mtypes = {(src, clf): [MuType({('Gene', args.gene): pnt_mtype})]
+                  for src, lvls, clf in infer_dict if lvls == use_lvls}
 
-    for ax, use_mtree, use_lvls in zip(axarr, use_mtrees, lvls_list):
-        ax.axis('off')
-        leaf_count = len(MuType(use_mtree.allkey()).subkeys())
+    use_criter = {
+        (src, clf): [(np.mean(phn_dict[src, base_lvls, clf][mtypes[0]]),
+                      auc_dict[src, base_lvls, clf].loc[mtypes[0], 'Chrm'])]
+        for (src, clf), mtypes in use_mtypes.items()
+        }
 
-        for i, lvl in enumerate(use_lvls):
-            ax.text(leaf_count / -41, len(use_lvls) - i - 0.5,
-                    clean_level(lvl), size=12, ha='right', va='center')
+    for src, clf in use_mtypes:
+        cur_mtypes = {mtype.subtype_list()[0][1]
+                      for mtype, phn in phn_dict[src, use_lvls, clf].items()
+                      if (not isinstance(mtype, RandomType)
+                          and mtype.get_labels()[0] == args.gene
+                          and mtype.subtype_list()[0][1] != pnt_mtype)}
 
-        ax.text(leaf_count / 2, len(use_lvls) + 0.67,
-                "All {} Point Mutations\n({} samples)".format(
-                    args.gene, len(use_mtree)),
-                size=11, ha='center', va='center')
+        if len(cur_mtypes) >= 5:
+            use_mtypes[src, clf] += [
+                MuType({('Gene', args.gene): mtype})
+                for mtype in random.sample(sorted(cur_mtypes), k=5)
+                ]
 
-        ax.add_patch(Rect((leaf_count * 0.29, len(use_lvls) + 0.23),
-                          leaf_count * 0.42, 0.91, clip_on=False,
-                          facecolor=variant_clrs['Point'], alpha=0.41,
-                          linewidth=0))
+            use_criter[src, clf] += [
+                (np.mean(phn_dict[src, use_lvls, clf][mtype]),
+                 auc_dict[src, use_lvls, clf].loc[mtype, 'Chrm'])
+                for mtype in use_mtypes[src, clf][1:]
+                ]
 
-        ax = recurse_labels(ax, use_mtree, (0, leaf_count), len(use_lvls),
-                            leaf_count, clr_mtype=False, add_lbls=True)
+    use_src, use_clf = sorted(
+        use_criter.items(),
+        key=lambda x: np.prod(np.var(np.array(x[1]), axis=0))
+        )[-1][0]
+    plt_mtypes = use_mtypes[use_src, use_clf]
 
-        ax.set_xlim(0, leaf_count * 1.03)
-        ax.set_ylim(0, len(use_lvls) + 1)
+    fig = plt.figure(figsize=(1.9 + 3.7 * len(plt_mtypes), 12))
+    gs = gridspec.GridSpec(nrows=3, ncols=len(plt_mtypes) + 1,
+                           width_ratios=[1] + [3] * len(plt_mtypes),
+                           height_ratios=[5, 4, 6])
 
-    # save the plot to file
-    fig.tight_layout(h_pad=0)
-    fig.savefig(os.path.join(
-        plot_dir, "mut-tree_{}__{}.svg".format(args.cohort, args.gene)
-        ), bbox_inches='tight', format='svg')
+    lbl_ax = fig.add_subplot(gs[:, 0])
+    lbl_ax.axis('off')
 
-    plt.close()
+    tree_ax = fig.add_subplot(gs[0, 1:])
+    tree_ax.axis('off')
+    leaf_count = len(MuType(use_mtree.allkey()).subkeys())
 
+    tree_ax.add_patch(Rect((leaf_count * 0.03, len(lvls_k) + 0.17),
+                           leaf_count * 0.23, 0.93,
+                           facecolor=variant_clrs['WT'], alpha=0.41,
+                           clip_on=False, linewidth=0))
 
-def plot_mutation_classif(infer_dict, out_dict, cdata_dict, args):
-    base_cdict = tuple(cdata_dict.values())[0]
-
-    lvls_key = ['Loc'] * 2 + sorted(
-        lvls for lvls in set(base_cdict) - {'Loc'})[::-1]
-    use_mtrees = [base_cdict[lvl_k].mtree[args.gene]['Point']
-                  for lvl_k in lvls_key]
-
-    lvls_mtypes = [
-        [lvls, None, None] for lvls in ([['Exon', 'Location', 'Protein']] * 2
-                                        + [lvl_k.split('__')
-                                           for lvl_k in lvls_key[2:]])
-        ]
-
-    for i, (use_mtree, lvls_k) in enumerate(zip(use_mtrees, lvls_key)):
-        use_outs = [
-            (src, clf, auc_df.Chrm, phn_dict)
-            for (src, lvls, clf), (auc_df, phn_dict) in out_dict.items()
-            if ((lvls_k == 'Loc' and lvls == 'Exon__Location__Protein')
-                or lvls_k != 'Loc' and lvls == lvls_k)
-            ]
-
-        if i == 0:
-            lvls_mtypes[i][1] = MuType({('Gene', args.gene): pnt_mtype})
-
-        else:
-            cur_mtypes = {mtype.subtype_list()[0][1]
-                          for mtype, phn in use_outs[0][3].items()
-                          if (not isinstance(mtype, RandomType)
-                              and mtype.subtype_list()[0][0] == args.gene
-                              and mtype.subtype_list()[0][1] != pnt_mtype
-                              and np.sum(phn) < len(use_mtree.get_samples()))}
-
-            if cur_mtypes:
-                lvls_mtypes[i][1] = MuType({
-                    ('Gene', args.gene): random.choice(sorted(cur_mtypes))})
-
-        if lvls_mtypes[i][1] is not None:
-            lvls_mtypes[i][2] = sorted(
-                [(src, clf,
-                  auc_vals[lvls_mtypes[i][1]], phn_dict[lvls_mtypes[i][1]])
-                 for (src, clf, auc_vals, phn_dict) in use_outs],
-                key=itemgetter(2)
-                )[-1]
-
-    lvls_mtypes = [(lvls, mtype, mtree, use_out)
-                   for (lvls, mtype, use_out), mtree in zip(lvls_mtypes,
-                                                            use_mtrees)
-                   if mtype is not None]
-
-    fig = plt.figure(figsize=(12, 0.3 + 2.1 * len(lvls_mtypes)))
-    gs = gridspec.GridSpec(nrows=len(lvls_mtypes), ncols=3,
-                           width_ratios=[1, 7, 4])
-
-    wild_ax = fig.add_subplot(gs[:, 0])
-    wild_ax.axis('off')
-    wild_ax.add_patch(Rect((-0.2, 0.2), 0.8, 0.6,
-                           facecolor=variant_clrs['WT'],
-                           clip_on=False, linewidth=0, alpha=0.41))
-
-    wild_ax.text(
-        0.2, 0.5, "Wild-Type for {} Point Mutations\n({} samples)".format(
-            args.gene, len(set(base_cdict['Loc'].get_samples())
-                           - set(base_cdict['Loc'].mtree[
-                               args.gene]['Point'].get_samples()))
+    tree_ax.text(
+        leaf_count * 0.15, len(lvls_k) + 0.59,
+        "Wild-Type for\n{} Point Mutations\n({} samples)".format(
+            args.gene, len(set(base_cdata.get_samples())
+                           - set(use_mtree.get_samples()))
             ),
-        size=21, ha='center', va='center', rotation=90
+        size=19, ha='center', va='center',
         )
 
-    for i, (use_lvls, plt_mtype, use_mtree,
-            (use_src, use_clf, use_auc, use_phn)) in enumerate(lvls_mtypes):
-        tree_ax = fig.add_subplot(gs[i, 1])
-        tree_ax.axis('off')
+    tree_ax.add_patch(Rect((leaf_count * 0.31, len(lvls_k) + 0.23),
+                           leaf_count * 0.43, 0.79,
+                           facecolor=variant_clrs['Point'], alpha=0.41,
+                           clip_on=False, linewidth=0))
 
-        leaf_count = len(MuType(use_mtree.allkey()).subkeys())
-        tree_ax.add_patch(Rect((leaf_count * 0.35, len(use_lvls) + 0.23),
-                               leaf_count * 0.42, 1.03, clip_on=False,
-                               facecolor=variant_clrs['Point'], alpha=0.41,
-                               linewidth=0))
+    tree_ax.text(leaf_count / 2, len(lvls_k) + 0.57,
+                 "All {} Point Mutations\n({} samples)".format(
+                     args.gene, len(use_mtree)),
+                 size=19, ha='center', va='center')
 
-        for j, lvl in enumerate(use_lvls):
-            tree_ax.text(leaf_count / 13, len(use_lvls) - j - 0.5,
-                         clean_level(lvl), size=11, ha='right', va='center')
+    tree_ax = recurse_labels(tree_ax, use_mtree, (0, leaf_count), len(lvls_k),
+                             leaf_count, clr_mtype=False, add_lbls=True)
+    tree_ax.set_xlim(0, leaf_count * 1.03)
+    tree_ax.set_ylim(0, len(lvls_k) + 0.6)
 
-        tree_ax = recurse_labels(
-            tree_ax, use_mtree,
-            (leaf_count / 11, leaf_count), len(use_lvls), leaf_count,
+    for i, lvl in enumerate(lvls_k):
+        lbl_ax.text(1.31, 0.87 - i / 8.3, clean_level(lvl),
+                    size=19, ha='right', va='center')
+
+    for i, plt_mtype in enumerate(plt_mtypes):
+        mtype_ax = fig.add_subplot(gs[1, i + 1])
+        mtype_ax.axis('off')
+
+        mtype_ax.add_patch(Rect((leaf_count * 0.29, len(lvls_k) - 0.13),
+                                leaf_count * 0.42, 0.31, clip_on=False,
+                                facecolor=variant_clrs['Point'], alpha=0.41,
+                                linewidth=0))
+
+        mtype_ax = recurse_labels(
+            mtype_ax, use_mtree, (0, leaf_count),
+            len(lvls_k) - 0.4, leaf_count,
             clr_mtype=plt_mtype.subtype_list()[0][1], add_lbls=False
             )
 
-        tree_ax.set_xlim(0, leaf_count * 1.03)
-        tree_ax.set_ylim(0, len(use_lvls) + 1)
+        mtype_ax.set_xlim(0, leaf_count * 1.03)
+        mtype_ax.set_ylim(0, len(lvls_k) + 0.6)
 
-        infer_vals = infer_dict[
-            use_src, '__'.join(use_lvls), use_clf]['Chrm'].loc[plt_mtype]
-        viol_ax = fig.add_subplot(gs[i, 2])
+        if i == 0:
+            infer_vals = infer_dict[
+                use_src, base_lvls, use_clf]['Chrm'].loc[plt_mtype]
+            use_phn = phn_dict[src, base_lvls, clf][plt_mtype]
+
+        else:
+            infer_vals = infer_dict[
+                use_src, use_lvls, use_clf]['Chrm'].loc[plt_mtype]
+            use_phn = phn_dict[src, use_lvls, clf][plt_mtype]
+
+        use_auc = use_criter[src, clf][i][1]
+        viol_ax = fig.add_subplot(gs[2, i + 1])
 
         sns.violinplot(x=np.concatenate(infer_vals[~use_phn].values),
                        ax=viol_ax, palette=[variant_clrs['WT']],
-                       linewidth=0, cut=0)
+                       orient='v', linewidth=0, cut=0)
         sns.violinplot(x=np.concatenate(infer_vals[use_phn].values),
                        ax=viol_ax, palette=[variant_clrs['Point']],
-                       linewidth=0, cut=0)
+                       orient='v', linewidth=0, cut=0)
 
         viol_ax.text(-0.13, 1,
                      "{}\n({} samples)".format(get_fancy_label(plt_mtype),
                                                np.sum(use_phn)),
-                     size=13, ha='left', va='top',
+                     size=15, ha='left', va='top',
                      transform=viol_ax.transAxes)
 
         viol_ax.text(1, -0.05, "AUC: {:.3f}".format(use_auc),
-                     size=14, ha='right', va='bottom',
+                     size=17, ha='right', va='bottom',
                      transform=viol_ax.transAxes)
 
         viol_ax.get_children()[0].set_alpha(0.41)
         viol_ax.get_children()[2].set_alpha(0.41)
-        viol_ax.set_xticklabels([])
+        viol_ax.set_yticklabels([])
 
     # save the plot to file
-    fig.tight_layout(w_pad=1.1, h_pad=2.7)
+    fig.tight_layout(w_pad=1.7, h_pad=2.1)
     fig.savefig(os.path.join(
-        plot_dir, "mut-classif_{}__{}.svg".format(args.cohort, args.gene)
+        plot_dir, "tree-classif_{}__{}__{}.svg".format(
+            args.cohort, args.gene, use_lvls)
         ), bbox_inches='tight', format='svg')
 
     plt.close()
@@ -498,7 +496,7 @@ def main():
         ]
 
     out_use = pd.DataFrame([
-        {'Source': out_data[0].split('__')[0],
+        {'Source': out_data[0].split("__{}".format(args.cohort))[0],
          'Samps': int(out_data[0].split("__samps-")[1]),
          'Levels': '__'.join(out_data[1].split(
              "out-data__")[1].split('__')[:-1]),
@@ -510,20 +508,16 @@ def main():
             ).groupby(['Source', 'Levels', 'Classif'])['Samps'].min()
 
     cdata_dict = {
-        (src, clf): {
-            'Loc': merge_cohort_data(os.path.join(
-                base_dir, "{}__{}__samps-{}".format(
-                    src, args.cohort, outs.loc[(slice(None),
-                                                'Exon__Location__Protein',
-                                                slice(None))][0]
-                    )
-                ), 'Exon__Location__Protein', use_seed=8713),
-            **{lvls: merge_cohort_data(os.path.join(
-                base_dir, "{}__{}__samps-{}".format(src, args.cohort, ctf)
-                ), lvls, use_seed=8713)
-                for (_, lvls, _), ctf in outs.iteritems()
-                if lvls != 'Exon__Location__Protein'}
-            }
+        (src, clf): merge_cohort_data(
+            os.path.join(base_dir,
+                         "{}__{}__samps-{}".format(
+                             src, args.cohort,
+                             outs.loc[(slice(None), 'Exon__Location__Protein',
+                                       slice(None))][0]
+                            )
+                        ),
+            use_seed=8713
+            )
         for (src, clf), outs in out_use.groupby(['Source', 'Classif'])
         }
 
@@ -531,31 +525,43 @@ def main():
     domn_dict = {
         domn: get_protein_domains(domain_dir, domn)
         for domn in {lvls.split('Domain_')[1].split('__')[0]
-                     for lvls in reduce(or_,
-                                        [set(cdict.keys()) - {'Loc'}
-                                         for cdict in cdata_dict.values()])
+                     for lvls in set(out_use.index.get_level_values('Levels'))
                      if 'Domain_' in lvls}
         }
 
-    infer_dict = {
-        (src, lvls, clf): pickle.load(bz2.BZ2File(os.path.join(
+    infer_dict = dict()
+    phn_dict = dict()
+    auc_dict = dict()
+
+    for (src, lvls, clf), ctf in out_use.iteritems():
+        out_fl = os.path.join(
             base_dir, "{}__{}__samps-{}".format(src, args.cohort, ctf),
             "out-data__{}__{}.p.gz".format(lvls, clf)
-            ), 'r'))['Infer']
-        for (src, lvls, clf), ctf in out_use.iteritems()
-        }
+            )
+
+        with bz2.BZ2File(out_fl, 'r') as f:
+            infer_dict[src, lvls, clf] = pickle.load(f)['Infer']
  
-    out_dict = {
-        (src, lvls, clf): pickle.load(bz2.BZ2File(os.path.join(
+        phn_fl = os.path.join(
+            base_dir, "{}__{}__samps-{}".format(src, args.cohort, ctf),
+            "out-pheno__{}__{}.p.gz".format(lvls, clf)
+            )
+
+        with bz2.BZ2File(phn_fl, 'r') as f:
+            phn_dict[src, lvls, clf] = pickle.load(f)
+ 
+        auc_fl = os.path.join(
             base_dir, "{}__{}__samps-{}".format(src, args.cohort, ctf),
             "out-aucs__{}__{}.p.gz".format(lvls, clf)
-            ), 'r'))
-        for (src, lvls, clf), ctf in out_use.iteritems()
-        }
+            )
 
-    plot_mutation_lollipop(cdata_dict, domn_dict, args)
-    plot_mutation_tree(cdata_dict, domn_dict, args)
-    plot_mutation_classif(infer_dict, out_dict, cdata_dict, args)
+        with bz2.BZ2File(auc_fl, 'r') as f:
+            auc_dict[src, lvls, clf] = pickle.load(f)
+ 
+    plot_lollipop(cdata_dict, domn_dict, args)
+    for lvls in set(out_use.index.get_level_values('Levels')):
+        plot_tree_classif(infer_dict, phn_dict, auc_dict, lvls,
+                          cdata_dict, args)
 
 
 if __name__ == '__main__':
