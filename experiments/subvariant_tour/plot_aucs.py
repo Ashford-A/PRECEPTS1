@@ -37,48 +37,178 @@ plt.rcParams['savefig.facecolor']='white'
 plt.rcParams['axes.edgecolor']='white'
 
 
-def place_labels(pnt_dict, lims=(0.48, 1.01)):
+def place_labels(pnt_dict, lims=(0.48, 1.01), lbl_dens=1.):
     lbl_pos = dict()
-    lim_gap = lims[1] - lims[0]
+
+    lim_gap = (lbl_dens * 73) / (lims[1] - lims[0])
+    pnt_gaps = {pnt: sz * lim_gap / 39 for pnt, (sz, _) in pnt_dict.items()}
+
+    lbl_hghts = {pnt: 0.13 + lbls[1].count('\n') if lbls[1] else 0.31
+                 for pnt, (_, lbls) in pnt_dict.items()}
+    lbl_wdths = {pnt: (1 + max(len(ln) for ln in lbls[1].split('\n'))
+                       if lbls[1] else 1 + len(lbls[0]) * 1.43)
+                 for pnt, (_, lbls) in pnt_dict.items()}
 
     for pnt, (sz, lbls) in pnt_dict.items():
         if lbls[0]:
             lbl_pos[pnt] = None
-            lbl_gap = (5 + 2 * lbls.count('\n')) / 83
-            use_sz = (sz ** 0.31) * (lim_gap / 281)
 
-            if not any(((pnt[0] - lim_gap / 4 - use_sz) < pnt2[0] <= pnt[0]
-                        and ((pnt[1] - lim_gap * lbl_gap - use_sz) < pnt2[1]
-                             < (pnt[1] + lim_gap * lbl_gap + use_sz)))
-                       for pnt2 in pnt_dict if pnt2 != pnt):
-                lbl_pos[pnt] = ((pnt[0] - use_sz, pnt[1]), 'right')
+            if (pnt[0] > (lims[0] + (lbl_wdths[pnt] / lim_gap))
+                    and not any(((pnt[0] - ((pnt_gaps[pnt] + lbl_wdths[pnt])
+                                            / lim_gap))
+                                 < pnt2[0] + (pnt_gaps[pnt2] / lim_gap))
+                                and ((pnt2[0] - (pnt_gaps[pnt2] / lim_gap))
+                                     < (pnt[0] - (pnt_gaps[pnt] / lim_gap)))
+                                and ((pnt[1] - (lbl_hghts[pnt] / lim_gap))
+                                     < pnt2[1] + (pnt_gaps[pnt2] / lim_gap))
+                                and ((pnt2[1] - (pnt_gaps[pnt2] / lim_gap))
+                                     < (pnt[1] + (2.51 / lim_gap)))
+                                for pnt2 in pnt_dict if pnt2 != pnt)
 
-            elif not any((pnt[0] <= pnt2[0] < (pnt[0] + lim_gap / 4 + use_sz))
-                          and ((pnt[1] - lim_gap * lbl_gap - use_sz) < pnt2[1]
-                               < (pnt[1] + lim_gap * lbl_gap + use_sz))
-                         for pnt2 in pnt_dict if pnt2 != pnt):
-                lbl_pos[pnt] = ((pnt[0] + use_sz, pnt[1]), 'left')
+                    and not any(((pnt[0] - ((pnt_gaps[pnt] + lbl_wdths[pnt])
+                                            / lim_gap))
+                                 < pos[0][0] + (0.89 / lim_gap))
+                                and ((pos[0][0] - (lbl_wdths[pnt2] / lim_gap))
+                                     < (pnt[0] - (pnt_gaps[pnt] / lim_gap)))
+                                and ((pnt[1] - (lbl_hghts[pnt] / lim_gap))
+                                     < pos[0][1] + (2.51 / lim_gap))
+                                and ((pos[0][1] - (lbl_hghts[pnt2] / lim_gap))
+                                     < (pnt[1] + (2.51 / lim_gap)))
+                                for pnt2, pos in lbl_pos.items()
+                                if (pnt2 != pnt and pos is not None
+                                    and pos[1] == 'right'))
 
-    i = 1091
+                    and not any(((pnt[0] - ((pnt_gaps[pnt] + lbl_wdths[pnt])
+                                            / lim_gap))
+                                 < pos[0][0] + (lbl_wdths[pnt2] / lim_gap))
+                                and ((pos[0][0] - (0.89 / lim_gap))
+                                     < (pnt[0] - (pnt_gaps[pnt] / lim_gap)))
+                                and ((pnt[1] - (lbl_hghts[pnt] / lim_gap))
+                                     < pos[0][1] + (2.51 / lim_gap))
+                                and ((pos[0][1] - (lbl_hghts[pnt2] / lim_gap))
+                                     < (pnt[1] + (2.51 / lim_gap)))
+                                for pnt2, pos in lbl_pos.items()
+                                if (pnt2 != pnt and pos is not None
+                                    and pos[1] == 'left'))):
+
+                lbl_pos[pnt] = ((pnt[0] - ((pnt_gaps[pnt] * 221)
+                                           / (lim_gap ** 2.03)), pnt[1]),
+                                'right')
+
+            elif (pnt[0] < (lims[1] - (lbl_wdths[pnt] / lim_gap))
+                  and not any(((pnt[0] + ((pnt_gaps[pnt] + lbl_wdths[pnt])
+                                          / lim_gap))
+                               > pnt2[0] - (pnt_gaps[pnt2] / lim_gap))
+                              and ((pnt2[0] + (pnt_gaps[pnt2] / lim_gap))
+                                   > (pnt[0] - (pnt_gaps[pnt] / lim_gap)))
+                              and ((pnt[1] - (lbl_hghts[pnt] / lim_gap))
+                                   < pnt2[1] + (pnt_gaps[pnt2] / lim_gap))
+                              and ((pnt2[1] - (pnt_gaps[pnt2] / lim_gap))
+                                   < (pnt[1] + (2.51 / lim_gap)))
+                              for pnt2 in pnt_dict if pnt2 != pnt)
+
+                    and not any(((pnt[0] + ((pnt_gaps[pnt] + lbl_wdths[pnt])
+                                            / lim_gap))
+                                 > pos[0][0] + (0.89 / lim_gap))
+                                and ((pos[0][0] - (lbl_wdths[pnt2] / lim_gap))
+                                     > (pnt[0] - (pnt_gaps[pnt] / lim_gap)))
+                                and ((pnt[1] - (lbl_hghts[pnt] / lim_gap))
+                                     < pos[0][1] + (2.51 / lim_gap))
+                                and ((pos[0][1] - (lbl_hghts[pnt2] / lim_gap))
+                                     < (pnt[1] + (2.51 / lim_gap)))
+                                for pnt2, pos in lbl_pos.items()
+                                if (pnt2 != pnt and pos is not None
+                                    and pos[1] == 'right'))
+
+                    and not any(((pnt[0] - ((pnt_gaps[pnt] + lbl_wdths[pnt])
+                                            / lim_gap))
+                                 > pos[0][0] + (0.89 / lim_gap))
+                                and ((pos[0][0] - (lbl_wdths[pnt2] / lim_gap))
+                                     > (pnt[0] - (pnt_gaps[pnt] / lim_gap)))
+                                and ((pnt[1] - (lbl_hghts[pnt] / lim_gap))
+                                     < pos[0][1] + (2.51 / lim_gap))
+                                and ((pos[0][1] - (lbl_hghts[pnt2] / lim_gap))
+                                     < (pnt[1] + (2.51 / lim_gap)))
+                                for pnt2, pos in lbl_pos.items()
+                                if (pnt2 != pnt and pos is not None
+                                    and pos[1] == 'left'))):
+
+                lbl_pos[pnt] = ((pnt[0] + ((pnt_gaps[pnt] * 221)
+                                           / (lim_gap ** 2.03)), pnt[1]),
+                                'left')
+
+    i = 1491
     while i < 16371 and any(lbl is None for lbl in lbl_pos.values()):
         i += 1
 
         for pnt in tuple(pnt_dict):
-            if (pnt in lbl_pos and lbl_pos[pnt] is None
-                    and pnt_dict[pnt][1] is not None):
-                new_pos = (i / 110007) * np.random.randn(2) + [pnt[0], pnt[1]]
+            if pnt in lbl_pos and lbl_pos[pnt] is None:
+                new_pos = ((i / (371 * lim_gap)) * np.random.randn(2)
+                           + [pnt[0], pnt[1]])
 
-                new_pos = new_pos.round(5).clip(
-                    lims[0] + 0.06, lims[1] - 0.06).tolist()
+                new_pos[0] = new_pos[0].round(5).clip(
+                    lims[0] + lbl_wdths[pnt] / lim_gap,
+                    lims[1] - lbl_wdths[pnt] / lim_gap
+                    )
+                new_pos[1] = new_pos[1].round(5).clip(
+                    lims[0] + 2.19 * lbl_hghts[pnt] / lim_gap,
+                    lims[1] - 3.79 / lim_gap
+                    )
 
-                if not any((((new_pos[0] - lim_gap / 4.3)
-                             < pnt2[0] <= (new_pos[0] + lim_gap / 4.3))
-                            and ((new_pos[1] - lim_gap * lbl_gap * 1.3)
-                                 < pnt2[1]
-                                 < (new_pos[1] + lim_gap * lbl_gap * 1.3)))
-                           for pnt2 in pnt_dict if pnt2 != pnt):
+                new_pos[0] = new_pos[0].round(5).clip(
+                    pnt[0] - (lims[1] - lims[0]) * 0.47,
+                    pnt[0] + (lims[1] - lims[0]) * 0.47
+                    )
+                new_pos[1] = new_pos[1].round(5).clip(
+                    pnt[1] - (lims[1] - lims[0]) * 0.47,
+                    pnt[1] + (lims[1] - lims[0]) * 0.47
+                    )
+
+                if (not any(((new_pos[0]
+                              - ((pnt_gaps[pnt] + lbl_wdths[pnt] / 1.8)
+                                 / lim_gap))
+                             < pnt2[0] + (pnt_gaps[pnt2] / lim_gap))
+                            and ((pnt2[0] - (pnt_gaps[pnt2] / lim_gap))
+                                 < (new_pos[0]
+                                    + ((pnt_gaps[pnt] + lbl_wdths[pnt] / 1.8)
+                                       / lim_gap)))
+                            and ((new_pos[1] - (lbl_hghts[pnt] / lim_gap))
+                                 < pnt2[1] + (pnt_gaps[pnt2] / lim_gap))
+                            and ((pnt2[1] - (pnt_gaps[pnt2] / lim_gap))
+                                 < (new_pos[1] + (3.51 / lim_gap)))
+                            for pnt2 in pnt_dict if pnt2 != pnt)
+                    
+                    and not any(((new_pos[0]
+                                  + ((pnt_gaps[pnt] + lbl_wdths[pnt] / 1.8)
+                                     / lim_gap))
+                                 > pos[0][0] - (lbl_wdths[pnt2] / lim_gap))
+                                and ((pos[0][0] - (0.89 / lim_gap))
+                                     > (new_pos[0]
+                                        - (lbl_wdths[pnt] / 1.8 / lim_gap)))
+                                and ((new_pos[1] - (lbl_hghts[pnt] / lim_gap))
+                                     < pos[0][1] + (3.51 / lim_gap))
+                                and ((pos[0][1] - (lbl_hghts[pnt2] / lim_gap))
+                                     < (new_pos[1] + (3.51 / lim_gap)))
+                                for pnt2, pos in lbl_pos.items()
+                                if (pnt2 != pnt and pos is not None
+                                    and pos[1] in ['right', 'center']))
+
+                    and not any(((new_pos[0]
+                                  - ((pnt_gaps[pnt] + lbl_wdths[pnt] / 1.8)
+                                     / lim_gap))
+                                 < pos[0][0] + (lbl_wdths[pnt2] / lim_gap))
+                                and ((pos[0][0] - (0.89 / lim_gap))
+                                     < (new_pos[0]
+                                        + (pnt_gaps[pnt] / lim_gap)))
+                                and ((new_pos[1] - (lbl_hghts[pnt] / lim_gap))
+                                     < pos[0][1] + (3.51 / lim_gap))
+                                and ((pos[0][1] - (lbl_hghts[pnt2] / lim_gap))
+                                     < (new_pos[1] + (3.51 / lim_gap)))
+                                for pnt2, pos in lbl_pos.items()
+                                if (pnt2 != pnt and pos is not None
+                                    and pos[1] in ['left', 'center']))):
+
                     lbl_pos[pnt] = new_pos, 'center'
-                    pnt_dict[tuple(new_pos)] = (0, None)
 
     return {pos: lbl for pos, lbl in lbl_pos.items() if lbl}
 
@@ -105,9 +235,16 @@ def plot_random_comparison(auc_vals, pheno_dict, args):
                 else 'Point w/o Sub'
                 if (mtype.subtype_list()[0][1] == pnt_mtype
                     and not mtype.get_labels()[0] in sbgp_genes)
+                else 'Other'
+                if (mtype.subtype_list()[0][1] != pnt_mtype
+                    and pheno_dict[mtype].sum() == pheno_dict[MuType(
+                        {('Gene', mtype.get_labels()[0]): pnt_mtype})].sum())
                 else 'Subgrouping')
         for mtype in auc_vals.index
         })
+
+    auc_vals = auc_vals[gene_stat != 'Other']
+    gene_stat = gene_stat[gene_stat != 'Other']
 
     sns.violinplot(x=gene_stat, y=auc_vals, ax=viol_ax, order=lbl_order,
                    palette=['0.61', *[variant_clrs['Point']] * 3],
@@ -179,8 +316,13 @@ def plot_size_comparison(auc_vals, pheno_dict, clr_dict, args):
 
     # filter out experiment results for mutations representing randomly
     # chosen sets of samples rather than actual mutations
-    mtype_aucs = auc_vals[[not isinstance(mtype, RandomType)
-                           for mtype in auc_vals.index]]
+    mtype_aucs = auc_vals[[
+        not isinstance(mtype, RandomType)
+        and not (mtype.subtype_list()[0][1] != pnt_mtype
+                 and pheno_dict[mtype].sum() == pheno_dict[MuType(
+                     {('Gene', mtype.get_labels()[0]): pnt_mtype})].sum())
+        for mtype in auc_vals.index
+        ]]
 
     plot_df = pd.DataFrame({
         'Size': [pheno_dict[mtype].sum() for mtype in mtype_aucs.index],
@@ -226,14 +368,19 @@ def plot_size_comparison(auc_vals, pheno_dict, clr_dict, args):
     plt.close()
 
 
-def plot_sub_comparisons(auc_vals, pheno_dict, clr_dict, args):
+def plot_sub_comparisons(auc_vals, pheno_dict, conf_df, clr_dict, args):
     fig, ax = plt.subplots(figsize=(11, 11))
     pnt_dict = dict()
 
     # filter out experiment results for mutations representing randomly
     # chosen sets of samples rather than actual mutations
-    auc_vals = auc_vals[[not isinstance(mtype, RandomType)
-                         for mtype in auc_vals.index]]
+    auc_vals = auc_vals[[
+        not isinstance(mtype, RandomType)
+        and not (mtype.subtype_list()[0][1] != pnt_mtype
+                 and pheno_dict[mtype].sum() == pheno_dict[MuType(
+                     {('Gene', mtype.get_labels()[0]): pnt_mtype})].sum())
+        for mtype in auc_vals.index
+        ]]
 
     # for each gene whose mutations were tested, pick a random colour
     # to use for plotting the results for the gene
@@ -258,25 +405,33 @@ def plot_sub_comparisons(auc_vals, pheno_dict, clr_dict, args):
                 base_size = np.mean(pheno_dict[base_mtype])
                 best_prop = np.mean(pheno_dict[best_subtype]) / base_size
 
+                conf_sc = np.greater.outer(
+                    conf_df.loc[best_subtype].values[0],
+                    conf_df.loc[base_mtype].values[0]
+                    ).mean()
+
                 # ...and if it is really good then add a label with the gene
                 # name and a description of the best found subgrouping
-                if auc_vec[best_indx] > 0.7:
+                if conf_sc > 0.9:
                     pnt_dict[auc_vec[base_indx], auc_vec[best_indx]] = (
-                        2119 * base_size, (gene,
-                                           get_fancy_label(best_subtype))
+                        base_size ** 0.53, (gene,
+                                            get_fancy_label(best_subtype))
                         )
+
+                elif auc_vec[base_indx] > 0.7 or auc_vec[best_indx] > 0.7:
+                    pnt_dict[auc_vec[base_indx], auc_vec[best_indx]] = (
+                        base_size ** 0.53, (gene, ''))
 
                 else:
                     pnt_dict[auc_vec[base_indx], auc_vec[best_indx]] = (
-                        2119 * base_size, ('', ''))
+                        base_size ** 0.53, ('', ''))
 
-                pie_size = base_size ** 0.5
-                pie_ax = inset_axes(ax, width=pie_size, height=pie_size,
-                                    bbox_to_anchor=(auc_vec[base_indx],
-                                                    auc_vec[best_indx]),
-                                    bbox_transform=ax.transData, loc=10,
-                                    axes_kwargs=dict(aspect='equal'),
-                                    borderpad=0)
+                pie_ax = inset_axes(
+                    ax, width=base_size ** 0.5, height=base_size ** 0.5,
+                    bbox_to_anchor=(auc_vec[base_indx], auc_vec[best_indx]),
+                    bbox_transform=ax.transData, loc=10,
+                    axes_kwargs=dict(aspect='equal'), borderpad=0
+                    )
 
                 pie_ax.pie(x=[best_prop, 1 - best_prop], explode=[0.29, 0],
                            colors=[clr_dict[gene] + (0.77,),
@@ -296,19 +451,17 @@ def plot_sub_comparisons(auc_vals, pheno_dict, clr_dict, args):
         ln_lngth = np.sqrt((x_delta ** 2) + (y_delta ** 2))
 
         # if the label is sufficiently far away from its point...
-        pnt_sz = (pnt_dict[pnt_x, pnt_y][0] ** 0.43) / 1077
-        if ln_lngth > 0.01 + pnt_sz:
+        if ln_lngth > (0.013 + pnt_dict[pnt_x, pnt_y][0] / 31):
             use_clr = clr_dict[pnt_dict[pnt_x, pnt_y][1][0]]
-            lbl_sz = pnt_dict[pnt_x, pnt_y][1][1].count('\n')
-
-            pnt_gap = pnt_sz / ln_lngth
-            lbl_gap = (0.02 + (1 / 117) * lbl_sz ** 0.17) / ln_lngth
+            pnt_gap = pnt_dict[pnt_x, pnt_y][0] / (29 * ln_lngth)
+            lbl_gap = 0.006 / ln_lngth
 
             ax.plot([pnt_x - pnt_gap * x_delta,
                      pos[0][0] + lbl_gap * x_delta],
                     [pnt_y - pnt_gap * y_delta,
-                     pos[0][1] + lbl_gap * y_delta],
-                    c=use_clr, linewidth=2.7, alpha=0.27)
+                     pos[0][1] + lbl_gap * y_delta
+                     + 0.008 + 0.004 * np.sign(y_delta)],
+                    c=use_clr, linewidth=2.3, alpha=0.27)
 
     ax.set_xlim([0.48, 1.01])
     ax.set_ylim([0.48, 1.01])
@@ -377,6 +530,7 @@ def main():
 
     phn_dict = dict()
     auc_dict = dict()
+    conf_dict = dict()
 
     for lvls, ctf in out_use.iteritems():
         with bz2.BZ2File(os.path.join(
@@ -393,9 +547,19 @@ def main():
                 ), 'r') as f:
             auc_dict[lvls] = pickle.load(f)
 
+        with bz2.BZ2File(os.path.join(
+                base_dir, "{}__{}__samps-{}".format(
+                    args.expr_source, args.cohort, ctf),
+                "out-conf__{}__{}.p.gz".format(lvls, args.classif)
+                ), 'r') as f:
+            conf_dict[lvls] = pickle.load(f)
+
     auc_dfs = {cis_lbl: pd.concat([auc_df[cis_lbl]
                                    for auc_df in auc_dict.values()])
                for cis_lbl in cis_lbls}
+    conf_dfs = {cis_lbl: pd.concat([conf_df[cis_lbl]
+                                    for conf_df in conf_dict.values()])
+                for cis_lbl in cis_lbls}
 
     for cis_lbl in cis_lbls:
         assert auc_dfs[cis_lbl].index.isin(phn_dict).all()
@@ -408,7 +572,8 @@ def main():
 
     plot_random_comparison(auc_dfs['Chrm'], phn_dict, args)
     plot_size_comparison(auc_dfs['Chrm'], phn_dict, clr_dict, args)
-    plot_sub_comparisons(auc_dfs['Chrm'], phn_dict, clr_dict, args)
+    plot_sub_comparisons(auc_dfs['Chrm'], phn_dict, conf_dfs['Chrm'],
+                         clr_dict, args)
 
 
 if __name__ == '__main__':
