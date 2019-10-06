@@ -22,6 +22,7 @@ import dill as pickle
 import numpy as np
 import pandas as pd
 import statsmodels.formula.api as smf
+from sklearn.metrics import average_precision_score as aupr_score
 
 import matplotlib as mpl
 mpl.use('Agg')
@@ -487,6 +488,139 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_df, clr_dict, args):
     plt.close()
 
 
+def plot_aupr_comparisons(auc_vals, infer_df,
+                          pheno_dict, conf_df, clr_dict, args):
+    fig, ax = plt.subplots(figsize=(11, 11))
+    pnt_dict = dict()
+
+    # filter out experiment results for mutations representing randomly
+    # chosen sets of samples rather than actual mutations
+    auc_vals = auc_vals[[
+        not isinstance(mtype, RandomType)
+        and not (mtype.subtype_list()[0][1] != pnt_mtype
+                 and pheno_dict[mtype].sum() == pheno_dict[MuType(
+                     {('Gene', mtype.get_labels()[0]): pnt_mtype})].sum())
+        for mtype in auc_vals.index
+        ]]
+
+    # for each gene whose mutations were tested, pick a random colour
+    # to use for plotting the results for the gene
+    for gene, auc_vec in auc_vals.groupby(
+            lambda mtype: mtype.get_labels()[0]):
+
+        # if there were subgroupings tested for the gene, find the results
+        # for the mutation representing all point mutations for this gene...
+        if len(auc_vec) > 1:
+            base_mtype = MuType({('Gene', gene): pnt_mtype})
+            base_indx = auc_vec.index.get_loc(base_mtype)
+
+            # ...as well as the results for the best subgrouping of
+            # mutations found for this gene
+            best_subtype = auc_vec[:base_indx].append(
+                auc_vec[(base_indx + 1):]).idxmax()
+            best_indx = auc_vec.index.get_loc(best_subtype)
+
+            base_infr = infer_df.loc[base_mtype].apply(np.mean)
+            best_infr = infer_df.loc[best_subtype].apply(np.mean)
+            base_aupr = aupr_score(pheno_dict[base_mtype], base_infr)
+            best_aupr = aupr_score(pheno_dict[best_subtype], best_infr)
+
+            # if the AUC for the optimal subgrouping is good enough, plot it
+            # against the AUC for all point mutations of the gene...
+            if auc_vec[best_indx] > 0.6:
+                base_size = np.mean(pheno_dict[base_mtype])
+                best_prop = np.mean(pheno_dict[best_subtype]) / base_size
+
+                conf_sc = np.greater.outer(
+                    conf_df.loc[best_subtype].values[0],
+                    conf_df.loc[base_mtype].values[0]
+                    ).mean()
+
+                # ...and if it is really good then add a label with the gene
+                # name and a description of the best found subgrouping
+                if conf_sc > 0.9:
+                    pnt_dict[base_aupr, best_aupr] = (
+                        base_size ** 0.53, (gene,
+                                            get_fancy_label(best_subtype))
+                        )
+
+                elif auc_vec[base_indx] > 0.7 or auc_vec[best_indx] > 0.7:
+                    pnt_dict[base_aupr, best_aupr] = (base_size ** 0.53,
+                                                      (gene, ''))
+
+                else:
+                    pnt_dict[base_aupr, best_aupr] = (base_size ** 0.53,
+                                                      ('', ''))
+
+                pie_ax = inset_axes(
+                    ax, width=base_size ** 0.5, height=base_size ** 0.5,
+                    bbox_to_anchor=(base_aupr, best_aupr),
+                    bbox_transform=ax.transData, loc=10,
+                    axes_kwargs=dict(aspect='equal'), borderpad=0
+                    )
+
+                pie_ax.pie(x=[best_prop, 1 - best_prop], explode=[0.29, 0],
+                           colors=[clr_dict[gene] + (0.77,),
+                                   clr_dict[gene] + (0.29,)])
+
+    plt_lims = (max(min(min(xval for xval, _ in pnt_dict),
+                        min(yval for _, yval in pnt_dict)) - 0.11, -0.01),
+                min(max(max(xval for xval, _ in pnt_dict),
+                        max(yval for _, yval in pnt_dict)) + 0.11, 1.01))
+
+    lbl_pos = place_labels(pnt_dict, lims=plt_lims)
+    for (pnt_x, pnt_y), pos in lbl_pos.items():
+        ax.text(pos[0][0], pos[0][1] + 700 ** -1,
+                pnt_dict[pnt_x, pnt_y][1][0],
+                size=13, ha=pos[1], va='bottom')
+        ax.text(pos[0][0], pos[0][1] - 700 ** -1,
+                pnt_dict[pnt_x, pnt_y][1][1],
+                size=9, ha=pos[1], va='top')
+
+        x_delta = pnt_x - pos[0][0]
+        y_delta = pnt_y - pos[0][1]
+        ln_lngth = np.sqrt((x_delta ** 2) + (y_delta ** 2))
+
+        # if the label is sufficiently far away from its point...
+        if ln_lngth > (0.043 + pnt_dict[pnt_x, pnt_y][0] / 19):
+            use_clr = clr_dict[pnt_dict[pnt_x, pnt_y][1][0]]
+            pnt_gap = pnt_dict[pnt_x, pnt_y][0] / (13 * ln_lngth)
+            lbl_gap = 0.006 / ln_lngth
+
+            ax.plot([pnt_x - pnt_gap * x_delta,
+                     pos[0][0] + lbl_gap * x_delta],
+                    [pnt_y - pnt_gap * y_delta,
+                     pos[0][1] + lbl_gap * y_delta
+                     + 0.008 + 0.004 * np.sign(y_delta)],
+                    c=use_clr, linewidth=2.3, alpha=0.27)
+
+    ax.set_xlim(plt_lims)
+    ax.set_ylim(plt_lims)
+
+    ax.set_xlabel("point mutation AUPR"
+                  "\nusing point mutation inferred scores",
+                  size=23, weight='semibold')
+    ax.set_ylabel("point mutation AUPR"
+                  "\nusing best found subgrouping inferred scores",
+                  size=23, weight='semibold')
+
+    ax.plot(plt_lims, [0, 0], color='black', linewidth=1.7, alpha=0.89)
+    ax.plot([0, 0], plt_lims, color='black', linewidth=1.7, alpha=0.89)
+    ax.plot(plt_lims, [1, 1], color='black', linewidth=1.7, alpha=0.89)
+    ax.plot([1, 1], plt_lims, color='black', linewidth=1.7, alpha=0.89)
+
+    ax.plot(plt_lims, plt_lims,
+            color='#550000', linewidth=2.1, linestyle='--', alpha=0.41)
+
+    plt.savefig(
+        os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
+                     "aupr-comparisons_{}.svg".format(args.classif)),
+        bbox_inches='tight', format='svg'
+        )
+
+    plt.close()
+
+
 def main():
     parser = argparse.ArgumentParser(
         "Plots the AUCs for a particular classifier on the mutations "
@@ -528,41 +662,50 @@ def main():
                          "with mutation levels `Exon__Location__Protein` "
                          "which tests genes' base mutations!")
 
+    infer_dict = dict()
     phn_dict = dict()
     auc_dict = dict()
     conf_dict = dict()
 
     for lvls, ctf in out_use.iteritems():
-        with bz2.BZ2File(os.path.join(
-                base_dir, "{}__{}__samps-{}".format(
-                    args.expr_source, args.cohort, ctf),
-                "out-pheno__{}__{}.p.gz".format(lvls, args.classif)
-                ), 'r') as f:
+        out_tag = "{}__{}__samps-{}".format(
+            args.expr_source, args.cohort, ctf)
+
+        with bz2.BZ2File(os.path.join(base_dir, out_tag,
+                                      "out-data__{}__{}.p.gz".format(
+                                          lvls, args.classif)),
+                         'r') as f:
+            infer_dict[lvls] = pickle.load(f)['Infer']['Chrm']
+
+        with bz2.BZ2File(os.path.join(base_dir, out_tag,
+                                      "out-pheno__{}__{}.p.gz".format(
+                                          lvls, args.classif)),
+                         'r') as f:
             phn_dict.update(pickle.load(f))
 
-        with bz2.BZ2File(os.path.join(
-                base_dir, "{}__{}__samps-{}".format(
-                    args.expr_source, args.cohort, ctf),
-                "out-aucs__{}__{}.p.gz".format(lvls, args.classif)
-                ), 'r') as f:
+        with bz2.BZ2File(os.path.join(base_dir, out_tag,
+                                      "out-aucs__{}__{}.p.gz".format(
+                                          lvls, args.classif)),
+                         'r') as f:
             auc_dict[lvls] = pickle.load(f)
 
-        with bz2.BZ2File(os.path.join(
-                base_dir, "{}__{}__samps-{}".format(
-                    args.expr_source, args.cohort, ctf),
-                "out-conf__{}__{}.p.gz".format(lvls, args.classif)
-                ), 'r') as f:
+        with bz2.BZ2File(os.path.join(base_dir, out_tag,
+                                      "out-conf__{}__{}.p.gz".format(
+                                          lvls, args.classif)),
+                         'r') as f:
             conf_dict[lvls] = pickle.load(f)
 
     auc_dfs = {cis_lbl: pd.concat([auc_df[cis_lbl]
                                    for auc_df in auc_dict.values()])
                for cis_lbl in cis_lbls}
-    conf_dfs = {cis_lbl: pd.concat([conf_df[cis_lbl]
-                                    for conf_df in conf_dict.values()])
-                for cis_lbl in cis_lbls}
 
     for cis_lbl in cis_lbls:
         assert auc_dfs[cis_lbl].index.isin(phn_dict).all()
+
+    infer_df = pd.concat(infer_dict.values())
+    conf_dfs = {cis_lbl: pd.concat([conf_df[cis_lbl]
+                                    for conf_df in conf_dict.values()])
+                for cis_lbl in cis_lbls}
 
     np.random.seed(args.seed)
     clr_dict = {gene: hls_to_rgb(h=np.random.uniform(size=1)[0], l=0.5, s=0.8)
@@ -572,8 +715,11 @@ def main():
 
     plot_random_comparison(auc_dfs['Chrm'], phn_dict, args)
     plot_size_comparison(auc_dfs['Chrm'], phn_dict, clr_dict, args)
+
     plot_sub_comparisons(auc_dfs['Chrm'], phn_dict, conf_dfs['Chrm'],
                          clr_dict, args)
+    plot_aupr_comparisons(auc_dfs['Chrm'], infer_df,
+                          phn_dict, conf_dfs['Chrm'], clr_dict, args)
 
 
 if __name__ == '__main__':
