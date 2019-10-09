@@ -38,21 +38,28 @@ plt.rcParams['savefig.facecolor']='white'
 plt.rcParams['axes.edgecolor']='white'
 
 
-def plot_sub_comparisons(auc_dict, pheno_dict, use_clf, args):
+def plot_sub_comparisons(auc_dict, conf_dict, pheno_dict, use_clf, args):
     fig, ax = plt.subplots(figsize=(11, 11))
-    np.random.seed(3742)
+    np.random.seed(args.seed)
+    random.seed(args.seed)
 
-    auc_vals = dict()
     pnt_dict = dict()
     clr_dict = dict()
     base_mtype = MuType({('Gene', args.gene): pnt_mtype})
+
+    auc_vals = dict()
+    conf_vals = dict()
 
     for (coh, lvls, clf), auc_list in auc_dict.items():
         if clf == use_clf:
             if coh in auc_vals:
                 auc_vals[coh] = pd.concat([auc_vals[coh], auc_list])
+                conf_vals[coh] = pd.concat([
+                    conf_vals[coh], conf_dict[coh, lvls, clf]])
+
             else:
                 auc_vals[coh] = auc_list
+                conf_vals[coh] = conf_dict[coh, lvls, clf]
 
     # for each gene whose mutations were tested, pick a random colour
     # to use for plotting the results for the gene
@@ -66,34 +73,41 @@ def plot_sub_comparisons(auc_dict, pheno_dict, use_clf, args):
             base_indx = auc_vec.index.get_loc(base_mtype)
             best_subtype = auc_vec[:base_indx].append(
                 auc_vec[(base_indx + 1):]).idxmax()
-
             best_indx = auc_vec.index.get_loc(best_subtype)
-            base_size = np.mean(pheno_dict[coh][base_mtype])
-            best_prop = np.mean(pheno_dict[coh][best_subtype]) / base_size
 
-            # ...and if it is really good then add a label with the gene
-            # name and a description of the best found subgrouping
             if auc_vec[best_indx] > 0.6:
-                pnt_dict[auc_vec[base_indx], auc_vec[best_indx]] = (
-                    2119 * base_size,
-                    (coh, get_fancy_label(best_subtype, max_subs=3))
+                base_size = np.mean(pheno_dict[coh][base_mtype])
+                best_prop = np.mean(pheno_dict[coh][best_subtype]) / base_size
+
+                conf_sc = np.greater.outer(
+                    conf_vals[coh].loc[best_subtype].iloc[0],
+                    conf_vals[coh].loc[base_mtype].iloc[0]
+                    ).mean()
+
+                if conf_sc > 0.9:
+                    pnt_dict[auc_vec[base_indx], auc_vec[best_indx]] = (
+                        base_size ** 0.53,
+                        (coh, get_fancy_label(best_subtype, max_subs=3))
+                        )
+
+                elif auc_vec[base_indx] > 0.7 or auc_vec[best_indx] > 0.7:
+                    pnt_dict[auc_vec[base_indx], auc_vec[best_indx]] = (
+                        base_size ** 0.53, (coh, ''))
+
+                else:
+                    pnt_dict[auc_vec[base_indx], auc_vec[best_indx]] = (
+                        base_size ** 0.53, ('', ''))
+
+                pie_ax = inset_axes(
+                    ax, width=base_size ** 0.5, height=base_size ** 0.5,
+                    bbox_to_anchor=(auc_vec[base_indx], auc_vec[best_indx]),
+                    bbox_transform=ax.transData, loc=10,
+                    axes_kwargs=dict(aspect='equal'), borderpad=0
                     )
 
-            else:
-                pnt_dict[auc_vec[base_indx], auc_vec[best_indx]] = (
-                    2119 * base_size, ('', ''))
-
-            pie_size = base_size ** 0.5
-            pie_ax = inset_axes(ax, width=pie_size, height=pie_size,
-                                bbox_to_anchor=(auc_vec[base_indx],
-                                                auc_vec[best_indx]),
-                                bbox_transform=ax.transData, loc=10,
-                                axes_kwargs=dict(aspect='equal'),
-                                borderpad=0)
-
-            pie_ax.pie(x=[best_prop, 1 - best_prop], explode=[0.29, 0],
-                       colors=[clr_dict[coh] + (0.77,),
-                               clr_dict[coh] + (0.29,)])
+                pie_ax.pie(x=[best_prop, 1 - best_prop], explode=[0.29, 0],
+                           colors=[clr_dict[coh] + (0.77,),
+                                   clr_dict[coh] + (0.29,)])
 
     lbl_pos = place_labels(pnt_dict)
     for (pnt_x, pnt_y), pos in lbl_pos.items():
@@ -109,19 +123,17 @@ def plot_sub_comparisons(auc_dict, pheno_dict, use_clf, args):
         ln_lngth = np.sqrt((x_delta ** 2) + (y_delta ** 2))
 
         # if the label is sufficiently far away from its point...
-        pnt_sz = (pnt_dict[pnt_x, pnt_y][0] ** 0.43) / 1077
-        if ln_lngth > 0.01 + pnt_sz:
+        if ln_lngth > (0.013 + pnt_dict[pnt_x, pnt_y][0] / 31):
             use_clr = clr_dict[pnt_dict[pnt_x, pnt_y][1][0]]
-            lbl_sz = pnt_dict[pnt_x, pnt_y][1][1].count('\n')
-
-            pnt_gap = pnt_sz / ln_lngth
-            lbl_gap = (0.02 + (1 / 117) * lbl_sz ** 0.17) / ln_lngth
+            pnt_gap = pnt_dict[pnt_x, pnt_y][0] / (29 * ln_lngth)
+            lbl_gap = 0.006 / ln_lngth
 
             ax.plot([pnt_x - pnt_gap * x_delta,
                      pos[0][0] + lbl_gap * x_delta],
                     [pnt_y - pnt_gap * y_delta,
-                     pos[0][1] + lbl_gap * y_delta],
-                    c=use_clr, linewidth=2.7, alpha=0.27)
+                     pos[0][1] + lbl_gap * y_delta
+                     + 0.008 + 0.004 * np.sign(y_delta)],
+                    c=use_clr, linewidth=2.3, alpha=0.27)
 
     ax.set_xlim([0.48, 1.01])
     ax.set_ylim([0.48, 1.01])
@@ -155,6 +167,11 @@ def main():
 
     parser.add_argument('expr_source', help='a TCGA cohort')
     parser.add_argument('gene', help='a mutated gene')
+
+    parser.add_argument(
+        '--seed', default=9401, type=int,
+        help="the random seed to use for setting plotting parameters"
+        )
 
     # parse command line arguments, create directory where plots will be saved
     args = parser.parse_args()
@@ -200,13 +217,15 @@ def main():
     infer_dict = dict()
     phn_dict = dict()
     auc_dict = dict()
+    conf_dict = dict()
 
     for (coh, lvls, clf), ctf in tuple(out_use.iteritems()):
-        with bz2.BZ2File(os.path.join(
-                base_dir, "{}__{}__samps-{}".format(
-                    args.expr_source, coh, ctf),
-                "out-data__{}__{}.p.gz".format(lvls, clf)
-                ), 'r') as f:
+        out_tag = "{}__{}__samps-{}".format(args.expr_source, coh, ctf)
+
+        with bz2.BZ2File(os.path.join(base_dir, out_tag,
+                                      "out-data__{}__{}.p.gz".format(
+                                          lvls, clf)),
+                         'r') as f:
             infer_df = pickle.load(f)['Infer']['Chrm']
 
             infer_dict[coh, lvls, clf] = infer_df.loc[[
@@ -215,11 +234,10 @@ def main():
                 and mtype.get_labels()[0] == args.gene
                 ]].applymap(np.mean)
 
-        with bz2.BZ2File(os.path.join(
-                base_dir, "{}__{}__samps-{}".format(
-                    args.expr_source, coh, ctf),
-                "out-pheno__{}__{}.p.gz".format(lvls, clf)
-                ), 'r') as f:
+        with bz2.BZ2File(os.path.join(base_dir, out_tag,
+                                      "out-pheno__{}__{}.p.gz".format(
+                                          lvls, clf)),
+                         'r') as f:
             phns = pickle.load(f)
 
             phn_vals = {mtype: phn for mtype, phn in phns.items()
@@ -231,23 +249,43 @@ def main():
             else:
                 phn_dict[coh] = phn_vals
 
-        with bz2.BZ2File(os.path.join(
-                base_dir, "{}__{}__samps-{}".format(
-                    args.expr_source, coh, ctf),
-                "out-aucs__{}__{}.p.gz".format(lvls, clf)
-                ), 'r') as f:
+        with bz2.BZ2File(os.path.join(base_dir, out_tag,
+                                      "out-aucs__{}__{}.p.gz".format(
+                                          lvls, clf)),
+                         'r') as f:
             auc_vals = pickle.load(f).Chrm
 
             auc_dict[coh, lvls, clf] = auc_vals[[
                 mtype for mtype in auc_vals.index
-                if not isinstance(mtype, RandomType)
-                and mtype.get_labels()[0] == args.gene
+                if (not isinstance(mtype, RandomType)
+                    and mtype.get_labels()[0] == args.gene)
                 ]]
+
+        with bz2.BZ2File(os.path.join(base_dir, out_tag,
+                                      "out-conf__{}__{}.p.gz".format(
+                                          lvls, clf)),
+                         'r') as f:
+            conf_vals = pickle.load(f)['Chrm']
+
+            conf_dict[coh, lvls, clf] = conf_vals.loc[[
+                mtype for mtype in conf_vals.index
+                if (not isinstance(mtype, RandomType)
+                    and mtype.get_labels()[0] == args.gene)
+                ]]
+
+    for coh, lvls, clf in out_use.index:
+        auc_dict[coh, lvls, clf] = auc_dict[coh, lvls, clf][[
+            mtype for mtype in auc_dict[coh, lvls, clf].index
+            if not (mtype.subtype_list()[0][1] != pnt_mtype
+                    and (sum(phn_dict[coh][mtype])
+                         == sum(phn_dict[coh][MuType(
+                             {('Gene', args.gene): pnt_mtype})])))
+            ]]
 
     plt_clfs = out_use.index.get_level_values('Classif').value_counts()
 
     for clf in plt_clfs[plt_clfs > 1].index:
-        plot_sub_comparisons(auc_dict, phn_dict, clf, args)
+        plot_sub_comparisons(auc_dict, conf_dict, phn_dict, clf, args)
 
 
 if __name__ == '__main__':
