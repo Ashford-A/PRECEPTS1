@@ -12,13 +12,14 @@ from HetMan.experiments.utilities.load_input import parse_subtypes
 from HetMan.features.cohorts.tcga import MutationCohort
 from HetMan.features.cohorts.beatAML import BeatAmlCohort
 from HetMan.features.cohorts.metabric import MetabricCohort
-from HetMan.features.cohorts.iorio import IorioCohort
+from HetMan.features.cohorts.ccle import CellLineCohort
 from dryadic.features.mutations import MuType
 
 import argparse
 import synapseclient
 import pandas as pd
 import dill as pickle
+import random
 
 from functools import reduce
 from operator import or_
@@ -26,18 +27,29 @@ from itertools import combinations as combn
 from itertools import product
 
 
-def get_cohort_data(cohort, expr_source):
+def get_cohort_data(cohort, expr_source,
+                    mut_lvls=None, use_genes=None, gene_annot=None):
+    if mut_lvls is None:
+        mut_lvls = [['Gene', 'Exon', 'Location', 'Protein']]
+
+    if use_genes is None:
+        gene_df = pd.read_csv(gene_list, sep='\t', skiprows=1, index_col=0)
+        use_genes = gene_df.index[
+            (gene_df.loc[
+                :, ['Vogelstein', 'SANGER CGC(05/30/2017)',
+                    'FOUNDATION ONE', 'MSK-IMPACT']]
+                == 'Yes').sum(axis=1) >= 1
+            ].tolist()
+
+    else:
+        use_genes = list(use_genes)
+
+    if gene_annot is None:
+        gene_annot = ['transcript', 'exon']
+
     syn = synapseclient.Synapse()
     syn.cache.cache_root_dir = syn_root
     syn.login()
-
-    gene_df = pd.read_csv(gene_list, sep='\t', skiprows=1, index_col=0)
-    use_genes = gene_df.index[
-        (gene_df.loc[
-            :, ['Vogelstein', 'SANGER CGC(05/30/2017)',
-                'FOUNDATION ONE', 'MSK-IMPACT']]
-            == 'Yes').sum(axis=1) >= 1
-        ]
 
     if cohort == 'beatAML':
         if expr_source != 'toil__gns':
@@ -45,12 +57,12 @@ def get_cohort_data(cohort, expr_source):
                              "for the beatAML cohort!")
 
         cdata = BeatAmlCohort(
-            mut_levels=[['Gene', 'Exon', 'Location', 'Protein']],
-            mut_genes=use_genes.tolist(), expr_source=expr_source,
-            expr_file=beatAML_files['expr'], samp_file=beatAML_files['samps'],
-            syn=syn, annot_file=annot_file, domain_dir=domain_dir,
-            leaf_annot=('ref_count', 'alt_count', 'PolyPhen'),
-            cv_seed=8713, test_prop=0
+            mut_levels=mut_lvls, mut_genes=use_genes,
+            expr_source=expr_source, expr_file=beatAML_files['expr'],
+            samp_file=beatAML_files['samps'], syn=syn, annot_file=annot_file,
+            domain_dir=domain_dir, leaf_annot=('ref_count', 'alt_count',
+                                               'PolyPhen'),
+            cv_seed=8713, test_prop=0, annot_fields=gene_annot
             )
 
     elif cohort.split('_')[0] == 'METABRIC':
@@ -64,28 +76,28 @@ def get_cohort_data(cohort, expr_source):
             use_subtypes = None
 
         cdata = MetabricCohort(
-            mut_levels=[['Gene', 'Exon', 'Location', 'Protein']],
-            mut_genes=use_genes.tolist(), expr_source=expr_source,
-            metabric_dir=metabric_dir, annot_file=annot_file,
-            domain_dir=domain_dir, use_types=use_subtypes,
-            cv_seed=8713, test_prop=0
+            mut_levels=mut_lvls, mut_genes=use_genes,
+            expr_source=expr_source, metabric_dir=metabric_dir,
+            annot_file=annot_file, domain_dir=domain_dir,
+            use_types=use_subtypes, cv_seed=8713, test_prop=0,
+            annot_fields=gene_annot
             )
 
-    elif cohort.split('_')[0] == 'Iorio':
-        if expr_source != 'microarray':
-            raise ValueError("Only microarray mRNA calls are available "
-                             "for the Iorio CCLE cohort!")
+    elif cohort.split('_')[0] == 'CCLE':
+        source_info = expr_source.split('__')
+        source_base = source_info[0]
+        collapse_txs = not (len(source_info) > 1 and source_info[1] == 'txs')
 
-        if '_' in cohort:
-            use_types = cohort.split('_')[1]
+        if source_base == 'microarray':
+            expr_dir = ccle_dir
         else:
-            use_types = None
+            expr_dir = expr_sources[source_base]
 
-        cdata = IorioCohort(
-            mut_levels=[['Gene', 'Exon', 'Location', 'Protein']],
-            mut_genes=use_genes.tolist(), expr_source=expr_source,
-            iorio_dir=iorio_dir, annot_file=annot_file, domain_dir=domain_dir,
-            use_types=use_types, cv_seed=8713, test_prop=0
+        cdata = CellLineCohort(
+            mut_levels=mut_lvls, mut_genes=use_genes, expr_source=source_base,
+            ccle_dir=ccle_dir, annot_file=annot_file, domain_dir=domain_dir,
+            expr_dir=expr_dir, collapse_txs=collapse_txs,
+            cv_seed=8713, test_prop=0
             )
 
     else:
@@ -94,16 +106,14 @@ def get_cohort_data(cohort, expr_source):
         collapse_txs = not (len(source_info) > 1 and source_info[1] == 'txs')
 
         cdata = MutationCohort(
-            cohort=cohort.split('_')[0],
-            mut_levels=[['Gene', 'Exon', 'Location', 'Protein']],
-            mut_genes=use_genes.tolist(), expr_source=source_base,
-            var_source='mc3', copy_source='Firehose', annot_file=annot_file,
+            cohort=cohort.split('_')[0], mut_levels=mut_lvls,
+            mut_genes=use_genes, expr_source=source_base, var_source='mc3',
+            copy_source='Firehose', annot_file=annot_file,
             domain_dir=domain_dir, type_file=type_file,
             leaf_annot=('ref_count', 'alt_count', 'PolyPhen'),
             expr_dir=expr_sources[source_base], copy_dir=copy_dir,
             collapse_txs=collapse_txs, syn=syn, cv_seed=8713, test_prop=0,
-            annot_fields=['transcript', 'exon'],
-            use_types=parse_subtypes(cohort)
+            annot_fields=gene_annot, use_types=parse_subtypes(cohort)
             )
 
     return cdata
@@ -156,6 +166,8 @@ def main():
     if lbls_key not in cdata.mtrees:
         cdata.add_mut_lvls(lbls_key)
 
+    # for each gene with enough mutated samples in the cohort, find the
+    # subgroupings composed of at most three branches
     for gene, muts in cdata.mtrees[lbls_key]:
         if len(pnt_mtype.get_samples(muts)) >= args.samp_cutoff:
             gene_mtypes = {
@@ -165,8 +177,13 @@ def main():
                     <= (len(cdata.get_samples()) - args.samp_cutoff))
                 }
 
-            #TODO: remove subgroupings that happen to contain all of the
-            # point mutations of a gene
+            # remove subgroupings that contain all of the gene's mutations
+            gene_mtypes -= {mtype for mtype in gene_mtypes
+                            if (len(mtype.get_samples(muts))
+                                == len(pnt_mtype.get_samples(muts)))}
+
+            # remove subgroupings that have only one child subgrouping
+            # containing all of their samples
             gene_mtypes -= {
                 mtype1 for mtype1, mtype2 in product(gene_mtypes, repeat=2)
                 if mtype1 != mtype2 and mtype1.is_supertype(mtype2)
@@ -179,7 +196,11 @@ def main():
             use_mtypes |= {MuType({('Gene', gene): mtype})
                            for mtype in gene_mtypes}
 
-    use_mtypes |= {
+    use_mtypes = sorted(use_mtypes)
+    random.seed(88701)
+    random.shuffle(use_mtypes)
+
+    use_mtypes = set(use_mtypes) | {
         RandomType(size_dist=len(mtype.get_samples(cdata.mtrees[lbls_key])),
                    seed=i + 10307)
         for i, (mtype, _) in enumerate(product(use_mtypes, range(2)))

@@ -82,7 +82,7 @@ def main():
                for mtype in mtype_list}
 
     # for each subtype, check if it has been assigned to this task
-    for i, mtype in enumerate(mtype_list[::-1]):
+    for i, mtype in enumerate(mtype_list):
         if (i % args.task_count) == args.task_id:
             print("Testing {} ...".format(mtype))
 

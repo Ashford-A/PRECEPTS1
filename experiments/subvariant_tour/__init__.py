@@ -1,7 +1,7 @@
 
 from .data_dirs import (expr_sources, copy_dir, syn_root, domain_dir,
                         annot_file, gene_list, type_file, beatAML_files,
-                        metabric_dir, iorio_dir)
+                        metabric_dir, ccle_dir)
 from dryadic.features.mutations import MuType
 
 
@@ -10,5 +10,5 @@ pnt_mtype = MuType({('Scale', 'Point'): None})
 
 __all__ = ['expr_sources', 'copy_dir', 'syn_root', 'domain_dir',
            'annot_file', 'gene_list', 'type_file', 'beatAML_files',
-           'metabric_dir', 'iorio_dir']
+           'metabric_dir', 'ccle_dir']
 
