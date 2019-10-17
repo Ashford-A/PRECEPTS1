@@ -3,7 +3,7 @@ import os
 import sys
 
 base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'subvariant_tour')
-sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
+sys.path.extend([os.path.join(os.path.dirname(__file__), '..', '..', '..')])
 plot_dir = os.path.join(base_dir, 'plots', 'gene')
 
 from HetMan.experiments.subvariant_tour import pnt_mtype
@@ -11,10 +11,10 @@ from HetMan.experiments.subvariant_tour.merge_tour import merge_cohort_data
 from HetMan.experiments.subvariant_tour.utils import (
     get_fancy_label, RandomType)
 from HetMan.experiments.subvariant_tour.plot_aucs import place_labels
+from HetMan.experiments.utilities.pcawg_colours import cohort_clrs
 from dryadic.features.mutations import MuType
 
 import argparse
-import glob as glob
 from pathlib import Path
 import bz2
 import dill as pickle
@@ -26,9 +26,6 @@ import random
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
-import seaborn as sns
-
-from colorsys import hls_to_rgb
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 # make plots cleaner by turning off outer box, make background all white
@@ -38,18 +35,39 @@ plt.rcParams['savefig.facecolor']='white'
 plt.rcParams['axes.edgecolor']='white'
 
 
+def choose_cohort_colour(cohort):
+    coh_base = cohort.split('_')[0]
+
+    # if using a non-TCGA cohort, match to a TCGA cohort of the same
+    # disease type, using white for pan-cancer cohorts
+    if coh_base == 'METABRIC':
+        use_clr = cohort_clrs['BRCA']
+    elif coh_base == 'beatAML':
+        use_clr = cohort_clrs['LAML']
+    elif coh_base == 'CCLE':
+        use_clr = '#000000'
+
+    # otherwise, choose the colour according to the PCAWG scheme
+    else:
+        use_clr = cohort_clrs[coh_base]
+
+    # convert the hex colour to a [0-1] RGB tuple
+    return tuple(int(use_clr.lstrip('#')[i:(i + 2)], 16) / 256
+                 for i in range(0, 6, 2))
+
+
 def plot_sub_comparisons(auc_dict, conf_dict, pheno_dict, use_clf, args):
     fig, ax = plt.subplots(figsize=(11, 11))
     np.random.seed(args.seed)
     random.seed(args.seed)
 
-    pnt_dict = dict()
-    clr_dict = dict()
     base_mtype = MuType({('Gene', args.gene): pnt_mtype})
-
+    plt_min = 0.89
+    pnt_dict = dict()
     auc_vals = dict()
     conf_vals = dict()
 
+    # filter out results not returned by the given classifier
     for (coh, lvls, clf), auc_list in auc_dict.items():
         if clf == use_clf:
             if coh in auc_vals:
@@ -61,55 +79,52 @@ def plot_sub_comparisons(auc_dict, conf_dict, pheno_dict, use_clf, args):
                 auc_vals[coh] = auc_list
                 conf_vals[coh] = conf_dict[coh, lvls, clf]
 
-    # for each gene whose mutations were tested, pick a random colour
-    # to use for plotting the results for the gene
+    # for each cohort, check if the given gene had subgroupings that were
+    # tested, and get the results for all the gene's point mutations...
     for coh, auc_vec in auc_vals.items():
-        clr_dict[coh] = hls_to_rgb(
-            h=np.random.uniform(size=1)[0], l=0.5, s=0.8)
-
-        # if there were subgroupings tested for the gene, find the results
-        # for the mutation representing all point mutations for this gene...
         if len(auc_vec) > 1 and base_mtype in auc_vec.index:
             base_indx = auc_vec.index.get_loc(base_mtype)
+
+            # ...and those for the subgrouping in the cohort with the best AUC
             best_subtype = auc_vec[:base_indx].append(
                 auc_vec[(base_indx + 1):]).idxmax()
             best_indx = auc_vec.index.get_loc(best_subtype)
 
-            if auc_vec[best_indx] > 0.6:
-                base_size = np.mean(pheno_dict[coh][base_mtype])
-                best_prop = np.mean(pheno_dict[coh][best_subtype]) / base_size
+            plt_min = min(plt_min, auc_vec[base_indx] - 0.03,
+                          auc_vec[best_indx] - 0.03)
+            base_size = np.mean(pheno_dict[coh][base_mtype])
+            best_prop = np.mean(pheno_dict[coh][best_subtype]) / base_size
 
-                conf_sc = np.greater.outer(
-                    conf_vals[coh].loc[best_subtype].iloc[0],
-                    conf_vals[coh].loc[base_mtype].iloc[0]
-                    ).mean()
+            conf_sc = np.greater.outer(conf_vals[coh][best_subtype],
+                                       conf_vals[coh][base_mtype]).mean()
 
-                if conf_sc > 0.9:
-                    pnt_dict[auc_vec[base_indx], auc_vec[best_indx]] = (
-                        base_size ** 0.53,
-                        (coh, get_fancy_label(best_subtype, max_subs=3))
-                        )
-
-                elif auc_vec[base_indx] > 0.7 or auc_vec[best_indx] > 0.7:
-                    pnt_dict[auc_vec[base_indx], auc_vec[best_indx]] = (
-                        base_size ** 0.53, (coh, ''))
-
-                else:
-                    pnt_dict[auc_vec[base_indx], auc_vec[best_indx]] = (
-                        base_size ** 0.53, ('', ''))
-
-                pie_ax = inset_axes(
-                    ax, width=base_size ** 0.5, height=base_size ** 0.5,
-                    bbox_to_anchor=(auc_vec[base_indx], auc_vec[best_indx]),
-                    bbox_transform=ax.transData, loc=10,
-                    axes_kwargs=dict(aspect='equal'), borderpad=0
+            if conf_sc > 0.9:
+                pnt_dict[auc_vec[base_indx], auc_vec[best_indx]] = (
+                    base_size ** 0.53,
+                    (coh, get_fancy_label(best_subtype, max_subs=3))
                     )
 
-                pie_ax.pie(x=[best_prop, 1 - best_prop], explode=[0.29, 0],
-                           colors=[clr_dict[coh] + (0.77,),
-                                   clr_dict[coh] + (0.29,)])
+            else:
+                pnt_dict[auc_vec[base_indx], auc_vec[best_indx]] = (
+                    base_size ** 0.53, (coh, ''))
 
-    lbl_pos = place_labels(pnt_dict)
+            # create the axis in which the pie chart will be plotted
+            pie_ax = inset_axes(
+                ax, width=base_size ** 0.5, height=base_size ** 0.5,
+                bbox_to_anchor=(auc_vec[base_indx], auc_vec[best_indx]),
+                bbox_transform=ax.transData, loc=10,
+                axes_kwargs=dict(aspect='equal'), borderpad=0
+                )
+
+            # plot the pie chart for the AUCs of the gene in this cohort
+            pie_ax.pie(x=[best_prop, 1 - best_prop], explode=[0.29, 0],
+                       colors=[choose_cohort_colour(coh) + (0.83, ),
+                               choose_cohort_colour(coh) + (0.23, )],
+                       wedgeprops=dict(edgecolor='black', linewidth=10 / 11))
+
+    # figure out where to place the annotation labels for each cohort so that
+    # they don't overlap with one another or the pie charts, then plot them
+    lbl_pos = place_labels(pnt_dict, lims=(plt_min, 1 + (1 - plt_min) / 47))
     for (pnt_x, pnt_y), pos in lbl_pos.items():
         ax.text(pos[0][0], pos[0][1] + 700 ** -1,
                 pnt_dict[pnt_x, pnt_y][1][0],
@@ -123,32 +138,39 @@ def plot_sub_comparisons(auc_dict, conf_dict, pheno_dict, use_clf, args):
         ln_lngth = np.sqrt((x_delta ** 2) + (y_delta ** 2))
 
         # if the label is sufficiently far away from its point...
-        if ln_lngth > (0.013 + pnt_dict[pnt_x, pnt_y][0] / 31):
-            use_clr = clr_dict[pnt_dict[pnt_x, pnt_y][1][0]]
-            pnt_gap = pnt_dict[pnt_x, pnt_y][0] / (29 * ln_lngth)
-            lbl_gap = 0.006 / ln_lngth
+        min_lngth = (1 - plt_min) * (0.02 + pnt_dict[pnt_x, pnt_y][0] / 13)
+        if ln_lngth > min_lngth:
+            use_clr = choose_cohort_colour(pnt_dict[pnt_x, pnt_y][1][0])
 
+            pnt_gap = pnt_dict[pnt_x, pnt_y][0] / (100 - 53 * plt_min)
+            pnt_gap /= ln_lngth
+            lbl_gap = (1 - plt_min) / (ln_lngth * 97)
+
+            # ...create a line connecting the pie chart to the label
             ax.plot([pnt_x - pnt_gap * x_delta,
                      pos[0][0] + lbl_gap * x_delta],
                     [pnt_y - pnt_gap * y_delta,
-                     pos[0][1] + lbl_gap * y_delta
-                     + 0.008 + 0.004 * np.sign(y_delta)],
+                     (pos[0][1] + lbl_gap * y_delta + lbl_gap * 0.015
+                      + lbl_gap * 0.005 * np.sign(y_delta))],
                     c=use_clr, linewidth=2.3, alpha=0.27)
 
-    ax.set_xlim([0.48, 1.01])
-    ax.set_ylim([0.48, 1.01])
+    ax.plot([plt_min, 1], [0.5, 0.5],
+            color='black', linewidth=1.3, linestyle=':', alpha=0.71)
+    ax.plot([0.5, 0.5], [plt_min, 1],
+            color='black', linewidth=1.3, linestyle=':', alpha=0.71)
+
+    ax.plot([plt_min, 1.0005], [1, 1],
+            color='black', linewidth=1.9, alpha=0.89)
+    ax.plot([1, 1], [plt_min, 1.0005],
+            color='black', linewidth=1.9, alpha=0.89)
+    ax.plot([plt_min + 0.01, 0.999], [plt_min + 0.01, 0.999],
+            color='#550000', linewidth=2.1, linestyle='--', alpha=0.41)
+
+    ax.set_xlim([plt_min, 1 + (1 - plt_min) / 47])
+    ax.set_ylim([plt_min, 1 + (1 - plt_min) / 47])
+
     ax.set_xlabel("AUC using all point mutations", size=23, weight='semibold')
     ax.set_ylabel("AUC of best found subgrouping", size=23, weight='semibold')
-
-    ax.plot([0.48, 1], [0.5, 0.5],
-            color='black', linewidth=1.3, linestyle=':', alpha=0.71)
-    ax.plot([0.5, 0.5], [0.48, 1],
-            color='black', linewidth=1.3, linestyle=':', alpha=0.71)
-
-    ax.plot([0.48, 1.0005], [1, 1], color='black', linewidth=1.9, alpha=0.89)
-    ax.plot([1, 1], [0.48, 1.0005], color='black', linewidth=1.9, alpha=0.89)
-    ax.plot([0.49, 0.997], [0.49, 0.997],
-            color='#550000', linewidth=2.1, linestyle='--', alpha=0.41)
 
     plt.savefig(
         os.path.join(plot_dir, '__'.join([args.expr_source, args.gene]),
@@ -180,15 +202,15 @@ def main():
                 exist_ok=True)
 
     out_datas = [
-        out_file.parts[-2:] for out_file in Path(base_dir).glob(
-            "{}__*__samps-*/out-data__*__*.p.gz".format(args.expr_source))
+        out_file.parts[-2:] for out_file in Path(base_dir).glob(os.path.join(
+            "{}__*__samps-*".format(args.expr_source), "out-conf__*__*.p.gz"))
         ]
 
     out_use = pd.DataFrame([
         {'Cohort': out_data[0].split('__')[1],
          'Samps': int(out_data[0].split("__samps-")[1]),
          'Levels': '__'.join(out_data[1].split(
-             "out-data__")[1].split('__')[:-1]),
+             "out-conf__")[1].split('__')[:-1]),
          'Classif': out_data[1].split('__')[-1].split(".p.gz")[0]}
         for out_data in out_datas
         ]).groupby(['Cohort', 'Classif']).filter(
@@ -271,7 +293,7 @@ def main():
                 mtype for mtype in conf_vals.index
                 if (not isinstance(mtype, RandomType)
                     and mtype.get_labels()[0] == args.gene)
-                ]]
+                ]].iloc[:, 0]
 
     for coh, lvls, clf in out_use.index:
         auc_dict[coh, lvls, clf] = auc_dict[coh, lvls, clf][[
