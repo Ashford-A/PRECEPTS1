@@ -6,7 +6,7 @@ base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'subvariant_tour')
 sys.path.extend([os.path.join(os.path.dirname(__file__), '..', '..', '..')])
 plot_dir = os.path.join(base_dir, 'plots', 'aucs')
 
-from HetMan.experiments.subvariant_tour import cis_lbls, pnt_mtype
+from HetMan.experiments.subvariant_tour import pnt_mtype
 from HetMan.experiments.subvariant_tour.merge_tour import merge_cohort_data
 from HetMan.experiments.subvariant_tour.utils import (
     get_fancy_label, RandomType)
@@ -53,14 +53,14 @@ def place_labels(pnt_dict, lims=(0.48, 1.01), lbl_dens=1.):
                 for pnt, gap in pnt_gaps.items()}
 
     lbl_wdths = {
-        pnt: (max(len(ln) for ln in lbls[1].split('\n')) * 0.17 / lim_gap
-              if lbls[1] else len(lbls[0]) * 0.26 / lim_gap)
+        pnt: (max(len(ln) for ln in lbls[1].split('\n')) * 0.23 / lim_gap
+              if lbls[1] else len(lbls[0]) * 0.29 / lim_gap)
         for pnt, (_, lbls) in pnt_dict.items()
         }
 
     lbl_hghts = {
-        pnt: ((0.33 + lbls[1].count('\n') * 0.19) / lim_gap
-              if lbls[1] else 0.31 / lim_gap)
+        pnt: ((0.37 + lbls[1].count('\n') * 0.26) / lim_gap
+              if lbls[1] else 0.35 / lim_gap)
         for pnt, (_, lbls) in pnt_dict.items()
         }
 
@@ -90,8 +90,7 @@ def place_labels(pnt_dict, lims=(0.48, 1.01), lbl_dens=1.):
             lbl_pos[pnt] = (pnt[0] - pnt_gaps[pnt], pnt[1]), 'right'
             pnt_boxs[pnt][0][0] = max(pnt_boxs[pnt][0][0], lbl_wdths[pnt])
 
-            pnt_boxs[pnt][1][0] = max(pnt_boxs[pnt][1][0],
-                                      lbl_hghts[pnt] / 1.3)
+            pnt_boxs[pnt][1][0] = max(pnt_boxs[pnt][1][0], lbl_hghts[pnt])
             pnt_boxs[pnt][1][1] = max(pnt_boxs[pnt][1][1],
                                       lbl_hghts[pnt] / 1.3)
 
@@ -122,10 +121,9 @@ def place_labels(pnt_dict, lims=(0.48, 1.01), lbl_dens=1.):
             lbl_pos[pnt] = (pnt[0] + pnt_gaps[pnt], pnt[1]), 'left'
             pnt_boxs[pnt][0][1] = max(pnt_boxs[pnt][0][1], lbl_wdths[pnt])
 
-            pnt_boxs[pnt][1][0] = max(pnt_boxs[pnt][1][0],
-                                      lbl_hghts[pnt] / 1.1)
+            pnt_boxs[pnt][1][0] = max(pnt_boxs[pnt][1][0], lbl_hghts[pnt])
             pnt_boxs[pnt][1][1] = max(pnt_boxs[pnt][1][1],
-                                      lbl_hghts[pnt] / 1.1)
+                                      lbl_hghts[pnt] / 1.3)
 
     i = 0
     while i < 1491 and any(lbl is None for lbl in lbl_pos.values()):
@@ -150,21 +148,21 @@ def place_labels(pnt_dict, lims=(0.48, 1.01), lbl_dens=1.):
                     pnt[1] + (lims[1] - lims[0]) * 0.47
                     )
  
-                if not (any((((new_pos[0] - lbl_wdths[pnt] / 1.9)
+                if not (any((((new_pos[0] - lbl_wdths[pnt] / 1.5)
                               < (pnt2[0] - pnt_boxs[pnt2][0][0])
-                              < (new_pos[0] + lbl_wdths[pnt] / 1.9))
-                             or ((new_pos[0] - lbl_wdths[pnt] / 1.9)
+                              < (new_pos[0] + lbl_wdths[pnt] / 1.5))
+                             or ((new_pos[0] - lbl_wdths[pnt] / 1.5)
                                  < (pnt2[0] + pnt_boxs[pnt2][0][1])
-                                 < (new_pos[0] + lbl_wdths[pnt] / 1.9))
+                                 < (new_pos[0] + lbl_wdths[pnt] / 1.5))
                              or ((pnt2[0] - pnt_boxs[pnt2][0][0])
                                  < new_pos[0]
                                  < (pnt2[0] + pnt_boxs[pnt2][0][1])))
-                            and (((new_pos[1] - lbl_hghts[pnt] / 1.7)
+                            and (((new_pos[1] - lbl_hghts[pnt] / 1.3)
                                   < (pnt2[1] - pnt_boxs[pnt2][1][0])
-                                  < (new_pos[1] + lbl_hghts[pnt] / 1.7))
-                                 or ((new_pos[1] - lbl_hghts[pnt] / 1.7)
+                                  < (new_pos[1] + lbl_hghts[pnt] / 1.3))
+                                 or ((new_pos[1] - lbl_hghts[pnt] / 1.3)
                                       < (pnt2[1] + pnt_boxs[pnt2][1][1])
-                                      < (new_pos[1] + lbl_hghts[pnt] / 1.7))
+                                      < (new_pos[1] + lbl_hghts[pnt] / 1.3))
                                  or ((pnt2[1] - pnt_boxs[pnt2][1][0])
                                      < new_pos[1]
                                      < (pnt2[1] + pnt_boxs[pnt2][1][1])))
@@ -172,34 +170,34 @@ def place_labels(pnt_dict, lims=(0.48, 1.01), lbl_dens=1.):
 
                         or any(((new_pos[0] - pos2[0][0]) ** 2
                                 + (new_pos[1] - pos2[0][1]) ** 2) ** 0.5
-                               < (lim_gap ** -1)
+                               < (lim_gap ** -0.93)
                                for pos2 in lbl_pos.values()
                                if pos2 is not None)
 
-                        or any((((new_pos[0] - lbl_wdths[pnt] / 1.3)
-                                 < (pos2[0][0] - lbl_wdths[pnt2] / 1.3)
-                                 < (new_pos[0] + lbl_wdths[pnt] / 1.3))
-                                or ((new_pos[0] - lbl_wdths[pnt] / 1.3)
-                                    < (pos2[0][0] + lbl_wdths[pnt2] / 1.3)
-                                    < (new_pos[0] + lbl_wdths[pnt] / 1.3)))
-                               and (((new_pos[1] - lbl_hghts[pnt] / 1.1)
-                                     < (pos2[0][1] - lbl_hghts[pnt2] / 1.1)
-                                     < (new_pos[1] + lbl_hghts[pnt] / 1.1))
-                                    or ((new_pos[1] - lbl_hghts[pnt] / 1.1)
-                                        < (pos2[0][1] + lbl_hghts[pnt2] / 1.1)
+                        or any((((new_pos[0] - lbl_wdths[pnt] / 1.4)
+                                 < (pos2[0][0] - lbl_wdths[pnt2] / 1.4)
+                                 < (new_pos[0] + lbl_wdths[pnt] / 1.4))
+                                or ((new_pos[0] - lbl_wdths[pnt] / 1.4)
+                                    < (pos2[0][0] + lbl_wdths[pnt2] / 1.4)
+                                    < (new_pos[0] + lbl_wdths[pnt] / 1.4)))
+                               and (((new_pos[1] - lbl_hghts[pnt] / 1.2)
+                                     < (pos2[0][1] - lbl_hghts[pnt2] / 1.2)
+                                     < (new_pos[1] + lbl_hghts[pnt] / 1.2))
+                                    or ((new_pos[1] - lbl_hghts[pnt] / 1.2)
+                                        < (pos2[0][1] + lbl_hghts[pnt2] / 1.2)
                                         < (new_pos[1]
-                                           + lbl_hghts[pnt] / 1.1)))
+                                           + lbl_hghts[pnt] / 1.2)))
                                for pnt2, pos2 in lbl_pos.items()
                                if pos2 is not None and pos2[1] == 'center')):
 
                     lbl_pos[pnt] = (new_pos[0], new_pos[1]), 'center'
                     pnt_boxs[pnt][0][0] = max(pnt_boxs[pnt][0][0],
-                                              lbl_wdths[pnt] / 1.5)
+                                              lbl_wdths[pnt] / 1.23)
                     pnt_boxs[pnt][0][1] = max(pnt_boxs[pnt][0][1],
-                                              lbl_wdths[pnt] / 1.5)
+                                              lbl_wdths[pnt] / 1.23)
 
                     pnt_boxs[pnt][1][0] = max(pnt_boxs[pnt][1][0],
-                                              lbl_hghts[pnt] / 1.1)
+                                              lbl_hghts[pnt])
                     pnt_boxs[pnt][1][1] = max(pnt_boxs[pnt][1][1],
                                               lbl_hghts[pnt] / 1.1)
 
@@ -456,11 +454,6 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals, args):
                      + 0.008 + 0.004 * np.sign(y_delta)],
                     c=use_clr, linewidth=2.3, alpha=0.27)
 
-    ax.set_xlim([0.48, 1.01])
-    ax.set_ylim([0.48, 1.01])
-    ax.set_xlabel("AUC using all point mutations", size=23, weight='semibold')
-    ax.set_ylabel("AUC of best found subgrouping", size=23, weight='semibold')
-
     ax.plot([0.48, 1], [0.5, 0.5],
             color='black', linewidth=1.3, linestyle=':', alpha=0.71)
     ax.plot([0.5, 0.5], [0.48, 1],
@@ -470,6 +463,11 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals, args):
     ax.plot([1, 1], [0.48, 1.0005], color='black', linewidth=1.9, alpha=0.89)
     ax.plot([0.49, 0.997], [0.49, 0.997],
             color='#550000', linewidth=2.1, linestyle='--', alpha=0.41)
+
+    ax.set_xlim([0.48, 1.01])
+    ax.set_ylim([0.48, 1.01])
+    ax.set_xlabel("AUC using all point mutations", size=23, weight='semibold')
+    ax.set_ylabel("AUC of best found subgrouping", size=23, weight='semibold')
 
     plt.savefig(
         os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
@@ -481,10 +479,7 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals, args):
 
 
 def plot_aupr_comparisons(auc_vals, infer_df, pheno_dict, conf_vals, args):
-    fig, ax = plt.subplots(figsize=(11, 11))
-
-    pnt_dict = dict()
-    clr_dict = dict()
+    fig, (base_ax, subg_ax) = plt.subplots(figsize=(17, 8), nrows=1, ncols=2)
 
     # filter out experiment results for mutations representing randomly
     # chosen sets of samples rather than actual mutations
@@ -496,113 +491,132 @@ def plot_aupr_comparisons(auc_vals, infer_df, pheno_dict, conf_vals, args):
         for mtype in auc_vals.index
         ]]
 
-    # for each gene whose mutations were tested, pick a random colour
-    # to use for plotting the results for the gene
+    pnt_dict = {'Base': dict(), 'Subg': dict()}
+    clr_dict = dict()
+    plt_max = 0.53
+
     for gene, auc_vec in auc_vals.groupby(
             lambda mtype: mtype.get_labels()[0]):
 
-        # if there were subgroupings tested for the gene, find the results
-        # for the mutation representing all point mutations for this gene...
         if len(auc_vec) > 1:
             base_mtype = MuType({('Gene', gene): pnt_mtype})
             base_indx = auc_vec.index.get_loc(base_mtype)
 
-            # ...as well as the results for the best subgrouping of
-            # mutations found for this gene
             best_subtype = auc_vec[:base_indx].append(
                 auc_vec[(base_indx + 1):]).idxmax()
             best_indx = auc_vec.index.get_loc(best_subtype)
 
-            base_infr = infer_df.loc[base_mtype].apply(np.mean)
-            best_infr = infer_df.loc[best_subtype].apply(np.mean)
-            base_aupr = aupr_score(pheno_dict[base_mtype], base_infr)
-            best_aupr = aupr_score(pheno_dict[best_subtype], best_infr)
-
-            # if the AUC for the optimal subgrouping is good enough, plot it
-            # against the AUC for all point mutations of the gene...
             if auc_vec[best_indx] > 0.6:
                 clr_dict[gene] = choose_gene_colour(gene)
-                base_size = np.mean(pheno_dict[base_mtype])
-                best_prop = np.mean(pheno_dict[best_subtype]) / base_size
+
+                base_size = 0.47 * np.mean(pheno_dict[base_mtype])
+                best_prop = 0.47 * np.mean(
+                    pheno_dict[best_subtype]) / base_size
+
+                base_infr = infer_df.loc[base_mtype].apply(np.mean)
+                best_infr = infer_df.loc[best_subtype].apply(np.mean)
+
+                base_auprs = (aupr_score(pheno_dict[base_mtype], base_infr),
+                              aupr_score(pheno_dict[base_mtype], best_infr))
+                subg_auprs = (aupr_score(pheno_dict[best_subtype], base_infr),
+                              aupr_score(pheno_dict[best_subtype], best_infr))
 
                 conf_sc = np.greater.outer(conf_vals[best_subtype],
                                            conf_vals[base_mtype]).mean()
 
-                # ...and if it is really good then add a label with the gene
-                # name and a description of the best found subgrouping
+                base_lbl = '', ''
+                subg_lbl = '', ''
+                min_diff = np.log2(1.25)
+
                 if conf_sc > 0.9:
-                    pnt_dict[base_aupr, best_aupr] = (
-                        base_size ** 0.53, (gene,
-                                            get_fancy_label(best_subtype))
+                    base_lbl = gene, get_fancy_label(best_subtype)
+                    subg_lbl = gene, get_fancy_label(best_subtype)
+
+                elif auc_vec[base_indx] > 0.75 or auc_vec[best_indx] > 0.75:
+                    base_lbl = gene, ''
+                    subg_lbl = gene, ''
+
+                elif auc_vec[base_indx] > 0.6 or auc_vec[best_indx] > 0.6:
+                    if abs(np.log2(base_auprs[1] / base_auprs[0])) > min_diff:
+                        base_lbl = gene, ''
+                    if abs(np.log2(subg_auprs[1] / subg_auprs[0])) > min_diff:
+                        subg_lbl = gene, ''
+
+                pnt_dict['Base'][base_auprs] = base_size ** 0.53, base_lbl
+                pnt_dict['Subg'][subg_auprs] = base_size ** 0.53, subg_lbl
+
+                for ax, (base_aupr, subg_aupr) in zip(
+                        [base_ax, subg_ax], [base_auprs, subg_auprs]):
+                    plt_max = min(1.005,
+                                  max(plt_max,
+                                      base_aupr + 0.11, subg_aupr + 0.11))
+
+                    pie_ax = inset_axes(
+                        ax, width=base_size ** 0.5, height=base_size ** 0.5,
+                        bbox_to_anchor=(base_aupr, subg_aupr),
+                        bbox_transform=ax.transData, loc=10,
+                        axes_kwargs=dict(aspect='equal'), borderpad=0
                         )
 
-                elif auc_vec[base_indx] > 0.7 or auc_vec[best_indx] > 0.7:
-                    pnt_dict[base_aupr, best_aupr] = (base_size ** 0.53,
-                                                      (gene, ''))
+                    pie_ax.pie(x=[best_prop, 1 - best_prop],
+                               explode=[0.29, 0],
+                               colors=[clr_dict[gene] + (0.77,),
+                                       clr_dict[gene] + (0.29,)])
 
-                else:
-                    pnt_dict[base_aupr, best_aupr] = (base_size ** 0.53,
-                                                      ('', ''))
+    for ax, lbl in zip([base_ax, subg_ax], ['Base', 'Subg']):
+        lbl_pos = place_labels(pnt_dict[lbl],
+                               lims=(0, plt_max), lbl_dens=0.63)
 
-                pie_ax = inset_axes(
-                    ax, width=base_size ** 0.5, height=base_size ** 0.5,
-                    bbox_to_anchor=(base_aupr, best_aupr),
-                    bbox_transform=ax.transData, loc=10,
-                    axes_kwargs=dict(aspect='equal'), borderpad=0
-                    )
+        for (pnt_x, pnt_y), pos in lbl_pos.items():
+            ax.text(pos[0][0], pos[0][1] + 700 ** -1,
+                    pnt_dict[lbl][pnt_x, pnt_y][1][0],
+                    size=11, ha=pos[1], va='bottom')
+            ax.text(pos[0][0], pos[0][1] - 700 ** -1,
+                    pnt_dict[lbl][pnt_x, pnt_y][1][1],
+                    size=7, ha=pos[1], va='top')
 
-                pie_ax.pie(x=[best_prop, 1 - best_prop], explode=[0.29, 0],
-                           colors=[clr_dict[gene] + (0.77,),
-                                   clr_dict[gene] + (0.29,)])
+            x_delta = pnt_x - pos[0][0]
+            y_delta = pnt_y - pos[0][1]
+            ln_lngth = np.sqrt((x_delta ** 2) + (y_delta ** 2))
 
-    plt_lims = (max(min(min(xval for xval, _ in pnt_dict),
-                        min(yval for _, yval in pnt_dict)) - 0.11, -0.01),
-                min(max(max(xval for xval, _ in pnt_dict),
-                        max(yval for _, yval in pnt_dict)) + 0.11, 1.01))
+            # if the label is sufficiently far away from its point...
+            if ln_lngth > (0.043 + pnt_dict[lbl][pnt_x, pnt_y][0] / 19):
+                use_clr = clr_dict[pnt_dict[lbl][pnt_x, pnt_y][1][0]]
+                pnt_gap = pnt_dict[lbl][pnt_x, pnt_y][0] / (13 * ln_lngth)
+                lbl_gap = 0.006 / ln_lngth
 
-    lbl_pos = place_labels(pnt_dict, lims=plt_lims)
-    for (pnt_x, pnt_y), pos in lbl_pos.items():
-        ax.text(pos[0][0], pos[0][1] + 700 ** -1,
-                pnt_dict[pnt_x, pnt_y][1][0],
-                size=13, ha=pos[1], va='bottom')
-        ax.text(pos[0][0], pos[0][1] - 700 ** -1,
-                pnt_dict[pnt_x, pnt_y][1][1],
-                size=9, ha=pos[1], va='top')
+                ax.plot([pnt_x - pnt_gap * x_delta,
+                         pos[0][0] + lbl_gap * x_delta],
+                        [pnt_y - pnt_gap * y_delta,
+                         pos[0][1] + lbl_gap * y_delta
+                         + 0.008 + 0.004 * np.sign(y_delta)],
+                        c=use_clr, linewidth=1.1, alpha=0.23)
 
-        x_delta = pnt_x - pos[0][0]
-        y_delta = pnt_y - pos[0][1]
-        ln_lngth = np.sqrt((x_delta ** 2) + (y_delta ** 2))
+        ax.plot([0, plt_max], [0, 0],
+                color='black', linewidth=1.5, alpha=0.89)
+        ax.plot([0, 0], [0, plt_max],
+                color='black', linewidth=1.5, alpha=0.89)
 
-        # if the label is sufficiently far away from its point...
-        if ln_lngth > (0.043 + pnt_dict[pnt_x, pnt_y][0] / 19):
-            use_clr = clr_dict[pnt_dict[pnt_x, pnt_y][1][0]]
-            pnt_gap = pnt_dict[pnt_x, pnt_y][0] / (13 * ln_lngth)
-            lbl_gap = 0.006 / ln_lngth
+        ax.plot([0, plt_max], [1, 1],
+                color='black', linewidth=1.5, alpha=0.89)
+        ax.plot([1, 1], [0, plt_max],
+                color='black', linewidth=1.5, alpha=0.89)
 
-            ax.plot([pnt_x - pnt_gap * x_delta,
-                     pos[0][0] + lbl_gap * x_delta],
-                    [pnt_y - pnt_gap * y_delta,
-                     pos[0][1] + lbl_gap * y_delta
-                     + 0.008 + 0.004 * np.sign(y_delta)],
-                    c=use_clr, linewidth=2.3, alpha=0.27)
+        ax.plot([0, plt_max], [0, plt_max],
+                color='#550000', linewidth=1.7, linestyle='--', alpha=0.37)
 
-    ax.set_xlim(plt_lims)
-    ax.set_ylim(plt_lims)
+        ax.set_xlim([-0.01, plt_max])
+        ax.set_ylim([-0.01, plt_max])
 
-    ax.set_xlabel("point mutation AUPR"
-                  "\nusing point mutation inferred scores",
-                  size=23, weight='semibold')
-    ax.set_ylabel("point mutation AUPR"
-                  "\nusing best found subgrouping inferred scores",
-                  size=23, weight='semibold')
+        ax.set_xlabel("using all point mutation inferred scores",
+                      size=19, weight='semibold')
+        ax.set_ylabel("using best found subgrouping inferred scores",
+                      size=19, weight='semibold')
 
-    ax.plot(plt_lims, [0, 0], color='black', linewidth=1.7, alpha=0.89)
-    ax.plot([0, 0], plt_lims, color='black', linewidth=1.7, alpha=0.89)
-    ax.plot(plt_lims, [1, 1], color='black', linewidth=1.7, alpha=0.89)
-    ax.plot([1, 1], plt_lims, color='black', linewidth=1.7, alpha=0.89)
-
-    ax.plot(plt_lims, plt_lims,
-            color='#550000', linewidth=2.1, linestyle='--', alpha=0.41)
+    base_ax.set_title("AUPR on all point mutations",
+                      size=21, weight='semibold')
+    subg_ax.set_title("AUPR on best subgrouping mutations",
+                      size=21, weight='semibold')
 
     plt.savefig(
         os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
