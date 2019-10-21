@@ -2,7 +2,7 @@
 import os
 import sys
 base_dir = os.path.dirname(__file__)
-sys.path.extend([os.path.join(base_dir, '../../..')])
+sys.path.extend([os.path.join(base_dir, '..', '..', '..')])
 
 from HetMan.experiments.subvariant_tour import cis_lbls
 from HetMan.experiments.subvariant_tour.utils import RandomType
@@ -10,6 +10,7 @@ from dryadic.learning.classifiers import *
 
 import argparse
 import dill as pickle
+import time
 import random
 
 
@@ -57,14 +58,21 @@ def main():
     setup_dir = os.path.join(args.use_dir, 'setup')
     coh_path = os.path.join(args.use_dir, '..', '..', "cohort-data.p")
 
-    with open(coh_path, 'rb') as cdata_f:
-        cdata = pickle.load(cdata_f)
-    with open(os.path.join(setup_dir, "muts-list.p"), 'rb') as muts_f:
-        mtype_list = pickle.load(muts_f)
+    cdata = None
+    while cdata is None:
+        try:
+            with open(coh_path, 'rb') as cdata_f:
+                cdata = pickle.load(cdata_f)
+
+        except:
+            print("Failed to load cohort data, trying again...")
+            time.sleep(61)
 
     clf = eval(args.classif)
     mut_clf = clf()
     random.seed(7712)
+    with open(os.path.join(setup_dir, "muts-list.p"), 'rb') as muts_f:
+        mtype_list = pickle.load(muts_f)
 
     mtype_genes = {mtype: mtype.get_labels()[0] for mtype in mtype_list
                    if not isinstance(mtype, RandomType)}

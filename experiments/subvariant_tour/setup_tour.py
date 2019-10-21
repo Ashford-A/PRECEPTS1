@@ -2,7 +2,7 @@
 import os
 import sys
 base_dir = os.path.dirname(__file__)
-sys.path.extend([os.path.join(base_dir, '../../..')])
+sys.path.extend([os.path.join(base_dir, '..', '..', '..')])
 
 from HetMan.experiments.subvariant_tour import *
 from HetMan.experiments.subvariant_tour import pnt_mtype
@@ -27,8 +27,8 @@ from itertools import combinations as combn
 from itertools import product
 
 
-def get_cohort_data(cohort, expr_source,
-                    mut_lvls=None, use_genes=None, gene_annot=None):
+def get_cohort_data(cohort, expr_source, mut_lvls=None, use_genes=None,
+                    leaf_annot=None, gene_annot=None):
     if mut_lvls is None:
         mut_lvls = [['Gene', 'Exon', 'Location', 'Protein']]
 
@@ -43,6 +43,9 @@ def get_cohort_data(cohort, expr_source,
 
     else:
         use_genes = list(use_genes)
+
+    if leaf_annot is None:
+        leaf_annot = ('ref_count', 'alt_count')
 
     if gene_annot is None:
         gene_annot = ['transcript', 'exon']
@@ -60,8 +63,7 @@ def get_cohort_data(cohort, expr_source,
             mut_levels=mut_lvls, mut_genes=use_genes,
             expr_source=expr_source, expr_file=beatAML_files['expr'],
             samp_file=beatAML_files['samps'], syn=syn, annot_file=annot_file,
-            domain_dir=domain_dir, leaf_annot=('ref_count', 'alt_count',
-                                               'PolyPhen'),
+            domain_dir=domain_dir, leaf_annot=leaf_annot,
             cv_seed=8713, test_prop=0, annot_fields=gene_annot
             )
 
@@ -109,8 +111,7 @@ def get_cohort_data(cohort, expr_source,
             cohort=cohort.split('_')[0], mut_levels=mut_lvls,
             mut_genes=use_genes, expr_source=source_base, var_source='mc3',
             copy_source='Firehose', annot_file=annot_file,
-            domain_dir=domain_dir, type_file=type_file,
-            leaf_annot=('ref_count', 'alt_count', 'PolyPhen'),
+            domain_dir=domain_dir, type_file=type_file, leaf_annot=leaf_annot,
             expr_dir=expr_sources[source_base], copy_dir=copy_dir,
             collapse_txs=collapse_txs, syn=syn, cv_seed=8713, test_prop=0,
             annot_fields=gene_annot, use_types=parse_subtypes(cohort)

@@ -62,12 +62,12 @@ def get_fancy_label(mtype, max_subs=2):
 
     else:
         mtype_lvls = mtype.get_sorted_levels()[1:]
-        use_lbl = "grouping of {}+\n".format(max_subs + 1)
+        use_lbl = "grouping of {}\n".format(len(sub_keys))
 
         if len(mtype_lvls) == 1:
-            use_lbl = ' '.join([use_lbl, "{}s".format(mtype_lvls[0].lower())])
+            use_lbl = ''.join([use_lbl, "{}s".format(mtype_lvls[0].lower())])
         else:
-            use_lbl = ' '.join([use_lbl, "mutation types"])
+            use_lbl = ''.join([use_lbl, "mutation types"])
 
     return use_lbl
 

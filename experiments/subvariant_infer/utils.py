@@ -14,7 +14,7 @@ class Mcomb(MutComb):
 
     def __hash__(self):
         value = 0x230199 ^ len(self.mtypes)
-        value += hash(self.mtypes)
+        value += hash(tuple(sorted(self.mtypes)))
 
         if value == -1:
             value = -2
@@ -35,13 +35,13 @@ class Mcomb(MutComb):
         if not isinstance(other, Mcomb):
             eq = False
         else:
-            eq = self.mtypes == other.mtypes
+            eq = sorted(self.mtypes) == sorted(other.mtypes)
 
         return eq
 
     def __lt__(self, other):
         if isinstance(other, Mcomb):
-            lt = self.mtypes < other.mtypes
+            lt = sorted(self.mtypes) < sorted(other.mtypes)
 
         elif isinstance(other, MuType):
             lt = False
@@ -70,7 +70,7 @@ class ExMcomb(MutComb):
 
     def __hash__(self):
         value = 0x981324 ^ (len(self.mtypes) * hash(self.all_mtype))
-        value += hash(self.mtypes)
+        value += hash(tuple(sorted(self.mtypes)))
 
         if value == -1:
             value = -2
@@ -93,7 +93,7 @@ class ExMcomb(MutComb):
 
         else:
             eq = self.all_mtype == other.all_mtype
-            eq &= self.mtypes == other.mtypes
+            eq &= sorted(self.mtypes) == sorted(other.mtypes)
 
         return eq
 
@@ -102,7 +102,7 @@ class ExMcomb(MutComb):
             if self.all_mtype != other.all_mtype:
                 lt = self.all_mtype < other.all_mtype
             else:
-                lt = self.mtypes < other.mtypes
+                lt = sorted(self.mtypes) < sorted(other.mtypes)
 
         elif isinstance(other, (MuType, Mcomb)):
             lt = False

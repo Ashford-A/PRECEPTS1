@@ -23,10 +23,10 @@ dependencies:
   - boto3=1.9.199
   - botocore=1.12.199
   - bzip2=1.0.8
-  - ca-certificates=2019.5.15
+  - ca-certificates=2019.8.28
   - cachetools=2.1.0
   - cairo=1.16.0
-  - certifi=2019.6.16
+  - certifi=2019.9.11
   - cffi=1.12.3
   - chardet=3.0.4
   - cmarkgfm=0.4.2
@@ -219,6 +219,7 @@ dependencies:
   - webencodings=0.5.1
   - wheel=0.33.4
   - wrapt=1.11.2
+  - xlrd=1.2.0
   - xmlrunner=1.7.7
   - xorg-kbproto=1.0.7
   - xorg-libice=1.0.10
@@ -241,7 +242,7 @@ dependencies:
   - pip:
     - backports-csv==1.0.7
     - deprecated==1.2.4
-    - dryad==0.4.1a6
+    - dryad==0.4.1b0
     - entrypoints==0.3
     - keyring==12.0.2
     - keyrings-alt==3.1

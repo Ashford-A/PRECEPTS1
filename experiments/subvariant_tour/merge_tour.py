@@ -2,7 +2,7 @@
 import os
 import sys
 base_dir = os.path.dirname(__file__)
-sys.path.extend([os.path.join(base_dir, '../../..')])
+sys.path.extend([os.path.join(base_dir, '..', '..', '..')])
 
 import argparse
 from glob import glob
@@ -128,15 +128,19 @@ def calculate_auc(pheno_dict, infer_vals, mtype, sub_indx=None):
         mut_phn = pheno_dict[mtype] & sub_indx
         wt_phn = ~pheno_dict[mtype] & sub_indx
 
-    auc_val = np.greater.outer(
-        np.concatenate(infer_vals.values[mut_phn]),
-        np.concatenate(infer_vals.values[wt_phn])
-        ).mean()
-    
-    auc_val += 0.5 * np.equal.outer(
-        np.concatenate(infer_vals.values[mut_phn]),
-        np.concatenate(infer_vals.values[wt_phn])
-        ).mean()
+    if mut_phn.any() and wt_phn.any():
+        auc_val = np.greater.outer(
+            np.concatenate(infer_vals.values[mut_phn]),
+            np.concatenate(infer_vals.values[wt_phn])
+            ).mean()
+        
+        auc_val += 0.5 * np.equal.outer(
+            np.concatenate(infer_vals.values[mut_phn]),
+            np.concatenate(infer_vals.values[wt_phn])
+            ).mean()
+
+    else:
+        auc_val = 0.5
 
     return auc_val
 

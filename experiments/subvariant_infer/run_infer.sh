@@ -7,27 +7,24 @@ source activate HetMan
 rewrite=false
 
 # collect command line arguments
-while getopts t:s:g:l:c:m:r var
+while getopts t:g:c:m:r var
 do
 	case "$var" in
 		t)	cohort=$OPTARG;;
-		s)	samp_cutoff=$OPTARG;;
 		g)	gene=$OPTARG;;
-		l)	mut_levels=$OPTARG;;
 		c)	classif=$OPTARG;;
 		m)	test_max=$OPTARG;;
 		r)      rewrite=true;;
-		[?])    echo "Usage: $0 [-t] TCGA cohort [-s] minimum sample cutoff " \
-			     "[-g] mutated gene [-l] mutation annotation levels " \
-			     "[-c] mutation classifier [-m] maximum tests per node" \
-			     "[-r] whether existing results should be rewritten"
+		[?])    echo "Usage: $0 [-t] tumour cohort [-g] mutated gene" \
+				"[-c] mutation classifier [-m] maximum tests per node" \
+				"[-r] rewrite existing results?"
 			exit 1;;
 	esac
 done
 
 # decide where intermediate files will be stored, find code source directory and input files
-OUTDIR=$TEMPDIR/HetMan/subvariant_infer/${cohort}__samps-${samp_cutoff}/${gene}__${mut_levels}/$classif
-FINALDIR=$DATADIR/HetMan/subvariant_infer/${cohort}__samps-${samp_cutoff}/${gene}
+OUTDIR=$TEMPDIR/HetMan/subvariant_infer/$gene/$cohort/$classif
+FINALDIR=$DATADIR/HetMan/subvariant_infer/$gene
 export RUNDIR=$CODEDIR/HetMan/experiments/subvariant_infer
 source $RUNDIR/files.sh
 
@@ -38,7 +35,7 @@ then
 fi
 
 # create the directories where intermediate and final output will be stored, move to working directory
-mkdir -p $FINALDIR
+mkdir -p $FINALDIR $TEMPDIR/HetMan/subvariant_infer/$gene/setup
 mkdir -p $OUTDIR/setup $OUTDIR/output $OUTDIR/slurm
 cd $OUTDIR
 
@@ -51,9 +48,10 @@ fi
 # enumerate the mutation types that will be tested in this experiment
 dvc run -d $firehose_dir -d $mc3_file -d $gencode_file -d $subtype_file \
 	-d $RUNDIR/setup_infer.py -d $CODEDIR/HetMan/environment.yml \
-	-o setup/cohort-data.p -o setup/muts-list.p -m setup/muts-count.txt \
-	-f setup.dvc --overwrite-dvcfile python $RUNDIR/setup_infer.py \
-	$cohort $gene $mut_levels --samp_cutoff=$samp_cutoff --setup_dir=$OUTDIR
+	-o setup/cohort-data.p -o setup/muts-list.p -o setup/feat-list.p \
+	-m setup/muts-count.txt -f setup.dvc --overwrite-dvcfile \
+	python $RUNDIR/setup_infer.py $cohort $gene $classif \
+	$OUTDIR $DATADIR/HetMan
 
 # calculate how many parallel tasks the mutations will be tested over
 muts_count=$(cat setup/muts-count.txt)
@@ -63,17 +61,18 @@ task_count=$(( $(( $muts_count - 1 )) / $test_max + 1 ))
 if [ -d .snakemake ]
 then
 	snakemake --unlock
+	rm -rf .snakemake/locks/*
 fi
 
-dvc run -d setup/cohort-data.p -d setup/muts-list.p -d $RUNDIR/fit_infer.py \
-	-o $FINALDIR/out-data__${mut_levels}__${classif}.p.gz -f output.dvc \
-	--overwrite-dvcfile 'snakemake -s $RUNDIR/Snakefile -j 50 --latency-wait 120 \
+dvc run -d setup/cohort-data.p -d setup/muts-list.p -d setup/feat-list.p \
+	-d $RUNDIR/fit_infer.py -o $FINALDIR/out-data__${cohort}__${classif}.p.gz \
+	-f output.dvc --overwrite-dvcfile --no-commit \
+	'snakemake -s $RUNDIR/Snakefile -j 100 --latency-wait 120 \
 	--cluster-config $RUNDIR/cluster.json --cluster "sbatch -p {cluster.partition} \
 	-J {cluster.job-name} -t {cluster.time} -o {cluster.output} -e {cluster.error} \
 	-n {cluster.ntasks} -c {cluster.cpus-per-task} --mem-per-cpu {cluster.mem-per-cpu} \
-	--exclude=$ex_nodes --no-requeue" --config cohort='"$cohort"' \
-	samp_cutoff='"$samp_cutoff"' gene='"$gene"' mut_levels='"$mut_levels"' \
+	--exclude=$ex_nodes --no-requeue" --config cohort='"$cohort"' gene='"$gene"' \
 	classif='"$classif"' task_count='"$task_count"
 
-cp output.dvc $FINALDIR/output__${mut_levels}__${classif}.dvc
+cp output.dvc $FINALDIR/output__${cohort}__${classif}.dvc
 
