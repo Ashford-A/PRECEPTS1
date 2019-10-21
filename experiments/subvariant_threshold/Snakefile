@@ -1,0 +1,63 @@
+
+import os
+
+LOCALDIR = os.path.join(os.environ['CODEDIR'], 'HetMan',
+                        'experiments', 'subvariant_threshold')
+TMPDIR = os.path.join(os.environ['TEMPDIR'], 'HetMan', 'subvariant_threshold',
+                      config['cohort'], config['classif'])
+OUTDIR = os.path.join(os.environ['DATADIR'], 'HetMan', 'subvariant_threshold')
+
+
+localrules: target
+
+
+rule target:
+    input:
+        expand("{outdir}/out-trnsf__{cohort}__{classif}.p.gz",
+               outdir=OUTDIR, cohort=config['cohort'],
+               classif=config['classif']),
+
+    threads: 1
+
+
+rule threshold:
+    output: "{TMPDIR}/output/out_task-{task_id}.p"
+
+    threads: 8
+
+    shell: """
+        set +u; source activate HetMan; set -u;
+        export OMP_NUM_THREADS=1;
+        sleep $(( ({wildcards.task_id} + 1) * $(shuf -i 1-13 -n 1) ));
+ 
+        python {LOCALDIR}/fit_threshold.py {config[classif]} \
+                --use_dir={TMPDIR} --task_count={config[task_count]} \
+                --task_id={wildcards.task_id}
+        """
+
+
+rule consolidate:
+    input:
+        expand("{tmpdir}/output/out_task-{task_id}.p",
+               tmpdir=TMPDIR, task_id=range(config['task_count']))
+
+    output:
+        expand("{outdir}/out-trnsf__{cohort}__{classif}.p.gz",
+               outdir=OUTDIR, cohort=config['cohort'],
+               classif=config['classif'])
+
+    threads: 12
+
+    shell: """
+        set +u; source activate HetMan; set -u;
+        python {LOCALDIR}/merge_threshold.py {TMPDIR}
+
+        out_tag={config[cohort]}__{config[classif]}
+        cp {TMPDIR}/setup/cohort-data.p {OUTDIR}/cohort-data__${{out_tag}}.p
+
+        cp {TMPDIR}/out-data.p.gz {OUTDIR}/out-data__${{out_tag}}.p.gz
+        cp {TMPDIR}/out-pheno.p.gz {OUTDIR}/out-pheno__${{out_tag}}.p.gz
+        cp {TMPDIR}/out-aucs.p.gz {OUTDIR}/out-aucs__${{out_tag}}.p.gz
+        cp {TMPDIR}/out-trnsf.p.gz {OUTDIR}/out-trnsf__${{out_tag}}.p.gz
+        """
+
