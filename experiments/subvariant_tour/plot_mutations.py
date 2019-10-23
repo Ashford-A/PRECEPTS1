@@ -3,7 +3,7 @@ import os
 import sys
 
 base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'subvariant_tour')
-sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
+sys.path.extend([os.path.join(os.path.dirname(__file__), '..', '..', '..')])
 plot_dir = os.path.join(base_dir, 'plots', 'mutations')
 
 from HetMan.experiments.subvariant_tour import domain_dir, pnt_mtype
@@ -16,7 +16,6 @@ from dryadic.features.data.domains import get_protein_domains
 from dryadic.features.mutations import MuType, MuTree
 
 import argparse
-import glob as glob
 from pathlib import Path
 import bz2
 import dill as pickle
@@ -36,7 +35,6 @@ import seaborn as sns
 import matplotlib.gridspec as gridspec
 from matplotlib.patches import Rectangle as Rect
 from matplotlib.collections import PatchCollection
-from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 # make plots cleaner by turning off outer box, make background all white
 plt.style.use('fivethirtyeight')
@@ -176,9 +174,10 @@ def plot_lollipop(cdata_dict, domain_dict, args):
         size=11, va='bottom', transform=main_ax.transAxes
         )
 
-    main_ax.set_xlabel("Amino Acid Position", size=15, weight='semibold')
-    main_ax.set_ylabel("# of Mutated Samples", size=15, weight='semibold')
     main_ax.grid(linewidth=0.31)
+    main_ax.set_xlabel("Amino Acid Position", size=15, weight='semibold')
+    main_ax.set_ylabel("       # of Mutated Samples",
+                       size=15, weight='semibold')
 
     main_ax.set_xlim(loc_counts[0][0] - exn_pos / 29, exn_pos * 1.03)
     main_ax.set_ylim(-max_count * (0.03 + len(domain_dict) * 0.15),
@@ -186,9 +185,9 @@ def plot_lollipop(cdata_dict, domain_dict, args):
     main_ax.set_yticks([tck for tck in main_ax.get_yticks() if tck >= 0])
 
     # save the plot to file
-    fig.savefig(os.path.join(
-        plot_dir, "lollipop_{}__{}.svg".format(args.cohort, args.gene)
-        ), bbox_inches='tight', format='svg')
+    fig.savefig(os.path.join(plot_dir, args.cohort,
+                             "{}_lollipop.svg".format(args.gene)),
+                bbox_inches='tight', format='svg')
 
     plt.close()
 
@@ -237,7 +236,7 @@ def sort_levels(lbls, lvl):
                            key=lambda k: (int(lbls[k].split('/')[0])
                                           if lbls[k] != '.' else 0))
 
-    elif 'Domain_' in lvl:
+    elif 'Domain_' in lvl and 'none' in lbls:
         sort_indx = [lbls.index('none')]
 
         sort_indx += (sorted(range(sort_indx[0]), key=lambda k: lbls[k])
@@ -251,10 +250,13 @@ def sort_levels(lbls, lvl):
 
 
 def recurse_labels(ax, mtree, xlims, ymax, all_size,
-                   cur_j=0, clr_mtype=False, add_lbls=True):
+                   cur_j=0, clr_mtype=False, add_lbls=True, mut_clr=None):
     all_wdth = len(MuType(mtree.allkey()).subkeys())
     cur_x = xlims[0]
     muts_dict = dict(mtree)
+
+    if mut_clr is None:
+        mut_clr = variant_clrs['Point']
 
     for lbl in sort_levels(list(muts_dict.keys()), mtree.mut_level):
         muts = muts_dict[lbl]
@@ -277,7 +279,7 @@ def recurse_labels(ax, mtree, xlims, ymax, all_size,
                 else:
                     mut_lbl = "{}\n({} samps)".format(mut_lbl, len(muts))
 
-            if (lbl_prop / all_size) <= 1/23:
+            if (lbl_prop / all_size) <= 1/19:
                 use_rot = 90
             else:
                 use_rot = 0
@@ -286,26 +288,37 @@ def recurse_labels(ax, mtree, xlims, ymax, all_size,
                     size=14 - 2.9 * cur_j, ha='center', va='center',
                     rotation=use_rot)
 
-        if clr_mtype is False or clr_mtype == pnt_mtype:
-            use_clr = variant_clrs['Point']
+        # colour this branch and all subtypes
+        if clr_mtype is None or clr_mtype is False:
+            use_clr = mut_clr
+            eg_clr = mut_clr
             sub_mtype = clr_mtype
 
-        elif clr_mtype is None:
-            use_clr = variant_clrs['Point']
-            sub_mtype = None
-
+        # do not colour this branch or any of its subtypes
         elif clr_mtype.is_empty():
             use_clr = variant_clrs['WT']
+            eg_clr = variant_clrs['WT']
             sub_mtype = clr_mtype
 
+        # otherwise, check to see which subtypes need to be coloured
         else:
-            use_clr = variant_clrs['WT']
-            sub_mtype = MuType({})
+            sub_dict = dict(clr_mtype.subtype_list())
 
-            for mut_lbl, mut_sub in clr_mtype.subtype_list():
-                if mut_lbl == lbl:
-                    use_clr = variant_clrs['Point']
-                    sub_mtype = mut_sub
+            if lbl not in sub_dict:
+                use_clr = variant_clrs['WT']
+                eg_clr = variant_clrs['WT']
+                sub_mtype = MuType({})
+
+            elif (isinstance(mtree[lbl], dict) or sub_dict[lbl] is None
+                    or (sub_dict[lbl] == MuType(mtree[lbl].allkey()))):
+                use_clr = mut_clr
+                eg_clr = mut_clr
+                sub_mtype = None
+
+            else:
+                use_clr = 'none'
+                eg_clr = mut_clr
+                sub_mtype = sub_dict[lbl]
 
         if clr_mtype is False:
             sub_lbls = True
@@ -314,12 +327,12 @@ def recurse_labels(ax, mtree, xlims, ymax, all_size,
 
         ax.add_patch(Rect((cur_x + lbl_prop * 0.12, ymax - 0.8 - cur_j),
                           lbl_prop * 0.76, 0.6, facecolor=use_clr,
-                          alpha=0.41, linewidth=0))
+                          edgecolor=eg_clr, alpha=0.41, linewidth=1.3))
 
         if isinstance(muts, MuTree):
             ax = recurse_labels(
                 ax, muts, (cur_x + lbl_prop * 0.06, cur_x + lbl_prop * 0.94),
-                ymax, all_size, cur_j + 1, sub_mtype, sub_lbls
+                ymax, all_size, cur_j + 1, sub_mtype, sub_lbls, mut_clr
                 )
 
         cur_x += lbl_prop
@@ -370,10 +383,10 @@ def plot_tree_classif(infer_dict, phn_dict, auc_dict, use_lvls,
         )[-1][0]
     plt_mtypes = use_mtypes[use_src, use_clf]
 
-    fig = plt.figure(figsize=(1.9 + 3.7 * len(plt_mtypes), 12))
+    fig = plt.figure(figsize=(1.1 + 3.1 * len(plt_mtypes), 12))
     gs = gridspec.GridSpec(nrows=3, ncols=len(plt_mtypes) + 1,
                            width_ratios=[1] + [3] * len(plt_mtypes),
-                           height_ratios=[5, 4, 6])
+                           height_ratios=[2, 1, 4])
 
     lbl_ax = fig.add_subplot(gs[:, 0])
     lbl_ax.axis('off')
@@ -401,7 +414,7 @@ def plot_tree_classif(infer_dict, phn_dict, auc_dict, use_lvls,
                            facecolor=variant_clrs['Point'], alpha=0.41,
                            clip_on=False, linewidth=0))
 
-    tree_ax.text(leaf_count / 2, len(lvls_k) + 0.57,
+    tree_ax.text(leaf_count / 2, len(lvls_k) + 0.61,
                  "All {} Point Mutations\n({} samples)".format(
                      args.gene, len(use_mtree)),
                  size=19, ha='center', va='center')
@@ -419,16 +432,24 @@ def plot_tree_classif(infer_dict, phn_dict, auc_dict, use_lvls,
         mtype_ax = fig.add_subplot(gs[1, i + 1])
         mtype_ax.axis('off')
 
-        mtype_ax.add_patch(Rect((leaf_count * 0.29, len(lvls_k) - 0.13),
-                                leaf_count * 0.42, 0.31, clip_on=False,
-                                facecolor=variant_clrs['Point'], alpha=0.41,
-                                linewidth=0))
+        if plt_mtype == MuType({('Gene', args.gene): pnt_mtype}):
+            tree_mtype = None
+            top_fc = variant_clrs['Point']
+            top_ec = 'none'
 
-        mtype_ax = recurse_labels(
-            mtype_ax, use_mtree, (0, leaf_count),
-            len(lvls_k) - 0.4, leaf_count,
-            clr_mtype=plt_mtype.subtype_list()[0][1], add_lbls=False
-            )
+        else:
+            tree_mtype = plt_mtype.subtype_list()[0][1]
+            top_fc = 'none'
+            top_ec = variant_clrs['Point']
+
+        mtype_ax.add_patch(Rect((leaf_count * 0.19, len(lvls_k) - 0.19),
+                                leaf_count * 0.67, 0.31, clip_on=False,
+                                facecolor=top_fc, edgecolor=top_ec,
+                                alpha=0.41, linewidth=2.7))
+
+        mtype_ax = recurse_labels(mtype_ax, use_mtree, (0, leaf_count),
+                                  len(lvls_k) - 0.4, leaf_count,
+                                  clr_mtype=tree_mtype, add_lbls=False)
 
         mtype_ax.set_xlim(0, leaf_count * 1.03)
         mtype_ax.set_ylim(0, len(lvls_k) + 0.6)
@@ -448,30 +469,37 @@ def plot_tree_classif(infer_dict, phn_dict, auc_dict, use_lvls,
 
         sns.violinplot(x=np.concatenate(infer_vals[~use_phn].values),
                        ax=viol_ax, palette=[variant_clrs['WT']],
-                       orient='v', linewidth=0, cut=0)
+                       orient='v', linewidth=0, cut=0, width=0.67)
         sns.violinplot(x=np.concatenate(infer_vals[use_phn].values),
                        ax=viol_ax, palette=[variant_clrs['Point']],
-                       orient='v', linewidth=0, cut=0)
+                       orient='v', linewidth=0, cut=0, width=0.67)
 
-        viol_ax.text(-0.13, 1,
-                     "{}\n({} samples)".format(get_fancy_label(plt_mtype),
-                                               np.sum(use_phn)),
-                     size=15, ha='left', va='top',
+        viol_ax.text(0.5, 1.01, get_fancy_label(plt_mtype, max_subs=3),
+                     size=12, ha='center', va='top',
                      transform=viol_ax.transAxes)
 
-        viol_ax.text(1, -0.05, "AUC: {:.3f}".format(use_auc),
-                     size=17, ha='right', va='bottom',
+        viol_ax.text(1.07, 0.79,
+                     '\n'.join([str(np.sum(use_phn)), "mutated", "samples"]),
+                     size=13, ha='right', va='top', c=variant_clrs['Point'],
+                     weight='semibold', transform=viol_ax.transAxes)
+
+        viol_ax.text(0.5, -0.05, "AUC: {:.3f}".format(use_auc),
+                     size=21, ha='center', va='bottom',
                      transform=viol_ax.transAxes)
 
         viol_ax.get_children()[0].set_alpha(0.41)
         viol_ax.get_children()[2].set_alpha(0.41)
         viol_ax.set_yticklabels([])
 
+        viol_ylims = viol_ax.get_ylim()
+        ylim_gap = (viol_ylims[1] - viol_ylims[0]) / 5
+        viol_ax.set_ylim([viol_ylims[0], viol_ylims[1] + ylim_gap])
+
     # save the plot to file
-    fig.tight_layout(w_pad=1.7, h_pad=2.1)
+    fig.tight_layout(w_pad=1.9, h_pad=1.5)
     fig.savefig(os.path.join(
-        plot_dir, "tree-classif_{}__{}__{}.svg".format(
-            args.cohort, args.gene, use_lvls)
+        plot_dir, args.cohort, "{}_tree-classif__{}.svg".format(
+            args.gene, use_lvls)
         ), bbox_inches='tight', format='svg')
 
     plt.close()
@@ -488,7 +516,7 @@ def main():
 
     # parse command line arguments, create directory where plots will be saved
     args = parser.parse_args()
-    os.makedirs(plot_dir, exist_ok=True)
+    os.makedirs(os.path.join(plot_dir, args.cohort), exist_ok=True)
 
     out_datas = [
         out_file.parts[-2:] for out_file in Path(base_dir).glob(
@@ -534,27 +562,19 @@ def main():
     auc_dict = dict()
 
     for (src, lvls, clf), ctf in out_use.iteritems():
-        out_fl = os.path.join(
-            base_dir, "{}__{}__samps-{}".format(src, args.cohort, ctf),
-            "out-data__{}__{}.p.gz".format(lvls, clf)
-            )
+        out_tag = "{}__{}__samps-{}".format(src, args.cohort, ctf)
+
+        out_fl = os.path.join(base_dir, out_tag,
+                              "out-data__{}__{}.p.gz".format(lvls, clf))
+        phn_fl = os.path.join(base_dir, out_tag,
+                              "out-pheno__{}__{}.p.gz".format(lvls, clf))
+        auc_fl = os.path.join(base_dir, out_tag,
+                              "out-aucs__{}__{}.p.gz".format(lvls, clf))
 
         with bz2.BZ2File(out_fl, 'r') as f:
             infer_dict[src, lvls, clf] = pickle.load(f)['Infer']
- 
-        phn_fl = os.path.join(
-            base_dir, "{}__{}__samps-{}".format(src, args.cohort, ctf),
-            "out-pheno__{}__{}.p.gz".format(lvls, clf)
-            )
-
         with bz2.BZ2File(phn_fl, 'r') as f:
             phn_dict[src, lvls, clf] = pickle.load(f)
- 
-        auc_fl = os.path.join(
-            base_dir, "{}__{}__samps-{}".format(src, args.cohort, ctf),
-            "out-aucs__{}__{}.p.gz".format(lvls, clf)
-            )
-
         with bz2.BZ2File(auc_fl, 'r') as f:
             auc_dict[src, lvls, clf] = pickle.load(f)
  
