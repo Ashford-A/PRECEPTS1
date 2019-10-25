@@ -34,8 +34,9 @@ class BeatAmlCohort(BaseMutationCohort):
 
     def __init__(self,
                  mut_levels, mut_genes, expr_source, expr_file, samp_file,
-                 syn, annot_file, domain_dir=None, cv_seed=None, test_prop=0,
-                 **coh_args):
+                 syn, annot_file, domain_dir=None,
+                 leaf_annot=('ref_count', 'alt_count'),
+                 cv_seed=None, test_prop=0, **coh_args):
         self.cohort = 'beatAML'
 
         # TODO: incorporate supplemental mutation data, eg. laboratory-based
@@ -53,6 +54,9 @@ class BeatAmlCohort(BaseMutationCohort):
 
         expr = expr.loc[use_samps]
         muts = muts.loc[muts.Sample.isin(use_samps)]
+        muts['Transcript'] = muts.hgvsc.str.split('\\.[0-9]+:').apply(
+            lambda x: '.' if isinstance(x, float) else x[0])
+
         muts = muts.rename(columns={
             'symbol': 'Gene', 'chosen_consequence': 'Form', 'exon': 'Exon',
             'short_aa_change': 'Protein', 'allele_reads': 'alt_count',
@@ -80,7 +84,11 @@ class BeatAmlCohort(BaseMutationCohort):
                  & (muts.variant_class == 'deletion'),
                  'Form'] = 'Frame_Shift_Del'
 
-        annot_data = get_gencode(annot_file, ['transcript', 'exon'])
+        if 'annot_fields' in coh_args:
+            annot_data = get_gencode(annot_file, coh_args['annot_fields'])
+        else:
+            annot_data = get_gencode(annot_file)
+
         use_genes = set(expr.columns) & set(annot_data.keys())
         expr = expr[list(use_genes)]
         expr.columns = [annot_data[gn]['gene_name'] for gn in expr.columns] 
@@ -90,17 +98,22 @@ class BeatAmlCohort(BaseMutationCohort):
                            for ens, at in annot_data.items()
                            if ens in use_genes}
 
-        if 'Gene' in mut_levels:
-            scale_lvl = mut_levels.index('Gene') + 1
-        else:
-            scale_lvl = 0
-
         muts = muts.loc[muts.Gene.isin(self.gene_annot.keys())]
-        mut_levels.insert(scale_lvl, 'Scale')
         muts['Scale'] = 'Point'
         muts['ref_count'] = muts['total_reads'] - muts['alt_count']
 
+        for i in range(len(mut_levels)):
+            if 'Scale' not in mut_levels[i]:
+                if 'Gene' in mut_levels[i]:
+                    scale_lvl = mut_levels[i].index('Gene') + 1
+                else:
+                    scale_lvl = 0
+
+                mut_levels[i].insert(scale_lvl, 'Scale')
+
+            if 'Copy' in mut_levels[i]:
+                mut_levels[i].remove('Copy')
+
         super().__init__(expr, muts, mut_levels, mut_genes,
-                         domain_dir, ('alt_count', 'ref_count'),
-                         cv_seed, test_prop)
+                         domain_dir, leaf_annot, cv_seed, test_prop)
 

@@ -6,6 +6,11 @@ import os
 import pandas as pd
 
 
+def load_metabric_samps(metabric_dir):
+    return pd.read_csv(os.path.join(metabric_dir, "data_clinical_sample.txt"),
+                       sep='\t', index_col=0, comment='#')
+
+
 def load_metabric_expression(metabric_dir, expr_source='microarray'):
     if expr_source == 'microarray':
         expr_file = os.path.join(metabric_dir, "data_expression_median.txt")
@@ -68,6 +73,55 @@ def load_metabric_copies(metabric_dir):
                        sep='\t', index_col=0).transpose()[1:]
 
 
+def choose_subtypes(samp_data, use_types):
+    if use_types == 'Basal':
+        sub_samps = set(samp_data[
+            (samp_data.HER2_STATUS == 'Negative')
+            & (samp_data.ER_STATUS == 'Negative')
+            & (samp_data.PR_STATUS == 'Negative')
+            ].SAMPLE_ID)
+
+    elif use_types == 'LumA':
+        sub_samps = set(samp_data[
+            (samp_data.HER2_STATUS == 'Negative')
+            & ((samp_data.ER_STATUS == 'Positive')
+               | (samp_data.PR_STATUS == 'Positive'))
+            ].SAMPLE_ID)
+
+    elif use_types == 'LumB':
+        sub_samps = set(samp_data[
+            (samp_data.HER2_STATUS == 'Positive')
+            & ((samp_data.ER_STATUS == 'Positive')
+               | (samp_data.PR_STATUS == 'Positive'))
+            ].SAMPLE_ID)
+
+    elif use_types == 'Her2':
+        sub_samps = set(samp_data[
+            (samp_data.HER2_STATUS == 'Positive')
+            & (samp_data.ER_STATUS == 'Negative')
+            & (samp_data.PR_STATUS == 'Negative')
+            ].SAMPLE_ID)
+
+    elif use_types == 'luminal':
+        sub_samps = set(samp_data[
+            (samp_data.ER_STATUS == 'Positive')
+            | (samp_data.PR_STATUS == 'Positive')
+            ].SAMPLE_ID)
+
+    elif use_types == 'nonbasal':
+        sub_samps = set(samp_data[
+            (samp_data.HER2_STATUS == 'Positive')
+            | (samp_data.ER_STATUS == 'Positive')
+            | (samp_data.PR_STATUS == 'Positive')
+            ].SAMPLE_ID)
+
+    else:
+        raise ValueError("Unrecognized molecular subtype `{}` for the "
+                         "METABRIC cohort!".format(use_types))
+
+    return sub_samps
+
+
 class MetabricCohort(BaseMutationCohort):
 
     def __init__(self,
@@ -76,14 +130,10 @@ class MetabricCohort(BaseMutationCohort):
                  leaf_annot=('Nucleo', ), **coh_args):
         self.cohort = 'METABRIC'
 
+        samp_data = load_metabric_samps(metabric_dir)
         expr = load_metabric_expression(metabric_dir)
         muts = load_metabric_variants(metabric_dir)
         copies = load_metabric_copies(metabric_dir)
-
-        samp_data = pd.read_csv(
-            os.path.join(metabric_dir, "data_clinical_sample.txt"),
-            sep='\t', index_col=0, comment='#'
-            )
 
         use_samps = set(samp_data.SAMPLE_ID[
             (samp_data.CANCER_TYPE == 'Breast Cancer')
@@ -98,50 +148,7 @@ class MetabricCohort(BaseMutationCohort):
                 "#Sequenced_Samples: ")[1].split('\t')[0].split(' '))
 
         if 'use_types' in coh_args and coh_args['use_types'] is not None:
-            if coh_args['use_types'] == 'Basal':
-                use_samps &= set(
-                    samp_data[(samp_data.HER2_STATUS == 'Negative')
-                              & (samp_data.ER_STATUS == 'Negative')
-                              & (samp_data.PR_STATUS == 'Negative')].SAMPLE_ID
-                    )
-
-            elif coh_args['use_types'] == 'LumA':
-                use_samps &= set(samp_data[
-                    (samp_data.HER2_STATUS == 'Negative')
-                    & ((samp_data.ER_STATUS == 'Positive')
-                       | (samp_data.PR_STATUS == 'Positive'))].SAMPLE_ID)
-
-            elif coh_args['use_types'] == 'LumB':
-                use_samps &= set(samp_data[
-                    (samp_data.HER2_STATUS == 'Positive')
-                    & ((samp_data.ER_STATUS == 'Positive')
-                       | (samp_data.PR_STATUS == 'Positive'))].SAMPLE_ID)
-
-            elif coh_args['use_types'] == 'Her2':
-                use_samps &= set(
-                    samp_data[(samp_data.HER2_STATUS == 'Positive')
-                              & (samp_data.ER_STATUS == 'Negative')
-                              & (samp_data.PR_STATUS == 'Negative')].SAMPLE_ID
-                    )
-
-            elif coh_args['use_types'] == 'luminal':
-                use_samps &= set(
-                    samp_data[(samp_data.ER_STATUS == 'Positive')
-                              | (samp_data.PR_STATUS == 'Positive')].SAMPLE_ID
-                    )
-
-            elif coh_args['use_types'] == 'nonbasal':
-                use_samps &= set(
-                    samp_data[(samp_data.HER2_STATUS == 'Positive')
-                              | (samp_data.ER_STATUS == 'Positive')
-                              | (samp_data.PR_STATUS == 'Positive')].SAMPLE_ID
-                    )
-
-            else:
-                raise ValueError(
-                    "Unrecognized molecular subtype `{}` for the METABRIC "
-                    "cohort!".format(coh_args['use_types'])
-                    )
+            use_samps &= choose_subtypes(samp_data, coh_args['use_types'])
 
         expr = drop_duplicate_genes(expr.loc[use_samps])
         muts = muts.loc[muts.Sample.isin(use_samps)]
@@ -174,13 +181,14 @@ class MetabricCohort(BaseMutationCohort):
             ]
 
         for i in range(len(mut_levels)):
-            if 'Gene' in mut_levels[i]:
-                scale_lvl = mut_levels[i].index('Gene') + 1
-            else:
-                scale_lvl = 0
+            if 'Scale' not in mut_levels[i]:
+                if 'Gene' in mut_levels[i]:
+                    scale_lvl = mut_levels[i].index('Gene') + 1
+                else:
+                    scale_lvl = 0
 
-            mut_levels[i].insert(scale_lvl, 'Scale')
-            mut_levels[i].insert(scale_lvl + 1, 'Copy')
+                mut_levels[i].insert(scale_lvl, 'Scale')
+                mut_levels[i].insert(scale_lvl + 1, 'Copy')
 
         super().__init__(expr, pd.concat([muts, copy_df], sort=True),
                          mut_levels, mut_genes, domain_dir,

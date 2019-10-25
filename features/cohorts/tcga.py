@@ -237,15 +237,16 @@ class MutationCohort(BaseMutationCohort):
         # first figuring out where to situate it relative to the other
         # levels...
         for i in range(len(mut_levels)):
-            if 'Gene' in mut_levels[i]:
-                scale_lvl = mut_levels[i].index('Gene') + 1
-            else:
-                scale_lvl = 0
+            if 'Scale' not in mut_levels[i]:
+                if 'Gene' in mut_levels[i]:
+                    scale_lvl = mut_levels[i].index('Gene') + 1
+                else:
+                    scale_lvl = 0
 
-            # ...and then inserting the new level, and adding its corresponding
-            # values to the mutation and copy number alteration datasets
-            mut_levels[i].insert(scale_lvl, 'Scale')
-            mut_levels[i].insert(scale_lvl + 1, 'Copy')
+                # ...and then inserting the new level, and adding its
+                # corresponding values to the mutation and copy no. datasets
+                mut_levels[i].insert(scale_lvl, 'Scale')
+                mut_levels[i].insert(scale_lvl + 1, 'Copy')
 
         super().__init__(expr, pd.concat([variants, copy_df], sort=True),
                          mut_levels, mut_genes, domain_dir,
