@@ -2,13 +2,15 @@
 import os
 import sys
 base_dir = os.path.dirname(__file__)
-sys.path.extend([os.path.join(base_dir, '../../..')])
+sys.path.extend([os.path.join(base_dir, '..', '..', '..')])
 
 from HetMan.experiments.subvariant_infer import *
-from HetMan.experiments.subvariant_tour.utils import RandomType
-from HetMan.experiments.subvariant_infer.utils import Mcomb, ExMcomb
+from HetMan.experiments.subvariant_tour.merge_tour import hash_cdata
 from HetMan.experiments.subvariant_tour.merge_tour import compare_muts
+
+from HetMan.experiments.subvariant_tour.utils import RandomType
 from HetMan.experiments.subvariant_infer import copy_mtype
+from HetMan.experiments.subvariant_infer.utils import Mcomb, ExMcomb
 from dryadic.features.mutations import MuType
 
 from HetMan.features.cohorts.metabric import load_metabric_samps
@@ -17,12 +19,13 @@ from HetMan.features.cohorts.metabric import (
 
 import numpy as np
 import pandas as pd
-from joblib import Parallel, delayed
+from itertools import combinations as combn
 
 import argparse
 from pathlib import Path
 import bz2
 import dill as pickle
+from joblib import Parallel, delayed
 
 
 def get_cohort_subtypes(coh):
@@ -37,56 +40,68 @@ def get_cohort_subtypes(coh):
     return subt_dict
 
 
-def cdict_hash(cdict):
-    return hash((lvls, cdata.data_hash()) for lvls, cdata in cdict.items())
-
-
-def merge_cohort_dict(out_dir, use_seed=None):
-    cdict_file = os.path.join(out_dir, "cohort-dict.p")
+def merge_cohort_dict(out_dir, cohort, use_seed=None):
+    cdict_file = os.path.join(out_dir, "{}__cohort-dict.p".format(cohort))
 
     cur_hash = None
     if os.path.isfile(cdict_file):
         with open(cdict_file, 'rb') as fl:
             cur_cdict = pickle.load(fl)
-            cur_hash = cdict_hash(cur_cdict)
+            cur_hash = hash_cdata(cur_cdict)
 
-    new_files = Path(out_dir).glob("cohort-dict__*__*.p")
-    new_mdls = [new_file.split("cohort-dict__")[1].split(".p")[0]
-                for new_file in new_files]
+    new_files = tuple(Path(out_dir).glob(
+        "cohort-dict__{}__*.p".format(cohort)))
+    new_mdls = [new_file.stem.split('__')[1] for new_file in new_files]
 
     new_cdicts = {new_mdl: pickle.load(open(new_file, 'rb'))
                   for new_mdl, new_file in zip(new_mdls, new_files)}
-    new_chsums = {mdl: cdict_hash(cdict) for mdl, cdict in new_cdicts.items()}
+    new_chsums = {mdl: hash_cdata(cdict) for mdl, cdict in new_cdicts.items()}
 
     for mdl, new_cdict in new_cdicts.items():
-        for lvls, cdata in new_cdict.items():
-            if cdata.get_seed() != use_seed:
-                raise MergeError("Cohort for levels {} in model {} does not "
-                                 "have the correct cross-validation "
-                                 "seed!".format(lvls, mdl))
+        if new_cdict.get_seed() != use_seed:
+            raise MergeError("Cohort for {} does not have the correct "
+                             "cross-validation seed!".format(cohort))
 
-            if cdata.get_test_samples():
-                raise MergeError("Cohort for levels {} in model {} does not "
-                                 "have an empty testing sample "
-                                 "set!".format(lvls, mdl))
+        if new_cdict.get_test_samples():
+            raise MergeError("Cohort for {} does not have an empty testing "
+                             "sample set!".format(cohort))
 
-    assert len(set(new_chsums.values())) <= 1, (
-        "Inconsistent cohort hashes found for new "
-        "experiments in {} !".format(out_dir)
-        )
+    for (mdl1, chsum1), (mdl2, chsum2) in combn(new_chsums.items(), 2):
+        assert chsum1['expr'] == chsum2['expr'], (
+            "Inconsistent expression hashes found for cohorts in new "
+            "experiments `{}` and `{}` !".format(mdl1, mdl2)
+            )
+
+        for both_lvl in ((chsum1.keys() - {'expr'})
+                         & (chsum2.keys() - {'expr'})):
+            assert chsum1[both_lvl] == chsum2[both_lvl], (
+                "Inconsistent hashes at mutation level `{}` "
+                "found for cohorts in new experiments `{}` and "
+                "`{}` !".format(both_lvl, mdl1, mdl2)
+                )
 
     if new_files:
         if cur_hash is not None:
-            assert tuple(new_chsums.values())[0] == cur_hash, (
-                "Cohort hash for new experiment in {} does not match hash "
-                "for cached cohort!".format(out_dir)
-                )
+            for new_mdl, new_chsum in new_chsums.items():
+                assert new_chsum['expr'] == cur_hash['expr'], (
+                    "Inconsistent expression hashes found for cohort in "
+                    "new experiment `{}` !".format(new_mdl)
+                    )
+
+                for both_lvl in ((new_chsum.keys() - {'expr'})
+                                 & (cur_hash.keys() - {'expr'})):
+                    assert new_chsum[both_lvl] == cur_hash[both_lvl], (
+                        "Inconsistent hashes at mutation "
+                        "level `{}` found for cohort in new "
+                        "experiment `{}` !".format(both_lvl, new_mdl)
+                        )
+
             use_cdict = cur_cdict
 
         else:
             use_cdict = tuple(new_cdicts.values())[0]
             with open(cdict_file, 'wb') as f:
-                pickle.dump(use_cdict, f)
+                pickle.dump(use_cdict, f, protocol=-1)
 
         for new_file in new_files:
             os.remove(new_file)
@@ -139,9 +154,13 @@ def calculate_simls(pheno_dict, cur_mtype, all_vals, iso_vals, mut_list=None):
 
     if cur_diff != 0 and not isinstance(cur_mtype, RandomType):
         for other_mtype in other_mtypes:
-            other_vals = np.concatenate(iso_vals[pheno_dict[other_mtype]])
-            siml_dict[other_mtype] = np.subtract.outer(
-                other_vals, none_vals).mean() / cur_diff
+            if pheno_dict[other_mtype].any():
+                other_vals = np.concatenate(iso_vals[pheno_dict[other_mtype]])
+                siml_dict[other_mtype] = np.subtract.outer(
+                    other_vals, none_vals).mean() / cur_diff
+
+            else:
+                siml_dict[other_mtype] = 0
 
     else:
         siml_dict.update({other_mtype: 0 for other_mtype in other_mtypes})

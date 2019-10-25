@@ -1,6 +1,6 @@
 
-from .data_dirs import (expr_dir, copy_dir, syn_root, domain_dir,
-                        annot_file, beatAML_files)
+from .data_dirs import (expr_dir, copy_dir, syn_root, domain_dir, annot_file,
+                        type_file, beatAML_files, metabric_dir, resp_files)
 
 from dryadic.features.mutations import MuType
 from .utils import Mcomb
@@ -14,6 +14,10 @@ variant_mtypes = (
     ('Gain', MuType({('Scale', 'Copy'): {(
         'Copy', ('ShalGain', 'DeepGain')): None}}))
     )
+
+copy_mtype = MuType({('Scale', 'Copy'): None})
+gain_mtype = MuType({('Scale', 'Copy'): {('Copy', 'DeepGain'): None}})
+loss_mtype = MuType({('Scale', 'Copy'): {('Copy', 'DeepDel'): None}})
 
 def shal_mtype(gene):
     return MuType({('Gene', gene): {('Scale', 'Copy'): {(
@@ -34,5 +38,5 @@ mcomb_clrs = {'Point+Loss': "#7C30B0", 'Point+Gain': "#25A497"}
 
 
 __all__ = ['expr_dir', 'copy_dir', 'syn_root', 'domain_dir',
-           'annot_file', 'beatAML_files']
+           'annot_file', 'type_file', 'beatAML_files', 'metabric_dir']
 
