@@ -3,18 +3,18 @@ import os
 import sys
 
 base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'subvariant_tour')
-sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
+sys.path.extend([os.path.join(os.path.dirname(__file__), '..', '..', '..')])
 plot_dir = os.path.join(base_dir, 'plots', 'conf')
 
 from HetMan.experiments.subvariant_tour import pnt_mtype
 from HetMan.experiments.subvariant_tour.utils import (
     get_fancy_label, RandomType)
 from HetMan.experiments.subvariant_infer import variant_clrs
-from HetMan.experiments.subvariant_tour.plot_aucs import place_labels
+from HetMan.experiments.subvariant_tour.plot_aucs import (
+    place_labels, choose_gene_colour)
 from dryadic.features.mutations import MuType
 
 import argparse
-from glob import glob
 from pathlib import Path
 import bz2
 import dill as pickle
@@ -25,7 +25,7 @@ import pandas as pd
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
-from colorsys import hls_to_rgb
+import seaborn as sns
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 plt.style.use('fivethirtyeight')
@@ -38,9 +38,9 @@ def plot_auc_comparison(auc_vals, conf_vals, pheno_dict, args):
     fig, ax = plt.subplots(figsize=(10, 10))
 
     conf_df = pd.DataFrame.from_dict(dict(zip(
-        conf_vals.index, conf_vals.applymap(
-            lambda vals: np.percentile(vals, q=[0, 25, 50, 75, 100])).iloc[
-                :, 0].values)), orient='index')
+        conf_vals.index, conf_vals.apply(
+            lambda vals: np.percentile(vals, q=[0, 25, 50, 75, 100])).values
+        )), orient='index')
 
     assert set(auc_vals.index) == set(conf_df.index)
     conf_df.columns = ['Min', '1Q', 'Med', '3Q', 'Max']
@@ -78,7 +78,95 @@ def plot_auc_comparison(auc_vals, conf_vals, pheno_dict, args):
 
     plt.savefig(
         os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
-                     "auc-comparisons_{}.svg".format(args.classif)),
+                     "auc-comparison_{}.svg".format(args.classif)),
+        bbox_inches='tight', format='svg'
+        )
+
+    plt.close()
+
+
+def plot_distr_comparisons(auc_vals, conf_vals, pheno_dict, args):
+    gene_dict = dict()
+
+    conf_list = conf_vals[[
+        not isinstance(mtype, RandomType)
+        and not (mtype.subtype_list()[0][1] != pnt_mtype
+                 and pheno_dict[mtype].sum() == pheno_dict[MuType(
+                     {('Gene', mtype.get_labels()[0]): pnt_mtype})].sum())
+        for mtype in conf_vals.index
+        ]]
+
+    for gene, conf_vec in conf_list.apply(
+            lambda confs: np.percentile(confs, 25)).groupby(
+                lambda mtype: mtype.get_labels()[0]):
+
+        if len(conf_vec) > 1:
+            base_mtype = MuType({('Gene', gene): pnt_mtype})
+            base_indx = conf_vec.index.get_loc(base_mtype)
+
+            best_subtype = conf_vec[:base_indx].append(
+                conf_vec[(base_indx + 1):]).idxmax()
+            best_indx = conf_vec.index.get_loc(best_subtype)
+
+            if conf_vec[best_indx] > 0.7:
+                gene_dict[gene] = (
+                    choose_gene_colour(gene), base_mtype, best_subtype,
+                    np.greater.outer(conf_list[best_subtype],
+                                     conf_list[base_mtype]).mean()
+                    )
+
+    plt_size = min(len(gene_dict), 12)
+    ymin = 0.47
+    fig, axarr = plt.subplots(figsize=(0.5 + 1.5 * plt_size, 7),
+                              nrows=1, ncols=plt_size, sharey=True)
+
+    for i, (gene, (gene_clr, base_mtype, best_subtype, conf_sc)) in enumerate(
+            sorted(gene_dict.items(),
+                   key=lambda x: auc_vals[x[1][2]], reverse=True)[:plt_size]
+            ):
+        axarr[i].set_title(gene, size=21, weight='semibold')
+
+        plt_df = pd.concat([
+            pd.DataFrame({'Type': 'Base', 'Conf': conf_list[base_mtype]}),
+            pd.DataFrame({'Type': 'Subg', 'Conf': conf_list[best_subtype]})
+            ])
+
+        sns.violinplot(x=plt_df.Type, y=plt_df.Conf, ax=axarr[i],
+                       order=['Subg', 'Base'], palette=[gene_clr, gene_clr],
+                       cut=0, linewidth=0, width=0.93)
+
+        axarr[i].scatter(0, auc_vals[best_subtype], 
+                         s=41, c=[gene_clr], edgecolor='0.23', alpha=0.97)
+        axarr[i].scatter(1, auc_vals[base_mtype],
+                         s=41, c=[gene_clr], edgecolor='0.23', alpha=0.53)
+
+        axarr[i].get_children()[0].set_alpha(0.71)
+        axarr[i].get_children()[2].set_alpha(0.29)
+        axarr[i].text(0.5, 1 / 97, "{:.3f}".format(conf_sc),
+                      size=17, ha='center', va='bottom',
+                      transform=axarr[i].transAxes)
+
+        axarr[i].plot([-0.5, 1.5], [0.5, 0.5],
+                      color='black', linewidth=2.3, linestyle=':', alpha=0.83)
+        axarr[i].plot([-0.5, 1.5], [1, 1],
+                      color='black', linewidth=1.7, alpha=0.83)
+
+        axarr[i].set_xlabel('')
+        axarr[i].set_xticklabels([])
+        ymin = min(ymin, min(conf_list[base_mtype]) - 0.04,
+                   min(conf_list[best_subtype]) - 0.04)
+
+        if i == 0:
+            axarr[i].set_ylabel('AUCs', size=21, weight='semibold')
+        else:
+            axarr[i].set_ylabel('')
+
+    for ax in axarr:
+        ax.set_ylim([ymin, 1.03])
+
+    plt.savefig(
+        os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
+                     "distr-comparisons_{}.svg".format(args.classif)),
         bbox_inches='tight', format='svg'
         )
 
@@ -87,20 +175,21 @@ def plot_auc_comparison(auc_vals, conf_vals, pheno_dict, args):
 
 def plot_sub_comparisons(conf_vals, pheno_dict, args):
     fig, ax = plt.subplots(figsize=(11, 11))
-    np.random.seed(3742)
-
-    conf_list = conf_vals[[not isinstance(mtype, RandomType)
-                           for mtype in conf_vals.index]]
-    conf_list = conf_list.applymap(
-        lambda confs: np.percentile(confs, 25)).iloc[:, 0]
 
     pnt_dict = dict()
     clr_dict = dict()
 
+    conf_list = conf_vals[[
+        not isinstance(mtype, RandomType)
+        and not (mtype.subtype_list()[0][1] != pnt_mtype
+                 and pheno_dict[mtype].sum() == pheno_dict[MuType(
+                     {('Gene', mtype.get_labels()[0]): pnt_mtype})].sum())
+        for mtype in conf_vals.index
+        ]]
+
+    conf_list = conf_list.apply(lambda confs: np.percentile(confs, 25))
     for gene, conf_vec in conf_list.groupby(
             lambda mtype: mtype.get_labels()[0]):
-        clr_dict[gene] = hls_to_rgb(
-            h=np.random.uniform(size=1)[0], l=0.5, s=0.8)
 
         if len(conf_vec) > 1:
             base_mtype = MuType({('Gene', gene): pnt_mtype})
@@ -111,26 +200,33 @@ def plot_sub_comparisons(conf_vals, pheno_dict, args):
             best_indx = conf_vec.index.get_loc(best_subtype)
 
             if conf_vec[best_indx] > 0.6:
+                clr_dict[gene] = choose_gene_colour(gene)
                 base_size = np.mean(pheno_dict[base_mtype])
                 best_prop = np.mean(pheno_dict[best_subtype]) / base_size
 
-                if conf_vec[best_indx] > 0.7:
+                conf_sc = np.greater.outer(conf_list[best_subtype],
+                                           conf_list[base_mtype]).mean()
+
+                if conf_sc > 0.9:
                     pnt_dict[conf_vec[base_indx], conf_vec[best_indx]] = (
-                        2119 * base_size, (gene,
-                                           get_fancy_label(best_subtype))
+                        base_size ** 0.53, (gene,
+                                            get_fancy_label(best_subtype))
                         )
+
+                elif conf_vec[base_indx] > 0.7 or conf_vec[best_indx] > 0.7:
+                    pnt_dict[conf_vec[base_indx], conf_vec[best_indx]] = (
+                        base_size ** 0.53, (gene, ''))
 
                 else:
                     pnt_dict[conf_vec[base_indx], conf_vec[best_indx]] = (
-                        2119 * base_size, ('', ''))
+                        base_size ** 0.53, ('', ''))
 
-                pie_size = base_size ** 0.5
-                pie_ax = inset_axes(ax, width=pie_size, height=pie_size,
-                                    bbox_to_anchor=(conf_vec[base_indx],
-                                                    conf_vec[best_indx]),
-                                    bbox_transform=ax.transData, loc=10,
-                                    axes_kwargs=dict(aspect='equal'),
-                                    borderpad=0)
+                pie_ax = inset_axes(
+                    ax, width=base_size ** 0.5, height=base_size ** 0.5,
+                    bbox_to_anchor=(conf_vec[base_indx], conf_vec[best_indx]),
+                    bbox_transform=ax.transData, loc=10,
+                    axes_kwargs=dict(aspect='equal'), borderpad=0
+                    )
 
                 pie_ax.pie(x=[best_prop, 1 - best_prop], explode=[0.29, 0],
                            colors=[clr_dict[gene] + (0.77,),
@@ -150,31 +246,30 @@ def plot_sub_comparisons(conf_vals, pheno_dict, args):
         ln_lngth = np.sqrt((x_delta ** 2) + (y_delta ** 2))
 
         # if the label is sufficiently far away from its point...
-        pnt_sz = (pnt_dict[pnt_x, pnt_y][0] ** 0.43) / 1077
-        if ln_lngth > 0.01 + pnt_sz:
+        if ln_lngth > (0.021 + pnt_dict[pnt_x, pnt_y][0] / 31):
             use_clr = clr_dict[pnt_dict[pnt_x, pnt_y][1][0]]
-            lbl_sz = pnt_dict[pnt_x, pnt_y][1][1].count('\n')
-
-            pnt_gap = pnt_sz / ln_lngth
-            lbl_gap = (0.02 + (1 / 117) * lbl_sz ** 0.17) / ln_lngth
+            pnt_gap = pnt_dict[pnt_x, pnt_y][0] / (29 * ln_lngth)
+            lbl_gap = 0.006 / ln_lngth
 
             ax.plot([pnt_x - pnt_gap * x_delta,
                      pos[0][0] + lbl_gap * x_delta],
                     [pnt_y - pnt_gap * y_delta,
-                     pos[0][1] + lbl_gap * y_delta],
-                    c=use_clr, linewidth=2.7, alpha=0.27)
-
-    ax.set_xlim([0.48, 1.01])
-    ax.set_ylim([0.48, 1.01])
-    ax.set_xlabel("1st quartile of down-sampled AUCs"
-                  "\nusing all point mutations", size=21, weight='semibold')
-    ax.set_ylabel("1st quartile of down-sampled AUCs"
-                  "\nof best found subgrouping", size=21, weight='semibold')
+                     pos[0][1] + lbl_gap * y_delta
+                     + 0.008 + 0.004 * np.sign(y_delta)],
+                    c=use_clr, linewidth=2.3, alpha=0.27)
 
     ax.plot([0.48, 1.0005], [1, 1], color='black', linewidth=1.9, alpha=0.89)
     ax.plot([1, 1], [0.48, 1.0005], color='black', linewidth=1.9, alpha=0.89)
     ax.plot([0.49, 0.997], [0.49, 0.997],
             linewidth=2.1, linestyle='--', color='#550000', alpha=0.41)
+
+    ax.set_xlim([0.48, 1.01])
+    ax.set_ylim([0.48, 1.01])
+
+    ax.set_xlabel("1st quartile of down-sampled AUCs"
+                  "\nusing all point mutations", size=21, weight='semibold')
+    ax.set_ylabel("1st quartile of down-sampled AUCs"
+                  "\nof best found subgrouping", size=21, weight='semibold')
 
     plt.savefig(
         os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
@@ -187,14 +282,19 @@ def plot_sub_comparisons(conf_vals, pheno_dict, args):
 
 def main():
     parser = argparse.ArgumentParser(
-        "Plots the AUCs for a particular classifier on the mutations "
-        "enumerated for a given cohort."
+        "Plots the down-sampled AUCs for a particular classifier on the "
+        "mutations enumerated for a given cohort."
         )
 
     parser.add_argument('expr_source',
                         help="a source of expression data", type=str)
     parser.add_argument('cohort', help="a TCGA cohort", type=str)
     parser.add_argument('classif', help="a mutation classifier", type=str)
+
+    parser.add_argument(
+        '--seed', default=3401, type=int,
+        help="the random seed to use for setting plotting colours"
+        )
 
     # parse command line arguments, create directory where plots will be saved
     args = parser.parse_args()
@@ -221,37 +321,38 @@ def main():
                          "with mutation levels `Exon__Location__Protein` "
                          "which tests genes' base mutations!")
 
-    pheno_dict = dict()
+    phn_dict = dict()
     auc_dict = dict()
     conf_dict = dict()
 
     for lvls, ctf in out_use.iteritems():
-        with bz2.BZ2File(os.path.join(
-                base_dir, "{}__{}__samps-{}".format(
-                    args.expr_source, args.cohort, ctf),
-                "out-pheno__{}__{}.p.gz".format(lvls, args.classif)
-                ), 'r') as f:
-            pheno_dict.update(pickle.load(f))
+        out_tag = "{}__{}__samps-{}".format(
+            args.expr_source, args.cohort, ctf)
 
-        with bz2.BZ2File(os.path.join(
-                base_dir, "{}__{}__samps-{}".format(
-                    args.expr_source, args.cohort, ctf),
-                "out-aucs__{}__{}.p.gz".format(lvls, args.classif)
-                ), 'r') as f:
-            auc_dict[lvls] = pickle.load(f)
+        with bz2.BZ2File(os.path.join(base_dir, out_tag,
+                                      "out-pheno__{}__{}.p.gz".format(
+                                          lvls, args.classif)),
+                         'r') as f:
+            phn_dict.update(pickle.load(f))
 
-        with bz2.BZ2File(os.path.join(
-                base_dir, "{}__{}__samps-{}".format(
-                    args.expr_source, args.cohort, ctf),
-                "out-conf__{}__{}.p.gz".format(lvls, args.classif)
-                ), 'r') as f:
-            conf_dict[lvls] = pickle.load(f)
+        with bz2.BZ2File(os.path.join(base_dir, out_tag,
+                                      "out-aucs__{}__{}.p.gz".format(
+                                          lvls, args.classif)),
+                         'r') as f:
+            auc_dict[lvls] = pickle.load(f).Chrm
 
-    auc_vals = pd.concat([auc_df['Chrm'] for auc_df in auc_dict.values()])
-    conf_vals = pd.concat([conf_df['Chrm'] for conf_df in conf_dict.values()])
+        with bz2.BZ2File(os.path.join(base_dir, out_tag,
+                                      "out-conf__{}__{}.p.gz".format(
+                                          lvls, args.classif)),
+                         'r') as f:
+            conf_dict[lvls] = pickle.load(f)['Chrm'].iloc[:, 0]
 
-    plot_auc_comparison(auc_vals, conf_vals, pheno_dict, args)
-    plot_sub_comparisons(conf_vals, pheno_dict, args)
+    auc_vals = pd.concat(auc_dict.values())
+    conf_vals = pd.concat(conf_dict.values())
+
+    plot_auc_comparison(auc_vals, conf_vals, phn_dict, args)
+    plot_distr_comparisons(auc_vals, conf_vals, phn_dict, args)
+    plot_sub_comparisons(conf_vals, phn_dict, args)
 
 
 if __name__ == '__main__':
