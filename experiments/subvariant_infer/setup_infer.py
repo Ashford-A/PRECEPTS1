@@ -2,9 +2,10 @@
 import os
 import sys
 base_dir = os.path.dirname(__file__)
-sys.path.extend([os.path.join(base_dir, '../../..')])
+sys.path.extend([os.path.join(base_dir, '..', '..', '..')])
 
 from HetMan.experiments.subvariant_infer import *
+from HetMan.experiments.subvariant_infer import gain_mtype, loss_mtype
 from HetMan.features.cohorts.tcga import list_cohorts
 from HetMan.experiments.subvariant_tour.setup_tour import get_cohort_data
 
@@ -14,7 +15,6 @@ from HetMan.experiments.subvariant_infer.utils import Mcomb, ExMcomb
 from dryadic.features.mutations import MuType
 
 import argparse
-from glob import glob
 from pathlib import Path
 import bz2
 import dill as pickle
@@ -30,9 +30,11 @@ from itertools import product
 
 def choose_source(cohort):
     # choose the source of expression data to use for this tumour cohort
-    if cohort == 'beatAML':
+    coh_base = cohort.split('_')[0]
+
+    if coh_base == 'beatAML':
         use_src = 'toil__gns'
-    elif cohort == 'METABRIC':
+    elif coh_base in ['METABRIC', 'CCLE']:
         use_src = 'microarray'
 
     # default to using Broad Firehose expression calls for TCGA cohorts
@@ -78,11 +80,10 @@ def main():
 
     # find all the subvariant enumeration experiments that have run to
     # completion using the given combination of cohort and mutation classifier
-    tour_outs = glob(os.path.join(args.tour_dir, 'subvariant_tour',
-                                  "{}__{}__samps-*".format(
-                                      use_source, args.cohort),
-                                  "out-conf__*__{}.p.gz".format(
-                                      args.classif)))
+    tour_outs = Path(os.path.join(args.tour_dir, 'subvariant_tour')).glob(
+        os.path.join("{}__{}__samps-*".format(use_source, args.cohort),
+                     "out-conf__*__{}.p.gz".format(args.classif))
+        )
 
     # parse the enumeration experiment output files to find the minimum sample
     # occurence threshold used for each mutation annotation level tested
@@ -131,8 +132,12 @@ def main():
             )
         ]
 
-    cdata = get_cohort_data(args.cohort, choose_source(args.cohort),
-                            use_lvls, [args.gene], ['transcript'])
+    use_lfs = 'ref_count', 'alt_count', 'PolyPhen'
+    cdata = get_cohort_data(
+        args.cohort, choose_source(args.cohort), use_lvls, [args.gene],
+        leaf_annot=use_lfs, gene_annot=['transcript']
+        )
+
     mtype_lvlk = {mtype: cdata.choose_mtree(mtype) for mtype in conf_df.index}
     main_lvls = ('Gene', 'Scale', 'Copy', 'Exon', 'Location', 'Protein')
 
@@ -162,14 +167,24 @@ def main():
         if (mtype == base_mtype
             or (np.sum(cdata.train_pheno(mtype)) < base_size
                 and (conf_sc >= random.random()
-                     or mtype in brnch_mtypes[mtype_lvlk[mtype]])))
+                     or (mtype.subtype_list()[0][1]
+                         in brnch_mtypes[mtype_lvlk[mtype]]))))
         }
 
+    copy_dyads = set()
+    if len(gain_mtype.get_samples(cdata.mtrees[main_lvls][args.gene])) >= 5:
+        copy_dyads |= {mtype | MuType({('Gene', args.gene): gain_mtype})
+                       for mtype in use_mtypes}
+    if len(loss_mtype.get_samples(cdata.mtrees[main_lvls][args.gene])) >= 5:
+        copy_dyads |= {mtype | MuType({('Gene', args.gene): loss_mtype})
+                       for mtype in use_mtypes}
+
+    # TODO: double-check that these are uniquely generated
     use_mtypes |= {
         RandomType(size_dist=int(np.sum(cdata.train_pheno(mtype))),
                    base_mtype=MuType({('Gene', args.gene): pnt_mtype}),
-                   seed=i * j + 93307)
-        for i, mtype in enumerate(use_mtypes) for j in range(97, 102)
+                   seed=(i + 3) * j + 93307)
+        for i, mtype in enumerate(use_mtypes) for j in range(98, 102)
         }
 
     max_size = max(np.sum(cdata.train_pheno(mtype))
@@ -238,6 +253,9 @@ def main():
     use_mtypes |= {mcomb for mcomb in use_mcombs
                    if (use_ctf <= np.sum(cdata.train_pheno(mcomb))
                        <= (len(cdata.get_samples()) - use_ctf))}
+    use_mtypes |= {mtype for mtype in copy_dyads
+                   if (use_ctf <= np.sum(cdata.train_pheno(mtype))
+                       <= (len(cdata.get_samples()) - use_ctf))}
 
     base_path = os.path.join(args.out_dir.split('subvariant_infer')[0],
                              'subvariant_infer')
@@ -250,7 +268,7 @@ def main():
         fl.write(str(len(use_mtypes)))
 
     coh_list = list_cohorts('Firehose', expr_dir=expr_dir, copy_dir=copy_dir)
-    coh_list |= {args.cohort, 'beatAML', 'METABRIC'}
+    coh_list |= {args.cohort, 'beatAML', 'METABRIC', 'CCLE'}
     use_feats = set(cdata.get_features())
 
     random.seed()
@@ -268,16 +286,18 @@ def main():
                     trnsf_cdata = pickle.load(f)
 
             except EOFError:
-                trnsf_cdata = get_cohort_data(
-                    coh, choose_source(coh),
-                    use_lvls, [args.gene], ['transcript']
-                    )
+                trnsf_cdata = get_cohort_data(coh, choose_source(coh),
+                                              mut_lvls=use_lvls,
+                                              use_genes=[args.gene],
+                                              leaf_annot=use_lfs,
+                                              gene_annot=['transcript'])
 
         else:
-            trnsf_cdata = get_cohort_data(
-                coh, choose_source(coh),
-                use_lvls, [args.gene], ['transcript']
-                )
+            trnsf_cdata = get_cohort_data(coh, choose_source(coh),
+                                          mut_lvls=use_lvls,
+                                          use_genes=[args.gene],
+                                          leaf_annot=use_lfs,
+                                          gene_annot=['transcript'])
 
         use_feats &= set(trnsf_cdata.get_features())
         with open(os.path.join(coh_path, coh_tag), 'wb') as f:

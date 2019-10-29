@@ -2,15 +2,16 @@
 import os
 import sys
 base_dir = os.path.dirname(__file__)
-sys.path.extend([os.path.join(base_dir, '../../..')])
+sys.path.extend([os.path.join(base_dir, '..', '..', '..')])
 
 from HetMan.experiments.subvariant_tour.utils import RandomType
 from HetMan.experiments.subvariant_infer.utils import Mcomb, ExMcomb
+from HetMan.experiments.subvariant_tour.fit_tour import get_excluded_genes
 from dryadic.learning.classifiers import *
 
 import argparse
 import dill as pickle
-from glob import glob
+from pathlib import Path
 from joblib import Parallel, delayed
 
 
@@ -56,12 +57,15 @@ def main():
 
     clf = eval(args.classif)
     mut_clf = clf()
+
     use_gene = {mtype.get_labels()[0] for mtype in mtype_list
                 if not isinstance(mtype, (ExMcomb, Mcomb, RandomType))}
-
     assert len(use_gene) == 1, ("List of mutations to test associated with "
                                 "more than one gene!")
+
     use_gene = tuple(use_gene)[0]
+    use_feats = feat_list - get_excluded_genes('Chrm', use_gene,
+                                               cdata.gene_annot)
 
     out_pars = {mtype: {smps: {par: None for par, _ in mut_clf.tune_priors}
                         for smps in ['All', 'Iso']}
@@ -73,18 +77,15 @@ def main():
                for mtype in mtype_list}
     out_inf = {mtype: {'All': None, 'Iso': None} for mtype in mtype_list}
 
-    coh_files = glob(os.path.join(setup_dir, "*__cohort-data.p"))
-    coh_dict = {coh_fl.split('/setup/')[1].split('__')[0]: coh_fl
-                for coh_fl in coh_files}
-
+    coh_files = Path(setup_dir).glob("*__cohort-data.p")
+    coh_dict = {coh_fl.stem.split('__')[0]: coh_fl for coh_fl in coh_files}
     out_trnsf = {mtype: {'All': {coh: None for coh in coh_dict},
                          'Iso': {coh: None for coh in coh_dict}}
                  for mtype in mtype_list}
 
     base_lvls = 'Gene', 'Scale', 'Copy', 'Exon', 'Location', 'Protein'
-    use_chr = cdata.gene_annot[use_gene]['Chr']
-    use_feats = feat_list - {gene for gene, annot in cdata.gene_annot.items()
-                             if annot['Chr'] == use_chr}
+    if base_lvls not in cdata.mtrees:
+        cdata.add_mut_lvls(base_lvls)
 
     # for each subtype, check if it has been assigned to this task
     for i, mtype in enumerate(mtype_list):

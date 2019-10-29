@@ -1,4 +1,5 @@
 
+from HetMan.experiments.subvariant_tour.utils import RandomType
 from dryadic.features.mutations import MuType, MutComb
 import numpy as np
 import pandas as pd
@@ -113,6 +114,36 @@ class ExMcomb(MutComb):
 
     def get_sorted_levels(self):
         return self.all_mtype.get_sorted_levels()
+
+
+def get_mtype_gene(mtype):
+    mtype_genes = None
+
+    if isinstance(mtype, RandomType):
+        if mtype.base_mtype is not None:
+            mtype_genes = mtype.base_mtype.get_labels()
+
+    elif isinstance(mtype, ExMcomb):
+        mtype_genes = mtype.all_mtype.get_labels()
+
+    elif isinstance(mtype, Mcomb):
+        mtype_genes = {mtp.get_labels() for mtp in mtype.mtypes}
+
+    elif isinstance(mtype, MuType):
+        mtype_genes = mtype.get_labels()
+
+    else:
+        raise ValueError("Cannot retrieve gene for something that is "
+                         "not a mutation!")
+
+    if mtype_genes is None:
+        mtype_genes = [None]
+
+    if len(mtype_genes) > 1:
+        raise ValueError("Cannot retrieve gene for a mutation associated "
+                         "with multiple genes!")
+
+    return mtype_genes[0]
 
 
 def compare_scores(iso_df, samps, muts_dict,
