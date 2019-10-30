@@ -10,6 +10,7 @@ from HetMan.experiments.subvariant_tour import domain_dir, pnt_mtype
 from HetMan.experiments.subvariant_tour.merge_tour import merge_cohort_data
 from HetMan.experiments.subvariant_tour.utils import (
     get_fancy_label, RandomType)
+from HetMan.experiments.subvariant_tour.plot_aucs import choose_gene_colour
 
 from HetMan.experiments.subvariant_infer import variant_clrs
 from dryadic.features.data.domains import get_protein_domains
@@ -33,6 +34,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 import matplotlib.gridspec as gridspec
+from matplotlib.patches import Patch
 from matplotlib.patches import Rectangle as Rect
 from matplotlib.collections import PatchCollection
 
@@ -41,155 +43,6 @@ plt.style.use('fivethirtyeight')
 plt.rcParams['axes.facecolor']='white'
 plt.rcParams['savefig.facecolor']='white'
 plt.rcParams['axes.edgecolor']='white'
-
-
-def plot_lollipop(cdata_dict, domain_dict, args):
-    fig, main_ax = plt.subplots(figsize=(10, 4))
-
-    base_cdata = tuple(cdata_dict.values())[0]
-    gn_annot = base_cdata.gene_annot[args.gene]
-    base_lvls = 'Gene', 'Scale', 'Copy', 'Exon', 'Location', 'Protein'
-    loc_mtree = base_cdata.mtrees[base_lvls][args.gene]['Point']
-
-    domn_lvls = [('Gene', 'Transcript',
-                  '_'.join(['Domain', domn_nm]), 'Location')
-                 for domn_nm in domain_dict]
-
-    for lvls in [base_lvls] + domn_lvls:
-        if lvls not in base_cdata.mtrees:
-            base_cdata.add_mut_lvls(lvls)
-
-    loc_counts = sorted([(int(loc), len(loc_muts))
-                         for exn, exn_muts in loc_mtree
-                         for loc, loc_muts in exn_muts if loc != '.'],
-                        key=itemgetter(0))
-    max_count = max(count for _, count in loc_counts)
-
-    mrks, stms, basl = main_ax.stem(*zip(*loc_counts),
-                                    use_line_collection=True)
-    plt.setp(mrks, markersize=5, markeredgecolor='black', zorder=5)
-    plt.setp(stms, linewidth=0.8, color='black', zorder=1)
-    plt.setp(basl, linewidth=1.1, color='black', zorder=2)
-
-    for exn, exn_muts in loc_mtree:
-        for loc, loc_muts in exn_muts:
-            if len(loc_muts) >= 10:
-                mut_lbls = sorted(lbl for lbl, _ in loc_muts)
-                root_indx = re.match('p.[A-Z][0-9]+', mut_lbls[0]).span()[1]
-                lbl_root = mut_lbls[0][2:root_indx]
-
-                main_ax.text(
-                    int(loc) + (loc_counts[-1][0] - loc_counts[0][0]) / 173,
-                    len(loc_muts) + max_count / 173,
-                    "/".join([mut_lbls[0][2:]] + [lbl.split(lbl_root)[1]
-                                                  for lbl in mut_lbls[1:]]),
-                    size=8, ha='left', va='bottom'
-                    )
-
-    prot_patches = []
-    for i, lvls in enumerate(domn_lvls):
-        tx_mtree = base_cdata.mtrees[lvls][args.gene]
-        tx_id = tuple(tx_mtree)[0][0]
-        tx_annot = gn_annot['Transcripts'][tx_id]
-
-        domn_nm = lvls[2].split('_')[1]
-        domn_df = domain_dict[domn_nm]
-        gene_domns = domn_df[(domn_df.Gene == gn_annot['Ens'])
-                             & (domn_df.Transcript == tx_id)]
-
-        for domn_id, domn_start, domn_end in zip(gene_domns.DomainID,
-                                                 gene_domns.DomainStart,
-                                                 gene_domns.DomainEnd):
-            prot_patches.append(Rect(
-                (domn_start, -max_count * (0.22 + i * 0.1)),
-                domn_end - domn_start, max_count * 0.08
-                ))
-
-            main_ax.text((domn_start + domn_end) / 2,
-                         -max_count * (0.185 + i * 0.1),
-                         domn_id, size=9, ha='center', va='center')
-
-    main_ax.add_collection(PatchCollection(
-        prot_patches, alpha=0.4, linewidth=0, color='#D99100'))
-
-    exn_patches = []
-    exn_pos = 1
-    for i, exn_annot in enumerate(tx_annot['Exons']):
-        exn_len = exn_annot['End'] - exn_annot['Start'] + 1
-
-        if 'UTRs' in tx_annot:
-            for utr_annot in tx_annot['UTRs']:
-                if (exn_annot['Start'] <= utr_annot['Start']
-                        <= exn_annot['End'] <= utr_annot['End']):
-                    exn_len -= exn_annot['End'] - utr_annot['Start'] + 1
-
-                elif (exn_annot['Start'] <= utr_annot['Start']
-                        <= utr_annot['End'] <= exn_annot['End']):
-                    exn_len -= utr_annot['End'] - utr_annot['Start'] + 1
-
-        if exn_len > 0 and exn_pos <= loc_counts[-1][0]:
-            exn_len //= 3
-
-            if i == (len(tx_annot['Exons']) - 1):
-                if (exn_pos + exn_len) > loc_counts[-1][0]:
-                    exn_len = loc_counts[-1][0] - exn_pos + 10
-
-            if (exn_pos + exn_len) >= loc_counts[0][0]:
-                exn_patches.append(Rect((exn_pos, max_count * -0.11),
-                                        exn_len, max_count * 0.08,
-                                        color='green'))
-
-                main_ax.text(max(exn_pos + exn_len / 2, loc_counts[0][0] + 5),
-                             max_count * -0.075, exn_annot['number'],
-                             size=min(11, (531 * exn_len
-                                           / loc_counts[-1][0]) ** 0.6),
-                             ha='center', va='center')
-
-            exn_pos += exn_len
-
-    for i, domn_nm in enumerate(domain_dict):
-        main_ax.text(loc_counts[0][0] - exn_pos / 25,
-                     -max_count * (0.17 + i * 0.1),
-                     "{}\nDomains".format(domn_nm), size=7,
-                     ha='right', va='top', linespacing=0.65, rotation=37)
-
-    main_ax.add_collection(PatchCollection(
-        exn_patches, alpha=0.4, linewidth=1.4, color='#002C91'))
-
-    main_ax.text(loc_counts[0][0] - exn_pos / 25, max_count * -0.06,
-                 "{}\nExons".format(tx_annot['transcript_name']), size=7,
-                 ha='right', va='top', linespacing=0.65, rotation=37)
-
-    if '_' in args.cohort:
-        coh_lbl = "{}({})".format(*args.cohort.split('_'))
-    else:
-        coh_lbl = str(args.cohort)
-
-    main_ax.text(
-        0.02, 0.79,
-        "{} {}-mutated samples\n{:.1%} of {} affected".format(
-            len(loc_mtree), args.gene,
-            len(loc_mtree) / len(base_cdata.get_samples()), coh_lbl,
-            ),
-        size=11, va='bottom', transform=main_ax.transAxes
-        )
-
-    main_ax.grid(linewidth=0.31)
-    main_ax.set_xlabel("Amino Acid Position", size=15, weight='semibold')
-    main_ax.set_ylabel("       # of Mutated Samples",
-                       size=15, weight='semibold')
-
-    main_ax.set_xlim(loc_counts[0][0] - exn_pos / 29, exn_pos * 1.03)
-    main_ax.set_ylim(-max_count * (0.03 + len(domain_dict) * 0.15),
-                     max_count * 20 / 19)
-    main_ax.set_yticks([tck for tck in main_ax.get_yticks() if tck >= 0])
-
-    # save the plot to file
-    fig.savefig(os.path.join(plot_dir, args.cohort,
-                             "{}_lollipop.svg".format(args.gene)),
-                bbox_inches='tight', format='svg')
-
-    plt.close()
 
 
 def clean_level(lvl):
@@ -228,6 +81,186 @@ def clean_label(lbl, lvl):
         use_lbl = lbl
 
     return use_lbl
+
+
+def plot_lollipop(cdata_dict, domain_dict, args):
+    fig, main_ax = plt.subplots(figsize=(11, 4))
+
+    base_cdata = tuple(cdata_dict.values())[0]
+    gn_annot = base_cdata.gene_annot[args.gene]
+
+    base_lvls = 'Gene', 'Scale', 'Form_base', 'Location', 'Protein',
+    domn_lvls = [('Gene', 'Scale', 'Transcript',
+                  '_'.join(['Domain', domn_nm]), 'Location')
+                 for domn_nm in domain_dict]
+
+    for lvls in [base_lvls] + domn_lvls:
+        if lvls not in base_cdata.mtrees:
+            base_cdata.add_mut_lvls(lvls)
+
+    loc_mtree = base_cdata.mtrees[base_lvls][args.gene]['Point']
+    loc_dict = {form: sorted([(int(loc), len(loc_muts)) if loc != '.'
+                              else (-1, len(loc_muts))
+                              for loc, loc_muts in form_muts],
+                             key=itemgetter(0))
+                for form, form_muts in loc_mtree}
+
+    # calculate the minimum and maximum amino acid positions for the
+    # mutations to be plotted, as well as the most samples at any hotspot
+    min_pos = min(pos for loc_counts in loc_dict.values()
+                  for pos, _ in loc_counts if pos >= 0)
+    max_pos = max(pos for loc_counts in loc_dict.values()
+                  for pos, _ in loc_counts)
+    max_count = max(count for loc_counts in loc_dict.values()
+                    for _, count in loc_counts)
+
+    lgnd_ptchs = []
+    for form, form_muts in loc_mtree:
+        form_clr = choose_gene_colour(form, clr_seed=2773,
+                                      clr_lum=0.37, clr_sat=0.91)
+
+        lgnd_ptchs += [Patch(color=form_clr, alpha=0.53,
+                             label=clean_label(form, 'Form_base'))]
+        mrks, stms, basl = main_ax.stem(*zip(*loc_dict[form]),
+                                        use_line_collection=True)
+
+        plt.setp(mrks, markersize=7, markeredgecolor='black',
+                 markerfacecolor=form_clr, zorder=5)
+        plt.setp(stms, linewidth=0.8, color='black', zorder=1)
+        plt.setp(basl, linewidth=1.1, color='black', zorder=2)
+
+        for loc, loc_muts in form_muts:
+            if len(loc_muts) >= 10:
+                mut_lbls = sorted(lbl for lbl, _ in loc_muts)
+
+                root_indx = re.match('p.[A-Z][0-9]+', mut_lbls[0]).span()[1]
+                lbl_root = mut_lbls[0][2:root_indx]
+
+                if max(len(lbl) - len(lbl_root) for lbl in mut_lbls) > 4:
+                    loc_lbl = '\n'.join(
+                        [mut_lbls[0][2:]] + [''.join([' ' * len(lbl_root) * 2,
+                                                      lbl.split(lbl_root)[1]])
+                                             for lbl in mut_lbls[1:]]
+                        )
+
+                else:
+                    loc_lbl = "/".join(
+                        [mut_lbls[0][2:]] + [lbl.split(lbl_root)[1]
+                                             for lbl in mut_lbls[1:]]
+                        )
+
+                main_ax.text(int(loc) + (max_pos - min_pos) / 115,
+                             len(loc_muts) + max_count / 151,
+                             loc_lbl, size=8, ha='left', va='center')
+
+    prot_patches = []
+    for i, lvls in enumerate(domn_lvls):
+        tx_mtree = base_cdata.mtrees[lvls][args.gene]['Point']
+        tx_id = tuple(tx_mtree)[0][0]
+        tx_annot = gn_annot['Transcripts'][tx_id]
+
+        domn_nm = lvls[3].split('_')[1]
+        domn_df = domain_dict[domn_nm]
+        gene_domns = domn_df[(domn_df.Gene == gn_annot['Ens'])
+                             & (domn_df.Transcript == tx_id)]
+
+        for domn_id, domn_start, domn_end in zip(gene_domns.DomainID,
+                                                 gene_domns.DomainStart,
+                                                 gene_domns.DomainEnd):
+            prot_patches.append(Rect(
+                (domn_start, -max_count * (0.3 + i * 0.13)),
+                domn_end - domn_start, max_count * 0.11
+                ))
+
+            main_ax.text((domn_start + domn_end) / 2,
+                         -max_count * (0.25 + i * 0.13),
+                         domn_id, size=9, ha='center', va='center')
+
+    main_ax.add_collection(PatchCollection(
+        prot_patches, alpha=0.4, linewidth=0, color='#D99100'))
+
+    exn_patches = []
+    exn_pos = 1
+    for i, exn_annot in enumerate(tx_annot['Exons']):
+        exn_len = exn_annot['End'] - exn_annot['Start'] + 1
+
+        if 'UTRs' in tx_annot:
+            for utr_annot in tx_annot['UTRs']:
+                if (exn_annot['Start'] <= utr_annot['Start']
+                        <= exn_annot['End'] <= utr_annot['End']):
+                    exn_len -= exn_annot['End'] - utr_annot['Start'] + 1
+
+                elif (exn_annot['Start'] <= utr_annot['Start']
+                        <= utr_annot['End'] <= exn_annot['End']):
+                    exn_len -= utr_annot['End'] - utr_annot['Start'] + 1
+
+        if exn_len > 0 and exn_pos <= max_pos:
+            exn_len //= 3
+
+            if i == (len(tx_annot['Exons']) - 1):
+                if (exn_pos + exn_len) > max_pos:
+                    exn_len = max_pos - exn_pos + 10
+
+            if (exn_pos + exn_len) >= min_pos:
+                exn_patches.append(Rect((exn_pos, max_count * -0.15),
+                                        exn_len, max_count * 0.11,
+                                        color='green'))
+
+                main_ax.text(max(exn_pos + exn_len / 2, min_pos + 5),
+                             max_count * -0.1, exn_annot['number'],
+                             size=min(11, (531 * exn_len / max_pos) ** 0.6),
+                             ha='center', va='center')
+
+            exn_pos += exn_len
+
+    for i, domn_nm in enumerate(domain_dict):
+        main_ax.text(min_pos - exn_pos / 29, -max_count * (0.23 + i * 0.15),
+                     "{}\nDomains".format(domn_nm), size=7,
+                     ha='right', va='top', linespacing=0.65, rotation=37)
+
+    # add the patches describing the boundaries of each exon and annotate them
+    main_ax.add_collection(PatchCollection(
+        exn_patches, alpha=0.4, linewidth=1.4, color='#002C91'))
+    main_ax.text(min_pos - exn_pos / 29, max_count * -0.08,
+                 "{}\nExons".format(tx_annot['transcript_name']), size=7,
+                 ha='right', va='top', linespacing=0.65, rotation=37)
+
+    if '_' in args.cohort:
+        coh_lbl = "{}({})".format(*args.cohort.split('_'))
+    else:
+        coh_lbl = str(args.cohort)
+
+    main_ax.text(
+        0.03, 0.97,
+        "{} {}-mutated samples\n{:.1%} of {} affected".format(
+            len(loc_mtree), args.gene,
+            len(loc_mtree) / len(base_cdata.get_samples()), coh_lbl,
+            ),
+        size=13, ha='left', va='top', transform=main_ax.transAxes
+        )
+
+    # add the legend for the colour used for each form of mutation
+    plt_lgnd = main_ax.legend(handles=lgnd_ptchs, frameon=False, fontsize=11,
+                              ncol=3, loc=1, handletextpad=0.7,
+                              bbox_to_anchor=(0.98, 1.02))
+    main_ax.add_artist(plt_lgnd)
+
+    main_ax.grid(linewidth=0.31)
+    main_ax.set_xlabel("Amino Acid Position", size=17, weight='semibold')
+    main_ax.set_ylabel("       # of Mutated Samples",
+                       size=17, weight='semibold')
+
+    main_ax.set_xlim(min_pos - exn_pos / 29, exn_pos * 1.02)
+    main_ax.set_ylim(-max_count * (0.03 + len(domain_dict) * 0.23),
+                     max_count * 24 / 17)
+    main_ax.set_yticks([tck for tck in main_ax.get_yticks() if tck >= 0])
+
+    # save the plot to file
+    fig.savefig(os.path.join(plot_dir, args.cohort,
+                             "{}_lollipop.svg".format(args.gene)),
+                bbox_inches='tight', format='svg')
+
+    plt.close()
 
 
 def sort_levels(lbls, lvl):
@@ -549,7 +582,6 @@ def main():
         for (src, clf), outs in out_use.groupby(['Source', 'Classif'])
         }
 
-    # load protein domain data, get location of local cache for TCGA data
     domn_dict = {
         domn: get_protein_domains(domain_dir, domn)
         for domn in {lvls.split('Domain_')[1].split('__')[0]

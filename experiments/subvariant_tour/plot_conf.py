@@ -161,8 +161,10 @@ def plot_distr_comparisons(auc_vals, conf_vals, pheno_dict, args):
         else:
             axarr[i].set_ylabel('')
 
+    if 0.47 < ymin < 0.51:
+        ymin = 0.445
     for ax in axarr:
-        ax.set_ylim([ymin, 1.03])
+        ax.set_ylim([ymin, 1 + (1 - ymin) / 23])
 
     plt.savefig(
         os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),

@@ -195,25 +195,24 @@ def main():
     auc_dict = dict()
 
     for (src, coh, lvls), ctf in out_use.iteritems():
+        out_tag = "{}__{}__samps-{}".format(src, coh, ctf)
+
         with bz2.BZ2File(
-                os.path.join(base_dir,
-                             "{}__{}__samps-{}".format(src, coh, ctf),
+                os.path.join(base_dir, out_tag,
                              "out-data__{}__{}.p.gz".format(
                                  lvls, args.classif)),
                 'r') as fl:
             out_dict[src, coh, lvls] = pickle.load(fl)
 
         with bz2.BZ2File(
-                os.path.join(base_dir,
-                             "{}__{}__samps-{}".format(src, coh, ctf),
+                os.path.join(base_dir, out_tag,
                              "out-pheno__{}__{}.p.gz".format(
                                  lvls, args.classif)),
                 'r') as fl:
             phn_dict[src, coh, lvls] = pickle.load(fl)
 
         with bz2.BZ2File(
-                os.path.join(base_dir,
-                             "{}__{}__samps-{}".format(src, coh, ctf),
+                os.path.join(base_dir, out_tag,
                              "out-aucs__{}__{}.p.gz".format(
                                  lvls, args.classif)),
                 'r') as fl:
