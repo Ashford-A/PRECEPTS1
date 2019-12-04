@@ -1,0 +1,78 @@
+
+import os
+
+LOCALDIR = os.path.join(os.environ['CODEDIR'],
+                        'HetMan', 'experiments', 'subvariant_test')
+
+TMPDIR = os.path.join(os.environ['TEMPDIR'],
+                      'HetMan', 'subvariant_test', config['expr_source'],
+                      "{}__samps-{}".format(config['cohort'],
+                                            config['samp_cutoff']),
+                      config['mut_levels'], config['classif'])
+
+OUTDIR = os.path.join(os.environ['DATADIR'], 'HetMan', 'subvariant_test',
+                      "{}__{}__samps-{}".format(config['expr_source'],
+                                                config['cohort'],
+                                                config['samp_cutoff']))
+
+
+localrules: target
+
+
+rule target:
+    input:
+        expand("{outdir}/out-trnsf__{mut_levels}__{classif}.p.gz",
+               outdir=OUTDIR, mut_levels=config['mut_levels'],
+               classif=config['classif'])
+
+    threads: 1
+
+
+rule test:
+    output: "{TMPDIR}/output/out__cv-{cv_id}_task-{task_id}.p"
+
+    threads: 8
+
+    shell: """
+        set +u; source activate HetMan; set -u;
+        export OMP_NUM_THREADS=1;
+        sleep $(( ({wildcards.cv_id} + 1) * ({wildcards.task_id} + 1) * $(shuf -i 1-9 -n 1) ));
+ 
+        python {LOCALDIR}/fit_test.py {config[classif]} --use_dir={TMPDIR} \
+                --task_count={config[task_count]} \
+                --task_id={wildcards.task_id} --cv_id={wildcards.cv_id}
+        """
+
+
+rule consolidate:
+    input:
+        expand("{tmpdir}/output/out__cv-{cv_id}_task-{task_id}.p",
+               tmpdir=TMPDIR,
+               cv_id=range(40), task_id=range(config['task_count']))
+
+    output:
+        expand("{outdir}/out-trnsf__{mut_levels}__{classif}.p.gz",
+               outdir=OUTDIR, mut_levels=config['mut_levels'],
+               classif=config['classif'])
+
+    threads: 12
+
+    shell: """
+        set +u; source activate HetMan; set -u;
+        python {LOCALDIR}/merge_test.py {TMPDIR}
+
+        out_tag={config[mut_levels]}__{config[classif]}
+        cp {TMPDIR}/setup/cohort-data.p {OUTDIR}/cohort-data__${{out_tag}}.p
+        cp {TMPDIR}/out-pred.p.gz {OUTDIR}/out-pred__${{out_tag}}.p.gz
+        cp {TMPDIR}/out-tune.p.gz {OUTDIR}/out-tune__${{out_tag}}.p.gz
+        cp {TMPDIR}/out-pheno.p.gz {OUTDIR}/out-pheno__${{out_tag}}.p.gz
+
+        cp {TMPDIR}/out-aucs.p.gz {OUTDIR}/out-aucs__${{out_tag}}.p.gz
+        cp {TMPDIR}/out-conf.p.gz {OUTDIR}/out-conf__${{out_tag}}.p.gz
+        cp {TMPDIR}/out-trnsf.p.gz {OUTDIR}/out-trnsf__${{out_tag}}.p.gz
+
+        python {LOCALDIR}/plot_experiment.py {config[expr_source]} \
+                {config[cohort]} {config[samp_cutoff]} \
+                {config[mut_levels]} {config[classif]}
+        """
+
