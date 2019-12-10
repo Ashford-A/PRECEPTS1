@@ -239,7 +239,7 @@ def main():
                 for out_dict in ols
                 ])
 
-        cdata_samps = cdata.get_samples()
+        cdata_samps = sorted(cdata.get_samples())
         random.seed((cv_id // 4) * 7712 + 13)
         random.shuffle(cdata_samps)
 
@@ -277,7 +277,6 @@ def main():
     with open(os.path.join(args.use_dir, 'setup', "muts-list.p"), 'rb') as f:
         muts_list = pickle.load(f)
 
-    print(len(muts_list))
     for out_df in [pred_df, pars_df, time_df, acc_df, trnsf_df]:
         assert compare_muts(out_df.index, muts_list), (
             "Mutations for which predictions were made do not match the list "
@@ -352,21 +351,39 @@ def main():
     sub_inds = [random.choices([False, True], k=len(cdata.get_samples()))
                 for _ in range(500)]
 
-    conf_list = pd.DataFrame.from_records(
-        tuple(zip(cycle(muts_list), Parallel(
-            backend='threading', n_jobs=12, pre_dispatch=12)(
-                delayed(calculate_auc)(
-                    pheno_dict[mtype][sub_indx],
-                    np.vstack(pred_df.loc[
-                        mtype, train_samps[sub_indx]].values)
+    conf_list = {
+        'all': pd.DataFrame.from_records(
+            tuple(zip(cycle(muts_list), Parallel(
+                backend='threading', n_jobs=12, pre_dispatch=12)(
+                    delayed(calculate_auc)(
+                        pheno_dict[mtype][sub_indx],
+                        np.vstack(pred_df.loc[
+                            mtype, train_samps[sub_indx]].values)
+                        )
+                    for sub_indx in sub_inds for mtype in muts_list
                     )
-                for sub_indx in sub_inds for mtype in muts_list
-                )
-            ))
-        ).pivot_table(index=0, values=1, aggfunc=list).iloc[:, 0]
+                ))
+            ).pivot_table(index=0, values=1, aggfunc=list).iloc[:, 0],
 
-    conf_list.name = None
-    conf_list.index.name = None
+        'mean': pd.DataFrame.from_records(
+            tuple(zip(cycle(muts_list), Parallel(
+                backend='threading', n_jobs=12, pre_dispatch=12)(
+                    delayed(calculate_auc)(
+                        pheno_dict[mtype][sub_indx],
+                        np.vstack(pred_df.loc[
+                            mtype, train_samps[sub_indx]].values).mean(axis=1)
+                        )
+                    for sub_indx in sub_inds for mtype in muts_list
+                    )
+                ))
+            ).pivot_table(index=0, values=1, aggfunc=list).iloc[:, 0]
+        }
+
+    conf_list['all'].name = None
+    conf_list['mean'].name = None
+    conf_list['all'].index.name = None
+    conf_list['mean'].index.name = None
+
     with bz2.BZ2File(os.path.join(args.use_dir, "out-conf.p.gz"), 'w') as fl:
         pickle.dump(conf_list, fl, protocol=-1)
 
@@ -391,7 +408,6 @@ def main():
 
     trnsf_dict = {coh: {'Samps': None, 'AUC': None} for coh in coh_dict}
     for coh, coh_fl in coh_dict.items():
-        print(coh)
         with open(coh_fl, 'rb') as f:
             trnsf_cdata = pickle.load(f)
 
@@ -406,6 +422,12 @@ def main():
                 transfer_signatures(trnsf_cdata, cdata, trnsf_df[coh_k],
                                     muts_list, subt_dict[coh])
                 )
+
+    trnsf_vals = {coh: trnsf_mat.apply(lambda vals: np.mean(vals, axis=0))
+                  for coh, trnsf_mat in trnsf_df.items()}
+    with bz2.BZ2File(os.path.join(args.use_dir, "trnsf-vals.p.gz"),
+                     'w') as fl:
+        pickle.dump(trnsf_vals, fl, protocol=-1)
 
     with bz2.BZ2File(os.path.join(args.use_dir, "out-trnsf.p.gz"), 'w') as fl:
         pickle.dump(trnsf_dict, fl, protocol=-1)

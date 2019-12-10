@@ -208,7 +208,11 @@ def main():
 
             copy_mtypes = {
                 mtype for mtype in [gain_mtype, loss_mtype]
-                if 5 <= len(mtype.get_samples(muts)) <= (n_samps - 5)
+                if ((5 <= len(mtype.get_samples(muts)) <= (n_samps - 5))
+                    and not (mtype.get_samples(muts)
+                             <= muts['Point'].get_samples())
+                    and not (muts['Point'].get_samples()
+                             <= mtype.get_samples(muts)))
                 }
 
             dyad_mtypes = {
@@ -228,6 +232,17 @@ def main():
                     if (args.samp_cutoff <= len(mtype.get_samples(muts))
                         <= (n_samps - args.samp_cutoff))
                     }
+
+                gene_mtypes |= {
+                    pnt_mtype | mtype for mtype in copy_mtypes
+                    if (args.samp_cutoff
+                        <= len((pnt_mtype | mtype).get_samples(muts))
+                        <= (n_samps - args.samp_cutoff))
+                    }
+
+            gene_mtypes -= {mtype for mtype in gene_mtypes
+                            if (len(mtype.get_samples(muts))
+                                == len(muts.get_samples()))}
 
             use_mtypes |= {MuType({('Gene', gene): mtype})
                            for mtype in gene_mtypes}
@@ -262,16 +277,19 @@ def main():
     with open(os.path.join(out_path, "muts-count.txt"), 'w') as fl:
         fl.write(str(len(use_mtypes)))
 
-    coh_list = list_cohorts(args.expr_source,
-                            expr_dir=expr_dir, copy_dir=copy_dir)
+    if args.expr_source in {'Firehose', 'microarray'}:
+        trnsf_src = 'Firehose'
+    else:
+        trnsf_src = args.expr_source
 
+    coh_list = list_cohorts(trnsf_src, expr_dir=expr_dir, copy_dir=copy_dir)
     coh_list -= {args.cohort}
     coh_list |= {'METABRIC', 'CCLE'}
-    random.seed()
+
     use_feats = set(cdata.get_features())
+    random.seed()
 
     for coh in random.sample(coh_list, k=len(coh_list)):
-        print(coh)
         coh_base = coh.split('_')[0]
         coh_tag = "cohort-data__{}.p".format(coh)
         coh_path = os.path.join(coh_dir, coh_tag)
@@ -279,7 +297,7 @@ def main():
         if coh_base in {'METABRIC', 'CCLE'}:
             use_src = 'microarray'
         else:
-            use_src = str(args.expr_source)
+            use_src = str(trnsf_src)
 
         trnsf_cdata = load_cohort(coh, use_src, coh_path)
         if lbls_key not in trnsf_cdata.mtrees:

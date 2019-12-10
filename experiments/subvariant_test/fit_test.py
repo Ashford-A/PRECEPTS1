@@ -27,8 +27,6 @@ def main():
         "TCGA cohort."
         )
 
-    # positional arguments for which cohort of samples and which mutation
-    # classifier to use for testing
     parser.add_argument('classif', type=str,
                         help="a classifier in HetMan.predict.classifiers")
     parser.add_argument('--use_dir', type=str, default=base_dir)
@@ -45,20 +43,21 @@ def main():
 
     args = parser.parse_args()
     setup_dir = os.path.join(args.use_dir, 'setup')
- 
+
+    # load list of mutations to test and the expression gene features to
+    # use during classifier training
     with open(os.path.join(setup_dir, "muts-list.p"), 'rb') as muts_f:
         mtype_list = pickle.load(muts_f)
-    with open(os.path.join(setup_dir, "cohort-data.p"), 'rb') as cdata_f:
-        cdata = pickle.load(cdata_f)
     with open(os.path.join(setup_dir, "feat-list.p"), 'rb') as fl:
         feat_list = pickle.load(fl)
 
     clf = eval(args.classif)
     mut_clf = clf()
-    coh_path = os.path.join(args.use_dir, 'setup', "cohort-data.p")
     use_seed = 9073 + 97 * args.cv_id
-
+    coh_path = os.path.join(setup_dir, "cohort-data.p")
     cdata = None
+
+    # load tumour cohort expression and mutation data
     while cdata is None:
         try:
             with open(coh_path, 'rb') as cdata_f:
@@ -68,7 +67,9 @@ def main():
             print("Failed to load cohort data, trying again...")
             time.sleep(61)
 
-    cdata_samps = cdata.get_samples()
+    # figure out which cohort samples will be used for tuning and testing the
+    # classifier and which samples will be used for testing
+    cdata_samps = sorted(cdata.get_samples())
     random.seed((args.cv_id // 4) * 7712 + 13)
     random.shuffle(cdata_samps)
     cdata.update_split(use_seed, test_samps=cdata_samps[(args.cv_id % 4)::4])
@@ -120,6 +121,8 @@ def main():
             out_acc[mtype]['std'] = cv_output['std_test_score']
             out_acc[mtype]['par'] = cv_output['params']
 
+            # train the classifier on the entire training subcohort and apply
+            # the fit model to the testing subcohort
             mut_clf.fit_coh(cdata, mtype, include_feats=use_feats)
             out_pred[mtype] = mut_clf.parse_preds(mut_clf.predict_test(
                 cdata, lbl_type='raw', include_feats=use_feats))

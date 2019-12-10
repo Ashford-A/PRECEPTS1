@@ -60,8 +60,8 @@ rule consolidate:
     shell: """
         set +u; source activate HetMan; set -u;
         python {LOCALDIR}/merge_test.py {TMPDIR}
-
         out_tag={config[mut_levels]}__{config[classif]}
+
         cp {TMPDIR}/setup/cohort-data.p {OUTDIR}/cohort-data__${{out_tag}}.p
         cp {TMPDIR}/out-pred.p.gz {OUTDIR}/out-pred__${{out_tag}}.p.gz
         cp {TMPDIR}/out-tune.p.gz {OUTDIR}/out-tune__${{out_tag}}.p.gz
@@ -69,6 +69,7 @@ rule consolidate:
 
         cp {TMPDIR}/out-aucs.p.gz {OUTDIR}/out-aucs__${{out_tag}}.p.gz
         cp {TMPDIR}/out-conf.p.gz {OUTDIR}/out-conf__${{out_tag}}.p.gz
+        cp {TMPDIR}/trnsf-vals.p.gz {OUTDIR}/trnsf-vals__${{out_tag}}.p.gz
         cp {TMPDIR}/out-trnsf.p.gz {OUTDIR}/out-trnsf__${{out_tag}}.p.gz
 
         python {LOCALDIR}/plot_experiment.py {config[expr_source]} \
