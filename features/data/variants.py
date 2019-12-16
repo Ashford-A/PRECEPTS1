@@ -49,9 +49,9 @@ def get_variants_mc3(syn):
     mc3 = syn.get('syn7824274')
 
     # defines which mutation annotation MAF columns to use
-    use_cols = [0, 8, 15, 36, 37, 38, 40, 41, 72]
-    use_names = ['Gene', 'Form', 'Sample', 'Protein', 'Transcript',
-                 'Exon', 'ref_count', 'alt_count', 'PolyPhen']
+    use_cols = [0, 8, 15, 36, 37, 38, 39, 40, 41, 71, 72]
+    use_names = ['Gene', 'Form', 'Sample', 'Protein', 'Transcript', 'Exon',
+                 'depth', 'ref_count', 'alt_count', 'SIFT', 'PolyPhen']
 
     # imports mutation data into a DataFrame, parses TCGA sample barcodes
     # and PolyPhen scores
@@ -66,11 +66,14 @@ def get_variants_mc3(syn):
         except OSError:
             i = i + 1
 
+    for annt, null_val in zip(['PolyPhen', 'SIFT'], [0, 1]):
+        muts[annt] = muts[annt].apply(
+            lambda val: (np.float(gsub('\)$', '', gsub('^.*\(', '', val)))
+                         if val != '.' else null_val)
+            )
+
     muts.Sample = muts.Sample.apply(lambda smp: '-'.join(smp.split('-')[:4]))
-    muts.PolyPhen = muts.PolyPhen.apply(
-        lambda phen: (np.float(gsub('\)$', '', gsub('^.*\(', '', phen)))
-                      if phen != '.' else 0)
-        )
+    muts.SIFT = 1 - muts.SIFT
 
     return muts
 
@@ -108,6 +111,7 @@ def get_variants_firehose(cohort, data_dir):
         
     muts = pd.concat(mut_list)
     muts.Sample = muts.Sample.apply(lambda smp: "-".join(smp.split("-")[:4]))
+    mut_tar.close()
 
     return mut_data
 

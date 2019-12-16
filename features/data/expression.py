@@ -102,6 +102,7 @@ def get_expr_firehose(cohort, data_dir):
     expr_data = pd.read_csv(BytesIO(expr_fl.read()),
                             sep='\t', skiprows=[1], index_col=0,
                             engine='python').transpose()
+    expr_tar.close()
 
     expr_data.columns = [gn.split('|')[0] if isinstance(gn, str) else gn
                          for gn in expr_data.columns]
@@ -180,9 +181,14 @@ def get_expr_toil(cohort, data_dir, collapse_txs=False):
         expr_data (:obj:`pd.DataFrame`, shape = [n_samps, n_genes])
 
     """
-    expr = pd.read_csv(os.path.join(data_dir, "TCGA",
-                                    "TCGA_{}_tpm.tsv.gz".format(cohort)),
-                       sep='\t', index_col=0)
+    if cohort != 'CCLE':
+        expr = pd.read_csv(os.path.join(data_dir, "TCGA",
+                                        "TCGA_{}_tpm.tsv.gz".format(cohort)),
+                           sep='\t', index_col=0)
+
+    else:
+        expr = pd.read_csv(os.path.join(data_dir, "CCLE", "CCLE_tpm.tsv.gz"),
+                           sep='\t', index_col=0)
 
     expr.index = expr.index.str.split('|', expand=True)
     expr.index = expr.index.set_names(['ENST', 'ENSG', 'OTTG', 'OTTT',

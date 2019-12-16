@@ -24,16 +24,17 @@ def parse_subtypes(cohort):
 
 
 def load_firehose_cohort(cohort, genes, mut_levels=None,
-                         cv_prop=1.0, cv_seed=None):
+                         cv_seed=None, test_prop=0.):
     syn = synapseclient.Synapse()
     syn.cache.cache_root_dir = syn_root
     syn.login()
 
-    return MutationCohort(cohort=cohort.split('_')[0], mut_genes=list(genes),
-                          mut_levels=mut_levels, domain_dir=domain_dir,
+    return MutationCohort(cohort=cohort.split('_')[0], mut_levels=mut_levels,
+                          mut_genes=list(genes), domain_dir=domain_dir,
                           expr_source='Firehose', var_source='mc3',
                           copy_source='Firehose', annot_file=annot_file,
                           type_file=type_file, expr_dir=expr_dir,
-                          copy_dir=copy_dir, cv_prop=cv_prop, syn=syn,
-                          cv_seed=cv_seed, use_types=parse_subtypes(cohort))
+                          copy_dir=copy_dir, syn=syn, cv_seed=cv_seed,
+                          test_prop=test_prop, annot_fields=['transcript'],
+                          use_types=parse_subtypes(cohort))
 
