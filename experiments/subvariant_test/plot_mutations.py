@@ -2,14 +2,16 @@
 import os
 import sys
 
-base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'subvariant_tour')
+base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'subvariant_test')
 sys.path.extend([os.path.join(os.path.dirname(__file__), '..', '..', '..')])
 plot_dir = os.path.join(base_dir, 'plots', 'mutations')
 
-from HetMan.experiments.subvariant_tour import domain_dir, pnt_mtype
-from HetMan.experiments.subvariant_tour.merge_tour import merge_cohort_data
-from HetMan.experiments.subvariant_tour.utils import (
-    get_fancy_label, RandomType)
+from HetMan.experiments.subvariant_test import (
+    domain_dir, pnt_mtype, copy_mtype)
+from HetMan.experiments.subvariant_test.merge_test import merge_cohort_data
+from HetMan.experiments.subvariant_tour.utils import RandomType
+from HetMan.experiments.subvariant_test.utils import get_fancy_label
+from HetMan.experiments.subvariant_test.plot_copy import select_mtype
 from HetMan.experiments.subvariant_tour.plot_aucs import choose_gene_colour
 
 from HetMan.experiments.subvariant_infer import variant_clrs
@@ -116,7 +118,7 @@ def plot_lollipop(cdata_dict, domain_dict, args):
 
     lgnd_ptchs = []
     for form, form_muts in loc_mtree:
-        form_clr = choose_gene_colour(form, clr_seed=2773,
+        form_clr = choose_gene_colour(form, clr_seed=2783,
                                       clr_lum=0.37, clr_sat=0.91)
 
         lgnd_ptchs += [Patch(color=form_clr, alpha=0.53,
@@ -373,7 +375,7 @@ def recurse_labels(ax, mtree, xlims, ymax, all_size,
     return ax
 
 
-def plot_tree_classif(infer_dict, phn_dict, auc_dict, use_lvls,
+def plot_tree_classif(pred_dict, phn_dict, auc_dict, use_lvls,
                       cdata_dict, args):
     base_cdata = tuple(cdata_dict.values())[0]
     base_lvls = 'Exon__Location__Protein'
@@ -383,11 +385,11 @@ def plot_tree_classif(infer_dict, phn_dict, auc_dict, use_lvls,
     use_mtree = base_cdata.mtrees[('Gene', ) + lvls_k][args.gene]
 
     use_mtypes = {(src, clf): [MuType({('Gene', args.gene): pnt_mtype})]
-                  for src, lvls, clf in infer_dict if lvls == use_lvls}
+                  for src, lvls, clf in pred_dict if lvls == use_lvls}
 
     use_criter = {
         (src, clf): [(np.mean(phn_dict[src, base_lvls, clf][mtypes[0]]),
-                      auc_dict[src, base_lvls, clf].loc[mtypes[0], 'Chrm'])]
+                      auc_dict[src, base_lvls, clf].loc[mtypes[0]])]
         for (src, clf), mtypes in use_mtypes.items()
         }
 
@@ -395,8 +397,9 @@ def plot_tree_classif(infer_dict, phn_dict, auc_dict, use_lvls,
         cur_mtypes = {mtype.subtype_list()[0][1]
                       for mtype, phn in phn_dict[src, use_lvls, clf].items()
                       if (not isinstance(mtype, RandomType)
-                          and mtype.get_labels()[0] == args.gene
-                          and mtype.subtype_list()[0][1] != pnt_mtype)}
+                          and mtype.subtype_list()[0][1] != pnt_mtype
+                          and (mtype.subtype_list()[0][1]
+                               & copy_mtype).is_empty())}
 
         if len(cur_mtypes) >= 5:
             use_mtypes[src, clf] += [
@@ -406,7 +409,7 @@ def plot_tree_classif(infer_dict, phn_dict, auc_dict, use_lvls,
 
             use_criter[src, clf] += [
                 (np.mean(phn_dict[src, use_lvls, clf][mtype]),
-                 auc_dict[src, use_lvls, clf].loc[mtype, 'Chrm'])
+                 auc_dict[src, use_lvls, clf].loc[mtype])
                 for mtype in use_mtypes[src, clf][1:]
                 ]
 
@@ -458,7 +461,7 @@ def plot_tree_classif(infer_dict, phn_dict, auc_dict, use_lvls,
     tree_ax.set_ylim(0, len(lvls_k) + 0.6)
 
     for i, lvl in enumerate(lvls_k):
-        lbl_ax.text(1.31, 0.87 - i / 8.3, clean_level(lvl),
+        lbl_ax.text(1.31, 0.88 - i / 10.11, clean_level(lvl),
                     size=19, ha='right', va='center')
 
     for i, plt_mtype in enumerate(plt_mtypes):
@@ -471,7 +474,7 @@ def plot_tree_classif(infer_dict, phn_dict, auc_dict, use_lvls,
             top_ec = 'none'
 
         else:
-            tree_mtype = plt_mtype.subtype_list()[0][1]
+            tree_mtype = plt_mtype.subtype_list()[0][1].subtype_list()[0][1]
             top_fc = 'none'
             top_ec = variant_clrs['Point']
 
@@ -488,30 +491,30 @@ def plot_tree_classif(infer_dict, phn_dict, auc_dict, use_lvls,
         mtype_ax.set_ylim(0, len(lvls_k) + 0.6)
 
         if i == 0:
-            infer_vals = infer_dict[
-                use_src, base_lvls, use_clf]['Chrm'].loc[plt_mtype]
+            pred_vals = pred_dict[use_src, base_lvls, use_clf].loc[plt_mtype]
             use_phn = phn_dict[src, base_lvls, clf][plt_mtype]
 
         else:
-            infer_vals = infer_dict[
-                use_src, use_lvls, use_clf]['Chrm'].loc[plt_mtype]
+            pred_vals = pred_dict[use_src, use_lvls, use_clf].loc[plt_mtype]
             use_phn = phn_dict[src, use_lvls, clf][plt_mtype]
 
+        pred_vals = pred_vals.apply(np.mean)
         use_auc = use_criter[src, clf][i][1]
         viol_ax = fig.add_subplot(gs[2, i + 1])
 
-        sns.violinplot(x=np.concatenate(infer_vals[~use_phn].values),
+        sns.violinplot(x=pred_vals[~use_phn].values,
                        ax=viol_ax, palette=[variant_clrs['WT']],
                        orient='v', linewidth=0, cut=0, width=0.67)
-        sns.violinplot(x=np.concatenate(infer_vals[use_phn].values),
+        sns.violinplot(x=pred_vals[use_phn].values,
                        ax=viol_ax, palette=[variant_clrs['Point']],
                        orient='v', linewidth=0, cut=0, width=0.67)
 
-        viol_ax.text(0.5, 1.01, get_fancy_label(plt_mtype, max_subs=3),
+        viol_ax.text(0.5, 1.01,
+                     '\n'.join(get_fancy_label(plt_mtype).split('\n')[1:]),
                      size=12, ha='center', va='top',
                      transform=viol_ax.transAxes)
 
-        viol_ax.text(1.07, 0.79,
+        viol_ax.text(1.07, 0.83,
                      '\n'.join([str(np.sum(use_phn)), "mutated", "samples"]),
                      size=13, ha='right', va='top', c=variant_clrs['Point'],
                      weight='semibold', transform=viol_ax.transAxes)
@@ -525,15 +528,16 @@ def plot_tree_classif(infer_dict, phn_dict, auc_dict, use_lvls,
         viol_ax.set_yticklabels([])
 
         viol_ylims = viol_ax.get_ylim()
-        ylim_gap = (viol_ylims[1] - viol_ylims[0]) / 5
+        ylim_gap = (viol_ylims[1] - viol_ylims[0]) / 13
         viol_ax.set_ylim([viol_ylims[0], viol_ylims[1] + ylim_gap])
 
     # save the plot to file
     fig.tight_layout(w_pad=1.9, h_pad=1.5)
-    fig.savefig(os.path.join(
-        plot_dir, args.cohort, "{}_tree-classif__{}.svg".format(
-            args.gene, use_lvls)
-        ), bbox_inches='tight', format='svg')
+    fig.savefig(
+        os.path.join(plot_dir, args.cohort,
+                     "{}_tree-classif__{}.svg".format(args.gene, use_lvls)),
+        bbox_inches='tight', format='svg'
+        )
 
     plt.close()
 
@@ -546,27 +550,30 @@ def main():
 
     parser.add_argument('cohort', help='a TCGA cohort')
     parser.add_argument('gene', help='a mutated gene')
-
-    # parse command line arguments, create directory where plots will be saved
     args = parser.parse_args()
-    os.makedirs(os.path.join(plot_dir, args.cohort), exist_ok=True)
 
     out_datas = [
         out_file.parts[-2:] for out_file in Path(base_dir).glob(
-            "*__{}__samps-*/out-data__*__*.p.gz".format(args.cohort))
+            "*__{}__samps-*/trnsf-vals__*__*.p.gz".format(args.cohort))
         ]
 
-    out_use = pd.DataFrame([
+    out_list = pd.DataFrame([
         {'Source': out_data[0].split("__{}".format(args.cohort))[0],
          'Samps': int(out_data[0].split("__samps-")[1]),
          'Levels': '__'.join(out_data[1].split(
-             "out-data__")[1].split('__')[:-1]),
+             "trnsf-vals__")[1].split('__')[:-1]),
          'Classif': out_data[1].split('__')[-1].split(".p.gz")[0]}
         for out_data in out_datas
-        ]).groupby(['Source', 'Classif']).filter(
-            lambda outs: ('Exon__Location__Protein' in set(outs.Levels)
-                          and outs.Levels.str.match('Domain_').any())
-            ).groupby(['Source', 'Levels', 'Classif'])['Samps'].min()
+        ])
+
+    if out_list.shape[0] == 0:
+        raise ValueError("No experiment output found for tumour "
+                         "cohort `{}` !".format(args.cohort))
+
+    out_use = out_list.groupby(['Source', 'Classif']).filter(
+        lambda outs: ('Exon__Location__Protein' in set(outs.Levels)
+                      and outs.Levels.str.match('Domain_').any())
+        ).groupby(['Source', 'Levels', 'Classif'])['Samps'].min()
 
     cdata_dict = {
         (src, clf): merge_cohort_data(
@@ -589,30 +596,52 @@ def main():
                      if 'Domain_' in lvls}
         }
 
-    infer_dict = dict()
+    pred_dict = dict()
     phn_dict = dict()
     auc_dict = dict()
 
     for (src, lvls, clf), ctf in out_use.iteritems():
         out_tag = "{}__{}__samps-{}".format(src, args.cohort, ctf)
 
-        out_fl = os.path.join(base_dir, out_tag,
-                              "out-data__{}__{}.p.gz".format(lvls, clf))
+        pred_fl = os.path.join(base_dir, out_tag,
+                               "out-pred__{}__{}.p.gz".format(lvls, clf))
         phn_fl = os.path.join(base_dir, out_tag,
                               "out-pheno__{}__{}.p.gz".format(lvls, clf))
         auc_fl = os.path.join(base_dir, out_tag,
                               "out-aucs__{}__{}.p.gz".format(lvls, clf))
 
-        with bz2.BZ2File(out_fl, 'r') as f:
-            infer_dict[src, lvls, clf] = pickle.load(f)['Infer']
+        with bz2.BZ2File(pred_fl, 'r') as f:
+            pred_data = pickle.load(f)
+
+            pred_dict[src, lvls, clf] = pred_data.loc[[
+                mtype for mtype in pred_data.index
+                if select_mtype(mtype, args.gene)
+                ]]
+
         with bz2.BZ2File(phn_fl, 'r') as f:
-            phn_dict[src, lvls, clf] = pickle.load(f)
+            phns = pickle.load(f)
+
+            phn_dict[src, lvls, clf] = {
+                mtype: phn for mtype, phn in phns.items()
+                if select_mtype(mtype, args.gene)
+                }
+
         with bz2.BZ2File(auc_fl, 'r') as f:
-            auc_dict[src, lvls, clf] = pickle.load(f)
- 
+            auc_data = pickle.load(f)['mean']
+
+            auc_dict[src, lvls, clf] = auc_data[[
+                mtype for mtype in auc_data.index
+                if select_mtype(mtype, args.gene)
+                ]]
+
+    if not any(len(phn_vals) > 0 for phn_vals in phn_dict.values()):
+        raise ValueError("No experiment output found for "
+                         "gene `{}` !".format(args.gene))
+
+    os.makedirs(os.path.join(plot_dir, args.cohort), exist_ok=True)
     plot_lollipop(cdata_dict, domn_dict, args)
     for lvls in set(out_use.index.get_level_values('Levels')):
-        plot_tree_classif(infer_dict, phn_dict, auc_dict, lvls,
+        plot_tree_classif(pred_dict, phn_dict, auc_dict, lvls,
                           cdata_dict, args)
 
 
