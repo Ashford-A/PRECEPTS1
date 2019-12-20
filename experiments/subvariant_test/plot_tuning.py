@@ -284,8 +284,9 @@ def main():
     out_clf = tuple(out_clf)[0]
 
     plot_chosen_parameters(pars_df, out_clf, phn_dict, auc_df, args)
-    plot_parameter_profile(acc_df, out_clf, auc_df['mean'], args)
     plot_generalization_error(acc_df, auc_df['mean'], phn_dict, args)
+    if 'Exon__Location__Protein' in out_use.index:
+        plot_parameter_profile(acc_df, out_clf, auc_df['mean'], args)
 
 
 if __name__ == "__main__":

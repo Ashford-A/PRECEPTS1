@@ -34,6 +34,19 @@ def lbl_norm(lbls, wt_val, mut_val):
     return np.mean(norm_lbls), np.var(norm_lbls)
 
 
+def choose_mtype_colour(mtype):
+    if isinstance(mtype, RandomType):
+        if mtype.base_mtype is None:
+            plt_clr = '0.59'
+        else:
+            plt_clr = choose_gene_colour(mtype.base_mtype.get_labels()[0])
+
+    else:
+        plt_clr = choose_gene_colour(mtype.get_labels()[0])
+
+    return plt_clr
+
+
 def plot_auc_stability(auc_vals, pheno_dict, args):
     fig, ax = plt.subplots(figsize=(13, 8))
 
@@ -41,17 +54,9 @@ def plot_auc_stability(auc_vals, pheno_dict, args):
                  'Var': auc_vals.apply(np.std)}
 
     for mtype, mean_val in stat_dict['Mean'].iteritems():
-        if isinstance(mtype, RandomType):
-            if mtype.base_mtype is None:
-                plt_clr = '0.73'
-            else:
-                plt_clr = choose_gene_colour(mtype.base_mtype.get_labels()[0])
-
-        else:
-            plt_clr = choose_gene_colour(mtype.get_labels()[0])
-
         ax.scatter(mean_val, stat_dict['Var'][mtype],
-                   facecolor=[plt_clr], s=251 * np.mean(pheno_dict[mtype]),
+                   facecolor=[choose_mtype_colour(mtype)],
+                   s=251 * np.mean(pheno_dict[mtype]),
                    alpha=0.23, edgecolors='none')
 
     x_lims = ax.get_xlim()

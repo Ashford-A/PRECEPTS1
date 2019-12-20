@@ -6,7 +6,8 @@ base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'subvariant_test')
 sys.path.extend([os.path.join(os.path.dirname(__file__), '..', '..', '..')])
 plot_dir = os.path.join(base_dir, 'plots', 'aucs')
 
-from HetMan.experiments.subvariant_test import pnt_mtype, copy_mtype
+from HetMan.experiments.subvariant_test import (
+    pnt_mtype, copy_mtype, gain_mtype, loss_mtype)
 from HetMan.experiments.subvariant_tour.utils import RandomType
 from HetMan.experiments.subvariant_test.utils import get_fancy_label
 from HetMan.experiments.subvariant_infer import variant_clrs
@@ -43,8 +44,11 @@ def choose_gene_colour(gene, clr_seed=15707, clr_lum=0.5, clr_sat=0.8):
     return hls_to_rgb(h=np.random.uniform(size=1)[0], l=clr_lum, s=clr_sat)
 
 
-def place_labels(pnt_dict, lims=(0.48, 1.01), lbl_dens=1.):
+def place_labels(pnt_dict, lims=(0.48, 1.01), lbl_dens=1., seed=None):
     lim_gap = (lbl_dens * 17) / (lims[1] - lims[0])
+
+    if seed is not None:
+        np.random.seed(seed)
 
     # initialize objects storing where each label will be positioned, and how
     # much space needs to be left around already placed points and labels
@@ -536,15 +540,28 @@ def plot_copy_comparisons(auc_vals, pheno_dict, conf_vals, args):
             base_mtype = MuType({('Gene', gene): pnt_mtype})
             base_indx = auc_vec.index.get_loc(base_mtype)
 
+            base_gain = base_mtype | MuType({('Gene', gene): gain_mtype})
+            base_loss = base_mtype | MuType({('Gene', gene): loss_mtype})
+
             best_subtype = auc_vec[:base_indx].append(
                 auc_vec[(base_indx + 1):]).idxmax()
             best_indx = auc_vec.index.get_loc(best_subtype)
 
             if auc_vec[best_indx] > 0.6:
-                plt_min = min(plt_min, auc_vec[base_indx] - 0.02)
-
-                base_size = np.mean(pheno_dict[base_mtype])
                 clr_dict[gene] = choose_gene_colour(gene)
+                plt_min = min(plt_min,
+                              auc_vec[base_indx] - 0.02, auc_vec[best_indx])
+
+                if base_gain in pheno_dict and base_loss in pheno_dict:
+                    cnv_size = np.mean(pheno_dict[base_gain]
+                                       | pheno_dict[base_loss])
+
+                elif base_gain in pheno_dict:
+                    cnv_size = np.mean(pheno_dict[base_gain])
+                elif base_loss in pheno_dict:
+                    cnv_size = np.mean(pheno_dict[base_loss])
+
+                best_prop = np.mean(pheno_dict[best_subtype]) / cnv_size
                 conf_sc = np.greater.outer(conf_vals[best_subtype],
                                            conf_vals[base_mtype]).mean()
 
@@ -553,19 +570,26 @@ def plot_copy_comparisons(auc_vals, pheno_dict, conf_vals, args):
                         get_fancy_label(best_subtype).split('\n')[1:])
 
                     pnt_dict[auc_vec[base_indx], auc_vec[best_indx]] = (
-                        base_size ** 0.53, (gene, mtype_lbl))
+                        cnv_size ** 0.53, (gene, mtype_lbl))
 
                 elif auc_vec[base_indx] > 0.7 or auc_vec[best_indx] > 0.7:
                     pnt_dict[auc_vec[base_indx], auc_vec[best_indx]] = (
-                        base_size ** 0.53, (gene, ''))
+                        cnv_size ** 0.53, (gene, ''))
 
                 else:
                     pnt_dict[auc_vec[base_indx], auc_vec[best_indx]] = (
-                        base_size ** 0.53, ('', ''))
+                        cnv_size ** 0.53, ('', ''))
 
-                ax.scatter(auc_vec[base_indx], auc_vec[best_indx],
-                           s=3197 * base_size, facecolor=clr_dict[gene],
-                           edgecolor='none', alpha=0.53)
+                pie_ax = inset_axes(
+                    ax, width=cnv_size ** 0.5, height=cnv_size ** 0.5,
+                    bbox_to_anchor=(auc_vec[base_indx], auc_vec[best_indx]),
+                    bbox_transform=ax.transData, loc=10,
+                    axes_kwargs=dict(aspect='equal'), borderpad=0
+                    )
+
+                pie_ax.pie(x=[best_prop, 1 - best_prop], explode=[0.29, 0],
+                           colors=[clr_dict[gene] + (0.77, ),
+                                   clr_dict[gene] + (0.29, )])
 
     # figure out where to place the labels for each point, and plot them
     lbl_pos = place_labels(pnt_dict)
@@ -625,8 +649,6 @@ def plot_copy_comparisons(auc_vals, pheno_dict, conf_vals, args):
 def plot_aupr_comparisons(auc_vals, pred_df, pheno_dict, conf_vals, args):
     fig, (base_ax, subg_ax) = plt.subplots(figsize=(17, 8), nrows=1, ncols=2)
 
-    # filter out experiment results for mutations representing randomly
-    # chosen sets of samples rather than actual mutations
     use_aucs = auc_vals[[
         not isinstance(mtype, RandomType)
         and (mtype.subtype_list()[0][1] & copy_mtype).is_empty()
@@ -782,10 +804,6 @@ def main():
 
     # parse command line arguments, create directory where plots will be saved
     args = parser.parse_args()
-    os.makedirs(os.path.join(plot_dir,
-                             '__'.join([args.expr_source, args.cohort])),
-                exist_ok=True)
-
     out_datas = [
         out_file.parts[-2:] for out_file in Path(base_dir).glob(os.path.join(
             "{}__{}__samps-*".format(args.expr_source, args.cohort),
@@ -793,17 +811,23 @@ def main():
             ))
         ]
 
-    out_use = pd.DataFrame([
-        {'Samps': int(out_data[0].split('__samps-')[1]),
-         'Levels': '__'.join(out_data[1].split(
-             'trnsf-vals__')[1].split('__')[:-1])}
-        for out_data in out_datas
-        ]).groupby('Levels')['Samps'].min()
+    out_list = pd.DataFrame([{'Samps': int(out_data[0].split('__samps-')[1]),
+                              'Levels': '__'.join(out_data[1].split(
+                                  'trnsf-vals__')[1].split('__')[:-1])}
+                             for out_data in out_datas])
 
+    if out_list.shape[0] == 0:
+        raise ValueError("No experiment output found for these parameters!")
+
+    out_use = out_list.groupby('Levels')['Samps'].min()
     if 'Exon__Location__Protein' not in out_use.index:
         raise ValueError("Cannot compare AUCs until this experiment is run "
                          "with mutation levels `Exon__Location__Protein` "
                          "which tests genes' base mutations!")
+
+    os.makedirs(os.path.join(plot_dir,
+                             '__'.join([args.expr_source, args.cohort])),
+                exist_ok=True)
 
     pred_dict = dict()
     phn_dict = dict()
