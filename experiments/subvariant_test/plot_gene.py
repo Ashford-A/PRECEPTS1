@@ -15,6 +15,7 @@ from HetMan.experiments.subvariant_test.utils import get_fancy_label
 from HetMan.experiments.subvariant_test.plot_aucs import place_labels
 from HetMan.experiments.subvariant_test.plot_copy import select_mtype
 from HetMan.experiments.utilities.pcawg_colours import cohort_clrs
+from HetMan.experiments.utilities import auc_cmap
 
 import argparse
 from pathlib import Path
@@ -41,6 +42,7 @@ def get_cohort_label(coh):
     if '_' in coh:
         coh_lbl = "{}({})".format(*coh.split('_'))
         coh_lbl = coh_lbl.replace("IDHmut-non-codel", "IDHmut-nc")
+        coh_lbl = coh_lbl.replace("SquamousCarcinoma", "SqmsCarc")
 
     else:
         coh_lbl = str(coh)
@@ -75,59 +77,44 @@ def plot_sub_comparisons(auc_dict, conf_dict, pheno_dict, use_clf, args):
     base_mtype = MuType({('Gene', args.gene): pnt_mtype})
     plt_min = 0.89
     pnt_dict = dict()
-    auc_vals = dict()
-    conf_vals = dict()
-
-    # filter out results not returned by the given classifier
-    for (coh, lvls, clf), auc_list in auc_dict.items():
-        if clf == use_clf:
-            use_mtypes = {
-                mtype for mtype in auc_list.index
-                if (not isinstance(mtype, RandomType)
-                    and (mtype.subtype_list()[0][1] & copy_mtype).is_empty())
-                }
-
-            if coh in auc_vals:
-                auc_vals[coh] = pd.concat([
-                    auc_vals[coh], auc_list[use_mtypes]])
-                conf_vals[coh] = pd.concat([
-                    conf_vals[coh], conf_dict[coh, lvls, clf][use_mtypes]])
-
-            else:
-                auc_vals[coh] = auc_list[use_mtypes]
-                conf_vals[coh] = conf_dict[coh, lvls, clf][use_mtypes]
 
     # for each cohort, check if the given gene had subgroupings that were
     # tested, and get the results for all the gene's point mutations...
-    for coh, auc_vec in auc_vals.items():
-        if len(auc_vec) > 1 and base_mtype in auc_vec.index:
-            base_indx = auc_vec.index.get_loc(base_mtype)
+    for coh, auc_vals in auc_dict.items():
+        use_aucs = auc_vals[[
+            mtype for mtype in auc_vals.index
+            if (not isinstance(mtype, RandomType)
+                and (mtype.subtype_list()[0][1] & copy_mtype).is_empty())
+            ]]
+
+        if len(use_aucs) > 1 and base_mtype in use_aucs.index:
+            base_indx = use_aucs.index.get_loc(base_mtype)
 
             # ...and those for the subgrouping in the cohort with the best AUC
-            best_subtype = auc_vec[:base_indx].append(
-                auc_vec[(base_indx + 1):]).idxmax()
-            best_indx = auc_vec.index.get_loc(best_subtype)
+            best_subtype = use_aucs[:base_indx].append(
+                use_aucs[(base_indx + 1):]).idxmax()
+            best_indx = use_aucs.index.get_loc(best_subtype)
 
-            plt_min = min(plt_min, auc_vec[base_indx] - 0.07,
-                          auc_vec[best_indx] - 0.07)
+            plt_min = min(plt_min, use_aucs[base_indx] - 0.07,
+                          use_aucs[best_indx] - 0.07)
             base_size = np.mean(pheno_dict[coh][base_mtype])
             best_prop = np.mean(pheno_dict[coh][best_subtype]) / base_size
 
-            conf_sc = np.greater.outer(conf_vals[coh][best_subtype],
-                                       conf_vals[coh][base_mtype]).mean()
+            conf_sc = np.greater.outer(conf_dict[coh][best_subtype],
+                                       conf_dict[coh][base_mtype]).mean()
 
-            if conf_sc > 0.9:
-                pnt_dict[auc_vec[base_indx], auc_vec[best_indx]] = (
+            if conf_sc > 0.8:
+                pnt_dict[use_aucs[base_indx], use_aucs[best_indx]] = (
                     base_size ** 0.53, (coh, get_fancy_label(best_subtype)))
 
             else:
-                pnt_dict[auc_vec[base_indx], auc_vec[best_indx]] = (
+                pnt_dict[use_aucs[base_indx], use_aucs[best_indx]] = (
                     base_size ** 0.53, (coh, ''))
 
             # create the axis in which the pie chart will be plotted
             pie_ax = inset_axes(
                 ax, width=base_size ** 0.5, height=base_size ** 0.5,
-                bbox_to_anchor=(auc_vec[base_indx], auc_vec[best_indx]),
+                bbox_to_anchor=(use_aucs[base_indx], use_aucs[best_indx]),
                 bbox_transform=ax.transData, loc=10,
                 axes_kwargs=dict(aspect='equal'), borderpad=0
                 )
@@ -141,7 +128,7 @@ def plot_sub_comparisons(auc_dict, conf_dict, pheno_dict, use_clf, args):
     # figure out where to place the annotation labels for each cohort so that
     # they don't overlap with one another or the pie charts
     lbl_pos = place_labels(pnt_dict,
-                           lims=(plt_min + 0.03, 1 - (1 - plt_min) / 71),
+                           lims=(plt_min + 0.03, 1 - (1 - plt_min) / 23),
                            lbl_dens=0.59, seed=args.seed)
 
     for (pnt_x, pnt_y), pos in lbl_pos.items():
@@ -201,35 +188,20 @@ def plot_sub_comparisons(auc_dict, conf_dict, pheno_dict, use_clf, args):
     plt.close()
 
 
-def plot_conf_distributions(auc_dict, conf_dict, pheno_dict, use_clf, args):
+def plot_conf_distributions(auc_vals, conf_dict, pheno_dict, use_clf, args):
     base_mtype = MuType({('Gene', args.gene): pnt_mtype})
 
     coh_dict = dict()
-    auc_vals = dict()
-    conf_vals = dict()
+    for coh, conf_vals in conf_dict.items():
+        use_confs = conf_vals[[
+            mtype for mtype in conf_vals.index
+            if (not isinstance(mtype, RandomType)
+                and (mtype.subtype_list()[0][1] & copy_mtype).is_empty())
+            ]]
 
-    # filter out results not returned by the given classifier
-    for (coh, lvls, clf), auc_list in auc_dict.items():
-        if clf == use_clf:
-            use_mtypes = {
-                mtype for mtype in auc_list.index
-                if (not isinstance(mtype, RandomType)
-                    and (mtype.subtype_list()[0][1] & copy_mtype).is_empty())
-                }
-
-            if coh in auc_vals:
-                auc_vals[coh] = pd.concat([
-                    auc_vals[coh], auc_list[use_mtypes]])
-                conf_vals[coh] = pd.concat([
-                    conf_vals[coh], conf_dict[coh, lvls, clf][use_mtypes]])
-
-            else:
-                auc_vals[coh] = auc_list[use_mtypes]
-                conf_vals[coh] = conf_dict[coh, lvls, clf][use_mtypes]
-
-    for coh, conf_vec in conf_vals.items():
-        if len(conf_vec) > 1 and base_mtype in conf_vec.index:
-            conf_list = conf_vec.apply(lambda confs: np.percentile(confs, 25))
+        if len(use_confs) > 1 and base_mtype in use_confs.index:
+            conf_list = use_confs.apply(
+                lambda confs: np.percentile(confs, 25))
 
             base_indx = conf_list.index.get_loc(base_mtype)
             best_subtype = conf_list[:base_indx].append(
@@ -239,12 +211,12 @@ def plot_conf_distributions(auc_dict, conf_dict, pheno_dict, use_clf, args):
             if conf_list[best_indx] > 0.6:
                 coh_dict[coh] = (
                     choose_cohort_colour(coh), best_subtype,
-                    np.greater.outer(conf_vec[best_subtype],
-                                     conf_vec[base_mtype]).mean()
+                    np.greater.outer(use_confs[best_subtype],
+                                     use_confs[base_mtype]).mean()
                     )
 
     ymin = 0.83
-    fig, axarr = plt.subplots(figsize=(0.5 + 1.5 * len(coh_dict), 7),
+    fig, axarr = plt.subplots(figsize=(0.3 + 1.7 * len(coh_dict), 7),
                               nrows=1, ncols=len(coh_dict), sharey=True,
                               squeeze=False)
 
@@ -256,9 +228,9 @@ def plot_conf_distributions(auc_dict, conf_dict, pheno_dict, use_clf, args):
 
         plt_df = pd.concat([
             pd.DataFrame({'Type': 'Base',
-                          'Conf': conf_vals[coh][base_mtype]}),
+                          'Conf': conf_dict[coh][base_mtype]}),
             pd.DataFrame({'Type': 'Subg',
-                          'Conf': conf_vals[coh][best_subtype]})
+                          'Conf': conf_dict[coh][best_subtype]})
             ])
 
         sns.violinplot(x=plt_df.Type, y=plt_df.Conf, ax=axarr[0, i],
@@ -270,7 +242,7 @@ def plot_conf_distributions(auc_dict, conf_dict, pheno_dict, use_clf, args):
         axarr[0, i].scatter(1, auc_vals[coh][base_mtype],
                             s=41, c=[coh_clr], edgecolor='0.23', alpha=0.53)
 
-        axarr[0, i].set_title(coh_lbl, size=19, weight='semibold')
+        axarr[0, i].set_title(coh_lbl, size=17, weight='semibold')
         axarr[0, i].get_children()[0].set_alpha(0.83)
         axarr[0, i].get_children()[1].set_alpha(0.26)
 
@@ -285,8 +257,8 @@ def plot_conf_distributions(auc_dict, conf_dict, pheno_dict, use_clf, args):
 
         axarr[0, i].set_xlabel('')
         axarr[0, i].set_xticklabels([])
-        ymin = min(ymin, min(conf_vals[coh][base_mtype]) - 0.04,
-                   min(conf_vals[coh][best_subtype]) - 0.04)
+        ymin = min(ymin, min(conf_dict[coh][base_mtype]) - 0.04,
+                   min(conf_dict[coh][best_subtype]) - 0.04)
 
         if i == 0:
             axarr[0, i].set_ylabel('AUCs', size=21, weight='semibold')
@@ -296,11 +268,70 @@ def plot_conf_distributions(auc_dict, conf_dict, pheno_dict, use_clf, args):
     if 0.47 < ymin < 0.51:
         ymin = 0.445
     for i in range(len(coh_dict)):
+        axarr[0, i].set_xlim([-0.5, 1.5])
         axarr[0, i].set_ylim([ymin, 1 + (1 - ymin) / 31])
 
+    fig.tight_layout(w_pad=1.3)
     plt.savefig(
         os.path.join(plot_dir, '__'.join([args.expr_source, args.gene]),
                      "conf-distributions_{}.svg".format(use_clf)),
+        bbox_inches='tight', format='svg'
+        )
+
+    plt.close()
+
+
+def plot_transfer_aucs(trnsf_dict, auc_dict, conf_dict, pheno_dict,
+                       use_clf, args):
+    fig, axarr = plt.subplots(figsize=(13, 7), nrows=2, ncols=1)
+
+    base_mtype = MuType({('Gene', args.gene): pnt_mtype})
+    conf_agg = dict()
+
+    for coh, conf_vals in conf_dict.items():
+        if base_mtype in conf_vals.index:
+            use_confs = conf_vals[[
+                mtype for mtype in conf_vals.index
+                if (mtype != base_mtype and not isinstance(mtype, RandomType)
+                    and (mtype.subtype_list()[0][1] & copy_mtype).is_empty())
+                ]]
+
+            for mtype, conf_list in use_confs.iteritems():
+                conf_sc = np.sum(pheno_dict[coh][mtype]) * (np.greater.outer(
+                    conf_list, conf_vals[base_mtype]).mean() - 0.5)
+
+                if mtype in conf_agg:
+                    conf_agg[mtype] += conf_sc
+                else:
+                    conf_agg[mtype] = conf_sc
+
+    best_subtype = sorted(conf_agg.items(), key=lambda x: x[1])[-1][0]
+    for ax, mtype in zip(axarr, [base_mtype, best_subtype]):
+        trnsf_mat = pd.Series({cohs: auc_df.loc[mtype, 'mean']
+                               for cohs, auc_df in trnsf_dict.items()
+                               if mtype in auc_df.index}).unstack()
+
+        xlabs = [get_cohort_label(coh) for coh in trnsf_mat.columns]
+        ylabs = [get_cohort_label(coh) for coh in trnsf_mat.index]
+
+        auc_cmap.set_bad('black')
+        sns.heatmap(trnsf_mat, cmap=auc_cmap, vmin=0, vmax=1, ax=ax)
+
+        plt_ylims = ax.get_ylim()
+        ax.set_title(get_fancy_label(mtype), size=17)
+        ax.set_ylim([plt_ylims[1] - 0.5, plt_ylims[0] + 0.5])
+        ax.set_xticklabels(xlabs, ha='right', rotation=37)
+        ax.set_yticklabels(ylabs, ha='right', rotation=0)
+
+    fig.text(0.5, -0.02, "Testing Cohort", fontsize=23, weight='semibold',
+             ha='center', va='top')
+    fig.text(0, 0.5, "Training Cohort", fontsize=23, weight='semibold',
+             rotation=90, ha='right', va='center')
+
+    fig.tight_layout(h_pad=1.7)
+    plt.savefig(
+        os.path.join(plot_dir, '__'.join([args.expr_source, args.gene]),
+                     "transfer-aucs_{}.svg".format(use_clf)),
         bbox_inches='tight', format='svg'
         )
 
@@ -357,6 +388,7 @@ def main():
 
     phn_dict = dict()
     auc_dict = dict()
+    trnsf_aucs = dict()
     conf_dict = dict()
 
     for (coh, lvls, clf), ctf in tuple(out_use.iteritems()):
@@ -382,22 +414,50 @@ def main():
                                               lvls, clf)),
                              'r') as f:
                 auc_vals = pickle.load(f)['mean']
+                auc_vals = auc_vals[[mtype for mtype in auc_vals.index
+                                     if select_mtype(mtype, args.gene)]]
 
-                auc_dict[coh, lvls, clf] = auc_vals[[
-                    mtype for mtype in auc_vals.index
-                    if select_mtype(mtype, args.gene)
-                    ]]
+                if (coh, clf) in auc_dict:
+                    auc_dict[coh, clf] = pd.concat([auc_dict[coh, clf],
+                                                    auc_vals])
+                else:
+                    auc_dict[coh, clf] = auc_vals
+
+            with bz2.BZ2File(os.path.join(base_dir, out_tag,
+                                          "out-trnsf__{}__{}.p.gz".format(
+                                              lvls, clf)),
+                             'r') as f:
+                trnsf_data = pickle.load(f)
+
+                for trnsf_coh, trnsf_out in trnsf_data.items():
+                    if trnsf_out['AUC']:
+                        use_mtypes = trnsf_out['AUC']['mean'].index[[
+                            select_mtype(mtype, args.gene)
+                            for mtype in trnsf_out['AUC']['mean'].index
+                            ]]
+
+                        auc_df = pd.DataFrame.from_dict(
+                            trnsf_out['AUC']).loc[use_mtypes]
+
+                        if (clf, coh, trnsf_coh) in trnsf_aucs:
+                            trnsf_aucs[clf, coh, trnsf_coh] = pd.concat([
+                                trnsf_aucs[clf, coh, trnsf_coh], auc_df])
+                        else:
+                            trnsf_aucs[clf, coh, trnsf_coh] = auc_df
 
             with bz2.BZ2File(os.path.join(base_dir, out_tag,
                                           "out-conf__{}__{}.p.gz".format(
                                               lvls, clf)),
                              'r') as f:
                 conf_vals = pickle.load(f)['mean']
+                conf_vals = conf_vals[[mtype for mtype in conf_vals.index
+                                       if select_mtype(mtype, args.gene)]]
 
-                conf_dict[coh, lvls, clf] = conf_vals[[
-                    mtype for mtype in conf_vals.index
-                    if select_mtype(mtype, args.gene)
-                    ]]
+                if (coh, clf) in conf_dict:
+                    conf_dict[coh, clf] = pd.concat([conf_dict[coh, clf],
+                                                     conf_vals])
+                else:
+                    conf_dict[coh, clf] = conf_vals
 
     if not phn_dict:
         raise ValueError("No experiment output found for "
@@ -406,11 +466,26 @@ def main():
     os.makedirs(os.path.join(plot_dir,
                              '__'.join([args.expr_source, args.gene])),
                 exist_ok=True)
-
     plt_clfs = out_use.index.get_level_values('Classif').value_counts()
+
     for clf in plt_clfs[plt_clfs > 1].index:
-        plot_sub_comparisons(auc_dict, conf_dict, phn_dict, clf, args)
-        plot_conf_distributions(auc_dict, conf_dict, phn_dict, clf, args)
+        clf_aucs = {coh: auc_data
+                    for (coh, out_clf), auc_data in auc_dict.items()
+                    if out_clf == clf}
+        clf_confs = {coh: conf_data
+                     for (coh, out_clf), conf_data in conf_dict.items()
+                     if out_clf == clf}
+
+        clf_trnsf = {
+            (coh, trnsf_coh): trnsf_data
+            for (out_clf, coh, trnsf_coh), trnsf_data in trnsf_aucs.items()
+            if out_clf == clf
+            }
+
+        plot_sub_comparisons(clf_aucs, clf_confs, phn_dict, clf, args)
+        plot_conf_distributions(clf_aucs, clf_confs, phn_dict, clf, args)
+        plot_transfer_aucs(clf_trnsf, clf_aucs, clf_confs, phn_dict,
+                           clf, args)
 
 
 if __name__ == '__main__':
