@@ -5,119 +5,14 @@ base_dir = os.path.dirname(__file__)
 sys.path.extend([os.path.join(base_dir, '..', '..', '..')])
 
 from HetMan.experiments.subvariant_tour import *
-from HetMan.experiments.subvariant_tour import pnt_mtype
-from HetMan.experiments.subvariant_tour.utils import RandomType
-from HetMan.experiments.utilities.load_input import parse_subtypes
-
-from HetMan.features.cohorts.tcga import MutationCohort
-from HetMan.features.cohorts.beatAML import BeatAmlCohort
-from HetMan.features.cohorts.metabric import MetabricCohort
-from HetMan.features.cohorts.ccle import CellLineCohort
+from HetMan.experiments.subvariant_tour.param_list import params, mut_lvls
+from HetMan.experiments.subvariant_test import pnt_mtype
+from HetMan.experiments.subvariant_test.setup_test import load_cohort
 from dryadic.features.mutations import MuType
 
 import argparse
-import synapseclient
-import pandas as pd
 import dill as pickle
-import random
-
-from functools import reduce
-from operator import or_
-from itertools import combinations as combn
 from itertools import product
-
-
-def get_cohort_data(cohort, expr_source, mut_lvls=None, use_genes=None,
-                    leaf_annot=None, gene_annot=None):
-    if mut_lvls is None:
-        mut_lvls = [['Gene', 'Exon', 'Location', 'Protein']]
-
-    if use_genes is None:
-        gene_df = pd.read_csv(gene_list, sep='\t', skiprows=1, index_col=0)
-        use_genes = gene_df.index[
-            (gene_df.loc[
-                :, ['Vogelstein', 'SANGER CGC(05/30/2017)',
-                    'FOUNDATION ONE', 'MSK-IMPACT']]
-                == 'Yes').sum(axis=1) >= 1
-            ].tolist()
-
-    else:
-        use_genes = list(use_genes)
-
-    if leaf_annot is None:
-        leaf_annot = ('ref_count', 'alt_count')
-
-    if gene_annot is None:
-        gene_annot = ['transcript', 'exon']
-
-    syn = synapseclient.Synapse()
-    syn.cache.cache_root_dir = syn_root
-    syn.login()
-
-    if cohort == 'beatAML':
-        if expr_source != 'toil__gns':
-            raise ValueError("Only gene-level Kallisto calls are available "
-                             "for the beatAML cohort!")
-
-        cdata = BeatAmlCohort(
-            mut_levels=mut_lvls, mut_genes=use_genes,
-            expr_source=expr_source, expr_file=beatAML_files['expr'],
-            samp_file=beatAML_files['samps'], syn=syn, annot_file=annot_file,
-            domain_dir=domain_dir, leaf_annot=leaf_annot,
-            cv_seed=8713, test_prop=0, annot_fields=gene_annot
-            )
-
-    elif cohort.split('_')[0] == 'METABRIC':
-        if expr_source != 'microarray':
-            raise ValueError("Only Illumina microarray mRNA calls are "
-                             "available for the METABRIC cohort!")
-
-        if '_' in cohort:
-            use_subtypes = cohort.split('_')[1]
-        else:
-            use_subtypes = None
-
-        cdata = MetabricCohort(
-            mut_levels=mut_lvls, mut_genes=use_genes,
-            expr_source=expr_source, metabric_dir=metabric_dir,
-            annot_file=annot_file, domain_dir=domain_dir,
-            use_types=use_subtypes, cv_seed=8713, test_prop=0,
-            annot_fields=gene_annot
-            )
-
-    elif cohort.split('_')[0] == 'CCLE':
-        source_info = expr_source.split('__')
-        source_base = source_info[0]
-        collapse_txs = not (len(source_info) > 1 and source_info[1] == 'txs')
-
-        if source_base == 'microarray':
-            expr_dir = ccle_dir
-        else:
-            expr_dir = expr_sources[source_base]
-
-        cdata = CellLineCohort(
-            mut_levels=mut_lvls, mut_genes=use_genes, expr_source=source_base,
-            ccle_dir=ccle_dir, annot_file=annot_file, domain_dir=domain_dir,
-            expr_dir=expr_dir, collapse_txs=collapse_txs,
-            cv_seed=8713, test_prop=0
-            )
-
-    else:
-        source_info = expr_source.split('__')
-        source_base = source_info[0]
-        collapse_txs = not (len(source_info) > 1 and source_info[1] == 'txs')
-
-        cdata = MutationCohort(
-            cohort=cohort.split('_')[0], mut_levels=mut_lvls,
-            mut_genes=use_genes, expr_source=source_base, var_source='mc3',
-            copy_source='Firehose', annot_file=annot_file,
-            domain_dir=domain_dir, type_file=type_file, leaf_annot=leaf_annot,
-            expr_dir=expr_sources[source_base], copy_dir=copy_dir,
-            collapse_txs=collapse_txs, syn=syn, cv_seed=8713, test_prop=0,
-            annot_fields=gene_annot, use_types=parse_subtypes(cohort)
-            )
-
-    return cdata
 
 
 def main():
@@ -128,92 +23,79 @@ def main():
 
     parser.add_argument('expr_source', type=str,
                         help="which TCGA expression data source to use")
-
     parser.add_argument('cohort', type=str, help="which TCGA cohort to use")
-    parser.add_argument(
-        'samp_cutoff', type=int,
-        help="minimum number of affected samples needed to test a mutation"
-        )
-
-    parser.add_argument('mut_levels', type=str,
-                        help="the mutation property levels to consider")
-    parser.add_argument('out_dir', type=str, default=base_dir)
+    parser.add_argument('search_params', type=str,)
+    parser.add_argument('mut_lvls', type=str,)
+    parser.add_argument('--out_dir', type=str, default=base_dir)
 
     # parse command line arguments
     args = parser.parse_args()
     out_path = os.path.join(args.out_dir, 'setup')
-    use_lvls = tuple(args.mut_levels.split('__'))
+    use_params = params[args.search_params]
+    lvls_list = mut_lvls[args.mut_lvls]
 
-    coh_path = os.path.join(
-        args.out_dir.split('subvariant_tour')[0], 'subvariant_tour',
-        args.expr_source, "{}__samps-{}".format(
-            args.cohort, args.samp_cutoff),
-        "cohort-data.p"
-        )
+    coh_path = os.path.join(args.out_dir.split('subvariant_tour')[0],
+                            'subvariant_tour',
+                            '__'.join([args.expr_source, args.cohort]),
+                            "cohort-data.p")
 
-    if os.path.exists(coh_path):
-        try:
-            with open(coh_path, 'rb') as f:
-                cdata = pickle.load(f)
+    cdata = load_cohort(args.cohort, args.expr_source, coh_path)
+    n_samps = len(cdata.get_samples())
 
-        except EOFError:
-            cdata = get_cohort_data(args.cohort, args.expr_source)
-
-    else:
-        cdata = get_cohort_data(args.cohort, args.expr_source)
+    for use_lvls in lvls_list:
+        lbls_key = ('Gene', 'Scale') + tuple(use_lvls)
+        if lbls_key not in cdata.mtrees:
+            cdata.add_mut_lvls(lbls_key)
 
     use_mtypes = set()
-    lbls_key = ('Gene', 'Scale') + use_lvls
-    if lbls_key not in cdata.mtrees:
-        cdata.add_mut_lvls(lbls_key)
+    with open(coh_path, 'wb') as f:
+        pickle.dump(cdata, f, protocol=-1)
 
-    # for each gene with enough mutated samples in the cohort, find the
-    # subgroupings composed of at most three branches
-    for gene, muts in cdata.mtrees[lbls_key]:
-        if len(pnt_mtype.get_samples(muts)) >= args.samp_cutoff:
-            gene_mtypes = {
-                mtype for mtype in muts['Point'].combtypes(
-                    comb_sizes=(1, 2, 3), min_type_size=args.samp_cutoff)
-                if (args.samp_cutoff <= len(mtype.get_samples(muts))
-                    <= (len(cdata.get_samples()) - args.samp_cutoff))
-                }
+    for use_lvls in lvls_list:
+        lbls_key = ('Gene', 'Scale') + tuple(use_lvls)
 
-            # remove subgroupings that contain all of the gene's mutations
-            gene_mtypes -= {mtype for mtype in gene_mtypes
-                            if (len(mtype.get_samples(muts))
-                                == len(pnt_mtype.get_samples(muts)))}
+        for i, (gene, muts) in enumerate(cdata.mtrees[lbls_key]):
+            if len(pnt_mtype.get_samples(muts)) >= use_params['samp_cutoff']:
+                gene_mtypes = {
+                    mtype for mtype in muts['Point'].combtypes(
+                        comb_sizes=tuple(range(
+                            1, use_params['branch_combs'] + 1)),
+                        min_type_size=use_params['samp_cutoff'],
+                        min_branch_size=use_params['min_branch']
+                        )
+                    if (use_params['samp_cutoff']
+                        <= len(mtype.get_samples(muts))
+                        <= (n_samps - use_params['samp_cutoff']))
+                    }
 
-            # remove subgroupings that have only one child subgrouping
-            # containing all of their samples
-            gene_mtypes -= {
-                mtype1 for mtype1, mtype2 in product(gene_mtypes, repeat=2)
-                if mtype1 != mtype2 and mtype1.is_supertype(mtype2)
-                and mtype1.get_samples(muts) == mtype2.get_samples(muts)
-                }
+                # remove subgroupings that contain all of the gene's mutations
+                gene_mtypes -= {mtype for mtype in gene_mtypes
+                                if (len(mtype.get_samples(muts))
+                                    == len(pnt_mtype.get_samples(muts)))}
 
-            if args.mut_levels == 'Exon__Location__Protein':
-                gene_mtypes |= {pnt_mtype}
+                # remove subgroupings that have only one child subgrouping
+                # containing all of their samples
+                gene_mtypes -= {
+                    mtype1
+                    for mtype1, mtype2 in product(gene_mtypes, repeat=2)
+                    if mtype1 != mtype2 and mtype1.is_supertype(mtype2)
+                    and mtype1.get_samples(muts) == mtype2.get_samples(muts)
+                    }
 
-            use_mtypes |= {MuType({('Gene', gene): mtype})
-                           for mtype in gene_mtypes}
+                gene_mtypes -= {mtype for mtype in gene_mtypes
+                                if (len(mtype.get_samples(muts))
+                                    == len(muts.get_samples()))}
 
-    use_mtypes = sorted(use_mtypes)
-    random.seed(88701)
-    random.shuffle(use_mtypes)
+                if i == 0:
+                    gene_mtypes |= {pnt_mtype}
 
-    use_mtypes = set(use_mtypes) | {
-        RandomType(size_dist=len(mtype.get_samples(cdata.mtrees[lbls_key])),
-                   seed=i + 10307)
-        for i, (mtype, _) in enumerate(product(use_mtypes, range(2)))
-        }
+                use_mtypes |= {MuType({('Gene', gene): mtype})
+                               for mtype in gene_mtypes}
 
     with open(os.path.join(out_path, "muts-list.p"), 'wb') as f:
         pickle.dump(sorted(use_mtypes), f, protocol=-1)
     with open(os.path.join(out_path, "muts-count.txt"), 'w') as fl:
         fl.write(str(len(use_mtypes)))
-
-    with open(coh_path, 'wb') as f:
-        pickle.dump(cdata, f, protocol=-1)
 
 
 if __name__ == '__main__':
