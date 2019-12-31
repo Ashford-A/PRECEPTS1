@@ -101,7 +101,9 @@ def plot_lollipop(cdata_dict, domain_dict, args):
             base_cdata.add_mut_lvls(lvls)
 
     loc_mtree = base_cdata.mtrees[base_lvls][args.gene]['Point']
-    loc_dict = {form: sorted([(int(loc), len(loc_muts)) if loc != '.'
+    #TODO: double-check mutations in cohorts such as METABRIC that are not
+    # numeric but maybe should be (i.e. in CDH1, MAP3K1)
+    loc_dict = {form: sorted([(int(loc), len(loc_muts)) if loc.isnumeric()
                               else (-1, len(loc_muts))
                               for loc, loc_muts in form_muts],
                              key=itemgetter(0))
@@ -269,7 +271,7 @@ def sort_levels(lbls, lvl):
     if lvl == 'Exon' or lvl == 'Location':
         sort_indx = sorted(range(len(lbls)),
                            key=lambda k: (int(lbls[k].split('/')[0])
-                                          if lbls[k] != '.' else 0))
+                                          if lbls[k].isnumeric() else 0))
 
     elif 'Domain_' in lvl and 'none' in lbls:
         sort_indx = [lbls.index('none')]

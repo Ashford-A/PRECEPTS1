@@ -161,7 +161,6 @@ def plot_sub_comparison(auc_dfs, trnsf_dicts, pheno_dicts, conf_dfs, args):
                                     clr_dict[gene] + (0.29, )]
                             )
 
-            # figure out where to place the labels for each point, and plot them
             lbl_pos = place_labels(pnt_dict)
             for (pnt_x, pnt_y), pos in lbl_pos.items():
                 axarr[i, j].text(pos[0][0], pos[0][1] + 700 ** -1,
@@ -175,7 +174,6 @@ def plot_sub_comparison(auc_dfs, trnsf_dicts, pheno_dicts, conf_dfs, args):
                 y_delta = pnt_y - pos[0][1]
                 ln_lngth = np.sqrt((x_delta ** 2) + (y_delta ** 2))
 
-                # if the label is sufficiently far away from its point...
                 if ln_lngth > (0.021 + pnt_dict[pnt_x, pnt_y][0] / 31):
                     use_clr = clr_dict[pnt_dict[pnt_x, pnt_y][1][0]]
                     pnt_gap = pnt_dict[pnt_x, pnt_y][0] / (29 * ln_lngth)
@@ -241,8 +239,6 @@ def plot_cross_sub_comparison(auc_dfs, pheno_dicts, conf_dfs, args):
                 best_subtype = auc_vec[:base_indx].append(
                     auc_vec[(base_indx + 1):]).idxmax()
                 best_indx = auc_vec.index.get_loc(best_subtype)
-                if gene == 'MAP3K1':
-                    import pdb; pdb.set_trace()
 
                 if auc_vec[best_indx] > 0.6:
                     clr_dict[gene] = choose_gene_colour(gene)
@@ -493,7 +489,7 @@ def plot_transfer_aucs(trnsf_dicts, auc_dfs, pheno_dicts, args):
     plt.close()
 
 
-def plot_subtype_comparison(auc_dfs, pheno_dicts, conf_dfs, gene, args):
+def plot_subtype_comparison(auc_dfs, pheno_dicts, conf_dfs, plt_gene, args):
     fig, (auc_ax, conf_ax) = plt.subplots(figsize=(15, 7), nrows=1, ncols=2)
 
     use_mtypes = {mtype for mtype in (auc_dfs[args.cohorts[0]].index
@@ -501,9 +497,9 @@ def plot_subtype_comparison(auc_dfs, pheno_dicts, conf_dfs, gene, args):
                   if (not isinstance(mtype, RandomType)
                       and (mtype.subtype_list()[0][1]
                            & copy_mtype).is_empty()
-                      and mtype.get_labels()[0] == gene)}
+                      and mtype.get_labels()[0] == plt_gene)}
 
-    base_mtype = MuType({('Gene', gene): pnt_mtype})
+    base_mtype = MuType({('Gene', plt_gene): pnt_mtype})
     auc_min = -0.005
     auc_max = 0.05
     conf_min = 0.43
@@ -556,7 +552,82 @@ def plot_subtype_comparison(auc_dfs, pheno_dicts, conf_dfs, gene, args):
     plt.savefig(
         os.path.join(plot_dir, '__'.join(args.cohorts),
                      "{}_subtype-comparison_{}.svg".format(
-                         gene, args.classif)),
+                         plt_gene, args.classif)),
+        bbox_inches='tight', format='svg'
+        )
+
+    plt.close()
+
+
+def plot_subtype_transfer(auc_dfs, trnsf_dicts, pheno_dicts, conf_dfs,
+                          plt_gene, args):
+    fig, axarr = plt.subplots(figsize=(15, 7), nrows=1, ncols=2)
+
+    base_mtype = MuType({('Gene', plt_gene): pnt_mtype})
+    plt_min = 0.89
+
+    for ax, (train_coh, other_coh) in zip(axarr, permutations(args.cohorts)):
+        trnsf_aucs = pd.concat([
+            trnsf_data[other_coh]['AUC']['mean']
+            for trnsf_data in trnsf_dicts[train_coh].values()
+            ])
+
+        use_mtypes = {mtype for mtype in trnsf_aucs.index
+                      if ((mtype.subtype_list()[0][1] & copy_mtype).is_empty()
+                          and mtype.get_labels()[0] == plt_gene)}
+
+        for mtype in use_mtypes:
+            train_auc = auc_dfs[train_coh].loc[mtype, 'mean']
+            plt_min = min(plt_min, train_auc - 0.01, trnsf_aucs[mtype] - 0.01)
+
+            conf_sc = np.greater.outer(
+                conf_dfs[train_coh].loc[mtype, 'mean'],
+                conf_dfs[train_coh].loc[base_mtype, 'mean']
+                ).mean()
+
+            if mtype == base_mtype:
+                use_mrk = 'X'
+                use_sz = 5305 * np.mean(pheno_dicts[train_coh][mtype])
+                use_alpha = 0.47
+
+            else:
+                use_mrk = 'o'
+                use_sz = 1507 * np.mean(pheno_dicts[train_coh][mtype])
+                use_alpha = 0.23
+
+            ax.scatter(train_auc, trnsf_aucs[mtype],
+                       marker=use_mrk, s=use_sz, alpha=use_alpha,
+                       edgecolor='none')
+
+        x_lbl = "AUC in training cohort\n{}".format(
+            get_cohort_label(train_coh))
+        y_lbl = "AUC in transfer cohort\n{}".format(
+            get_cohort_label(other_coh))
+
+        ax.set_xlabel(x_lbl, size=23, weight='semibold')
+        ax.set_ylabel(y_lbl, size=23, weight='semibold')
+
+    for ax in axarr:
+        ax.plot([plt_min, 1], [0.5, 0.5],
+                color='black', linewidth=1.3, linestyle=':', alpha=0.71)
+        ax.plot([0.5, 0.5], [plt_min, 1],
+                color='black', linewidth=1.3, linestyle=':', alpha=0.71)
+
+        ax.plot([plt_min, 1.0005], [1, 1],
+                color='black', linewidth=1.9, alpha=0.89)
+        ax.plot([1, 1], [plt_min, 1.0005],
+                color='black', linewidth=1.9, alpha=0.89)
+        ax.plot([plt_min, 0.999], [plt_min, 0.999],
+                color='#550000', linewidth=2.1, linestyle='--', alpha=0.41)
+
+        ax.set_xlim([plt_min, 1 + (1 - plt_min) / 77])
+        ax.set_ylim([plt_min, 1 + (1 - plt_min) / 77])
+
+    fig.tight_layout(w_pad=2.3)
+    plt.savefig(
+        os.path.join(plot_dir, '__'.join(args.cohorts),
+                     "{}__subtype-transfer_{}.svg".format(
+                         plt_gene, args.classif)),
         bbox_inches='tight', format='svg'
         )
 
@@ -566,10 +637,10 @@ def plot_subtype_comparison(auc_dfs, pheno_dicts, conf_dfs, gene, args):
 def main():
     parser = argparse.ArgumentParser(
         "Plots the performance of a model in predicting the presence of "
-        "enumerated mutations in the same disease context it was trained on."
+        "enumerated mutations across and between a pair of tumour cohorts."
         )
 
-    parser.add_argument('cohorts', nargs=2, help="which TCGA cohort was used")
+    parser.add_argument('cohorts', nargs=2, help="which TCGA cohorts to use")
     parser.add_argument('classif', help='a mutation classifier')
     parser.add_argument('--genes', '-g', nargs='*',
                         help='a list of mutated genes', type=str)
@@ -637,6 +708,7 @@ def main():
                              'r') as f:
                 trnsf_dicts[coh][lvls] = pickle.load(f)
 
+    # creates directory where plots will be saved
     os.makedirs(os.path.join(plot_dir, '__'.join(args.cohorts)),
                 exist_ok=True)
 
@@ -653,6 +725,8 @@ def main():
     if args.genes is not None:
         for gene in args.genes:
             plot_subtype_comparison(auc_dfs, phn_dicts, conf_dfs, gene, args)
+            plot_subtype_transfer(auc_dfs, trnsf_dicts, phn_dicts, conf_dfs,
+                                  gene, args)
 
 
 if __name__ == '__main__':
