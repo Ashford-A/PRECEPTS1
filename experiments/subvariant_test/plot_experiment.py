@@ -189,11 +189,9 @@ def main():
                         help="a set of mutation annotation levels", type=str)
     parser.add_argument('classif', help="a mutation classifier", type=str)
 
-    # parse command line arguments, create directory where plots will be saved
     args = parser.parse_args()
     out_tag = "{}__{}__samps-{}".format(
         args.expr_source, args.cohort, args.samp_cutoff)
-    os.makedirs(os.path.join(plot_dir, out_tag), exist_ok=True)
     cdata = merge_cohort_data(os.path.join(base_dir, out_tag), use_seed=8713)
 
     with bz2.BZ2File(os.path.join(base_dir, out_tag,
@@ -214,6 +212,7 @@ def main():
                      'r') as f:
         auc_df = pd.DataFrame.from_dict(pickle.load(f))
 
+    os.makedirs(os.path.join(plot_dir, out_tag), exist_ok=True)
     plot_auc_stability(auc_df['CV'], pheno_dict, args)
     if len(pheno_dict) >= 50:
         plot_label_stability(pred_df, auc_df['mean'], pheno_dict, args)
