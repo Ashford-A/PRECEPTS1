@@ -11,8 +11,8 @@
 
     'tour' : {
         'job-name' : "subv-tour_fit",
-        'output' : "slurm/classify_{wildcards.task_id}.out",
-        'error' : "slurm/classify_{wildcards.task_id}.err",
+        'output' : "slurm/classify_{wildcards.cv_id}_{wildcards.task_id}.out",
+        'error' : "slurm/classify_{wildcards.cv_id}_{wildcards.task_id}.err",
         'time' : "35:55:00",
         'cpus-per-task' : 8,
         'mem-per-cpu': 4000,

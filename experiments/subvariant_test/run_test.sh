@@ -72,7 +72,7 @@ fi
 dvc run -d setup/muts-list.p -d $RUNDIR/fit_test.py \
 	-o $FINALDIR/out-trnsf__${mut_levels}__${classif}.p.gz -f output.dvc \
 	--overwrite-dvcfile --no-commit 'snakemake -s $RUNDIR/Snakefile \
-	-j 201 --latency-wait 120 --cluster-config $RUNDIR/cluster.json \
+	-j 200 --latency-wait 120 --cluster-config $RUNDIR/cluster.json \
 	--cluster "sbatch -p {cluster.partition} -J {cluster.job-name} \
 	-t {cluster.time} -o {cluster.output} -e {cluster.error} \
 	-n {cluster.ntasks} -c {cluster.cpus-per-task} \

@@ -4,16 +4,13 @@ import os
 LOCALDIR = os.path.join(os.environ['CODEDIR'],
                         'HetMan', 'experiments', 'subvariant_tour')
 
-TMPDIR = os.path.join(os.environ['TEMPDIR'],
-                      'HetMan', 'subvariant_tour', config['expr_source'],
-                      "{}__samps-{}".format(config['cohort'],
-                                            config['samp_cutoff']),
-                      config['mut_levels'], config['classif'])
+DATA_TAG = '__'.join([config['expr_source'], config['cohort']])
+PARAM_TAG = '__'.join([config['search_params'], config['mut_list']])
 
-OUTDIR = os.path.join(os.environ['DATADIR'], 'HetMan', 'subvariant_tour',
-                      "{}__{}__samps-{}".format(config['expr_source'],
-                                                config['cohort'],
-                                                config['samp_cutoff']))
+TMPDIR = os.path.join(os.environ['TEMPDIR'], 'HetMan', 'subvariant_tour',
+                      DATA_TAG, PARAM_TAG, config['classif'])
+OUTDIR = os.path.join(os.environ['DATADIR'],
+                      'HetMan', 'subvariant_tour', DATA_TAG)
 
 
 localrules: target
@@ -21,38 +18,37 @@ localrules: target
 
 rule target:
     input:
-        expand("{outdir}/out-conf__{mut_levels}__{classif}.p.gz",
-               outdir=OUTDIR, mut_levels=config['mut_levels'],
-               classif=config['classif'])
+        expand("{outdir}/out-conf__{param_tag}__{classif}.p.gz",
+               outdir=OUTDIR, param_tag=PARAM_TAG, classif=config['classif'])
 
     threads: 1
 
 
 rule tour:
-    output: "{TMPDIR}/output/out_task-{task_id}.p"
+    output: "{TMPDIR}/output/out__cv-{cv_id}_task-{task_id}.p"
 
     threads: 8
 
     shell: """
         set +u; source activate HetMan; set -u;
         export OMP_NUM_THREADS=1;
-        sleep $(( ({wildcards.task_id} + 1) * $(shuf -i 1-11 -n 1) ));
+        sleep $(( ({wildcards.cv_id} + 1) * ({wildcards.task_id} + 1) * $(shuf -i 1-9 -n 1) ));
  
         python {LOCALDIR}/fit_tour.py {config[classif]} --use_dir={TMPDIR} \
                 --task_count={config[task_count]} \
-                --task_id={wildcards.task_id}
+                --task_id={wildcards.task_id} --cv_id={wildcards.cv_id}
         """
 
 
 rule consolidate:
     input:
-        expand("{tmpdir}/output/out_task-{task_id}.p",
-               tmpdir=TMPDIR, task_id=range(config['task_count']))
+        expand("{tmpdir}/output/out__cv-{cv_id}_task-{task_id}.p",
+               tmpdir=TMPDIR,
+               cv_id=range(40), task_id=range(config['task_count']))
 
     output:
-        expand("{outdir}/out-conf__{mut_levels}__{classif}.p.gz",
-               outdir=OUTDIR, mut_levels=config['mut_levels'],
-               classif=config['classif'])
+        expand("{outdir}/out-conf__{param_tag}__{classif}.p.gz",
+               outdir=OUTDIR, param_tag=PARAM_TAG, classif=config['classif'])
 
     threads: 12
 
@@ -60,7 +56,7 @@ rule consolidate:
         set +u; source activate HetMan; set -u;
         python {LOCALDIR}/merge_tour.py {TMPDIR}
 
-        out_tag={config[mut_levels]}__{config[classif]}
+        out_tag={DATA_TAG}__{PARAM_TAG}__{config[classif]}
         cp {TMPDIR}/../../cohort-data.p {OUTDIR}/cohort-data__${{out_tag}}.p
         cp {TMPDIR}/out-data.p.gz {OUTDIR}/out-data__${{out_tag}}.p.gz
         cp {TMPDIR}/out-pheno.p.gz {OUTDIR}/out-pheno__${{out_tag}}.p.gz
