@@ -26,7 +26,6 @@ import dill as pickle
 import subprocess
 
 import random
-from itertools import combinations as combn
 from itertools import product
 
 
@@ -123,17 +122,17 @@ def get_cohort_data(cohort, expr_source, mut_lvls=None, use_genes=None,
     return cdata
 
 
-def load_cohort(cohort, expr_source, use_path):
-    if os.path.exists(use_path):
+def load_cohort(cohort, expr_source, use_path=None, **coh_args):
+    if use_path is not None and os.path.exists(use_path):
         try:
             with open(use_path, 'rb') as f:
                 cdata = pickle.load(f)
 
         except:
-            cdata = get_cohort_data(cohort, expr_source)
+            cdata = get_cohort_data(cohort, expr_source, **coh_args)
 
     else:
-        cdata = get_cohort_data(cohort, expr_source)
+        cdata = get_cohort_data(cohort, expr_source, **coh_args)
 
     return cdata
 
@@ -280,7 +279,7 @@ def main():
     if args.expr_source in {'Firehose', 'microarray'}:
         trnsf_src = 'Firehose'
     else:
-        trnsf_src = args.expr_source
+        trnsf_src = args.expr_source.split('__')[0]
 
     coh_list = list_cohorts(trnsf_src, expr_dir=expr_dir, copy_dir=copy_dir)
     coh_list -= {args.cohort}
