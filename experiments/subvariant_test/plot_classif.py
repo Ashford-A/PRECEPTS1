@@ -2,16 +2,19 @@
 import os
 import sys
 
-base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'subvariant_tour')
+base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'subvariant_test')
 sys.path.extend([os.path.join(os.path.dirname(__file__), '..', '..', '..')])
 plot_dir = os.path.join(base_dir, 'plots', 'classif')
 
-from HetMan.experiments.subvariant_tour import pnt_mtype, train_cohorts
+from HetMan.experiments.subvariant_test import (
+    pnt_mtype, copy_mtype, train_cohorts)
 from HetMan.experiments.subvariant_tour.utils import RandomType
-from HetMan.experiments.subvariant_tour.plot_gene import (
-    get_cohort_label, choose_cohort_colour)
-from HetMan.experiments.subvariant_tour.plot_aucs import place_labels
+from HetMan.experiments.subvariant_test.plot_aucs import place_labels
 from dryadic.features.mutations import MuType
+
+from HetMan.experiments.subvariant_test.plot_gene import (
+    get_cohort_label, choose_cohort_colour)
+from HetMan.experiments.variant_baseline.plot_tuning import detect_log_distr
 
 import argparse
 from pathlib import Path
@@ -36,11 +39,17 @@ plt.rcParams['axes.edgecolor']='white'
 def plot_gene_results(auc_vals, conf_vals, pheno_dict, args):
     fig, ax = plt.subplots(figsize=(13, 8))
 
+    use_aucs = auc_vals[[
+        not isinstance(mtype, RandomType)
+        and (mtype.subtype_list()[0][1] & copy_mtype).is_empty()
+        for _, mtype in auc_vals.index
+        ]]
+
     pnt_dict = dict()
     clr_dict = dict()
 
-    for (coh, gene), auc_vec in auc_vals.groupby(
-        lambda x: (x[0], x[1].get_labels()[0])):
+    for (coh, gene), auc_vec in use_aucs.groupby(
+            lambda x: (x[0], x[1].get_labels()[0])):
 
         if len(auc_vec) > 1 and auc_vec.max() > 0.68:
             base_mtype = MuType({('Gene', gene): pnt_mtype})
@@ -123,6 +132,74 @@ def plot_gene_results(auc_vals, conf_vals, pheno_dict, args):
     plt.close()
 
 
+def plot_tuning_profile(acc_df, out_clf, auc_vals, args):
+    fig, axarr = plt.subplots(figsize=(17, 1 + 7 * len(out_clf.tune_priors)),
+                              nrows=len(out_clf.tune_priors), ncols=1,
+                              squeeze=False)
+
+    use_aucs = auc_vals.round(4)
+    auc_bins = pd.qcut(
+        use_aucs.values.flatten(), q=[0., 0.5, 0.75, 0.8, 0.85, 0.9,
+                                      0.92, 0.94, 0.96, 0.98, 0.99, 1.],
+        precision=5
+        ).categories
+
+    use_cohs = sorted(set(acc_df.index.get_level_values('Cohort')))
+    coh_clrs = dict(zip(use_cohs,
+                        sns.color_palette("muted", n_colors=len(use_cohs))))
+
+    for ax, (par_name, tune_distr) in zip(axarr.flatten(),
+                                          out_clf.tune_priors):
+        if detect_log_distr(tune_distr):
+            par_fnc = np.log10
+            plt_xmin = 2 * np.log10(tune_distr[0]) - np.log10(tune_distr[1])
+            plt_xmax = 2 * np.log10(tune_distr[-1]) - np.log10(tune_distr[-2])
+
+        else:
+            par_fnc = lambda x: x
+            plt_xmin = 2 * tune_distr[0] - tune_distr[1]
+            plt_xmax = 2 * tune_distr[-1] - tune_distr[-2]
+
+        plot_df = pd.DataFrame([])
+        for (coh, mtype), acc_vals in acc_df.iterrows():
+            par_df = pd.DataFrame.from_records([
+                pd.Series({par_fnc(pars[par_name]): avg_val
+                           for pars, avg_val in zip(par_ols, avg_ols)})
+                for par_ols, avg_ols in zip(
+                    acc_vals['par'], acc_vals['avg'])
+                ]).quantile(q=0.25).reset_index()
+
+            # note that we take the maximum of AUCs for finding the bin due
+            # to (rare) cases where RandomTypes get duplicated
+            par_df.columns = ['par', 'auc']
+            par_df['auc_bin'] = auc_bins.get_loc(use_aucs[coh, mtype].max())
+            plot_df = pd.concat([plot_df, par_df])
+
+        for auc_bin, bin_vals in plot_df.groupby('auc_bin'):
+            plot_vals = bin_vals.groupby('par').mean()
+            ax.plot(plot_vals.index, plot_vals.auc)
+
+        ax.set_xlim(plt_xmin, plt_xmax)
+        ax.set_ylim(0.45, 1.01)
+        ax.tick_params(labelsize=19)
+        ax.set_xlabel("Tested {} Value".format(par_name),
+                      fontsize=27, weight='semibold')
+
+        ax.axhline(y=1.0, color='black', linewidth=2.1, alpha=0.37)
+        ax.axhline(y=0.5, color='#550000',
+                   linewidth=2.7, linestyle='--', alpha=0.29)
+
+    fig.text(-0.01, 0.5, "Aggregate AUC", ha='center', va='center',
+             fontsize=27, weight='semibold', rotation='vertical')
+
+    plt.tight_layout(h_pad=1.7)
+    fig.savefig(os.path.join(plot_dir, args.expr_source,
+                             "{}__tuning-profile.svg".format(args.classif)),
+        bbox_inches='tight', format='svg')
+
+    plt.close()
+
+
 def main():
     parser = argparse.ArgumentParser(
         "Summarizes the enumeration and prediction results for a given "
@@ -134,7 +211,6 @@ def main():
     parser.add_argument('classif', help='a mutation classifier')
 
     args = parser.parse_args()
-    os.makedirs(os.path.join(plot_dir, args.expr_source), exist_ok=True)
 
     out_datas = [
         out_file.parts[-2:] for out_file in Path(base_dir).glob(os.path.join(
@@ -151,7 +227,7 @@ def main():
                 )
             ]
 
-    out_use = pd.DataFrame([
+    out_list = pd.DataFrame([
         {'Cohort': out_data[0].split('__')[-2],
          'Samps': int(out_data[0].split("__samps-")[1]),
          'Levels': '__'.join(out_data[1].split('__')[1:-1])}
@@ -159,15 +235,22 @@ def main():
         ]).groupby('Cohort').filter(
             lambda outs: ('Exon__Location__Protein' in set(outs.Levels)
                           and outs.Levels.str.match('Domain_').any())
-        ).groupby(['Cohort', 'Levels'])['Samps'].min()
+            )
 
+    if out_list.shape[0] == 0:
+        raise ValueError("No experiment output found for these parameters!")
+
+    out_use = out_list.groupby(['Cohort', 'Levels'])['Samps'].min()
     out_use = out_use[out_use.index.get_level_values(
         'Cohort').isin(train_cohorts)]
+    os.makedirs(os.path.join(plot_dir, args.expr_source), exist_ok=True)
 
     phn_dict = {coh: dict()
                 for coh in set(out_use.index.get_level_values('Cohort'))}
     auc_dict = dict()
     conf_dict = dict()
+    acc_dict = dict()
+    out_clf = dict()
 
     for (coh, lvls), ctf in out_use.iteritems():
         if coh == 'beatAML':
@@ -187,10 +270,8 @@ def main():
                              "out-aucs__{}__{}.p.gz".format(
                                  lvls, args.classif)),
                 'r') as fl:
-            auc_vals = pickle.load(fl).Chrm
+            auc_vals = pickle.load(fl)['mean']
 
-        auc_vals = auc_vals[[not isinstance(mtype, RandomType)
-                             for mtype in auc_vals.index]]
         auc_vals.index = pd.MultiIndex.from_product([[coh], auc_vals.index],
                                                     names=('Cohort', 'Mtype'))
         auc_dict[coh, lvls] = auc_vals
@@ -200,7 +281,7 @@ def main():
                              "out-conf__{}__{}.p.gz".format(
                                  lvls, args.classif)),
                 'r') as fl:
-            conf_vals = pickle.load(fl)['Chrm'].iloc[:, 0]
+            conf_vals = pickle.load(fl)['mean']
 
         conf_vals = conf_vals[[not isinstance(mtype, RandomType)
                                for mtype in conf_vals.index]]
@@ -208,10 +289,27 @@ def main():
             [[coh], conf_vals.index], names=('Cohort', 'Mtype'))
         conf_dict[coh, lvls] = conf_vals
 
-    auc_vals = pd.concat(auc_dict.values())
-    conf_vals = pd.concat(conf_dict.values())
+        with bz2.BZ2File(
+                os.path.join(base_dir, out_tag,
+                             "out-tune__{}__{}.p.gz".format(
+                                 lvls, args.classif)),
+                'r') as fl:
+            (_, _, acc_vals, out_clf[coh, lvls]) = pickle.load(fl)
+
+        acc_vals.index = pd.MultiIndex.from_product([[coh], acc_vals.index],
+                                                    names=('Cohort', 'Mtype'))
+        acc_dict[coh, lvls] = acc_vals
+
+    auc_vals = pd.concat(auc_dict.values()).sort_index()
+    conf_vals = pd.concat(conf_dict.values()).sort_index()
+    acc_df = pd.concat(acc_dict.values()).sort_index()
+
+    out_clf = set(out_clf.values())
+    assert len(out_clf) == 1
+    out_clf = tuple(out_clf)[0]
 
     plot_gene_results(auc_vals, conf_vals, phn_dict, args)
+    plot_tuning_profile(acc_df, out_clf, auc_vals, args)
 
 
 if __name__ == "__main__":

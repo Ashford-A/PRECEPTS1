@@ -6,15 +6,14 @@ base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'subvariant_tour')
 sys.path.extend([os.path.join(os.path.dirname(__file__), '..', '..', '..')])
 plot_dir = os.path.join(base_dir, 'plots', 'aucs')
 
-from HetMan.experiments.subvariant_tour import pnt_mtype
-from HetMan.experiments.subvariant_tour.merge_tour import merge_cohort_data
-from HetMan.experiments.subvariant_tour.utils import (
-    get_fancy_label, RandomType)
 from HetMan.experiments.subvariant_infer import variant_clrs
+from HetMan.experiments.subvariant_test.utils import get_fancy_label
+from HetMan.experiments.subvariant_test.plot_aucs import (
+    choose_gene_colour, place_labels)
+from HetMan.experiments.subvariant_test import pnt_mtype
 from dryadic.features.mutations import MuType
 
 import argparse
-from pathlib import Path
 import bz2
 import dill as pickle
 
@@ -37,359 +36,11 @@ plt.rcParams['savefig.facecolor']='white'
 plt.rcParams['axes.edgecolor']='white'
 
 
-def choose_gene_colour(gene, clr_seed=15707):
-    np.random.seed(int((clr_seed + np.prod([ord(char) for char in gene]))
-                       % (2 ** 14)))
-
-    return hls_to_rgb(h=np.random.uniform(size=1)[0], l=0.5, s=0.8)
-
-
-def place_labels(pnt_dict, lims=(0.48, 1.01), lbl_dens=1.):
-    lim_gap = (lbl_dens * 17) / (lims[1] - lims[0])
-
-    # initialize objects storing where each label will be positioned, and how
-    # much space needs to be left around already placed points and labels
-    lbl_pos = {pnt: None for pnt, (_, lbls) in pnt_dict.items() if lbls[0]}
-    pnt_gaps = {pnt: sz / lim_gap for pnt, (sz, _) in pnt_dict.items()}
-    pnt_boxs = {pnt: [[gap * 1.53, gap * 1.53], [gap * 1.53, gap * 1.53]]
-                for pnt, gap in pnt_gaps.items()}
-
-    # calculate how much space each label to plot will occupy once placed
-    lbl_wdths = {
-        pnt: (max(len(ln) for ln in lbls[1].split('\n')) * 0.17 / lim_gap
-              if lbls[1] else len(lbls[0]) * 0.26 / lim_gap)
-        for pnt, (_, lbls) in pnt_dict.items()
-        }
-
-    lbl_hghts = {
-        pnt: ((0.64 + lbls[1].count('\n') * 0.29) / lim_gap
-              if lbls[1] else 0.37 / lim_gap)
-        for pnt, (_, lbls) in pnt_dict.items()
-        }
-
-    # for each point, check if there is enough space to plot its label
-    # to the left of it...
-    for pnt in sorted(set(lbl_pos)):
-        if (pnt[0] > (lims[0] + lbl_wdths[pnt])
-            and not any((((pnt[0] - pnt_boxs[pnt][0][0] - lbl_wdths[pnt])
-                          < (pnt2[0] - pnt_boxs[pnt2][0][0])
-                          < (pnt[0] + pnt_boxs[pnt][0][1]))
-                         or ((pnt[0] - pnt_boxs[pnt][0][0] - lbl_wdths[pnt])
-                             < (pnt2[0] + pnt_boxs[pnt2][0][1])
-                             < (pnt[0] + pnt_boxs[pnt][0][1]))
-                         or ((pnt2[0] - pnt_boxs[pnt2][0][0])
-                             < pnt[0] < (pnt2[0] + pnt_boxs[pnt2][0][1])))
-
-                        and (((pnt[1] - pnt_boxs[pnt][1][0]
-                               - lbl_hghts[pnt] / 1.9)
-                              < (pnt2[1] - pnt_boxs[pnt2][1][0])
-                              < (pnt[1] + pnt_boxs[pnt][1][1]
-                                 + lbl_hghts[pnt] / 2.1))
-                             or ((pnt[1] - pnt_boxs[pnt][1][0]
-                                  - lbl_hghts[pnt] / 1.9)
-                                 < (pnt2[1] + pnt_boxs[pnt2][1][1])
-                                 < (pnt[1] + pnt_boxs[pnt][1][1]))
-                             or ((pnt2[1] - pnt_boxs[pnt2][1][0])
-                                 < pnt[1] < (pnt2[1] + pnt_boxs[pnt2][1][1])))
-                        for pnt2 in pnt_dict if pnt2 != pnt)):
- 
-            lbl_pos[pnt] = (pnt[0] - pnt_gaps[pnt], pnt[1]), 'right'
-            pnt_boxs[pnt][0][0] = max(pnt_boxs[pnt][0][0], lbl_wdths[pnt])
-
-            pnt_boxs[pnt][1][0] = max(pnt_boxs[pnt][1][0], lbl_hghts[pnt])
-            pnt_boxs[pnt][1][1] = max(pnt_boxs[pnt][1][1],
-                                      lbl_hghts[pnt] / 1.3)
-
-        # ...if there isn't, check if there is enough space to plot its
-        # label to the right of it
-        elif (pnt[0] < (lims[1] - lbl_wdths[pnt])
-              and not any((((pnt[0] - pnt_boxs[pnt][0][0])
-                            < (pnt2[0] - pnt_boxs[pnt2][0][0])
-                            < (pnt[0] + pnt_boxs[pnt][0][1] + lbl_wdths[pnt]))
-                           or ((pnt[0] - pnt_boxs[pnt][0][0])
-                               < (pnt2[0] + pnt_boxs[pnt2][0][1])
-                               < (pnt[0] + pnt_boxs[pnt][0][1]
-                                  + lbl_wdths[pnt]))
-                           or ((pnt2[0] - pnt_boxs[pnt2][0][0])
-                               < pnt[0] < (pnt2[0] + pnt_boxs[pnt2][0][1])))
-
-                          and (((pnt[1] - pnt_boxs[pnt][1][0]
-                                 - lbl_hghts[pnt] / 1.9)
-                                < (pnt2[1] - pnt_boxs[pnt2][1][0])
-                                < (pnt[1] + pnt_boxs[pnt][1][1]
-                                   + lbl_hghts[pnt] / 2.1))
-                               or ((pnt[1] - pnt_boxs[pnt][1][0])
-                                   < (pnt2[1] + pnt_boxs[pnt2][1][1])
-                                   < (pnt[1] + pnt_boxs[pnt][1][1]
-                                      + lbl_hghts[pnt] / 2.1))
-                               or ((pnt2[1] - pnt_boxs[pnt2][1][0])
-                                   < pnt[1]
-                                   < (pnt2[1] + pnt_boxs[pnt2][1][1])))
-                          for pnt2 in pnt_dict if pnt2 != pnt)):
-
-            lbl_pos[pnt] = (pnt[0] + pnt_gaps[pnt], pnt[1]), 'left'
-            pnt_boxs[pnt][0][1] = max(pnt_boxs[pnt][0][1], lbl_wdths[pnt])
-
-            pnt_boxs[pnt][1][0] = max(pnt_boxs[pnt][1][0], lbl_hghts[pnt])
-            pnt_boxs[pnt][1][1] = max(pnt_boxs[pnt][1][1],
-                                      lbl_hghts[pnt] / 1.3)
-
-    # for labels that couldn't be placed right beside their points, look for
-    # empty space in the vicinity
-    i = 0
-    while i < 1491 and any(lbl is None for lbl in lbl_pos.values()):
-        i += 0.5
-
-        for pnt in tuple(pnt_dict):
-            if pnt in lbl_pos and lbl_pos[pnt] is None:
-                new_pos = ((67 + (i * np.random.randn(2))) / (lim_gap * 131)
-                           + [pnt[0], pnt[1]])
-
-                # exclude areas too close to the edge of the plot from the
-                # vicinity to search over for the label
-                new_pos[0] = new_pos[0].round(5).clip(
-                    lims[0] + lbl_wdths[pnt] * 1.7, lims[1] - lbl_wdths[pnt])
-                new_pos[1] = new_pos[1].round(5).clip(
-                    lims[0] + lbl_hghts[pnt] * 1.7, lims[1] - lbl_hghts[pnt])
-
-                # exclude areas too far from the corresponding point from
-                # the vicinity to search over for the label
-                new_pos[0] = new_pos[0].round(5).clip(
-                    pnt[0] - (lims[1] - lims[0]) * 0.43,
-                    pnt[0] + (lims[1] - lims[0]) * 0.43
-                    )
-                new_pos[1] = new_pos[1].round(5).clip(
-                    pnt[1] - (lims[1] - lims[0]) * 0.43,
-                    pnt[1] + (lims[1] - lims[0]) * 0.43
-                    )
- 
-                if not (any((((new_pos[0] - lbl_wdths[pnt] / 1.5)
-                              < (pnt2[0] - pnt_boxs[pnt2][0][0])
-                              < (new_pos[0] + lbl_wdths[pnt] / 1.5))
-                             or ((new_pos[0] - lbl_wdths[pnt] / 1.5)
-                                 < (pnt2[0] + pnt_boxs[pnt2][0][1])
-                                 < (new_pos[0] + lbl_wdths[pnt] / 1.5))
-                             or ((pnt2[0] - pnt_boxs[pnt2][0][0])
-                                 < new_pos[0]
-                                 < (pnt2[0] + pnt_boxs[pnt2][0][1])))
-
-                            and (((new_pos[1] - lbl_hghts[pnt] / 1.3)
-                                  < (pnt2[1] - pnt_boxs[pnt2][1][0])
-                                  < (new_pos[1] + lbl_hghts[pnt] / 1.3))
-                                 or ((new_pos[1] - lbl_hghts[pnt] / 1.3)
-                                      < (pnt2[1] + pnt_boxs[pnt2][1][1])
-                                      < (new_pos[1] + lbl_hghts[pnt] / 1.3))
-                                 or ((pnt2[1] - pnt_boxs[pnt2][1][0])
-                                     < new_pos[1]
-                                     < (pnt2[1] + pnt_boxs[pnt2][1][1])))
-                            for pnt2 in pnt_dict)
-
-                        or any(((new_pos[0] - pos2[0][0]) ** 2
-                                + (new_pos[1] - pos2[0][1]) ** 2) ** 0.5
-                               < (lim_gap ** -0.91)
-                               for pos2 in lbl_pos.values()
-                               if pos2 is not None)
-
-                        or any((((new_pos[0] - lbl_wdths[pnt] / 1.5)
-                                 < (pos2[0][0] - lbl_wdths[pnt2] / 1.5)
-                                 < (new_pos[0] + lbl_wdths[pnt] / 1.5))
-                                or ((new_pos[0] - lbl_wdths[pnt] / 1.5)
-                                    < (pos2[0][0] + lbl_wdths[pnt2] / 1.5)
-                                    < (new_pos[0] + lbl_wdths[pnt] / 1.5)))
-
-                               and (((new_pos[1] - lbl_hghts[pnt] / 1.2)
-                                     < (pos2[0][1] - lbl_hghts[pnt2] / 1.2)
-                                     < (new_pos[1] + lbl_hghts[pnt] / 1.2))
-                                    or ((new_pos[1] - lbl_hghts[pnt] / 1.2)
-                                        < (pos2[0][1] + lbl_hghts[pnt2] / 1.2)
-                                        < (new_pos[1]
-                                           + lbl_hghts[pnt] / 1.2)))
-                               for pnt2, pos2 in lbl_pos.items()
-                               if pos2 is not None and pos2[1] == 'center')):
-
-                    lbl_pos[pnt] = (new_pos[0], new_pos[1]), 'center'
-                    pnt_boxs[pnt][0][0] = max(pnt_boxs[pnt][0][0],
-                                              lbl_wdths[pnt] / 1.2)
-                    pnt_boxs[pnt][0][1] = max(pnt_boxs[pnt][0][1],
-                                              lbl_wdths[pnt] / 1.2)
-
-                    pnt_boxs[pnt][1][0] = max(pnt_boxs[pnt][1][0],
-                                              lbl_hghts[pnt] / 0.9)
-                    pnt_boxs[pnt][1][1] = max(pnt_boxs[pnt][1][1],
-                                              lbl_hghts[pnt] / 1.1)
-
-    return {pos: lbl for pos, lbl in lbl_pos.items() if lbl}
-
-
-def plot_random_comparison(auc_vals, pheno_dict, args):
-    fig, (viol_ax, sctr_ax) = plt.subplots(
-        figsize=(11, 7), nrows=1, ncols=2,
-        gridspec_kw=dict(width_ratios=[1, 1.51])
-        )
-
-    mtype_genes = pd.Series([mtype.subtype_list()[0][0]
-                             for mtype in auc_vals.index
-                             if len(mtype.subtype_list()) > 0])
-
-    sbgp_genes = mtype_genes.value_counts()[
-        mtype_genes.value_counts() > 1].index
-    lbl_order = ['Random', 'Point w/o Sub', 'Point w/ Sub', 'Subgroupings']
-
-    gene_stat = pd.Series({
-        mtype: ('Random' if isinstance(mtype, RandomType)
-                else 'Point w/ Sub'
-                if (mtype.subtype_list()[0][1] == pnt_mtype
-                    and mtype.get_labels()[0] in sbgp_genes)
-                else 'Point w/o Sub'
-                if (mtype.subtype_list()[0][1] == pnt_mtype
-                    and not mtype.get_labels()[0] in sbgp_genes)
-                else 'Other'
-                if (mtype.subtype_list()[0][1] != pnt_mtype
-                    and pheno_dict[mtype].sum() == pheno_dict[MuType(
-                        {('Gene', mtype.get_labels()[0]): pnt_mtype})].sum())
-                else 'Subgroupings')
-        for mtype in auc_vals.index
-        })
-
-    auc_vals = auc_vals[gene_stat != 'Other']
-    gene_stat = gene_stat[gene_stat != 'Other']
-
-    sns.violinplot(x=gene_stat, y=auc_vals, ax=viol_ax, order=lbl_order,
-                   palette=['0.61', *[variant_clrs['Point']] * 3],
-                   cut=0, linewidth=0, width=0.93)
-
-    viol_ax.set_xlabel('')
-    viol_ax.set_ylabel('AUC', size=23, weight='semibold')
-    viol_ax.set_xticklabels(lbl_order, rotation=37, ha='right', size=18)
-
-    viol_ax.get_children()[2].set_linewidth(3.1)
-    viol_ax.get_children()[4].set_linewidth(3.1)
-    viol_ax.get_children()[2].set_facecolor('white')
-    viol_ax.get_children()[2].set_edgecolor(variant_clrs['Point'])
-    viol_ax.get_children()[4].set_edgecolor(variant_clrs['Point'])
-
-    for i, lbl in enumerate(lbl_order):
-        viol_ax.get_children()[i * 2].set_alpha(0.41)
-
-        viol_ax.text(i - 0.13, viol_ax.get_ylim()[1],
-                     "n={}".format((gene_stat == lbl).sum()),
-                     size=15, rotation=37, ha='left', va='bottom')
-
-    size_dict = dict()
-    for mtype in auc_vals.index:
-        if isinstance(mtype, RandomType):
-            if mtype.size_dist in size_dict:
-                size_dict[mtype.size_dist] += [mtype]
-            else:
-                size_dict[mtype.size_dist] = [mtype]
-
-    for mtype_stat, face_clr, edge_clr, ln_wdth in zip(
-            lbl_order[1:],
-            ['none', variant_clrs['Point'], variant_clrs['Point']],
-            [variant_clrs['Point'], variant_clrs['Point'], 'none'],
-            [1.7, 1.7, 0]
-            ):
-
-        plt_mtypes = gene_stat.index[gene_stat == mtype_stat]
-        size_rtypes = [size_dict[np.sum(pheno_dict[mtype])]
-                       for mtype in plt_mtypes]
-        mean_vals = [701 * np.mean(pheno_dict[mtype]) for mtype in plt_mtypes]
-
-        sctr_ax.scatter([auc_vals[plt_mtype] for plt_mtype in plt_mtypes],
-                        [auc_vals[rtype].max() for rtype in size_rtypes],
-                        s=mean_vals, alpha=0.11, facecolor=face_clr,
-                        edgecolor=edge_clr, linewidth=ln_wdth)
-
-    sctr_ax.set_xlabel("AUC of Oncogene Mutation", size=19, weight='semibold')
-    sctr_ax.set_ylabel("Best AUC of\nSize-Matched Randoms",
-                       size=19, weight='semibold')
-
-    sctr_ax.set_xlim(viol_ax.get_ylim())
-    sctr_ax.set_ylim(viol_ax.get_ylim())
-    sctr_ax.plot(viol_ax.get_ylim(), viol_ax.get_ylim(),
-                 linewidth=1.7, linestyle='--', color='#550000', alpha=0.41)
-
-    plt.tight_layout(w_pad=2.7)
-    plt.savefig(
-        os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
-                     "random-comparison_{}.svg".format(args.classif)),
-        bbox_inches='tight', format='svg'
-        )
-
-    plt.close()
-
-
-def plot_size_comparison(auc_vals, pheno_dict, args):
-    fig, ax = plt.subplots(figsize=(13, 8))
-
-    # filter out experiment results for mutations representing randomly
-    # chosen sets of samples rather than actual mutations
-    mtype_aucs = auc_vals[[
-        not isinstance(mtype, RandomType)
-        and not (mtype.subtype_list()[0][1] != pnt_mtype
-                 and pheno_dict[mtype].sum() == pheno_dict[MuType(
-                     {('Gene', mtype.get_labels()[0]): pnt_mtype})].sum())
-        for mtype in auc_vals.index
-        ]]
-
-    plot_df = pd.DataFrame({
-        'Size': [pheno_dict[mtype].sum() for mtype in mtype_aucs.index],
-        'AUC': mtype_aucs.values,
-        'Gene': [mtype.get_labels()[0] for mtype in mtype_aucs.index]
-        })
-
-    ax.scatter(plot_df.Size, plot_df.AUC,
-               c=[choose_gene_colour(gene) for gene in plot_df.Gene],
-               s=23, alpha=0.17, edgecolor='none')
-
-    size_lm = smf.ols('AUC ~ C(Gene) + Size', data=plot_df).fit()
-    coef_vals = size_lm.params.sort_values()[::-1]
-    gene_coefs = coef_vals[coef_vals.index.str.match('^C(Gene)*')]
-
-    coef_lbl = '\n'.join(
-        ["Size Coef: {:.3g}".format(coef_vals.Size)]
-        + ["{} Coef: {:.3g}".format(gn.split("[T.")[1].split("]")[0], coef)
-           for gn, coef in gene_coefs[:4].iteritems()]
-        )
-
-    ax.text(0.97, 0.07, coef_lbl,
-            size=14, ha='right', va='bottom', transform=ax.transAxes)
-    ax.set_xlabel("# of Samples Affected", size=20, weight='semibold')
-    ax.set_ylabel("AUC", size=20, weight='semibold')
-
-    ax.set_xlim([10, ax.get_xlim()[1]])
-    ax.set_ylim([ax.get_ylim()[0], 1.01])
-
-    ax.plot(ax.get_xlim(), [0.5, 0.5],
-            color='black', linewidth=1.3, linestyle=':', alpha=0.71)
-    ax.plot(ax.get_xlim(), [1.0, 1.0],
-            color='black', linewidth=1.9, alpha=0.89)
-
-    plt.tight_layout(w_pad=2.7)
-    plt.savefig(
-        os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
-                     "size-comparison_{}.svg".format(args.classif)),
-        bbox_inches='tight', format='svg'
-        )
-
-    plt.close()
-
-
 def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals, args):
     fig, ax = plt.subplots(figsize=(11, 11))
 
     pnt_dict = dict()
     clr_dict = dict()
-
-    # filter out experiment results for mutations representing randomly
-    # chosen sets of samples rather than actual mutations
-    auc_vals = auc_vals[[
-        not isinstance(mtype, RandomType)
-        and not (mtype.subtype_list()[0][1] != pnt_mtype
-                 and pheno_dict[mtype].sum() == pheno_dict[MuType(
-                     {('Gene', mtype.get_labels()[0]): pnt_mtype})].sum())
-        for mtype in auc_vals.index
-        ]]
 
     # for each gene whose mutations were tested, pick a random colour
     # to use for plotting the results for the gene
@@ -399,6 +50,7 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals, args):
         # if there were subgroupings tested for the gene, find the results
         # for the mutation representing all point mutations for this gene...
         if len(auc_vec) > 1:
+            import pdb; pdb.set_trace()
             base_mtype = MuType({('Gene', gene): pnt_mtype})
             base_indx = auc_vec.index.get_loc(base_mtype)
 
@@ -500,18 +152,8 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals, args):
     plt.close()
 
 
-def plot_aupr_comparisons(auc_vals, infer_df, pheno_dict, conf_vals, args):
+def plot_aupr_comparisons(auc_vals, pred_df, pheno_dict, conf_vals, args):
     fig, (base_ax, subg_ax) = plt.subplots(figsize=(17, 8), nrows=1, ncols=2)
-
-    # filter out experiment results for mutations representing randomly
-    # chosen sets of samples rather than actual mutations
-    auc_vals = auc_vals[[
-        not isinstance(mtype, RandomType)
-        and not (mtype.subtype_list()[0][1] != pnt_mtype
-                 and pheno_dict[mtype].sum() == pheno_dict[MuType(
-                     {('Gene', mtype.get_labels()[0]): pnt_mtype})].sum())
-        for mtype in auc_vals.index
-        ]]
 
     pnt_dict = {'Base': dict(), 'Subg': dict()}
     clr_dict = dict()
@@ -535,8 +177,8 @@ def plot_aupr_comparisons(auc_vals, infer_df, pheno_dict, conf_vals, args):
                 best_prop = 0.47 * np.mean(
                     pheno_dict[best_subtype]) / base_size
 
-                base_infr = infer_df.loc[base_mtype].apply(np.mean)
-                best_infr = infer_df.loc[best_subtype].apply(np.mean)
+                base_infr = pred_df.loc[base_mtype].apply(np.mean)
+                best_infr = pred_df.loc[best_subtype].apply(np.mean)
 
                 base_auprs = (aupr_score(pheno_dict[base_mtype], base_infr),
                               aupr_score(pheno_dict[base_mtype], best_infr))
@@ -630,9 +272,9 @@ def plot_aupr_comparisons(auc_vals, infer_df, pheno_dict, conf_vals, args):
         ax.set_xlim([-0.01, plt_max])
         ax.set_ylim([-0.01, plt_max])
 
-        ax.set_xlabel("using all point mutation inferred scores",
+        ax.set_xlabel("using all point mutation predicted scores",
                       size=19, weight='semibold')
-        ax.set_ylabel("using best found subgrouping inferred scores",
+        ax.set_ylabel("using best found subgrouping predicted scores",
                       size=19, weight='semibold')
 
     base_ax.set_title("AUPR on all point mutations",
@@ -658,76 +300,41 @@ def main():
     parser.add_argument('expr_source',
                         help="a source of expression data", type=str)
     parser.add_argument('cohort', help="a TCGA cohort", type=str)
+    parser.add_argument('search_params', type=str)
+    parser.add_argument('mut_lvls', type=str)
     parser.add_argument('classif', help="a mutation classifier", type=str)
 
-    # parse command line arguments, create directory where plots will be saved
     args = parser.parse_args()
+    out_dir = os.path.join(base_dir,
+                           '__'.join([args.expr_source, args.cohort]))
+
+    out_files = {
+        out_lbl: os.path.join(
+            out_dir, "out-{}__{}__{}__{}.p.gz".format(
+                out_lbl, args.search_params, args.mut_lvls, args.classif)
+            )
+        for out_lbl in ['pred', 'pheno', 'aucs', 'conf']
+        }
+
+    if not os.path.isfile(out_files['conf']):
+        raise ValueError("No experiment output found for these parameters!")
+
     os.makedirs(os.path.join(plot_dir,
                              '__'.join([args.expr_source, args.cohort])),
                 exist_ok=True)
 
-    out_datas = [
-        out_file.parts[-2:] for out_file in Path(base_dir).glob(os.path.join(
-            "{}__{}__samps-*".format(args.expr_source, args.cohort),
-            "out-conf__*__{}.p.gz".format(args.classif)
-            ))
-        ]
+    with bz2.BZ2File(out_files['pred'], 'r') as f:
+        pred_df = pickle.load(f)['Chrm']
+    with bz2.BZ2File(out_files['pheno'], 'r') as f:
+        phn_dict = pickle.load(f)
+    with bz2.BZ2File(out_files['aucs'], 'r') as f:
+        auc_vals = pickle.load(f).Chrm
+    with bz2.BZ2File(out_files['conf'], 'r') as f:
+        conf_vals = pickle.load(f)['Chrm']
 
-    out_use = pd.DataFrame([
-        {'Samps': int(out_data[0].split('__samps-')[1]),
-         'Levels': '__'.join(out_data[1].split(
-             'out-conf__')[1].split('__')[:-1])}
-        for out_data in out_datas
-        ]).groupby(['Levels'])['Samps'].min()
-
-    if 'Exon__Location__Protein' not in out_use.index:
-        raise ValueError("Cannot compare AUCs until this experiment is run "
-                         "with mutation levels `Exon__Location__Protein` "
-                         "which tests genes' base mutations!")
-
-    infer_dict = dict()
-    phn_dict = dict()
-    auc_dict = dict()
-    conf_dict = dict()
-
-    for lvls, ctf in out_use.iteritems():
-        out_tag = "{}__{}__samps-{}".format(
-            args.expr_source, args.cohort, ctf)
-
-        with bz2.BZ2File(os.path.join(base_dir, out_tag,
-                                      "out-data__{}__{}.p.gz".format(
-                                          lvls, args.classif)),
-                         'r') as f:
-            infer_dict[lvls] = pickle.load(f)['Infer']['Chrm']
-
-        with bz2.BZ2File(os.path.join(base_dir, out_tag,
-                                      "out-pheno__{}__{}.p.gz".format(
-                                          lvls, args.classif)),
-                         'r') as f:
-            phn_dict.update(pickle.load(f))
-
-        with bz2.BZ2File(os.path.join(base_dir, out_tag,
-                                      "out-aucs__{}__{}.p.gz".format(
-                                          lvls, args.classif)),
-                         'r') as f:
-            auc_dict[lvls] = pickle.load(f).Chrm
-
-        with bz2.BZ2File(os.path.join(base_dir, out_tag,
-                                      "out-conf__{}__{}.p.gz".format(
-                                          lvls, args.classif)),
-                         'r') as f:
-            conf_dict[lvls] = pickle.load(f)['Chrm'].iloc[:, 0]
-
-    infer_df = pd.concat(infer_dict.values())
-    auc_df = pd.concat(auc_dict.values())
-    conf_df = pd.concat(conf_dict.values())
-    assert auc_df.index.isin(phn_dict).all()
-
-    # create the plots
-    plot_random_comparison(auc_df, phn_dict, args)
-    plot_size_comparison(auc_df, phn_dict, args)
-    plot_sub_comparisons(auc_df, phn_dict, conf_df, args)
-    plot_aupr_comparisons(auc_df, infer_df, phn_dict, conf_df, args)
+    assert auc_vals.index.isin(phn_dict).all()
+    plot_sub_comparisons(auc_vals, phn_dict, conf_vals, args)
+    plot_aupr_comparisons(auc_vals, pred_df, phn_dict, conf_vals, args)
 
 
 if __name__ == '__main__':
