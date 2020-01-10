@@ -13,7 +13,7 @@ localrules: target
 
 rule target:
     input:
-        expand("{outdir}/out-trnsf__{cohort}__{classif}.p.gz",
+        expand("{outdir}/trnsf-vals__{cohort}__{classif}.p.gz",
                outdir=OUTDIR, cohort=config['cohort'],
                classif=config['classif']),
 
@@ -21,28 +21,29 @@ rule target:
 
 
 rule threshold:
-    output: "{TMPDIR}/output/out_task-{task_id}.p"
+    output: "{TMPDIR}/output/out__cv-{cv_id}_task-{task_id}.p"
 
     threads: 8
 
     shell: """
         set +u; source activate HetMan; set -u;
         export OMP_NUM_THREADS=1;
-        sleep $(( ({wildcards.task_id} + 1) * $(shuf -i 1-13 -n 1) ));
+        sleep $(( ({wildcards.cv_id} + 1) * ({wildcards.task_id} + 1) * $(shuf -i 1-9 -n 1) ));
  
         python {LOCALDIR}/fit_threshold.py {config[classif]} \
                 --use_dir={TMPDIR} --task_count={config[task_count]} \
-                --task_id={wildcards.task_id}
+                --task_id={wildcards.task_id} --cv_id={wildcards.cv_id}
         """
 
 
 rule consolidate:
     input:
-        expand("{tmpdir}/output/out_task-{task_id}.p",
-               tmpdir=TMPDIR, task_id=range(config['task_count']))
+        expand("{tmpdir}/output/out__cv-{cv_id}_task-{task_id}.p",
+               tmpdir=TMPDIR,
+               cv_id=range(40), task_id=range(config['task_count']))
 
     output:
-        expand("{outdir}/out-trnsf__{cohort}__{classif}.p.gz",
+        expand("{outdir}/trnsf-vals__{cohort}__{classif}.p.gz",
                outdir=OUTDIR, cohort=config['cohort'],
                classif=config['classif'])
 
@@ -55,9 +56,11 @@ rule consolidate:
         out_tag={config[cohort]}__{config[classif]}
         cp {TMPDIR}/setup/cohort-data.p {OUTDIR}/cohort-data__${{out_tag}}.p
 
-        cp {TMPDIR}/out-data.p.gz {OUTDIR}/out-data__${{out_tag}}.p.gz
+        cp {TMPDIR}/out-pred.p.gz {OUTDIR}/out-pred__${{out_tag}}.p.gz
         cp {TMPDIR}/out-pheno.p.gz {OUTDIR}/out-pheno__${{out_tag}}.p.gz
         cp {TMPDIR}/out-aucs.p.gz {OUTDIR}/out-aucs__${{out_tag}}.p.gz
         cp {TMPDIR}/out-trnsf.p.gz {OUTDIR}/out-trnsf__${{out_tag}}.p.gz
+        cp {TMPDIR}/trnsf-vals.p.gz {OUTDIR}/trnsf-vals__${{out_tag}}.p.gz
+
         """
 

@@ -47,7 +47,7 @@ fi
 # enumerate the mutation types that will be tested in this experiment
 dvc run -d $firehose_dir -d $mc3_file -d $gencode_file -d $subtype_file \
 	-d $RUNDIR/setup_threshold.py -d $CODEDIR/HetMan/environment.yml \
-	-o setup/cohort-data.p -o setup/muts-list.p -o setup/feat-list.p \
+	-o setup/muts-list.p -o setup/feat-list.p \
 	-m setup/muts-count.txt -f setup.dvc --overwrite-dvcfile \
 	python $RUNDIR/setup_threshold.py $cohort $classif \
 	$OUTDIR $DATADIR/HetMan
@@ -66,7 +66,7 @@ fi
 dvc run -d setup/cohort-data.p -d setup/muts-list.p -d setup/feat-list.p \
 	-d $RUNDIR/fit_threshold.py -o $FINALDIR/out-data__${cohort}__${classif}.p.gz \
 	-f output.dvc --overwrite-dvcfile --no-commit \
-	'snakemake -s $RUNDIR/Snakefile -j 200 --latency-wait 120 \
+	'snakemake -s $RUNDIR/Snakefile -j 120 --latency-wait 120 \
 	--cluster-config $RUNDIR/cluster.json --cluster "sbatch -p {cluster.partition} \
 	-J {cluster.job-name} -t {cluster.time} -o {cluster.output} -e {cluster.error} \
 	-n {cluster.ntasks} -c {cluster.cpus-per-task} --mem-per-cpu {cluster.mem-per-cpu} \
