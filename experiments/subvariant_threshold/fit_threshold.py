@@ -6,11 +6,12 @@ sys.path.extend([os.path.join(base_dir, '..', '..', '..')])
 
 from HetMan.experiments.subvariant_tour.fit_tour import get_excluded_genes
 from HetMan.experiments.subvariant_infer.fit_infer import transfer_model
-from dryadic.learning.classifiers import *
+from HetMan.experiments.subvariant_test.classifiers import *
 
 import argparse
 import dill as pickle
 from pathlib import Path
+import random
 from joblib import Parallel, delayed
 
 
@@ -33,15 +34,26 @@ def main():
         '--task_count', type=int, default=10,
         help='how many parallel tasks the list of types to test is split into'
         )
+
     parser.add_argument('--task_id', type=int, default=0,
+                        help='the subset of subtypes to assign to this task')
+    parser.add_argument('--cv_id', type=int, default=0,
                         help='the subset of subtypes to assign to this task')
 
     args = parser.parse_args()
     setup_dir = os.path.join(args.use_dir, 'setup')
+
+    with open(os.path.join(setup_dir, "muts-list.p"), 'rb') as muts_f:
+        mtype_list = pickle.load(muts_f)
+    with open(os.path.join(setup_dir, "feat-list.p"), 'rb') as fl:
+        feat_list = pickle.load(fl)
+
     clf = eval(args.classif)
     mut_clf = clf()
-
+    use_seed = 9073 + 97 * args.cv_id
+    coh_path = os.path.join(setup_dir, "cohort-data.p")
     cdata = None
+
     while cdata is None:
         try:
             with open(os.path.join(setup_dir, 'cohort-data.p'),
@@ -52,14 +64,14 @@ def main():
             print("Failed to load cohort data, trying again...")
             time.sleep(61)
 
-    with open(os.path.join(setup_dir, "feat-list.p"), 'rb') as fl:
-        feat_list = pickle.load(fl)
-    with open(os.path.join(setup_dir, "muts-list.p"), 'rb') as muts_f:
-        mtype_list = pickle.load(muts_f)
+    cdata_samps = sorted(cdata.get_samples())
+    random.seed((args.cv_id // 4) * 7712 + 13)
+    random.shuffle(cdata_samps)
+    cdata.update_split(use_seed, test_samps=cdata_samps[(args.cv_id % 4)::4])
 
-    coh_files = Path(setup_dir).glob("*__cohort-data.p")
-    coh_dict = {coh_fl.stem.split('__')[0]: coh_fl for coh_fl in coh_files}
-    out_inf = {mtype: None for mtype in mtype_list}
+    out_pred = {mtype: None for mtype in mtype_list}
+    coh_dict = {coh_fl.stem.split('__')[1]: coh_fl
+                for coh_fl in Path(setup_dir).glob("cohort-data__*.p")}
     out_trnsf = {mtype: {coh: None for coh in coh_dict}
                  for mtype in mtype_list}
 
@@ -72,16 +84,14 @@ def main():
                 'Chrm', mtype.base_mtype.get_labels()[0], cdata.gene_annot)
 
             # tune the hyper-parameters of the classifier
-            mut_clf, _ = mut_clf.tune_coh(cdata, mtype,
-                                          include_feats=use_feats,
-                                          tune_splits=4, test_count=48,
-                                          parallel_jobs=8)
-
-            out_inf[mtype] = mut_clf.infer_coh(
+            mut_clf, _ = mut_clf.tune_coh(
                 cdata, mtype, include_feats=use_feats,
-                infer_splits=80, infer_folds=4, parallel_jobs=8
+                tune_splits=4, test_count=mut_clf.test_count, parallel_jobs=8
                 )
+
             mut_clf.fit_coh(cdata, mtype, include_feats=use_feats)
+            out_pred[mtype] = mut_clf.parse_preds(mut_clf.predict_test(
+                cdata, lbl_type='raw', include_feats=use_feats))
 
             out_trnsf[mtype] = dict(zip(coh_dict.keys(), [
                 mut_clf.parse_preds(vals) for vals in Parallel(
@@ -91,13 +101,14 @@ def main():
                 ]))
 
         else:
-            del(out_inf[mtype])
+            del(out_pred[mtype])
             del(out_trnsf[mtype])
 
     with open(os.path.join(args.use_dir, 'output',
-                           "out_task-{}.p".format(args.task_id)),
+                           "out__cv-{}_task-{}.p".format(
+                               args.cv_id, args.task_id)),
               'wb') as fl:
-        pickle.dump({'Infer': out_inf, 'Transfer': out_trnsf,
+        pickle.dump({'Pred': out_pred, 'Transfer': out_trnsf,
                      'Clf': mut_clf.__class__},
                     fl, protocol=-1)
 
