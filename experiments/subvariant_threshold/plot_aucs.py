@@ -8,12 +8,10 @@ sys.path.extend([os.path.join(os.path.dirname(__file__), '..', '..', '..')])
 plot_dir = os.path.join(base_dir, 'plots', 'aucs')
 
 from HetMan.experiments.subvariant_infer import variant_clrs
+from HetMan.experiments.subvariant_infer.setup_infer import choose_source
 from HetMan.experiments.subvariant_tour.plot_aucs import choose_gene_colour
-
 from HetMan.experiments.subvariant_tour.utils import RandomType
-from HetMan.experiments.subvariant_infer.utils import Mcomb, ExMcomb
-from HetMan.experiments.subvariant_infer import copy_mtype
-from HetMan.experiments.subvariant_tour import pnt_mtype
+from HetMan.experiments.subvariant_test import pnt_mtype, copy_mtype
 from dryadic.features.mutations import MuType
 
 import argparse
@@ -122,9 +120,33 @@ def main():
     parser.add_argument('classif', help='a mutation classifier')
 
     args = parser.parse_args()
-    os.makedirs(os.path.join(plot_dir, args.gene), exist_ok=True)
-    orig_dir = os.path.join(Path(base_dir).parent,
-                            'subvariant_infer', args.gene)
+    orig_dir = os.path.join(Path(base_dir).parent, "subvariant_test")
+
+    orig_datas = [
+        out_file.parts[-2:] for out_file in Path(orig_dir).glob(os.path.join(
+            "{}__{}__samps-*".format(choose_source(args.cohort), args.cohort),
+            "trnsf-vals__*__{}.p.gz".format(args.classif)
+            ))
+        ]
+
+    orig_list = pd.DataFrame([
+        {'Samps': int(orig_data[0].split('__samps-')[1]),
+         'Levels': '__'.join(orig_data[1].split(
+             'trnsf-vals__')[1].split('__')[:-1])}
+        for orig_data in orig_datas
+        ])
+
+    if orig_list.shape[0] == 0:
+        raise ValueError("No subvariant testing experiment output found "
+                         "for these parameters!")
+
+    orig_use = orig_list.groupby('Levels')['Samps'].min()
+    if 'Exon__Location__Protein' not in orig_use.index:
+        raise ValueError("Cannot compare AUCs until the subvariant testing "
+                         "experiment is run with mutation levels "
+                         "`Exon__Location__Protein` which tests genes' "
+                         "base mutations!")
+
 
     with bz2.BZ2File(os.path.join(
             base_dir, "out-pheno__{}__{}.p.gz".format(
@@ -136,25 +158,50 @@ def main():
             base_dir, "out-aucs__{}__{}.p.gz".format(
                 args.cohort, args.classif)
             )) as fl:
-        auc_dict = pickle.load(fl)
+        auc_vals = pickle.load(fl)['mean']
 
-    with bz2.BZ2File(os.path.join(
-            orig_dir, "out-simil__{}__{}.p.gz".format(
-                args.cohort, args.classif)
-            )) as fl:
-        orig_phns, orig_aucs = pickle.load(fl)[:2]
+    auc_vals = auc_vals[[mtype for mtype in auc_vals.index
+                         if (mtype.base_mtype.get_labels()[0] == args.gene
+                             and (mtype.base_mtype.subtype_list()[0][1]
+                                  & copy_mtype).is_empty())]]
 
-    auc_vals = pd.Series({mtype: auc_val
-                          for mtype, auc_val in auc_dict.items()
-                          if mtype.base_mtype.get_labels()[0] == args.gene})
+    if len(auc_vals) == 0:
+        raise ValueError("No subvariant threshold experiment output found "
+                         "for gene {} in cohort {} for "
+                         "classifier {} !".format(args.gene, args.cohort,
+                                                  args.classif))
 
-    orig_aucs = orig_aucs.loc[[
-        ((isinstance(mtype, RandomType) and isinstance(mtype.size_dist, int))
-         or (not isinstance(mtype, (RandomType, Mcomb, ExMcomb))
+    orig_phns = dict()
+    auc_df = dict()
+
+    for lvls, ctf in orig_use.iteritems():
+        out_tag = "{}__{}__samps-{}".format(
+            choose_source(args.cohort), args.cohort, ctf)
+
+        with bz2.BZ2File(os.path.join(orig_dir, out_tag,
+                                      "out-pheno__{}__{}.p.gz".format(
+                                          lvls, args.classif)),
+                         'r') as f:
+            orig_phns.update(pickle.load(f))
+
+        with bz2.BZ2File(os.path.join(orig_dir, out_tag,
+                                      "out-aucs__{}__{}.p.gz".format(
+                                          lvls, args.classif)),
+                         'r') as f:
+            auc_df[lvls] = pickle.load(f)['mean']
+
+    orig_aucs = pd.concat(auc_df.values())
+    os.makedirs(os.path.join(plot_dir, args.gene), exist_ok=True)
+
+    orig_aucs = orig_aucs[[
+        ((isinstance(mtype, RandomType) and isinstance(mtype.size_dist, int)
+          and mtype.base_mtype is not None
+          and mtype.base_mtype.get_labels()[0] == args.gene)
+         or (not isinstance(mtype, RandomType)
              and mtype.get_labels()[0] == args.gene
              and (mtype.subtype_list()[0][1] & copy_mtype).is_empty()))
         for mtype in orig_aucs.index
-        ], 'All']
+        ]]
 
     plot_sub_comparison(orig_aucs, auc_vals, orig_phns, phn_dict, args)
 
