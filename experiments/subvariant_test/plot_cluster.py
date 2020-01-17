@@ -10,9 +10,10 @@ from HetMan.experiments.tcga_cluster import *
 from HetMan.experiments.subvariant_test import type_file, metabric_dir
 from HetMan.features.cohorts.metabric import (
     load_metabric_samps, choose_subtypes)
+
 from HetMan.experiments.subvariant_test.merge_test import merge_cohort_data
 from HetMan.experiments.subvariant_test.setup_test import load_cohort
-from HetMan.experiments.subvariant_test.plot_gene import get_cohort_label
+from HetMan.experiments.subvariant_test.utils import get_cohort_label
 
 import argparse
 from pathlib import Path
@@ -31,28 +32,32 @@ plt.rcParams['savefig.facecolor']='white'
 plt.rcParams['axes.edgecolor']='white'
 
 
-def plot_clustering(trans_expr, type_data, cdata, args, pca_comps=(0, 1)):
+def plot_clustering(trans_expr, type_data, type_clrs,
+                    cdata, args, pca_comps=(0, 1)):
     fig, ax = plt.subplots(figsize=(9, 8))
 
     trans_expr = trans_expr[:, np.array(pca_comps)]
-    type_stat = np.array([type_data.SUBTYPE[type_data.index.get_loc(samp)]
+    type_stat = np.array([type_data.loc[samp, 'SUBTYPE']
                           if samp in type_data.index else 'Not Available'
                           for samp in cdata.train_data(None)[0].index])
 
-    type_clrs = sns.color_palette('bright', n_colors=len(set(type_stat)))
     lgnd_lbls = []
     lgnd_marks = []
 
-    for sub_type, type_clr in zip(sorted(set(type_stat)), type_clrs):
+    for sub_type in sorted(set(type_stat)):
         type_indx = type_stat == sub_type
 
+        if sub_type == 'Not Available':
+            type_clr = '0.53'
+        else:
+            type_clr = type_clrs[sub_type]
+
         ax.scatter(trans_expr[type_indx, 0], trans_expr[type_indx, 1],
-                   marker='o', s=31, c=[type_clr], alpha=0.27,
-                   edgecolor='none')
+                   marker='o', s=31, c=[type_clr],
+                   alpha=0.27, edgecolor='none')
 
         lgnd_lbls += ["{} ({})".format(sub_type, np.sum(type_indx))]
-        lgnd_marks += [Line2D([], [],
-                              marker='o', linestyle='None',
+        lgnd_marks += [Line2D([], [], marker='o', linestyle='None',
                               markersize=23, alpha=0.43,
                               markerfacecolor=type_clr,
                               markeredgecolor='none')]
@@ -98,8 +103,9 @@ def main():
                         choices=list(clust_algs.keys()),
                         help='an unsupervised learning method')
 
+    parser.add_argument('--seed', type=int, default=9087)
     args = parser.parse_args()
-    np.random.seed(9087)
+    np.random.seed(args.seed)
 
     use_ctf = sorted(
         int(out_file.parts[-2].split('__samps-')[1])
@@ -134,25 +140,35 @@ def main():
 
         if use_cohort in type_data.DISEASE.values:
             type_data = type_data[type_data.DISEASE == use_cohort]
+            type_list = sorted(set(type_data.SUBTYPE.values))
+
+            type_clrs = dict(zip(type_list,
+                                 sns.color_palette('bright',
+                                                   n_colors=len(type_list))))
 
         else:
             type_data = pd.DataFrame({'SUBTYPE': 'Not Available'},
                                      index=cdata.get_samples())
+            type_clrs = dict()
 
-    elif args.expr_source == 'microarray':
+    elif args.cohort.split('_')[0] == 'METABRIC':
         type_data = pd.DataFrame({'SUBTYPE': 'Other'},
                                  index=cdata.get_samples())
 
         samp_data = load_metabric_samps(metabric_dir)
         samp_data = samp_data.loc[samp_data.index.isin(cdata.get_samples())]
 
-        for tp in ['Basal', 'Her2', 'LumA', 'LumB']:
+        type_list = ['Basal', 'Her2', 'LumA', 'LumB']
+        for tp in type_list:
             type_data.SUBTYPE[type_data.index.isin(
                 choose_subtypes(samp_data, tp))] = tp
 
+        type_clrs = dict(zip(
+            type_list, sns.color_palette('bright', n_colors=len(type_list))))
+
     os.makedirs(plot_dir, exist_ok=True)
     trans_expr = clust_algs[args.transform].fit_transform_coh(cdata)
-    plot_clustering(trans_expr.copy(), type_data, cdata, args)
+    plot_clustering(trans_expr.copy(), type_data, type_clrs, cdata, args)
 
 
 if __name__ == "__main__":

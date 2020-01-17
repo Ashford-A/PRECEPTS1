@@ -9,9 +9,11 @@ plot_dir = os.path.join(base_dir, 'plots', 'aucs')
 from HetMan.experiments.subvariant_test import (
     pnt_mtype, copy_mtype, gain_mtype, loss_mtype)
 from HetMan.experiments.subvariant_tour.utils import RandomType
-from HetMan.experiments.subvariant_test.utils import get_fancy_label
-from HetMan.experiments.subvariant_infer import variant_clrs
 from dryadic.features.mutations import MuType
+
+from HetMan.experiments.subvariant_test.utils import (
+    get_fancy_label, choose_label_colour, get_cohort_label)
+from HetMan.experiments.subvariant_infer import variant_clrs
 
 import argparse
 from pathlib import Path
@@ -27,21 +29,12 @@ import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
-
-from colorsys import hls_to_rgb
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 plt.style.use('fivethirtyeight')
 plt.rcParams['axes.facecolor']='white'
 plt.rcParams['savefig.facecolor']='white'
 plt.rcParams['axes.edgecolor']='white'
-
-
-def choose_gene_colour(gene, clr_seed=15707, clr_lum=0.5, clr_sat=0.8):
-    np.random.seed(int((clr_seed + np.prod([ord(char) for char in gene]))
-                       % (2 ** 14)))
-
-    return hls_to_rgb(h=np.random.uniform(size=1)[0], l=clr_lum, s=clr_sat)
 
 
 def place_labels(pnt_dict, lims=(0.48, 1.01), lbl_dens=1., seed=None):
@@ -359,7 +352,7 @@ def plot_size_comparison(auc_vals, pheno_dict, args):
                                      for mtype in use_aucs.index]})
 
     ax.scatter(plot_df.Size, plot_df.AUC,
-               c=[choose_gene_colour(gene) for gene in plot_df.Gene],
+               c=[choose_label_colour(gene) for gene in plot_df.Gene],
                s=23, alpha=0.17, edgecolor='none')
 
     size_lm = smf.ols('AUC ~ C(Gene) + Size', data=plot_df).fit()
@@ -395,7 +388,8 @@ def plot_size_comparison(auc_vals, pheno_dict, args):
     plt.close()
 
 
-def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals, args):
+def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals,
+                         args, add_lgnd=True):
     fig, ax = plt.subplots(figsize=(11, 11))
 
     pnt_dict = dict()
@@ -429,7 +423,7 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals, args):
             # if the AUC for the optimal subgrouping is good enough, plot it
             # against the AUC for all point mutations of the gene...
             if auc_vec[best_indx] > 0.6:
-                clr_dict[gene] = choose_gene_colour(gene)
+                clr_dict[gene] = choose_label_colour(gene)
                 base_size = np.mean(pheno_dict[base_mtype])
                 best_prop = np.mean(pheno_dict[best_subtype]) / base_size
 
@@ -439,7 +433,7 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals, args):
                 # ...and if we are sure that the optimal subgrouping AUC is
                 # better than the point mutation AUC then add a label with the
                 # gene name and a description of the best found subgrouping...
-                if conf_sc > 0.9:
+                if conf_sc > 0.8:
                     mtype_lbl = '\n'.join(
                         get_fancy_label(best_subtype).split('\n')[1:])
 
@@ -466,9 +460,35 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals, args):
 
                 pie_ax.pie(x=[best_prop, 1 - best_prop], explode=[0.29, 0],
                            colors=[clr_dict[gene] + (0.77, ),
-                                   clr_dict[gene] + (0.29, )])
+                                   clr_dict[gene] + (0.29, )],
+                           startangle=90)
 
     # figure out where to place the labels for each point, and plot them
+    if add_lgnd:
+        pnt_dict[0.89, 0.53] = 1, ('', '')
+        lgnd_clr = choose_label_colour('GENE')
+
+        pie_ax = inset_axes(ax, width=1, height=1,
+                            bbox_to_anchor=(0.89, 0.53),
+                            bbox_transform=ax.transData, loc=10,
+                            axes_kwargs=dict(aspect='equal'), borderpad=0)
+
+        pie_ax.pie(x=[0.43, 0.57], explode=[0.19, 0], startangle=90,
+                   colors=[lgnd_clr + (0.77, ), lgnd_clr + (0.29, )])
+
+        coh_lbl = "% of {} samples\nwith gene's point mutations".format(
+            get_cohort_label(args.cohort))
+        ax.text(0.888, 0.58, coh_lbl,
+                size=15, style='italic', ha='center', va='bottom')
+
+        ax.text(0.843, 0.52,
+                "% of gene's mutated samples\nwith best subgrouping",
+                size=15, style='italic', ha='right', va='center')
+
+        ax.plot([0.865, 0.888], [0.55, 0.58], c='black', linewidth=1.1)
+        ax.plot([0.888, 0.911], [0.58, 0.55], c='black', linewidth=1.1)
+        ax.plot([0.85, 0.872], [0.52, 0.53], c='black', linewidth=1.1)
+
     lbl_pos = place_labels(pnt_dict)
     for (pnt_x, pnt_y), pos in lbl_pos.items():
         ax.text(pos[0][0], pos[0][1] + 700 ** -1,
@@ -548,7 +568,7 @@ def plot_copy_comparisons(auc_vals, pheno_dict, conf_vals, args):
             best_indx = auc_vec.index.get_loc(best_subtype)
 
             if auc_vec[best_indx] > 0.6:
-                clr_dict[gene] = choose_gene_colour(gene)
+                clr_dict[gene] = choose_label_colour(gene)
                 plt_min = min(plt_min,
                               auc_vec[base_indx] - 0.02, auc_vec[best_indx])
 
@@ -671,7 +691,7 @@ def plot_aupr_comparisons(auc_vals, pred_df, pheno_dict, conf_vals, args):
             best_indx = auc_vec.index.get_loc(best_subtype)
 
             if auc_vec[best_indx] > 0.6:
-                clr_dict[gene] = choose_gene_colour(gene)
+                clr_dict[gene] = choose_label_colour(gene)
 
                 base_size = 0.47 * np.mean(pheno_dict[base_mtype])
                 best_prop = 0.47 * np.mean(

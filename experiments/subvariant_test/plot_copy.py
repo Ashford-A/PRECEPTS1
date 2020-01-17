@@ -44,7 +44,7 @@ def select_mtype(mtype, gene):
     return slct_stat
 
 
-def plot_copy_comparison(auc_vals, pheno_dict, conf_vals, args):
+def plot_sub_comparison(auc_vals, pheno_dict, conf_vals, args):
     fig, ax = plt.subplots(figsize=(11, 11))
 
     mtype_dict = {mtype: (mtype | MuType({('Gene', args.gene): gain_mtype}),
@@ -61,12 +61,12 @@ def plot_copy_comparison(auc_vals, pheno_dict, conf_vals, args):
         if base_mtype.subtype_list()[0][1] == pnt_mtype:
             use_mrk = 'X'
             use_sz = 2917 * np.mean(pheno_dict[base_mtype])
-            use_alpha = 0.41
+            use_alpha = 0.47
 
         else:
             use_mrk = 'o'
             use_sz = 1751 * np.mean(pheno_dict[base_mtype])
-            use_alpha = 0.23
+            use_alpha = 0.29
 
         if gain_dyad in auc_vals.index:
             plt_min = min(plt_min, auc_vals[gain_dyad] - 0.02)
@@ -94,12 +94,14 @@ def plot_copy_comparison(auc_vals, pheno_dict, conf_vals, args):
 
     ax.set_xlim([plt_min, 1 + (1 - plt_min) / 71])
     ax.set_ylim([plt_min, 1 + (1 - plt_min) / 71])
+
     ax.set_xlabel("AUC of subgrouping", size=23, weight='semibold')
-    ax.set_ylabel("AUC of subgrouping w/ CNA", size=23, weight='semibold')
+    ax.set_ylabel("AUC of subgrouping when\nCNAs were added",
+                  size=23, weight='semibold')
 
     plt.savefig(
         os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
-                     "{}_copy-comparisons_{}.svg".format(
+                     "{}_sub-comparisons_{}.svg".format(
                          args.gene, args.classif)),
         bbox_inches='tight', format='svg'
         )
@@ -197,7 +199,7 @@ def main():
     conf_df = pd.concat(conf_dict.values())
     assert auc_df.index.isin(phn_dict).all()
 
-    plot_copy_comparison(auc_df['mean'], phn_dict, conf_df['mean'], args)
+    plot_sub_comparison(auc_df['mean'], phn_dict, conf_df['mean'], args)
 
 
 if __name__ == '__main__':
