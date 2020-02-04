@@ -8,15 +8,15 @@ plot_dir = os.path.join(base_dir, 'plots', 'mutations')
 
 from HetMan.experiments.subvariant_test import (
     domain_dir, pnt_mtype, copy_mtype)
-from HetMan.experiments.subvariant_test.merge_test import merge_cohort_data
 from HetMan.experiments.subvariant_tour.utils import RandomType
-from HetMan.experiments.subvariant_test.utils import get_fancy_label
-from HetMan.experiments.subvariant_test.plot_copy import select_mtype
-from HetMan.experiments.subvariant_tour.plot_aucs import choose_gene_colour
+from dryadic.features.mutations import MuType, MuTree
 
 from HetMan.experiments.subvariant_infer import variant_clrs
 from dryadic.features.data.domains import get_protein_domains
-from dryadic.features.mutations import MuType, MuTree
+from HetMan.experiments.subvariant_test.merge_test import merge_cohort_data
+from HetMan.experiments.subvariant_test.utils import get_fancy_label
+from HetMan.experiments.subvariant_test.plot_copy import select_mtype
+from HetMan.experiments.utilities.colour_maps import form_clrs
 
 import argparse
 from pathlib import Path
@@ -120,16 +120,14 @@ def plot_lollipop(cdata_dict, domain_dict, args):
 
     lgnd_ptchs = []
     for form, form_muts in loc_mtree:
-        form_clr = choose_gene_colour(form, clr_seed=2783,
-                                      clr_lum=0.37, clr_sat=0.91)
-
-        lgnd_ptchs += [Patch(color=form_clr, alpha=0.53,
+        lgnd_ptchs += [Patch(color=form_clrs[form], alpha=0.53,
                              label=clean_label(form, 'Form_base'))]
+
         mrks, stms, basl = main_ax.stem(*zip(*loc_dict[form]),
                                         use_line_collection=True)
 
         plt.setp(mrks, markersize=7, markeredgecolor='black',
-                 markerfacecolor=form_clr, zorder=5)
+                 markerfacecolor=form_clrs[form], zorder=5)
         plt.setp(stms, linewidth=0.8, color='black', zorder=1)
         plt.setp(basl, linewidth=1.1, color='black', zorder=2)
 
@@ -358,7 +356,7 @@ def recurse_labels(ax, mtree, xlims, ymax, all_size,
                 sub_mtype = sub_dict[lbl]
 
         if clr_mtype is False:
-            sub_lbls = True
+            sub_lbls = add_lbls
         else:
             sub_lbls = False
 
@@ -444,7 +442,7 @@ def plot_tree_classif(pred_dict, phn_dict, auc_dict, use_lvls,
             args.gene, len(set(base_cdata.get_samples())
                            - set(use_mtree.get_samples()))
             ),
-        size=19, ha='center', va='center',
+        size=19, ha='center', va='center', weight='semibold'
         )
 
     tree_ax.add_patch(Rect((leaf_count * 0.31, len(lvls_k) + 0.23),
@@ -455,7 +453,7 @@ def plot_tree_classif(pred_dict, phn_dict, auc_dict, use_lvls,
     tree_ax.text(leaf_count / 2, len(lvls_k) + 0.61,
                  "All {} Point Mutations\n({} samples)".format(
                      args.gene, len(use_mtree)),
-                 size=19, ha='center', va='center')
+                 size=19, ha='center', va='center', weight='semibold')
 
     tree_ax = recurse_labels(tree_ax, use_mtree, (0, leaf_count), len(lvls_k),
                              leaf_count, clr_mtype=False, add_lbls=True)
@@ -598,6 +596,9 @@ def main():
                      if 'Domain_' in lvls}
         }
 
+    os.makedirs(os.path.join(plot_dir, args.cohort), exist_ok=True)
+    plot_lollipop(cdata_dict, domn_dict, args)
+
     pred_dict = dict()
     phn_dict = dict()
     auc_dict = dict()
@@ -640,8 +641,6 @@ def main():
         raise ValueError("No experiment output found for "
                          "gene `{}` !".format(args.gene))
 
-    os.makedirs(os.path.join(plot_dir, args.cohort), exist_ok=True)
-    plot_lollipop(cdata_dict, domn_dict, args)
     for lvls in set(out_use.index.get_level_values('Levels')):
         plot_tree_classif(pred_dict, phn_dict, auc_dict, lvls,
                           cdata_dict, args)

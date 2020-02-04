@@ -238,16 +238,19 @@ def main():
             ))
         ]
 
-    out_use = pd.DataFrame([
-        {'Samps': int(out_data[0].split('__samps-')[1]),
-         'Levels': '__'.join(out_data[1].split(
-             'trnsf-vals__')[1].split('__')[:-1])}
-        for out_data in out_datas
-        ]).groupby('Levels')['Samps'].min()
+    out_list = pd.DataFrame([{'Samps': int(out_data[0].split('__samps-')[1]),
+                              'Levels': '__'.join(out_data[1].split(
+                                  'trnsf-vals__')[1].split('__')[:-1])}
+                             for out_data in out_datas])
 
+    if out_list.shape[0] == 0:
+        raise ValueError("No experiment output found for these parameters!")
+
+    out_use = out_list.groupby('Levels')['Samps'].min()
     out_pars = dict()
     out_acc = dict()
     out_clf = dict()
+
     phn_dict = dict()
     auc_dict = dict()
 

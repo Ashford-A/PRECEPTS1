@@ -389,7 +389,7 @@ def plot_size_comparison(auc_vals, pheno_dict, args):
 
 
 def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals,
-                         args, add_lgnd=True):
+                         args, add_lgnd=False):
     fig, ax = plt.subplots(figsize=(11, 11))
 
     pnt_dict = dict()
@@ -527,8 +527,11 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals,
 
     ax.set_xlim([0.48, 1.01])
     ax.set_ylim([0.48, 1.01])
-    ax.set_xlabel("AUC using all point mutations", size=23, weight='semibold')
-    ax.set_ylabel("AUC of best found subgrouping", size=23, weight='semibold')
+
+    ax.set_xlabel("Accuracy of Gene-Wide Classifier",
+                  size=23, weight='semibold')
+    ax.set_ylabel("Accuracy of Best Subgrouping Classifier",
+                  size=23, weight='semibold')
 
     plt.savefig(
         os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),

@@ -8,10 +8,10 @@ plot_dir = os.path.join(base_dir, 'plots', 'conf')
 
 from HetMan.experiments.subvariant_test import pnt_mtype, copy_mtype
 from HetMan.experiments.subvariant_tour.utils import RandomType
-from HetMan.experiments.subvariant_test.utils import get_fancy_label
+from HetMan.experiments.subvariant_test.utils import (
+    get_fancy_label, choose_label_colour)
 from HetMan.experiments.subvariant_infer import variant_clrs
-from HetMan.experiments.subvariant_tour.plot_aucs import (
-    place_labels, choose_gene_colour)
+from HetMan.experiments.subvariant_tour.plot_aucs import place_labels
 from dryadic.features.mutations import MuType
 
 import argparse
@@ -108,7 +108,7 @@ def plot_distr_comparisons(auc_vals, conf_vals, pheno_dict, args):
 
             if conf_vec[best_indx] > 0.7:
                 gene_dict[gene] = (
-                    choose_gene_colour(gene), base_mtype, best_subtype,
+                    choose_label_colour(gene), base_mtype, best_subtype,
                     np.greater.outer(conf_list[best_subtype],
                                      conf_list[base_mtype]).mean()
                     )
@@ -205,18 +205,19 @@ def plot_sub_comparisons(conf_vals, pheno_dict, args):
             best_indx = conf_vec.index.get_loc(best_subtype)
 
             if conf_vec[best_indx] > 0.6:
-                clr_dict[gene] = choose_gene_colour(gene)
+                clr_dict[gene] = choose_label_colour(gene)
                 base_size = np.mean(pheno_dict[base_mtype])
                 best_prop = np.mean(pheno_dict[best_subtype]) / base_size
 
                 conf_sc = np.greater.outer(conf_list[best_subtype],
                                            conf_list[base_mtype]).mean()
 
-                if conf_sc > 0.9:
+                if conf_sc > 0.8:
+                    mtype_lbl = '\n'.join(
+                        get_fancy_label(best_subtype).split('\n')[1:])
+
                     pnt_dict[conf_vec[base_indx], conf_vec[best_indx]] = (
-                        base_size ** 0.53, (gene,
-                                            get_fancy_label(best_subtype))
-                        )
+                        base_size ** 0.53, (gene, mtype_lbl))
 
                 elif conf_vec[base_indx] > 0.7 or conf_vec[best_indx] > 0.7:
                     pnt_dict[conf_vec[base_indx], conf_vec[best_indx]] = (
@@ -296,7 +297,6 @@ def main():
     parser.add_argument('cohort', help="a TCGA cohort", type=str)
     parser.add_argument('classif', help="a mutation classifier", type=str)
 
-    # parse command line arguments, create directory where plots will be saved
     args = parser.parse_args()
     out_datas = [
         out_file.parts[-2:] for out_file in Path(base_dir).glob(
@@ -319,6 +319,7 @@ def main():
                          "with mutation levels `Exon__Location__Protein` "
                          "which tests genes' base mutations!")
 
+    # create directory where plots will be stored
     os.makedirs(os.path.join(plot_dir,
                              '__'.join([args.expr_source, args.cohort])),
                 exist_ok=True)

@@ -1,6 +1,7 @@
 
 from matplotlib.colors import LinearSegmentedColormap, Normalize
 from matplotlib.cm import ScalarMappable
+import seaborn as sns
 
 
 simil_cmap = LinearSegmentedColormap('SimilCmap', {
@@ -43,6 +44,13 @@ auc_cmap = LinearSegmentedColormap('aucCmap', {
              (1.0,  0.4, 0.4))
     })
 
-cor_cmap = ScalarMappable(norm=Normalize(vmin=-1, vmax=1),
-                          cmap=auc_cmap).to_rgba
+corr_cmap = ScalarMappable(norm=Normalize(vmin=-1, vmax=1),
+                           cmap=auc_cmap).to_rgba
+
+form_clrs = dict(zip(['Frame_Shift', 'Nonsense_Mutation',
+                      'Splice_Site', 'Splice_Region', 'Intron', "3'UTR",
+                      'Missense_Mutation', 'In_Frame'],
+                     sns.hls_palette(8, l=0.43, s=0.95)))
+form_clrs['Silent'] = '0.27'
+form_clrs['Nonstop_Mutation'] = form_clrs['Nonsense_Mutation']
 
