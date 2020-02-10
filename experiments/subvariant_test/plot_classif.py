@@ -12,6 +12,7 @@ from HetMan.experiments.subvariant_tour.utils import RandomType
 from HetMan.experiments.subvariant_test.plot_aucs import place_labels
 from dryadic.features.mutations import MuType
 
+from HetMan.experiments.subvariant_test.utils import choose_label_colour
 from HetMan.experiments.subvariant_test.plot_gene import (
     get_cohort_label, choose_cohort_colour)
 from HetMan.experiments.variant_baseline.plot_tuning import detect_log_distr
@@ -34,6 +35,93 @@ plt.style.use('fivethirtyeight')
 plt.rcParams['axes.facecolor']='white'
 plt.rcParams['savefig.facecolor']='white'
 plt.rcParams['axes.edgecolor']='white'
+
+
+def plot_gene_accuracy(auc_vals, pheno_dict, args):
+    use_aucs = auc_vals[[not isinstance(mtype, RandomType)
+                         and mtype.subtype_list()[0][1] == pnt_mtype
+                         for _, mtype in auc_vals.index]]
+
+    # get list of cohorts within which this classifier was run, create
+    # a suitably sized figure with a panel for each cohort
+    plt_cohs = sorted(set(use_aucs.index.get_level_values('Cohort')))
+    fig, axarr = plt.subplots(figsize=(1 + 1.5 * len(plt_cohs), 6),
+                              nrows=1, ncols=len(plt_cohs))
+
+    pnt_dict = {coh: dict() for coh in plt_cohs}
+    clr_dict = dict()
+    plt_ylims = use_aucs.min() - 0.01, 1.003
+
+    for (coh, mtype), auc_val in use_aucs.iteritems():
+        cur_ax = axarr[plt_cohs.index(coh)]
+        cur_gene = mtype.get_labels()[0]
+        clr_dict[cur_gene] = choose_label_colour(cur_gene)
+
+        # jitter the plotted point on the horizontal plane, scale the point
+        # according to how frequently the gene was mutated in the cohort
+        plt_x = 0.5 + np.random.randn() / 7.9
+        plt_size = np.mean(pheno_dict[coh][mtype])
+
+        # if classification performance was good enough, add a gene name label
+        if auc_val > 0.8:
+            pnt_dict[coh][plt_x, auc_val] = plt_size ** 0.53, (cur_gene, '')
+        else:
+            pnt_dict[coh][plt_x, auc_val] = plt_size ** 0.53, ('', '')
+
+        cur_ax.scatter(plt_x, auc_val, s=311 * plt_size,
+                       c=[clr_dict[cur_gene]], alpha=0.37, edgecolors='none')
+
+    for i, (ax, coh) in enumerate(zip(axarr, plt_cohs)):
+        lbl_pos = place_labels(pnt_dict[coh],
+                               lims=(0.83, 0.98), lbl_dens=0.19)
+
+        for (pnt_x, pnt_y), pos in lbl_pos.items():
+            ax.text(pos[0][0], pos[0][1] + 700 ** -1,
+                    pnt_dict[coh][pnt_x, pnt_y][1][0],
+                    size=10, ha=pos[1], va='bottom')
+
+            x_delta = pnt_x - pos[0][0]
+            y_delta = pnt_y - pos[0][1]
+            ln_lngth = np.sqrt((x_delta ** 2) + (y_delta ** 2))
+
+            # if the label is sufficiently far away from its point...
+            if ln_lngth > (0.021 + pnt_dict[coh][pnt_x, pnt_y][0] / 31):
+                use_clr = clr_dict[pnt_dict[coh][pnt_x, pnt_y][1][0]]
+                pnt_gap = pnt_dict[coh][pnt_x, pnt_y][0] / (29 * ln_lngth)
+                lbl_gap = 0.006 / ln_lngth
+
+                ax.plot([pnt_x - pnt_gap * x_delta,
+                         pos[0][0] + lbl_gap * x_delta],
+                        [pnt_y - pnt_gap * y_delta,
+                         pos[0][1] + lbl_gap * y_delta
+                         + 0.008 + 0.004 * np.sign(y_delta)],
+                        c=use_clr, linewidth=2.3, alpha=0.27)
+
+        if i == 0:
+            ax.set_ylabel('Gene-Wide Classifier AUC',
+                          size=25, weight='semibold')
+        else:
+            ax.set_yticklabels([])
+
+        ax.text(0.5, -0.01, get_cohort_label(coh).replace("(", "\n("),
+                size=17, weight='semibold', ha='center', va='top',
+                transform=ax.transAxes)
+
+        ax.plot([0, 1], [1, 1], color='black', linewidth=2.7, alpha=0.89)
+        ax.plot([0, 1], [0.5, 0.5],
+                color='black', linewidth=1.7, linestyle=':', alpha=0.71)
+
+        ax.set_xlim([0, 1])
+        ax.set_ylim(plt_ylims)
+        ax.set_xticklabels([])
+        ax.grid(axis='x', linewidth=0)
+
+    fig.tight_layout(w_pad=0)
+    fig.savefig(os.path.join(plot_dir, args.expr_source,
+                             "{}__gene-accuracy.svg".format(args.classif)),
+                bbox_inches='tight', format='svg')
+
+    plt.close()
 
 
 def plot_gene_results(auc_vals, conf_vals, pheno_dict, args):
@@ -206,12 +294,13 @@ def main():
         "classifier over a particular source of expression data."
         )
 
+    # create and collect positional command line arguments
     parser.add_argument('expr_source',
                         help="a source of expression data", type=str)
     parser.add_argument('classif', help='a mutation classifier')
-
     args = parser.parse_args()
 
+    # find experiments matching the given criteria that have run to completion
     out_datas = [
         out_file.parts[-2:] for out_file in Path(base_dir).glob(os.path.join(
             "{}__*__samps-*".format(args.expr_source),
@@ -300,6 +389,7 @@ def main():
                                                     names=('Cohort', 'Mtype'))
         acc_dict[coh, lvls] = acc_vals
 
+    # consolidate filtered experiment output in data frames
     auc_vals = pd.concat(auc_dict.values()).sort_index()
     conf_vals = pd.concat(conf_dict.values()).sort_index()
     acc_df = pd.concat(acc_dict.values()).sort_index()
@@ -308,6 +398,8 @@ def main():
     assert len(out_clf) == 1
     out_clf = tuple(out_clf)[0]
 
+    # create the plots
+    plot_gene_accuracy(auc_vals, phn_dict, args)
     plot_gene_results(auc_vals, conf_vals, phn_dict, args)
     plot_tuning_profile(acc_df, out_clf, auc_vals, args)
 
