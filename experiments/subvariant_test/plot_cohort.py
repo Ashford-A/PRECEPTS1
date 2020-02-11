@@ -8,9 +8,10 @@ plot_dir = os.path.join(base_dir, 'plots', 'cohort')
 
 from HetMan.experiments.subvariant_test import (
     type_file, metabric_dir, pnt_mtype, copy_mtype)
-from HetMan.experiments.subvariant_test.merge_test import merge_cohort_data
-from HetMan.experiments.subvariant_test.plot_aucs import choose_gene_colour
 from HetMan.experiments.subvariant_tour.utils import RandomType
+
+from HetMan.experiments.subvariant_test.merge_test import merge_cohort_data
+from HetMan.experiments.subvariant_test.utils import choose_label_colour
 from HetMan.experiments.utilities.transformers import OmicUMAP4
 from HetMan.features.cohorts.metabric import (
     load_metabric_samps, choose_subtypes)
@@ -177,9 +178,9 @@ def plot_classif_performance(auc_dfs, time_dfs, cdata, args):
          for clf, auc_vals in auc_dfs.items()]
         )
 
-    fig, ax = plt.subplots(figsize=(1 + 2 * len(plt_times), 9))
-    sns.violinplot(x='Classif', y='AUC', data=auc_df, ax=ax, width=0.93,
-                   palette=[choose_gene_colour(clf, clr_sat=0.67)
+    fig, ax = plt.subplots(figsize=(1 + 2.1 * len(plt_times), 8))
+    sns.violinplot(x='Classif', y='AUC', data=auc_df, ax=ax, width=0.89,
+                   palette=[choose_label_colour(clf, clr_sat=0.67)
                             for clf, _ in plt_times],
                    order=[clf for clf, _ in plt_times], cut=0)
 
@@ -187,11 +188,11 @@ def plot_classif_performance(auc_dfs, time_dfs, cdata, args):
         ax.get_children()[i * 2].set_alpha(0.71)
 
     ax.set_xticklabels(["{}\n({:.1f}s)".format(clf, clf_time)
-                        for clf, clf_time in plt_times], size=25)
+                        for clf, clf_time in plt_times], size=23)
     ax.tick_params(axis='y', labelsize=23)
 
-    ax.axhline(y=0.5, c='black', linewidth=2.7, linestyle=':', alpha=0.89)
-    ax.axhline(y=1, c='black', linewidth=2.1, alpha=0.89)
+    ax.axhline(y=0.5, c='black', linewidth=2.7, linestyle=':', alpha=0.71)
+    ax.axhline(y=1, c='black', linewidth=2.3, alpha=0.89)
     ax.set_xlabel('')
     ax.set_ylabel('AUC', size=29, weight='semibold')
 
@@ -301,6 +302,13 @@ def main():
                 for clf, time_dict in time_dicts.items()}
     auc_dfs = {clf: pd.concat(auc_dict.values())
                for clf, auc_dict in auc_dicts.items()}
+
+    auc_mat = pd.DataFrame({
+        clf: auc_vals[[mtype for mtype in auc_vals.index
+                       if not isinstance(mtype, RandomType)]]
+        for clf, auc_vals in auc_dfs.items()
+        })
+    print(auc_mat.corr(method='spearman').round(3))
 
     plot_mutation_counts(tuple(auc_dicts.values())[0], phn_dict, cdata, args)
     plot_classif_performance(auc_dfs, time_dfs, cdata, args)

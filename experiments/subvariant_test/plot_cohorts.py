@@ -556,73 +556,59 @@ def plot_transfer_aucs(trnsf_dicts, auc_dfs, pheno_dicts, args):
                   if not isinstance(mtype, RandomType)}
     plt_min = 0.83
 
-    for j, (train_coh, other_coh) in enumerate(permutations(args.cohorts)):
+    for i, (base_coh, trnsf_coh) in enumerate(permutations(args.cohorts)):
         trnsf_aucs = pd.concat([
-            trnsf_data[other_coh]['AUC']['mean']
-            for trnsf_data in trnsf_dicts[train_coh].values()
+            trnsf_data[trnsf_coh]['AUC']['mean']
+            for trnsf_data in trnsf_dicts[base_coh].values()
             ])
 
-        other_aucs = pd.concat([
-            trnsf_data[train_coh]['AUC']['mean']
-            for trnsf_data in trnsf_dicts[other_coh].values()
-            ])
-
-        for mtype in use_mtypes:
-            use_gene = mtype.get_labels()[0]
-            gene_clr = choose_label_colour(use_gene)
-
-            train_auc = auc_dfs[train_coh].loc[mtype, 'mean']
-            trnsf_auc = trnsf_aucs[mtype]
-            other_auc = other_aucs[mtype]
-            plt_min = min(
-                plt_min, train_auc - 0.01, trnsf_auc - 0.01, other_auc - 0.01)
-
-            mtype_sz = (np.mean(pheno_dicts[args.cohorts[0]][mtype])
-                        * np.mean(pheno_dicts[args.cohorts[1]][mtype])) ** 0.5
-
-            axarr[0, j].scatter(train_auc, trnsf_auc,
-                                c=[gene_clr], s=397 * mtype_sz,
-                                alpha=0.17, edgecolor='none')
-            axarr[1, j].scatter(train_auc, other_auc,
-                                c=[gene_clr], s=397 * mtype_sz,
-                                alpha=0.17, edgecolor='none')
-
-        for i in range(2):
-            axarr[i, j].plot([plt_min, 1], [0.5, 0.5],
-                             color='black', linewidth=1.3, linestyle=':',
-                             alpha=0.71)
-            axarr[i, j].plot([0.5, 0.5], [plt_min, 1],
-                             color='black', linewidth=1.3, linestyle=':',
-                             alpha=0.71)
-
-            axarr[i, j].plot([plt_min, 1.0005], [1, 1],
-                             color='black', linewidth=1.9, alpha=0.89)
-            axarr[i, j].plot([1, 1], [plt_min, 1.0005],
-                             color='black', linewidth=1.9, alpha=0.89)
-            axarr[i, j].plot([plt_min + 0.01, 0.997], [plt_min + 0.01, 0.997],
-                             color='#550000', linewidth=2.1, linestyle='--',
-                             alpha=0.41)
-
-            axarr[i, j].set_xlim([plt_min, 1 + (1 - plt_min) / 53])
-            axarr[i, j].set_ylim([plt_min, 1 + (1 - plt_min) / 53])
-
-        axarr[1, j].set_xlabel(
-            "AUC within cohort\n{}".format(get_cohort_label(train_coh)),
+        axarr[i, 0].set_ylabel(
+            "AUC when transferred\nto {}".format(get_cohort_label(trnsf_coh)),
             size=23, weight='semibold'
             )
 
-        axarr[0, j].set_ylabel(
-            "AUC when transferred to cohort\n{}".format(
-                get_cohort_label(other_coh)),
-            size=23, weight='semibold'
-            )
-        axarr[1, j].set_ylabel(
-            "AUC when transferred to cohort\n{}".format(
-                get_cohort_label(train_coh)),
-            size=23, weight='semibold'
-            )
+        for j, train_coh in enumerate(args.cohorts):
+            if i == 1:
+                axarr[i, j].set_xlabel(
+                    "AUC when trained\non {}".format(
+                        get_cohort_label(train_coh)),
+                    size=23, weight='semibold'
+                    )
 
-    fig.tight_layout(w_pad=2.9, h_pad=0.9)
+            for mtype in use_mtypes:
+                use_gene = mtype.get_labels()[0]
+                gene_clr = choose_label_colour(use_gene)
+
+                train_auc = auc_dfs[train_coh].loc[mtype, 'mean']
+                trnsf_auc = trnsf_aucs[mtype]
+                plt_min = min(plt_min,
+                              train_auc - 0.01, trnsf_auc - 0.01)
+
+                mtype_sz = (np.mean(pheno_dicts[args.cohorts[0]][mtype])
+                            * np.mean(pheno_dicts[args.cohorts[1]][mtype]))
+                mtype_sz **= 0.5
+
+                axarr[i, j].scatter(train_auc, trnsf_auc,
+                                    c=[gene_clr], s=397 * mtype_sz,
+                                    alpha=0.19, edgecolor='none')
+
+    for ax in axarr.flatten():
+        ax.plot([plt_min, 1], [0.5, 0.5],
+                color='black', linewidth=1.3, linestyle=':', alpha=0.71)
+        ax.plot([0.5, 0.5], [plt_min, 1],
+                color='black', linewidth=1.3, linestyle=':', alpha=0.71)
+
+        ax.plot([plt_min, 1.0005], [1, 1],
+                color='black', linewidth=1.9, alpha=0.89)
+        ax.plot([1, 1], [plt_min, 1.0005],
+                color='black', linewidth=1.9, alpha=0.89)
+        ax.plot([plt_min + 0.01, 0.997], [plt_min + 0.01, 0.997],
+                color='#550000', linewidth=2.1, linestyle='--', alpha=0.41)
+
+        ax.set_xlim([plt_min, 1 + (1 - plt_min) / 71])
+        ax.set_ylim([plt_min, 1 + (1 - plt_min) / 71])
+
+    fig.tight_layout(w_pad=2.1, h_pad=4.1)
     plt.savefig(os.path.join(plot_dir, '__'.join(args.cohorts),
                              "transfer-aucs_{}.svg".format(args.classif)),
                 bbox_inches='tight', format='svg')
@@ -858,6 +844,8 @@ def plot_subtype_transfer(auc_dfs, trnsf_dicts, pheno_dicts, conf_dfs,
     plt_min = 0.89
 
     for ax, (train_coh, other_coh) in zip(axarr, permutations(args.cohorts)):
+        pnt_dict = dict()
+
         trnsf_aucs = pd.concat([
             trnsf_data[other_coh]['AUC']['mean']
             for trnsf_data in trnsf_dicts[train_coh].values()
@@ -869,22 +857,23 @@ def plot_subtype_transfer(auc_dfs, trnsf_dicts, pheno_dicts, conf_dfs,
 
         for mtype in use_mtypes:
             train_auc = auc_dfs[train_coh].loc[mtype, 'mean']
+            mtype_sz = np.mean(pheno_dicts[train_coh][mtype])
             plt_min = min(plt_min, train_auc - 0.01, trnsf_aucs[mtype] - 0.01)
-
-            conf_sc = np.greater.outer(
-                conf_dfs[train_coh].loc[mtype, 'mean'],
-                conf_dfs[train_coh].loc[base_mtype, 'mean']
-                ).mean()
 
             if mtype == base_mtype:
                 use_mrk = 'X'
-                use_sz = 5305 * np.mean(pheno_dicts[train_coh][mtype])
+                use_sz = 5305 * mtype_sz
                 use_alpha = 0.47
 
             else:
                 use_mrk = 'o'
-                use_sz = 1507 * np.mean(pheno_dicts[train_coh][mtype])
+                use_sz = 1507 * mtype_sz
                 use_alpha = 0.23
+
+                conf_sc = np.greater.outer(
+                    conf_dfs[train_coh].loc[mtype, 'mean'],
+                    conf_dfs[train_coh].loc[base_mtype, 'mean']
+                    ).mean()
 
             ax.scatter(train_auc, trnsf_aucs[mtype],
                        marker=use_mrk, s=use_sz, alpha=use_alpha,
@@ -892,7 +881,7 @@ def plot_subtype_transfer(auc_dfs, trnsf_dicts, pheno_dicts, conf_dfs,
 
         x_lbl = "AUC in training cohort\n{}".format(
             get_cohort_label(train_coh))
-        y_lbl = "AUC in transfer cohort\n{}".format(
+        y_lbl = "AUC when transferred\nto {}".format(
             get_cohort_label(other_coh))
 
         ax.set_xlabel(x_lbl, size=23, weight='semibold')
