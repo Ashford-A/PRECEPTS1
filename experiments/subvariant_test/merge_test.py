@@ -15,7 +15,6 @@ from joblib import Parallel, delayed
 import random
 
 from HetMan.experiments.subvariant_tour.utils import RandomType
-from HetMan.experiments.subvariant_tour.merge_tour import compare_muts
 from HetMan.experiments.subvariant_infer.merge_infer import (
     get_cohort_subtypes)
 
@@ -65,7 +64,12 @@ def merge_cohort_data(out_dir, use_seed=None):
                              "testing sample set!".format(mdl))
 
     for (mdl1, chsum1), (mdl2, chsum2) in combn(new_chsums.items(), 2):
-        assert chsum1['expr'] == chsum2['expr'], (
+        expr_diff = pd.Series({
+            gene: nsum - dict(chsum2['expr'])[gene]
+            for gene, nsum in chsum1['expr']
+            })
+
+        assert (expr_diff.abs() < 1e2).all(), (
             "Inconsistent expression hashes found for cohorts in new "
             "experiments `{}` and `{}` !".format(mdl1, mdl2)
             )
@@ -81,7 +85,13 @@ def merge_cohort_data(out_dir, use_seed=None):
     if new_files:
         if cur_hash is not None:
             for new_mdl, new_chsum in new_chsums.items():
-                assert new_chsum['expr'] == cur_hash['expr'], (
+                #TODO: figure out how to make this more robust
+                expr_diff = pd.Series({
+                    gene: nsum - dict(cur_hash['expr'])[gene]
+                    for gene, nsum in new_chsum['expr']
+                    })
+
+                assert (expr_diff.abs() < 1e2).all(), (
                     "Inconsistent expression hashes found for cohort in "
                     "new experiment `{}` !".format(new_mdl)
                     )
@@ -119,6 +129,11 @@ def merge_cohort_data(out_dir, use_seed=None):
             use_cdata = cur_cdata
 
     return use_cdata
+
+
+def compare_muts(*muts_lists):
+    return len(set(tuple(sorted(muts_list))
+                   for muts_list in muts_lists)) == 1
 
 
 def calculate_auc(phn_vec, pred_mat):

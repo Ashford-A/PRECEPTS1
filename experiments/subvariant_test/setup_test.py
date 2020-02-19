@@ -138,10 +138,8 @@ def load_cohort(cohort, expr_source, use_path=None, **coh_args):
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        "Set up the gene subtype expression effect isolation experiment by "
-        "enumerating the subtypes to be tested."
-        )
+    parser = argparse.ArgumentParser("Enumerate the subgroupings for which "
+                                     "expression signatures will be tested.")
 
     parser.add_argument('expr_source', type=str,
                         help="which TCGA expression data source to use")
@@ -156,30 +154,41 @@ def main():
                         help="the mutation property levels to consider")
     parser.add_argument('out_dir', type=str, default=base_dir)
 
+    # parse command line arguments, figure out where output will be stored
     args = parser.parse_args()
     out_path = os.path.join(args.out_dir, 'setup')
     base_path = os.path.join(args.out_dir.split('subvariant_test')[0],
                              'subvariant_test')
 
-    use_mtypes = set()
-    use_lvls = tuple(args.mut_levels.split('__'))
-    lbls_key = ('Gene', 'Scale', 'Copy') + use_lvls
-
+    # figure out where to save tumour cohorts used for training and
+    # testing, load training expression and mutation data
     coh_dir = os.path.join(base_path, args.expr_source, 'setup')
     coh_path = os.path.join(coh_dir, "cohort-data__{}.p".format(args.cohort))
     cdata = load_cohort(args.cohort, args.expr_source, coh_path)
 
+    # figure out which mutation attributes to use
+    use_lvls = tuple(args.mut_levels.split('__'))
+    if 'Copy' in cdata.muts['Scale'].values:
+        lbls_key = ('Gene', 'Scale', 'Copy') + use_lvls
+    else:
+        lbls_key = ('Gene', 'Scale') + use_lvls
+
+    # initialize list of enumerated subgroupings, get number of samples in
+    # the cohort, load required mutation attributes in training dataset
+    use_mtypes = set()
     n_samps = len(cdata.get_samples())
     if lbls_key not in cdata.mtrees:
         cdata.add_mut_lvls(lbls_key)
 
+    # save training tumour cohort to file for use in this experiment, and in
+    # duplicate for when other iterations of this experiment need it
     with open(coh_path, 'wb') as f:
         pickle.dump(cdata, f, protocol=-1)
     with open(os.path.join(out_path, "cohort-data.p"), 'wb') as f:
         pickle.dump(cdata, f, protocol=-1)
 
-    # for each gene with enough mutated samples in the cohort, find the
-    # subgroupings composed of at most three branches
+    # for each gene with enough samples harbouring its point mutations in the
+    # cohort, find the subgroupings composed of at most two branches
     for gene, muts in cdata.mtrees[lbls_key]:
         if len(pnt_mtype.get_samples(muts)) >= args.samp_cutoff:
             pnt_mtypes = {
@@ -189,11 +198,6 @@ def main():
                     <= (n_samps - args.samp_cutoff))
                 }
 
-            # remove subgroupings that contain all of the gene's mutations
-            pnt_mtypes -= {mtype for mtype in pnt_mtypes
-                           if (len(mtype.get_samples(muts))
-                               == len(pnt_mtype.get_samples(muts)))}
-
             # remove subgroupings that have only one child subgrouping
             # containing all of their samples
             pnt_mtypes -= {
@@ -202,9 +206,14 @@ def main():
                 and mtype1.get_samples(muts) == mtype2.get_samples(muts)
                 }
 
+            # remove groupings that contain all of the gene's point mutations
             pnt_mtypes = {MuType({('Scale', 'Point'): mtype})
-                          for mtype in pnt_mtypes}
+                          for mtype in pnt_mtypes
+                          if (len(mtype.get_samples(muts['Point']))
+                              < len(muts['Point'].get_samples()))}
 
+            # check if this gene had at least five samples with deep gains or
+            # deletions that weren't all already carrying point mutations
             copy_mtypes = {
                 mtype for mtype in [gain_mtype, loss_mtype]
                 if ((5 <= len(mtype.get_samples(muts)) <= (n_samps - 5))
@@ -214,6 +223,8 @@ def main():
                              <= mtype.get_samples(muts)))
                 }
 
+            # find the enumerated point mutations for this gene that can be
+            # combined with CNAs to produce a novel set of mutated samples
             dyad_mtypes = {
                 pnt_mtype | cp_mtype
                 for pnt_mtype, cp_mtype in product(pnt_mtypes, copy_mtypes)
@@ -222,16 +233,20 @@ def main():
                          - pnt_mtype.get_samples(muts)))
                 }
 
+            # if we are using the base list of mutation attributes, add the
+            # gene-wide set of all point mutations...
             gene_mtypes = pnt_mtypes | dyad_mtypes
             if args.mut_levels == 'Exon__Location__Protein':
                 gene_mtypes |= {pnt_mtype}
 
+                # ...as well as CNA-only subgroupings...
                 gene_mtypes |= {
                     mtype for mtype in copy_mtypes
                     if (args.samp_cutoff <= len(mtype.get_samples(muts))
                         <= (n_samps - args.samp_cutoff))
                     }
 
+                # ...and finally the CNA + all point mutations subgroupings
                 gene_mtypes |= {
                     pnt_mtype | mtype for mtype in copy_mtypes
                     if (args.samp_cutoff
@@ -239,38 +254,46 @@ def main():
                         <= (n_samps - args.samp_cutoff))
                     }
 
-            gene_mtypes -= {mtype for mtype in gene_mtypes
-                            if (len(mtype.get_samples(muts))
-                                == len(muts.get_samples()))}
-
             use_mtypes |= {MuType({('Gene', gene): mtype})
                            for mtype in gene_mtypes}
 
+    print(len({mtype for mtype in use_mtypes
+               if (mtype & copy_mtype).is_empty()}))
+    import pdb; pdb.set_trace()
+    # set a random seed for use in picking random subgroupings
     lvls_seed = np.prod([(ord(char) % 7 + 3)
                          for i, char in enumerate(args.mut_levels)
                          if (i % 5) == 1])
 
+    # makes sure random subgroupings are the same between different runs
+    # of this experiment
     mtype_list = sorted(use_mtypes)
     random.seed((88701 * lvls_seed + 1313) % (2 ** 16))
     random.shuffle(mtype_list)
 
+    # generate random subgroupings chosen from all samples in the cohort
     use_mtypes |= {
         RandomType(size_dist=len(mtype.get_samples(cdata.mtrees[lbls_key])),
-                   seed=(lvls_seed * (i + 19) + 1307) % (2 ** 21))
+                   seed=(lvls_seed * (i + 19) + 1307) % (2 ** 22))
         for i, (mtype, _) in enumerate(product(mtype_list, range(2)))
         if (mtype & copy_mtype).is_empty()
         }
 
+    # generate random subgroupings chosen from samples mutated for each gene
     use_mtypes |= {
         RandomType(
             size_dist=len(mtype.get_samples(cdata.mtrees[lbls_key])),
             base_mtype=MuType({('Gene', mtype.get_labels()[0]): pnt_mtype}),
-            seed=(lvls_seed * (i + 23) + 7391) % (2 ** 21)
+            seed=(lvls_seed * (i + 23) + 7391) % (2 ** 22)
             )
         for i, (mtype, _) in enumerate(product(mtype_list, range(2)))
-        if (mtype & copy_mtype).is_empty()
+        if ((mtype & copy_mtype).is_empty()
+            and (len(mtype.get_samples(cdata.mtrees[lbls_key]))
+                 < sum(cdata.train_pheno(
+                     MuType({('Gene', mtype.get_labels()[0]): pnt_mtype})))))
         }
 
+    # save enumerated subgroupings and number of subgroupings to file
     with open(os.path.join(out_path, "muts-list.p"), 'wb') as f:
         pickle.dump(sorted(use_mtypes), f, protocol=-1)
     with open(os.path.join(out_path, "muts-count.txt"), 'w') as fl:
@@ -281,10 +304,12 @@ def main():
     else:
         trnsf_src = args.expr_source.split('__')[0]
 
+    # get list of available cohorts for this source of expression data
     coh_list = list_cohorts(trnsf_src, expr_dir=expr_dir, copy_dir=copy_dir)
     coh_list -= {args.cohort}
     coh_list |= {'METABRIC', 'CCLE'}
 
+    # initiate set of genetic expression features, reset random seed
     use_feats = set(cdata.get_features())
     random.seed()
 
