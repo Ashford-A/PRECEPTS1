@@ -11,7 +11,8 @@ from HetMan.experiments.subvariant_test import (
 from HetMan.experiments.subvariant_tour.utils import RandomType
 from dryadic.features.mutations import MuType
 
-from HetMan.experiments.subvariant_test.utils import get_fancy_label
+from HetMan.experiments.subvariant_test.utils import (
+    get_fancy_label, get_cohort_label)
 from HetMan.experiments.subvariant_test.plot_aucs import place_labels
 from HetMan.experiments.subvariant_test.plot_copy import select_mtype
 from HetMan.experiments.utilities.pcawg_colours import cohort_clrs
@@ -36,18 +37,6 @@ plt.style.use('fivethirtyeight')
 plt.rcParams['axes.facecolor']='white'
 plt.rcParams['savefig.facecolor']='white'
 plt.rcParams['axes.edgecolor']='white'
-
-
-def get_cohort_label(coh):
-    if '_' in coh:
-        coh_lbl = "{}({})".format(*coh.split('_'))
-        coh_lbl = coh_lbl.replace("IDHmut-non-codel", "IDHmut-nc")
-        coh_lbl = coh_lbl.replace("SquamousCarcinoma", "SqmsCarc")
-
-    else:
-        coh_lbl = str(coh)
-
-    return coh_lbl
 
 
 def choose_cohort_colour(cohort):
@@ -104,8 +93,10 @@ def plot_sub_comparisons(auc_dict, conf_dict, pheno_dict, use_clf, args):
                                        conf_dict[coh][base_mtype]).mean()
 
             if conf_sc > 0.8:
+                mtype_lbl = '\n'.join(
+                    get_fancy_label(best_subtype).split('\n')[1:])
                 pnt_dict[use_aucs[base_indx], use_aucs[best_indx]] = (
-                    base_size ** 0.53, (coh, get_fancy_label(best_subtype)))
+                    base_size ** 0.53, (coh, mtype_lbl))
 
             else:
                 pnt_dict[use_aucs[base_indx], use_aucs[best_indx]] = (
@@ -170,7 +161,7 @@ def plot_sub_comparisons(auc_dict, conf_dict, pheno_dict, use_clf, args):
             color='black', linewidth=1.9, alpha=0.89)
     ax.plot([1, 1], [plt_min, 1.0005],
             color='black', linewidth=1.9, alpha=0.89)
-    ax.plot([plt_min + 0.01, 0.999], [plt_min + 0.01, 0.999],
+    ax.plot([plt_min + 0.003, 0.999], [plt_min + 0.003, 0.999],
             color='#550000', linewidth=2.1, linestyle='--', alpha=0.41)
 
     ax.set_xlim([plt_min, 1 + (1 - plt_min) / 71])
@@ -235,7 +226,7 @@ def plot_conf_distributions(auc_vals, conf_dict, pheno_dict, use_clf, args):
 
         sns.violinplot(x=plt_df.Type, y=plt_df.Conf, ax=axarr[0, i],
                        order=['Subg', 'Base'], palette=[coh_clr, coh_clr],
-                       cut=0, linewidth=0.7, width=0.93, inner=None)
+                       cut=0, linewidth=1.3, width=0.93, inner=None)
 
         axarr[0, i].scatter(0, auc_vals[coh][best_subtype], 
                          s=41, c=[coh_clr], edgecolor='0.23', alpha=0.97)
@@ -268,7 +259,7 @@ def plot_conf_distributions(auc_vals, conf_dict, pheno_dict, use_clf, args):
     if 0.47 < ymin < 0.51:
         ymin = 0.445
     for i in range(len(coh_dict)):
-        axarr[0, i].set_xlim([-0.5, 1.5])
+        axarr[0, i].set_xlim([-0.59, 1.59])
         axarr[0, i].set_ylim([ymin, 1 + (1 - ymin) / 31])
 
     fig.tight_layout(w_pad=1.3)
@@ -292,8 +283,7 @@ def plot_transfer_aucs(trnsf_dict, auc_dict, conf_dict, pheno_dict,
         if base_mtype in conf_vals.index:
             use_confs = conf_vals[[
                 mtype for mtype in conf_vals.index
-                if (mtype != base_mtype and not isinstance(mtype, RandomType)
-                    and (mtype.subtype_list()[0][1] & copy_mtype).is_empty())
+                if mtype != base_mtype and not isinstance(mtype, RandomType)
                 ]]
 
             for mtype, conf_list in use_confs.iteritems():
@@ -315,13 +305,19 @@ def plot_transfer_aucs(trnsf_dict, auc_dict, conf_dict, pheno_dict,
         ylabs = [get_cohort_label(coh) for coh in trnsf_mat.index]
 
         auc_cmap.set_bad('black')
-        sns.heatmap(trnsf_mat, cmap=auc_cmap, vmin=0, vmax=1, ax=ax)
+        sns.heatmap(trnsf_mat, cmap=auc_cmap,
+                    vmin=0, vmax=1, cbar_kws={'aspect': 7}, ax=ax)
 
         plt_ylims = ax.get_ylim()
-        ax.set_title(get_fancy_label(mtype), size=17)
         ax.set_ylim([plt_ylims[1] - 0.5, plt_ylims[0] + 0.5])
-        ax.set_xticklabels(xlabs, ha='right', rotation=37)
-        ax.set_yticklabels(ylabs, ha='right', rotation=0)
+        ax.set_title(' '.join(get_fancy_label(mtype).split('\n')[1:]), size=19)
+        ax.set_xticklabels(xlabs, size=12, ha='right', rotation=37)
+        ax.set_yticklabels(ylabs, size=12, ha='right', rotation=0)
+
+        ax.collections = [ax.collections[-1]]
+        cbar = ax.collections[-1].colorbar
+        cbar.ax.tick_params(labelsize=15)
+        cbar.ax.set_title('AUC', size=17, weight='semibold')
 
     fig.text(0.5, -0.02, "Testing Cohort", fontsize=23, weight='semibold',
              ha='center', va='top')
@@ -332,6 +328,122 @@ def plot_transfer_aucs(trnsf_dict, auc_dict, conf_dict, pheno_dict,
     plt.savefig(
         os.path.join(plot_dir, '__'.join([args.expr_source, args.gene]),
                      "transfer-aucs_{}.svg".format(use_clf)),
+        bbox_inches='tight', format='svg'
+        )
+
+    plt.close()
+
+
+def plot_transfer_comparisons(trnsf_dict, conf_dict, pheno_dict,
+                              use_clf, args):
+    fig, ax = plt.subplots(figsize=(11, 11))
+
+    base_mtype = MuType({('Gene', args.gene): pnt_mtype})
+    conf_agg = dict()
+
+    for coh, conf_vals in conf_dict.items():
+        if base_mtype in conf_vals.index:
+            use_confs = conf_vals[[
+                mtype for mtype in conf_vals.index
+                if (mtype != base_mtype and not isinstance(mtype, RandomType)
+                    and (mtype.subtype_list()[0][1] & copy_mtype).is_empty())
+                ]]
+
+            for mtype, conf_list in use_confs.iteritems():
+                conf_sc = np.sum(pheno_dict[coh][mtype]) * (np.greater.outer(
+                    conf_list, conf_vals[base_mtype]).mean() - 0.5)
+
+                if mtype in conf_agg:
+                    conf_agg[mtype] += conf_sc
+                else:
+                    conf_agg[mtype] = conf_sc
+
+    best_subtype = sorted(conf_agg.items(), key=lambda x: x[1])[-1][0]
+    plt_min = 0.83
+    pnt_dict = dict()
+    clr_dict = dict()
+
+    for (train_coh, trnsf_coh), auc_df in trnsf_dict.items():
+        if (base_mtype in auc_df.index and best_subtype in auc_df.index
+                and trnsf_coh in train_cohorts):
+            coh_lbl = ' \u2192 '.join([get_cohort_label(train_coh),
+                                       get_cohort_label(trnsf_coh)])
+
+            clr_dict[coh_lbl] = choose_cohort_colour(train_coh)
+            base_size = np.mean(pheno_dict[train_coh][base_mtype])
+            best_prop = np.mean(pheno_dict[train_coh][best_subtype])
+            best_prop /= base_size
+
+            plt_x = auc_df.loc[base_mtype, 'mean']
+            plt_y = auc_df.loc[best_subtype, 'mean']
+            plt_min = min(plt_min, plt_x - 0.13, plt_y - 0.01)
+
+            if plt_x > 0.7 or plt_y > 0.7:
+                pnt_dict[plt_x, plt_y] = (base_size ** 0.53, (coh_lbl, ''))
+            else:
+                pnt_dict[plt_x, plt_y] = (base_size ** 0.53, ('', ''))
+
+            pie_ax = inset_axes(
+                ax, width=base_size ** 0.5, height=base_size ** 0.5,
+                bbox_to_anchor=(plt_x, plt_y), bbox_transform=ax.transData,
+                loc=10, axes_kwargs=dict(aspect='equal'), borderpad=0
+                )
+
+            pie_ax.pie(x=[best_prop, 1 - best_prop], explode=[0.29, 0],
+                       colors=[clr_dict[coh_lbl] + (0.83, ),
+                               clr_dict[coh_lbl] + (0.23, )],
+                       wedgeprops=dict(edgecolor='black', linewidth=10 / 11))
+
+    # figure out where to place the labels for each point, and plot them
+    lbl_pos = place_labels(pnt_dict,
+                           lims=(plt_min, 1 - (1 - plt_min) / 19),
+                           lbl_dens=0.67, seed=args.seed)
+
+    for (pnt_x, pnt_y), pos in lbl_pos.items():
+        ax.text(pos[0][0], pos[0][1] + 700 ** -1,
+                pnt_dict[pnt_x, pnt_y][1][0],
+                size=17, ha=pos[1], va='bottom')
+
+        x_delta = pnt_x - pos[0][0]
+        y_delta = pnt_y - pos[0][1]
+        ln_lngth = np.sqrt((x_delta ** 2) + (y_delta ** 2))
+
+        # if the label is sufficiently far away from its point...
+        if ln_lngth > (0.021 + pnt_dict[pnt_x, pnt_y][0] / (61 * plt_min)):
+            use_clr = clr_dict[pnt_dict[pnt_x, pnt_y][1][0]]
+            pnt_gap = pnt_dict[pnt_x, pnt_y][0] / (29 * ln_lngth)
+            lbl_gap = 0.006 / ln_lngth
+
+            ax.plot([pnt_x - pnt_gap * x_delta,
+                     pos[0][0] + lbl_gap * x_delta],
+                    [pnt_y - pnt_gap * y_delta,
+                     pos[0][1] + lbl_gap * y_delta
+                     + 0.008 + 0.004 * np.sign(y_delta)],
+                    c=use_clr, linewidth=2.7, alpha=0.59)
+
+    ax.plot([plt_min, 1], [0.5, 0.5],
+            color='black', linewidth=1.3, linestyle=':', alpha=0.71)
+    ax.plot([0.5, 0.5], [plt_min, 1],
+            color='black', linewidth=1.3, linestyle=':', alpha=0.71)
+
+    ax.plot([plt_min, 1.0005], [1, 1],
+            color='black', linewidth=1.9, alpha=0.89)
+    ax.plot([1, 1], [plt_min, 1.0005],
+            color='black', linewidth=1.9, alpha=0.89)
+    ax.plot([plt_min, 0.997], [plt_min, 0.997],
+            color='#550000', linewidth=2.1, linestyle='--', alpha=0.41)
+
+    ax.set_xlim([plt_min, 1 + (1 - plt_min) / 71])
+    ax.set_ylim([plt_min, 1 + (1 - plt_min) / 71])
+
+    ax.set_xlabel("Transfer AUC\nusing all point mutations",
+                  size=23, weight='semibold')
+    ax.set_ylabel("Transfer AUC\nusing best found subgrouping",
+                  size=23, weight='semibold')
+
+    plt.savefig(
+        os.path.join(plot_dir, '__'.join([args.expr_source, args.gene]),
+                     "transfer-comparisons_{}.svg".format(use_clf)),
         bbox_inches='tight', format='svg'
         )
 
@@ -484,8 +596,11 @@ def main():
 
         plot_sub_comparisons(clf_aucs, clf_confs, phn_dict, clf, args)
         plot_conf_distributions(clf_aucs, clf_confs, phn_dict, clf, args)
+
         plot_transfer_aucs(clf_trnsf, clf_aucs, clf_confs, phn_dict,
                            clf, args)
+        plot_transfer_comparisons(clf_trnsf, clf_confs, phn_dict,
+                                  clf, args)
 
 
 if __name__ == '__main__':
