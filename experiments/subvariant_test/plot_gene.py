@@ -84,8 +84,8 @@ def plot_sub_comparisons(auc_dict, conf_dict, pheno_dict, use_clf, args):
                 use_aucs[(base_indx + 1):]).idxmax()
             best_indx = use_aucs.index.get_loc(best_subtype)
 
-            plt_min = min(plt_min, use_aucs[base_indx] - 0.07,
-                          use_aucs[best_indx] - 0.07)
+            plt_min = min(plt_min, use_aucs[base_indx] - 0.04,
+                          use_aucs[best_indx] - 0.04)
             base_size = np.mean(pheno_dict[coh][base_mtype])
             best_prop = np.mean(pheno_dict[coh][best_subtype]) / base_size
 
@@ -164,11 +164,13 @@ def plot_sub_comparisons(auc_dict, conf_dict, pheno_dict, use_clf, args):
     ax.plot([plt_min + 0.003, 0.999], [plt_min + 0.003, 0.999],
             color='#550000', linewidth=2.1, linestyle='--', alpha=0.41)
 
-    ax.set_xlim([plt_min, 1 + (1 - plt_min) / 71])
-    ax.set_ylim([plt_min, 1 + (1 - plt_min) / 71])
+    ax.set_xlim([plt_min, 1 + (1 - plt_min) / 103])
+    ax.set_ylim([plt_min, 1 + (1 - plt_min) / 103])
 
-    ax.set_xlabel("AUC using all point mutations", size=23, weight='semibold')
-    ax.set_ylabel("AUC of best found subgrouping", size=23, weight='semibold')
+    ax.set_xlabel("Accuracy of Gene-Wide Classifier",
+                  size=27, weight='semibold')
+    ax.set_ylabel("Accuracy of Best Subgrouping Classifier",
+                  size=27, weight='semibold')
 
     plt.savefig(
         os.path.join(plot_dir, '__'.join([args.expr_source, args.gene]),
@@ -283,7 +285,10 @@ def plot_transfer_aucs(trnsf_dict, auc_dict, conf_dict, pheno_dict,
         if base_mtype in conf_vals.index:
             use_confs = conf_vals[[
                 mtype for mtype in conf_vals.index
-                if mtype != base_mtype and not isinstance(mtype, RandomType)
+                if (mtype != base_mtype and not isinstance(mtype, RandomType)
+                    and (mtype.subtype_list()[0][1] & copy_mtype).is_empty()
+                    and any(mtype in auc_df.index
+                            for auc_df in trnsf_dict.values()))
                 ]]
 
             for mtype, conf_list in use_confs.iteritems():
@@ -373,15 +378,16 @@ def plot_transfer_comparisons(trnsf_dict, conf_dict, pheno_dict,
             base_size = np.mean(pheno_dict[train_coh][base_mtype])
             best_prop = np.mean(pheno_dict[train_coh][best_subtype])
             best_prop /= base_size
+            base_size *= 7.7
 
             plt_x = auc_df.loc[base_mtype, 'mean']
             plt_y = auc_df.loc[best_subtype, 'mean']
-            plt_min = min(plt_min, plt_x - 0.13, plt_y - 0.01)
+            plt_min = min(plt_min, plt_x - 0.07, plt_y - 0.07)
 
             if plt_x > 0.7 or plt_y > 0.7:
-                pnt_dict[plt_x, plt_y] = (base_size ** 0.53, (coh_lbl, ''))
+                pnt_dict[plt_x, plt_y] = (base_size ** 0.47, (coh_lbl, ''))
             else:
-                pnt_dict[plt_x, plt_y] = (base_size ** 0.53, ('', ''))
+                pnt_dict[plt_x, plt_y] = (base_size ** 0.47, ('', ''))
 
             pie_ax = inset_axes(
                 ax, width=base_size ** 0.5, height=base_size ** 0.5,
@@ -392,34 +398,34 @@ def plot_transfer_comparisons(trnsf_dict, conf_dict, pheno_dict,
             pie_ax.pie(x=[best_prop, 1 - best_prop], explode=[0.29, 0],
                        colors=[clr_dict[coh_lbl] + (0.83, ),
                                clr_dict[coh_lbl] + (0.23, )],
-                       wedgeprops=dict(edgecolor='black', linewidth=10 / 11))
+                       wedgeprops=dict(edgecolor='black', linewidth=13 / 11))
 
     # figure out where to place the labels for each point, and plot them
-    lbl_pos = place_labels(pnt_dict,
-                           lims=(plt_min, 1 - (1 - plt_min) / 19),
-                           lbl_dens=0.67, seed=args.seed)
+    lbl_pos = place_labels(pnt_dict, lims=(plt_min, 1 - (1 - plt_min) / 71),
+                           lbl_dens=1.04, seed=args.seed)
 
     for (pnt_x, pnt_y), pos in lbl_pos.items():
         ax.text(pos[0][0], pos[0][1] + 700 ** -1,
                 pnt_dict[pnt_x, pnt_y][1][0],
-                size=17, ha=pos[1], va='bottom')
+                size=21, ha=pos[1], va='bottom')
 
         x_delta = pnt_x - pos[0][0]
         y_delta = pnt_y - pos[0][1]
         ln_lngth = np.sqrt((x_delta ** 2) + (y_delta ** 2))
 
         # if the label is sufficiently far away from its point...
-        if ln_lngth > (0.021 + pnt_dict[pnt_x, pnt_y][0] / (61 * plt_min)):
+        if ln_lngth > (0.017 + pnt_dict[pnt_x, pnt_y][0] / (61 * plt_min)):
             use_clr = clr_dict[pnt_dict[pnt_x, pnt_y][1][0]]
-            pnt_gap = pnt_dict[pnt_x, pnt_y][0] / (29 * ln_lngth)
-            lbl_gap = 0.006 / ln_lngth
+            pnt_gap = pnt_dict[pnt_x, pnt_y][0] / ((1 - plt_min) * 173
+                                                   * ln_lngth)
+            lbl_gap = (ln_lngth ** -1) / 253
 
             ax.plot([pnt_x - pnt_gap * x_delta,
                      pos[0][0] + lbl_gap * x_delta],
                     [pnt_y - pnt_gap * y_delta,
                      pos[0][1] + lbl_gap * y_delta
                      + 0.008 + 0.004 * np.sign(y_delta)],
-                    c=use_clr, linewidth=2.7, alpha=0.59)
+                    c='black', linewidth=1.1, alpha=0.61)
 
     ax.plot([plt_min, 1], [0.5, 0.5],
             color='black', linewidth=1.3, linestyle=':', alpha=0.71)
@@ -433,13 +439,13 @@ def plot_transfer_comparisons(trnsf_dict, conf_dict, pheno_dict,
     ax.plot([plt_min, 0.997], [plt_min, 0.997],
             color='#550000', linewidth=2.1, linestyle='--', alpha=0.41)
 
-    ax.set_xlim([plt_min, 1 + (1 - plt_min) / 71])
-    ax.set_ylim([plt_min, 1 + (1 - plt_min) / 71])
+    ax.set_xlim([plt_min, 1 + (1 - plt_min) / 103])
+    ax.set_ylim([plt_min, 1 + (1 - plt_min) / 103])
 
-    ax.set_xlabel("Transfer AUC\nusing all point mutations",
-                  size=23, weight='semibold')
+    ax.set_xlabel("Transfer AUC\nusing gene-wide classifier",
+                  size=27, weight='semibold')
     ax.set_ylabel("Transfer AUC\nusing best found subgrouping",
-                  size=23, weight='semibold')
+                  size=27, weight='semibold')
 
     plt.savefig(
         os.path.join(plot_dir, '__'.join([args.expr_source, args.gene]),

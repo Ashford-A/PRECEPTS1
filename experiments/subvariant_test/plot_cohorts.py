@@ -59,7 +59,7 @@ def plot_auc_comparison(auc_dfs, pheno_dicts, args):
                     * np.mean(pheno_dicts[args.cohorts[1]][mtype])) ** 0.5
 
         ax.scatter(auc_val1, auc_val2, c=[gene_clr],
-                   s=899 * mtype_sz, alpha=0.17, edgecolor='none')
+                   s=899 * mtype_sz, alpha=0.19, edgecolor='none')
 
     ax.plot([plt_min, 1], [0.5, 0.5],
             color='black', linewidth=1.3, linestyle=':', alpha=0.71)
@@ -73,14 +73,14 @@ def plot_auc_comparison(auc_dfs, pheno_dicts, args):
     ax.plot([plt_min + 0.01, 0.997], [plt_min + 0.01, 0.997],
             color='#550000', linewidth=2.1, linestyle='--', alpha=0.41)
 
-    ax.set_xlim([plt_min, 1 + (1 - plt_min) / 71])
-    ax.set_ylim([plt_min, 1 + (1 - plt_min) / 71])
+    ax.set_xlim([plt_min, 1 + (1 - plt_min) / 103])
+    ax.set_ylim([plt_min, 1 + (1 - plt_min) / 103])
 
     lbl_base = "AUC in training cohort\n{}"
     xlbl = lbl_base.format(get_cohort_label(args.cohorts[0]))
     ylbl = lbl_base.format(get_cohort_label(args.cohorts[1]))
-    ax.set_xlabel(xlbl, size=23, weight='semibold')
-    ax.set_ylabel(ylbl, size=23, weight='semibold')
+    ax.set_xlabel(xlbl, size=27, weight='semibold')
+    ax.set_ylabel(ylbl, size=27, weight='semibold')
 
     plt.savefig(os.path.join(plot_dir, '__'.join(args.cohorts),
                              "auc-comparison_{}.svg".format(args.classif)),
@@ -171,20 +171,20 @@ def plot_coh_comparison(auc_dfs, pheno_dicts, args):
                                             linewidth=31 / 11, alpha=0.31),
                             startangle=90)
 
-    lbl_pos = place_labels(pnt_dict)
+    lbl_pos = place_labels(pnt_dict, lims=[plt_min + 0.03, 1])
     for (pnt_x, pnt_y), pos in lbl_pos.items():
         ax.text(pos[0][0], pos[0][1] + 700 ** -1,
                 pnt_dict[pnt_x, pnt_y][1][0],
-                size=13, ha=pos[1], va='bottom')
+                size=15, ha=pos[1], va='bottom')
         ax.text(pos[0][0], pos[0][1] - 700 ** -1,
                 pnt_dict[pnt_x, pnt_y][1][1],
-                size=9, ha=pos[1], va='top')
+                size=11, ha=pos[1], va='top')
 
         x_delta = pnt_x - pos[0][0]
         y_delta = pnt_y - pos[0][1]
         ln_lngth = np.sqrt((x_delta ** 2) + (y_delta ** 2))
 
-        if ln_lngth > (0.021 + pnt_dict[pnt_x, pnt_y][0] / 31):
+        if ln_lngth > (0.019 + pnt_dict[pnt_x, pnt_y][0] / 31):
             use_clr = clr_dict[pnt_dict[pnt_x, pnt_y][1][0]]
             pnt_gap = pnt_dict[pnt_x, pnt_y][0] / (29 * ln_lngth)
             lbl_gap = 0.006 / ln_lngth
@@ -194,7 +194,7 @@ def plot_coh_comparison(auc_dfs, pheno_dicts, args):
                     [pnt_y - pnt_gap * y_delta,
                      pos[0][1] + lbl_gap * y_delta
                      + 0.008 + 0.004 * np.sign(y_delta)],
-                    c=use_clr, linewidth=2.3, alpha=0.27)
+                    c=use_clr, linewidth=1.7, alpha=0.27)
 
     ax.plot([0.48, 1], [0.5, 0.5], color='black',
             linewidth=1.3, linestyle=':', alpha=0.71)
@@ -206,15 +206,15 @@ def plot_coh_comparison(auc_dfs, pheno_dicts, args):
     ax.plot([1, 1], [0.48, 1.0005], color='black',
             linewidth=1.9, alpha=0.89)
     ax.plot([0.49, 0.997], [0.49, 0.997], color='#550000',
-            linewidth=2.1, linestyle='--', alpha=0.41)
+            linewidth=2.1, linestyle='--', alpha=0.37)
 
-    ax.set_xlim([plt_min, 1.001])
-    ax.set_ylim([plt_min, 1.001])
+    ax.set_xlim([plt_min, 1 + (1 - plt_min) / 103])
+    ax.set_ylim([plt_min, 1 + (1 - plt_min) / 103])
 
     ax.set_xlabel("Accuracy of Gene-Wide Classifier",
-                  size=23, weight='semibold')
+                  size=27, weight='semibold')
     ax.set_ylabel("Accuracy of Best Subgrouping Classifier",
-                  size=23, weight='semibold')
+                  size=27, weight='semibold')
 
     plt.savefig(os.path.join(plot_dir, '__'.join(args.cohorts),
                              "coh-comparison_{}.svg".format(args.classif)),
@@ -935,7 +935,7 @@ def plot_subtype_response(auc_dicts, ccle_dfs, resp_vals,
 
     corr_df = pd.DataFrame({
         coh: {
-            mtype: spearmanr(
+            mtype: -spearmanr(
                 ccle_df.loc[mtype,
                             set(use_resp.index) & set(ccle_df.columns)],
                 use_resp[set(use_resp.index) & set(ccle_df.columns)]
@@ -954,7 +954,7 @@ def plot_subtype_response(auc_dicts, ccle_dfs, resp_vals,
                           for phn_dict in pheno_dicts.values()]) ** 0.5
 
         mtype_lbl = '\n'.join(get_fancy_label(mtype).split('\n')[1:])
-        pnt_dict[corr_x, corr_y] = (plt_sz ** 3, ('', mtype_lbl))
+        pnt_dict[corr_x, corr_y] = (plt_sz ** 0.53, ('a', mtype_lbl))
         ax.scatter(corr_x, corr_y, s=plt_sz * 1779,
                    alpha=0.37, edgecolors='none')
 

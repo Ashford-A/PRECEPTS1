@@ -257,9 +257,6 @@ def main():
             use_mtypes |= {MuType({('Gene', gene): mtype})
                            for mtype in gene_mtypes}
 
-    print(len({mtype for mtype in use_mtypes
-               if (mtype & copy_mtype).is_empty()}))
-    import pdb; pdb.set_trace()
     # set a random seed for use in picking random subgroupings
     lvls_seed = np.prod([(ord(char) % 7 + 3)
                          for i, char in enumerate(args.mut_levels)

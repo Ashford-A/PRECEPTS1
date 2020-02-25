@@ -95,9 +95,9 @@ def plot_sub_comparison(auc_vals, pheno_dict, conf_vals, args):
     ax.set_xlim([plt_min, 1 + (1 - plt_min) / 71])
     ax.set_ylim([plt_min, 1 + (1 - plt_min) / 71])
 
-    ax.set_xlabel("AUC of subgrouping", size=23, weight='semibold')
+    ax.set_xlabel("AUC of subgrouping", size=27, weight='semibold')
     ax.set_ylabel("AUC of subgrouping when\nCNAs were added",
-                  size=23, weight='semibold')
+                  size=27, weight='semibold')
 
     plt.savefig(
         os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
