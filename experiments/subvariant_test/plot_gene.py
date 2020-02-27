@@ -60,32 +60,44 @@ def choose_cohort_colour(cohort):
                  for i in range(0, 6, 2))
 
 
-def plot_sub_comparisons(auc_dict, conf_dict, pheno_dict, use_clf, args):
+def plot_sub_comparisons(auc_dict, conf_dict, pheno_dict, use_clf, args,
+                         include_copy=False):
     fig, ax = plt.subplots(figsize=(11, 11))
 
-    base_mtype = MuType({('Gene', args.gene): pnt_mtype})
+    gene_mtype = MuType({('Gene', args.gene): pnt_mtype})
     plt_min = 0.89
     pnt_dict = dict()
 
     # for each cohort, check if the given gene had subgroupings that were
     # tested, and get the results for all the gene's point mutations...
     for coh, auc_vals in auc_dict.items():
-        use_aucs = auc_vals[[
-            mtype for mtype in auc_vals.index
-            if (not isinstance(mtype, RandomType)
-                and (mtype.subtype_list()[0][1] & copy_mtype).is_empty())
+        use_aucs = auc_vals[[mtype for mtype in auc_vals.index
+                             if not isinstance(mtype, RandomType)]]
+
+        if not include_copy:
+            use_aucs = use_aucs[[
+                mtype for mtype in use_aucs.index
+                if (mtype.subtype_list()[0][1] & copy_mtype).is_empty()
+                ]]
+
+        sub_aucs = use_aucs[[
+            mtype for mtype in use_aucs.index
+            if not ((mtype.subtype_list()[0][1] & pnt_mtype).is_empty()
+                    or mtype.subtype_list()[0][1].is_supertype(pnt_mtype))
             ]]
 
-        if len(use_aucs) > 1 and base_mtype in use_aucs.index:
-            base_indx = use_aucs.index.get_loc(base_mtype)
+        if (len(use_aucs) > 1 and gene_mtype in use_aucs.index
+                and len(sub_aucs) > 0):
+            gene_indx = use_aucs.index.get_loc(gene_mtype)
+            best_subtype = sub_aucs.idxmax()
 
-            # ...and those for the subgrouping in the cohort with the best AUC
-            best_subtype = use_aucs[:base_indx].append(
-                use_aucs[(base_indx + 1):]).idxmax()
-            best_indx = use_aucs.index.get_loc(best_subtype)
+            if (best_subtype.subtype_list()[0][1] & copy_mtype).is_empty():
+                base_mtype = gene_mtype
+            else:
+                base_mtype = (best_subtype - gene_mtype) | gene_mtype
 
-            plt_min = min(plt_min, use_aucs[base_indx] - 0.04,
-                          use_aucs[best_indx] - 0.04)
+            plt_min = min(plt_min, use_aucs[base_mtype] - 0.04,
+                          use_aucs[best_subtype] - 0.04)
             base_size = np.mean(pheno_dict[coh][base_mtype])
             best_prop = np.mean(pheno_dict[coh][best_subtype]) / base_size
 
@@ -95,17 +107,17 @@ def plot_sub_comparisons(auc_dict, conf_dict, pheno_dict, use_clf, args):
             if conf_sc > 0.8:
                 mtype_lbl = '\n'.join(
                     get_fancy_label(best_subtype).split('\n')[1:])
-                pnt_dict[use_aucs[base_indx], use_aucs[best_indx]] = (
-                    base_size ** 0.53, (coh, mtype_lbl))
+                pnt_dict[use_aucs[base_mtype], use_aucs[best_subtype]] = [
+                    base_size ** 0.47, (coh, mtype_lbl)]
 
             else:
-                pnt_dict[use_aucs[base_indx], use_aucs[best_indx]] = (
-                    base_size ** 0.53, (coh, ''))
+                pnt_dict[use_aucs[base_mtype], use_aucs[best_subtype]] = [
+                    base_size ** 0.47, (coh, '')]
 
             # create the axis in which the pie chart will be plotted
             pie_ax = inset_axes(
                 ax, width=base_size ** 0.5, height=base_size ** 0.5,
-                bbox_to_anchor=(use_aucs[base_indx], use_aucs[best_indx]),
+                bbox_to_anchor=(use_aucs[base_mtype], use_aucs[best_subtype]),
                 bbox_transform=ax.transData, loc=10,
                 axes_kwargs=dict(aspect='equal'), borderpad=0
                 )
@@ -116,11 +128,14 @@ def plot_sub_comparisons(auc_dict, conf_dict, pheno_dict, use_clf, args):
                                choose_cohort_colour(coh) + (0.23, )],
                        wedgeprops=dict(edgecolor='black', linewidth=10 / 11))
 
+    for pnt_x, pnt_y in pnt_dict:
+        pnt_dict[pnt_x, pnt_y][0] *= (1 - plt_min) * 1.31
+
     # figure out where to place the annotation labels for each cohort so that
     # they don't overlap with one another or the pie charts
     lbl_pos = place_labels(pnt_dict,
-                           lims=(plt_min + 0.03, 1 - (1 - plt_min) / 23),
-                           lbl_dens=0.59, seed=args.seed)
+                           lims=(plt_min + 0.01, 1 - (1 - plt_min) / 41),
+                           lbl_dens=0.67, seed=args.seed)
 
     for (pnt_x, pnt_y), pos in lbl_pos.items():
         coh_lbl = get_cohort_label(pnt_dict[pnt_x, pnt_y][1][0])
@@ -136,21 +151,18 @@ def plot_sub_comparisons(auc_dict, conf_dict, pheno_dict, use_clf, args):
         ln_lngth = np.sqrt((x_delta ** 2) + (y_delta ** 2))
 
         # if the label is sufficiently far away from its point...
-        min_lngth = (1 - plt_min) * (0.02 + pnt_dict[pnt_x, pnt_y][0] / 13)
-        if ln_lngth > min_lngth:
-            use_clr = choose_cohort_colour(pnt_dict[pnt_x, pnt_y][1][0])
-
-            pnt_gap = pnt_dict[pnt_x, pnt_y][0] / (100 - 53 * plt_min)
-            pnt_gap /= ln_lngth
-            lbl_gap = (1 - plt_min) / (ln_lngth * 97)
+        if ln_lngth > (0.017 + pnt_dict[pnt_x, pnt_y][0] / (83 * plt_min)):
+            pnt_gap = pnt_dict[pnt_x, pnt_y][0] * (1 - plt_min) ** 0.61
+            pnt_gap /= ln_lngth * 13
+            lbl_gap = (1 - plt_min) / (ln_lngth * 61)
 
             # ...create a line connecting the pie chart to the label
             ax.plot([pnt_x - pnt_gap * x_delta,
                      pos[0][0] + lbl_gap * x_delta],
                     [pnt_y - pnt_gap * y_delta,
-                     (pos[0][1] + lbl_gap * y_delta + lbl_gap * 0.015
-                      + lbl_gap * 0.005 * np.sign(y_delta))],
-                    c=use_clr, linewidth=2.3, alpha=0.27)
+                     (pos[0][1] + lbl_gap * y_delta
+                      + 0.008 + 0.004 * np.sign(y_delta))],
+                    c='black', linewidth=0.9, alpha=0.71)
 
     ax.plot([plt_min, 1], [0.5, 0.5],
             color='black', linewidth=1.3, linestyle=':', alpha=0.71)
@@ -172,9 +184,14 @@ def plot_sub_comparisons(auc_dict, conf_dict, pheno_dict, use_clf, args):
     ax.set_ylabel("Accuracy of Best Subgrouping Classifier",
                   size=27, weight='semibold')
 
+    if include_copy:
+        sub_lbl = "sub-copy"
+    else:
+        sub_lbl = "sub"
+
     plt.savefig(
         os.path.join(plot_dir, '__'.join([args.expr_source, args.gene]),
-                     "sub-comparisons_{}.svg".format(use_clf)),
+                     "{}-comparisons_{}.svg".format(sub_lbl, use_clf)),
         bbox_inches='tight', format='svg'
         )
 
@@ -306,16 +323,18 @@ def plot_transfer_aucs(trnsf_dict, auc_dict, conf_dict, pheno_dict,
                                for cohs, auc_df in trnsf_dict.items()
                                if mtype in auc_df.index}).unstack()
 
-        xlabs = [get_cohort_label(coh) for coh in trnsf_mat.columns]
-        ylabs = [get_cohort_label(coh) for coh in trnsf_mat.index]
-
         auc_cmap.set_bad('black')
         sns.heatmap(trnsf_mat, cmap=auc_cmap,
                     vmin=0, vmax=1, cbar_kws={'aspect': 7}, ax=ax)
 
         plt_ylims = ax.get_ylim()
         ax.set_ylim([plt_ylims[1] - 0.5, plt_ylims[0] + 0.5])
-        ax.set_title(' '.join(get_fancy_label(mtype).split('\n')[1:]), size=19)
+
+        mtype_lbl = ' '.join(get_fancy_label(mtype).split('\n')[1:])
+        xlabs = [get_cohort_label(coh) for coh in trnsf_mat.columns]
+        ylabs = [get_cohort_label(coh) for coh in trnsf_mat.index]
+
+        ax.set_title(mtype_lbl, size=19)
         ax.set_xticklabels(xlabs, size=12, ha='right', rotation=37)
         ax.set_yticklabels(ylabs, size=12, ha='right', rotation=0)
 
@@ -415,7 +434,6 @@ def plot_transfer_comparisons(trnsf_dict, conf_dict, pheno_dict,
 
         # if the label is sufficiently far away from its point...
         if ln_lngth > (0.017 + pnt_dict[pnt_x, pnt_y][0] / (61 * plt_min)):
-            use_clr = clr_dict[pnt_dict[pnt_x, pnt_y][1][0]]
             pnt_gap = pnt_dict[pnt_x, pnt_y][0] / ((1 - plt_min) * 173
                                                    * ln_lngth)
             lbl_gap = (ln_lngth ** -1) / 253
@@ -462,15 +480,19 @@ def main():
         "across all tested cohorts for a given source of expression data."
         )
 
+    # create positional command line arguments
     parser.add_argument('expr_source',
                         help='a source of cohort expression data', type=str)
     parser.add_argument('gene', help='a mutated gene', type=str)
 
+    # create argument for seed used to regulate label placement in plots
     parser.add_argument(
         '--seed', default=9401, type=int,
         help="the random seed to use for setting plotting parameters"
         )
 
+    # parse command line arguments, get list of experiments matching given
+    # criteria that have run to completion
     args = parser.parse_args()
     out_datas = [
         out_file.parts[-2:] for out_file in Path(base_dir).glob(os.path.join(
@@ -478,6 +500,7 @@ def main():
             "trnsf-vals__*__*.p.gz"))
         ]
 
+    # parse out input attributes of each experiment
     out_list = pd.DataFrame([
         {'Cohort': out_data[0].split('__')[1],
          'Samps': int(out_data[0].split("__samps-")[1]),
@@ -491,6 +514,9 @@ def main():
         raise ValueError("No experiment output found for expression "
                          "source `{}` !".format(args.expr_source))
 
+    # filter out experiments that have not tested gene-wide classifiers as
+    # well as those that did not test the most subgroupings for a given
+    # combination of input attributes
     out_use = out_list.groupby(['Cohort', 'Classif']).filter(
         lambda outs: ('Exon__Location__Protein' in set(outs.Levels)
                       and outs.Levels.str.match('Domain_').any())
@@ -499,6 +525,7 @@ def main():
     out_use = out_use[out_use.index.get_level_values('Cohort').isin(
         train_cohorts)]
 
+    # ensure gene-wide classifier input is read in first for each experiment
     out_lvls = set(out_use.index.get_level_values('Levels'))
     out_use = out_use.reindex(['Exon__Location__Protein']
                               + list(out_lvls - {'Exon__Location__Protein'}),
@@ -600,7 +627,10 @@ def main():
             if out_clf == clf
             }
 
-        plot_sub_comparisons(clf_aucs, clf_confs, phn_dict, clf, args)
+        plot_sub_comparisons(clf_aucs, clf_confs, phn_dict, clf, args,
+                             include_copy=False)
+        plot_sub_comparisons(clf_aucs, clf_confs, phn_dict, clf, args,
+                             include_copy=True)
         plot_conf_distributions(clf_aucs, clf_confs, phn_dict, clf, args)
 
         plot_transfer_aucs(clf_trnsf, clf_aucs, clf_confs, phn_dict,

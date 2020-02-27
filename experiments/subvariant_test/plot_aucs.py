@@ -38,6 +38,7 @@ plt.rcParams['axes.edgecolor']='white'
 
 
 def place_labels(pnt_dict, lims=(0.48, 1.01), lbl_dens=1., seed=None):
+    #TODO: shouldn't plot range by multiplicative instead?
     lim_gap = (lbl_dens * 17) / (lims[1] - lims[0])
 
     if seed is not None:
