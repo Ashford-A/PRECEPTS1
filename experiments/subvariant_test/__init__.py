@@ -1,7 +1,7 @@
 
-from .data_dirs import (expr_sources, expr_dir, copy_dir, syn_root,
-                        domain_dir, annot_file, gene_list, type_file,
-                        beatAML_files, metabric_dir, ccle_dir)
+from .data_dirs import (expr_sources, expr_dir, copy_dir, syn_root, annot_dir,
+                        gene_list, type_file, baml_dir, metabric_dir,
+                        ccle_dir)
 from dryadic.features.mutations import MuType
 
 
@@ -14,7 +14,6 @@ train_cohorts = {'BLCA', 'BRCA_LumA', 'CESC_SquamousCarcinoma', 'HNSC_HPV-',
                  'KIRC', 'LGG_IDHmut-non-codel', 'LIHC', 'LUAD', 'LUSC',
                  'METABRIC_LumA', 'OV', 'PRAD', 'SKCM', 'STAD', 'THCA'}
 
-__all__ = ['expr_sources', 'expr_dir', 'copy_dir', 'syn_root',
-           'domain_dir', 'annot_file', 'gene_list', 'type_file',
-           'beatAML_files', 'metabric_dir', 'ccle_dir']
+__all__ = ['expr_sources', 'expr_dir', 'copy_dir', 'syn_root', 'annot_dir',
+           'gene_list', 'type_file', 'baml_dir', 'metabric_dir', 'ccle_dir']
 

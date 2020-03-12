@@ -1,16 +1,21 @@
 
 from ..data.expression import get_expr_firehose, get_expr_bmeg, get_expr_toil
-from ..data.variants import get_variants_mc3, get_variants_firehose
 from ..data.copies import get_copies_firehose
 from .mut_freq import BaseMutFreqCohort
+from ...experiments.utilities.load_input import parse_subtypes
 
 from dryadic.features.cohorts.mut import (
     BaseMutationCohort, BaseCopyCohort, BaseTransferMutationCohort)
 from dryadic.features.cohorts.utils import (
     match_tcga_samples, get_gencode, log_norm, drop_duplicate_genes)
 
+import numpy as np
 import pandas as pd
+
+import os
 from functools import reduce
+from re import sub as gsub
+import synapseclient
 from operator import and_
 from itertools import cycle, combinations
 
@@ -42,8 +47,112 @@ def get_expr_data(cohort, expr_source, **expr_args):
     return log_norm(expr_mat.fillna(0.0))
 
 
-def add_variant_data(cohort, var_source, copy_source, expr, gene_annot,
-                     **var_args):
+def get_variant_data(cohort, var_source, **var_args):
+    if var_source == 'mc3':
+        mc3 = var_args['syn'].get('syn7824274')
+
+        field_dict = (
+            ('Gene', 0), ('Chr', 4), ('Start', 5), ('End', 6), ('Strand', 7),
+            ('Form', 8), ('RefAllele', 10), ('TumorAllele', 12),
+            ('Sample', 15), ('HGVS', 34), ('Protein', 36), ('Transcript', 37),
+            ('Exon', 38), ('depth', 39), ('ref_count', 40), ('alt_count', 41),
+            ('SIFT', 71), ('PolyPhen', 72)
+            )
+
+        if 'mut_fields' not in var_args or var_args['mut_fields'] is None:
+            use_fields, use_cols = tuple(zip(*field_dict))
+
+        else:
+            use_fields, use_cols = tuple(zip(*[
+                (name, col) for name, col in field_dict
+                if name in {'Sample'} | set(var_args['mut_fields'])
+                ]))
+
+        # imports mutation data into a DataFrame, parses TCGA sample barcodes
+        # and PolyPhen scores
+        i = 0
+        while i < 10:
+            try:
+                var_data = pd.read_csv(mc3.path, engine='c', dtype='object',
+                                       sep='\t', header=None,
+                                       usecols=use_cols, names=use_fields,
+                                       comment='#', skiprows=1)
+                break
+
+            except OSError:
+                i = i + 1
+
+        for annt, null_val in zip(['PolyPhen', 'SIFT'], [0, 1]):
+            if annt in var_data:
+                var_data[annt] = var_data[annt].apply(
+                    lambda val: (np.float(gsub('\)$', '',
+                                               gsub('^.*\(', '', val)))
+                                 if val != '.' else null_val)
+                    )
+
+                if annt == 'SIFT':
+                    var_data[annt] = 1 - var_data[annt]
+
+        var_data.Sample = var_data.Sample.apply(
+            lambda smp: '-'.join(smp.split('-')[:4]))
+    
+    elif var_source == 'Firehose':
+        mut_tar = tarfile.open(glob.glob(os.path.join(
+            data_dir, "stddata__2016_01_28", cohort, "20160128",
+            "*Mutation_Packager_Oncotated_Calls.Level_3*tar.gz"
+            ))[0])
+
+        mut_list = []
+        for mut_fl in mut_tar.getmembers():
+
+            try:
+                mut_tbl = pd.read_csv(
+                    BytesIO(mut_tar.extractfile(mut_fl).read()),
+                    sep='\t', skiprows=4, usecols=[0, 8, 15, 37, 41],
+                    names=['Gene', 'Form', 'Sample', 'Exon', 'Protein']
+                    )
+                mut_list += [mut_tbl]
+
+            except:
+                print("Skipping mutations for {}".format(mut_fl))
+            
+        muts = pd.concat(mut_list)
+        muts.Sample = muts.Sample.apply(lambda smp: "-".join(smp.split("-")[:4]))
+        mut_tar.close()
+
+    elif var_source == 'BMEG':
+        oph = Ophion("http://bmeg.io")
+        mut_list = {samp: {} for samp in sample_list}
+        gene_lbls = ["gene:" + gn for gn in gene_list]
+
+        print(oph.query().has("gid", "biosample:" + sample_list[0])
+              .incoming("variantInBiosample")
+              .outEdge("variantInGene").mark("variant")
+              .inVertex().has("gid", oph.within(gene_lbls)).count().execute())
+              # .mark("gene").select(["gene", "variant"]).count().execute())
+
+        for samp in sample_list:
+            for i in oph.query().has("gid", "biosample:" + samp)\
+                    .incoming("variantInBiosample")\
+                    .outEdge("variantInGene").mark("variant")\
+                    .inVertex().has("gid", oph.within(gene_lbls))\
+                    .mark("gene").select(["gene", "variant"]).execute():
+                dt = json.loads(i)
+                gene_name = dt["gene"]["properties"]["symbol"]
+                mut_list[samp][gene_name] = {
+                    k: v for k, v in dt["variant"]["properties"].items()
+                    if k in mut_fields}
+
+        mut_table = pd.DataFrame(mut_list)
+
+    else:
+        raise ValueError("Unrecognized source of variant data!")
+
+    return var_data
+
+
+def add_mutations(cohort, var_source, copy_source, expr, gene_annot,
+                  **mut_args):
     """Adds variant calls to loaded TCGA expression data.
 
     Args:
@@ -55,26 +164,14 @@ def add_variant_data(cohort, var_source, copy_source, expr, gene_annot,
                                   Default is to only use point mutations.
 
     """
-
-    # load mutation data from the given source
-    if 'mc3' in var_args:
-        variants = var_args['mc3']
-
-    elif var_source == 'mc3':
-        variants = get_variants_mc3(var_args['syn'])
-    
-    elif var_source == 'Firehose':
-        variants = get_variants_firehose(cohort, var_args['var_dir'])
-    
-    else:
-        raise ValueError("Unrecognized source of variant data!")
+    var_data = get_variant_data(cohort, var_source, **mut_args)
 
     # load copy number alteration data from the given source
     if copy_source == 'Firehose':
-        if 'copy_dir' not in var_args:
-            copy_dir = var_args['expr_dir']
+        if 'copy_dir' not in mut_args:
+            copy_dir = mut_args['expr_dir']
         else:
-            copy_dir = var_args['copy_dir']
+            copy_dir = mut_args['copy_dir']
 
         copy_data = get_copies_firehose(cohort, copy_dir, discrete=True)
 
@@ -83,8 +180,9 @@ def add_variant_data(cohort, var_source, copy_source, expr, gene_annot,
 
     copy_df = pd.DataFrame(copy_data.stack()).reset_index()
     copy_df.columns = ['Sample', 'Gene', 'Copy']
+
     expr_match, var_match, copy_match = match_tcga_samples(
-        expr.index, variants.Sample, copy_df.Sample)
+        expr.index, var_data.Sample.values, copy_df.Sample.values)
 
     new_expr = expr.loc[
         expr.index.isin(expr_match),
@@ -92,7 +190,7 @@ def add_variant_data(cohort, var_source, copy_source, expr, gene_annot,
         ]
     new_expr.index = [expr_match[old_samp] for old_samp in new_expr.index]
 
-    new_vars = variants[variants.isin({
+    new_vars = var_data[var_data.isin({
         'Sample': var_match.keys(), 'Gene': gene_annot.keys()}).loc[
             :, ['Gene', 'Sample']].all(axis=1)].copy()
     new_vars.Sample = new_vars.Sample.apply(lambda samp: var_match[samp])
@@ -138,6 +236,49 @@ def list_cohorts(data_source, **data_args):
                     "analyses__*/**/*CopyNumber_Gistic2.Level_4*")}
 
     return cohorts
+
+
+def process_input_datasets(cohort, expr_source, var_source, copy_source,
+                           annot_dir, type_file, **data_args):
+
+    base_coh = cohort.split('_')[0]
+    use_types = parse_subtypes(cohort)
+
+    expr = drop_duplicate_genes(get_expr_data(base_coh, expr_source,
+                                              **data_args))
+
+    annot_file = os.path.join(annot_dir, "gencode.v19.annotation.gtf.gz")
+    if 'annot_fields' in data_args:
+        annot_data = get_gencode(annot_file, data_args['annot_fields'])
+    else:
+        annot_data = get_gencode(annot_file)
+
+    # restructure annotation data around expression gene labels
+    annot_dict = {
+        at['gene_name']: {**{'Ens': ens}, **at}
+        for ens, at in annot_data.items()
+        if at['gene_name'] in set(expr.columns.get_level_values('Gene'))
+        }
+
+    expr, variants, copy_df = add_mutations(base_coh, var_source, copy_source,
+                                            expr, annot_dict, **data_args)
+
+    type_data = pd.read_csv(type_file,
+                            sep='\t', index_col=0, comment='#')
+    type_data = type_data[type_data.DISEASE == base_coh]
+
+    use_samps = set(expr.index)
+    if use_types is not None:
+        use_samps &= set(type_data.index[type_data.SUBTYPE.isin(use_types)])
+
+    expr_data = expr.loc[use_samps]
+    variants = variants.loc[variants.Sample.isin(use_samps)]
+    copy_df = copy_df.loc[copy_df.Sample.isin(use_samps)]
+    variants['Scale'] = 'Point'
+    copy_df['Scale'] = 'Copy'
+    mut_data = pd.concat([variants, copy_df], sort=True)
+
+    return expr_data, mut_data, annot_dict
 
 
 class MutationCohort(BaseMutationCohort):
@@ -188,69 +329,19 @@ class MutationCohort(BaseMutationCohort):
     """
 
     def __init__(self,
-                 cohort, mut_levels, mut_genes, expr_source, var_source,
-                 copy_source, annot_file, domain_dir=None, type_file=None,
-                 leaf_annot=('ref_count', 'alt_count'),
+                 cohort, mut_levels=None, mut_genes=None, expr_source=None,
+                 var_source=None, copy_source=None, annot_dir=None,
+                 type_file=None, leaf_annot=('ref_count', 'alt_count'),
                  cv_seed=None, test_prop=0, **coh_args):
         self.cohort = cohort
 
-        # load expression and gene annotation datasets
-        expr = drop_duplicate_genes(get_expr_data(cohort, expr_source,
-                                                  **coh_args))
-        if 'annot_fields' in coh_args:
-            annot_data = get_gencode(annot_file, coh_args['annot_fields'])
-        else:
-            annot_data = get_gencode(annot_file)
-
-        # restructure annotation data around expression gene labels
-        self.gene_annot = {
-            at['gene_name']: {**{'Ens': ens}, **at}
-            for ens, at in annot_data.items()
-            if at['gene_name'] in set(expr.columns.get_level_values('Gene'))
-            }
-
-        expr, variants, copy_df = add_variant_data(
-            cohort, var_source, copy_source, expr,
-            self.gene_annot, **coh_args
+        expr_data, mut_data, gene_annot = process_input_datasets(
+            cohort, expr_source, var_source, copy_source,
+            annot_dir, type_file=None, **coh_args
             )
 
-        if (type_file is not None and 'use_types' in coh_args
-                and coh_args['use_types'] is not None):
-            type_data = pd.read_csv(type_file,
-                                    sep='\t', index_col=0, comment='#')
-            type_data = type_data[type_data.DISEASE == cohort]
-
-            use_samps = set(type_data.index[type_data.SUBTYPE.isin(
-                coh_args['use_types'])])
-            use_samps &= set(expr.index)
-
-        else:
-            use_samps = expr.index
-
-        expr = expr.loc[use_samps]
-        variants = variants.loc[variants.Sample.isin(use_samps)]
-        copy_df = copy_df.loc[copy_df.Sample.isin(use_samps)]
-        variants['Scale'] = 'Point'
-        copy_df['Scale'] = 'Copy'
-
-        # add a mutation level indicating if a mutation is a CNA or not by
-        # first figuring out where to situate it relative to the other
-        # levels...
-        for i in range(len(mut_levels)):
-            if 'Scale' not in mut_levels[i]:
-                if 'Gene' in mut_levels[i]:
-                    scale_lvl = mut_levels[i].index('Gene') + 1
-                else:
-                    scale_lvl = 0
-
-                # ...and then inserting the new level, and adding its
-                # corresponding values to the mutation and copy no. datasets
-                mut_levels[i].insert(scale_lvl, 'Scale')
-                mut_levels[i].insert(scale_lvl + 1, 'Copy')
-
-        super().__init__(expr, pd.concat([variants, copy_df], sort=True),
-                         mut_levels, mut_genes, domain_dir,
-                         leaf_annot, cv_seed, test_prop)
+        super().__init__(expr_data, mut_data, mut_levels, mut_genes,
+                         gene_annot, leaf_annot, cv_seed, test_prop)
 
 
 class CopyCohort(BaseCopyCohort):
@@ -365,7 +456,7 @@ class MutFreqCohort(BaseMutFreqCohort):
                            for ens, at in get_gencode().items()
                            if at['gene_name'] in expr.columns}
 
-        expr, variants = add_variant_data(cohort, var_source, copy_source,
+        expr, variants = add_mutations(cohort, var_source, copy_source,
                                           expr, self.gene_annot, **coh_args)
 
         super().__init__(expr, variants, cv_prop, cv_seed)
@@ -410,7 +501,7 @@ class PanCancerMutCohort(BaseMutationCohort):
                            if at['gene_name'] in expr.columns}
 
         if var_source == 'mc3':
-            variants, matched_samps = add_variant_data(
+            variants, matched_samps = add_mutations(
                 cohort=None, var_source='mc3', expr=expr,
                 gene_annot=self.gene_annot, **coh_args
                 )
@@ -433,7 +524,7 @@ class PanCancerMutCohort(BaseMutationCohort):
             var_dict = dict()
             for cohort in var_cohorts:
                 try:
-                    var_dict[cohort] = add_variant_data(cohort, expr_source,
+                    var_dict[cohort] = add_mutations(cohort, expr_source,
                                                         **coh_args)
 
                     if copy_source is not None:
@@ -519,7 +610,7 @@ class TransferMutationCohort(BaseTransferMutationCohort):
         for cohort, var_source, copy_source in zip(
                 cohorts, cycle(var_sources), cycle(copy_sources)):
 
-            expr_dict[cohort], var_dict[cohort], copy_df = add_variant_data(
+            expr_dict[cohort], var_dict[cohort], copy_df = add_mutations(
                 cohort, var_source, copy_source, expr_raw[cohort],
                 self.gene_annot, **coh_args
                 )
