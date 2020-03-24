@@ -1,84 +1,113 @@
 
-"""Enumerating the subtypes of a gene in a cohort to be isolated.
-
-"""
-
 import os
 import sys
-
-sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
-if 'BASEDIR' in os.environ:
-    base_dir = os.environ['BASEDIR']
-else:
-    base_dir = os.path.dirname(__file__)
+base_dir = os.path.dirname(__file__)
+sys.path.extend([os.path.join(base_dir, '..', '..', '..')])
 
 from HetMan.experiments.subvariant_isolate import *
-from HetMan.experiments.utilities.load_input import load_firehose_cohort
-from dryadic.features.mutations import MuType, MutComb
+from HetMan.experiments.subvariant_isolate.param_list import params
+
+from dryadic.features.data.vep import process_variants
+from HetMan.experiments.subvariant_test import (
+    pnt_mtype, gain_mtype, loss_mtype)
+from HetMan.experiments.subvariant_isolate import cna_mtypes
+
+from HetMan.features.cohorts.beatAML import (
+    process_input_datasets as process_baml_datasets)
+from HetMan.features.cohorts.metabric import (
+    process_input_datasets as process_metabric_datasets)
+from HetMan.features.cohorts.tcga import (
+    process_input_datasets as process_tcga_datasets)
+
+from HetMan.experiments.subvariant_tour.utils import RandomType
+from HetMan.experiments.subvariant_isolate.utils import Mcomb, ExMcomb
+from dryadic.features.mutations import MuType
+from dryadic.features.cohorts.mut import BaseMutationCohort
 
 import argparse
-from functools import reduce
-from operator import or_
-from itertools import combinations as combn
+import synapseclient
+import bz2
 import dill as pickle
 
+import numpy as np
+import pandas as pd
 
-class ExMcomb(MutComb):
+import random
+from itertools import combinations as combn
+from itertools import product
 
-    def __new__(cls, mtree, *mtypes):
-        if isinstance(mtree, MuType):
-            all_mtype = mtree
+
+def choose_source(cohort):
+    # choose the source of expression data to use for this tumour cohort
+    coh_base = cohort.split('_')[0]
+
+    if coh_base == 'beatAML':
+        use_src = 'toil__gns'
+    elif coh_base in ['METABRIC', 'CCLE']:
+        use_src = 'microarray'
+
+    # default to using Broad Firehose expression calls for TCGA cohorts
+    else:
+        use_src = 'Firehose'
+
+    return use_src
+
+
+def get_input_datasets(cohort, mut_genes, mut_fields=None):
+    syn = synapseclient.Synapse()
+    syn.cache.cache_root_dir = syn_root
+    syn.login()
+
+    if cohort == 'beatAML':
+        use_asmb = 'GRCh37'
+
+        expr_data, mut_data, annot_dict = process_baml_datasets(
+            baml_dir, annot_dir, syn,
+            annot_fields=['transcript'], mut_fields=mut_fields
+            )
+
+    elif cohort.split('_')[0] == 'METABRIC':
+        use_asmb = 'GRCh37'
+
+        if '_' in cohort:
+            use_types = cohort.split('_')[1]
         else:
-            all_mtype = MuType(mtree.allkey())
+            use_types = None
 
-        obj = super().__new__(cls, *mtypes,
-                              not_mtype=all_mtype - reduce(or_, mtypes))
-        obj.all_mtype = all_mtype
-        obj.cur_level = all_mtype.cur_level
+        expr_data, mut_data, annot_dict = process_metabric_datasets(
+            metabric_dir, annot_dir, use_types,
+            annot_fields=['transcript'], mut_fields=mut_fields
+            )
 
-        return obj
+    else:
+        use_asmb = 'GRCh37'
 
-    def __hash__(self):
-        value = 0x981324 ^ (len(self.mtypes) * hash(self.all_mtype))
-        value += hash(self.mtypes)
+        expr_data, mut_data, annot_dict = process_tcga_datasets(
+            cohort, expr_source='Firehose', var_source='mc3',
+            copy_source='Firehose', expr_dir=expr_dir, annot_dir=annot_dir,
+            type_file=type_file, annot_fields=['transcript'], syn=syn,
+            mut_fields=mut_fields
+            )
 
-        if value == -1:
-            value = -2
+    return expr_data, mut_data, annot_dict, use_asmb
 
-        return value
 
-    def __getnewargs__(self):
-        return (self.all_mtype,) + tuple(self.mtypes)
+def compare_lvls(lvls1, lvls2):
+    for i in range(1, len(lvls1)):
+        for j in range(1, len(lvls2) + 1):
+            if lvls1[i:] == lvls2[:j]:
+                return False
 
-    def __str__(self):
-        return ' & '.join(str(mtype) for mtype in sorted(self.mtypes))
+    for j in range(1, len(lvls2)):
+        for i in range(1, len(lvls1) + 1):
+            if lvls2[j:] == lvls1[:i]:
+                return False
 
-    def __repr__(self):
-        return 'ONLY {}'.format(
-            ' AND '.join(repr(mtype) for mtype in sorted(self.mtypes)))
+    return True
 
-    def __eq__(self, other):
-        if not isinstance(other, ExMcomb):
-            eq = False
 
-        else:
-            eq = self.all_mtype == other.all_mtype
-            eq &= self.mtypes == other.mtypes
-
-        return eq
-
-    def __lt__(self, other):
-        if not isinstance(other, ExMcomb):
-            return NotImplemented
-
-        if self.all_mtype != other.all_mtype:
-            raise ValueError("Cannot compare combinations from different "
-                             "mutation cohorts!")
-
-        return self.mtypes < other.mtypes
-
-    def get_sorted_levels(self):
-        return self.all_mtype.get_sorted_levels()
+class IsoMutationCohort(BaseMutationCohort):
+    pass
 
 
 def main():
@@ -87,102 +116,182 @@ def main():
         "enumerating the subtypes to be tested."
         )
 
-    # create positional command line arguments
+    parser.add_argument('gene', type=str, help="a mutated gene")
     parser.add_argument('cohort', type=str, help="which TCGA cohort to use")
-    parser.add_argument('gene', type=str, help="which gene to consider")
-    parser.add_argument('mut_levels', type=str,
-                        help="the mutation property levels to consider")
+    parser.add_argument('search_params', type=str,)
+    parser.add_argument('mut_levels', type=str, help="a mutated gene")
+    parser.add_argument('out_dir', type=str)
 
-    # create optional command line arguments
-    parser.add_argument('--samp_cutoff', type=int, default=20,
-                        help='subtype sample frequency threshold')
-    parser.add_argument('--verbose', '-v', action='store_true',
-                        help='turns on diagnostic messages')
-
-    # parse command line arguments
     args = parser.parse_args()
-    use_lvls = args.mut_levels.split('__')
+    out_path = os.path.join(args.out_dir, 'setup')
 
-    # create directory where found subtypes will be stored, load cohort
-    # expression and mutation data
-    out_path = os.path.join(base_dir, 'setup', args.cohort, args.gene)
-    os.makedirs(out_path, exist_ok=True)
-    cdata = load_firehose_cohort(args.cohort, [args.gene], use_lvls)
+    lvls_list = args.mut_levels.split('__')
+    use_lvls = ['Scale', 'Copy'] + lvls_list
+    use_params = params[args.search_params]
 
-    if args.verbose:
-        print("Looking for combinations of subtypes of mutations in gene {} "
-              "present in at least {} of the samples in TCGA cohort {} at "
-              "annotation levels {}.\n".format(
-                  args.gene, args.samp_cutoff, args.cohort, use_lvls)
-             )
-
-    # find combinations of up to two point mutation subtypes present in enough
-    # samples in the cohort to meet the frequency cutoff criteria
-    pnt_mtypes = cdata.train_mut['Point'].find_unique_subtypes(
-        max_types=1000, max_combs=3, verbose=2,
-        sub_levels=use_lvls, min_type_size=args.samp_cutoff
+    expr_data, mut_data, annot_dict, use_asmb = get_input_datasets(
+        args.cohort, [args.gene],
+        mut_fields=['Sample', 'Gene', 'Chr', 'Start', 'End',
+                    'Strand', 'RefAllele', 'TumorAllele']
         )
 
-    # filter out the subtypes that appear in too many samples for there to
-    # be a wild-type class of sufficient size for classification
-    pnt_mtypes = {MuType({('Scale', 'Point'): mtype}) for mtype in pnt_mtypes
-                  if (len(mtype.get_samples(cdata.train_mut['Point']))
-                      <= (len(cdata.samples) - args.samp_cutoff))}
-    pnt_mtypes |= {MuType({('Scale', 'Point'): None})}
+    cur_chr = annot_dict[args.gene]['Chr'].split('chr')[1]
+    var_data = mut_data.loc[(mut_data.Scale == 'Point')
+                            & (mut_data.Chr == cur_chr)]
 
-    # find copy number alterations whose frequency falls within the cutoffs
-    cna_mtypes = cdata.train_mut['Copy'].branchtypes(
-        min_size=args.samp_cutoff)
-    cna_mtypes |= {MuType({('Copy', ('ShalGain', 'DeepGain')): None})}
-    cna_mtypes |= {MuType({('Copy', ('ShalDel', 'DeepDel')): None})}
+    var_df = pd.DataFrame({'Chr': var_data.Chr.astype('int'),
+                           'Start': var_data.Start.astype('int'),
+                           'End': var_data.End.astype('int'),
+                           'RefAllele': var_data.RefAllele,
+                           'VarAllele': var_data.TumorAllele,
+                           'Strand': var_data.Strand,
+                           'Sample': var_data.Sample})
 
-    cna_mtypes = {MuType({('Scale', 'Copy'): mtype}) for mtype in cna_mtypes
-                  if (len(mtype.get_samples(cdata.train_mut['Copy']))
-                      <= (len(cdata.samples) - args.samp_cutoff))}
+    var_fields = ['Gene']
+    for lvl in lvls_list:
+        if '-domain' in lvl and 'Domains' not in var_fields:
+            var_fields += ['Domains']
+        elif lvl not in ['Consequence', 'Position']:
+            var_fields += [lvl]
 
-    # get the mutation type corresponding to the union of all mutations
-    # present in the cohort, consolidate the subtypes found thus far
+    variants = process_variants(var_df, out_fields=var_fields,
+                                cache_dir=vep_cache_dir, update_cache=True,
+                                temp_dir=out_path, assembly=use_asmb,
+                                forks=4, distance=0)
 
-    # for each subtype, check if it is present in enough samples even after we
-    # remove the samples with another mutation or alteration present
-    use_mtypes = pnt_mtypes | cna_mtypes
-    only_mcombs = {ExMcomb(cdata.train_mut, mtype) for mtype in use_mtypes}
-    pair_mcombs = {ExMcomb(cdata.train_mut, mtype1, mtype2)
-                   for mtype1, mtype2 in combn(use_mtypes, 2)
-                   if (mtype1 & mtype2).is_empty()}
+    variants = variants.loc[(variants.Gene == args.gene)
+                            & (variants.CANONICAL == 'YES')]
+    variants['Scale'] = 'Point'
+    variants['Copy'] = np.nan
 
-    use_mcombs = {
-        mcomb for mcomb in only_mcombs | pair_mcombs
-        if len(mcomb.get_samples(cdata.train_mut)) >= args.samp_cutoff
+    gene_muts = mut_data.loc[(mut_data.Scale == 'Copy')
+                             & (mut_data.Gene == args.gene)]
+    gene_muts = pd.concat([variants, gene_muts], sort=True)
+
+    cdata = IsoMutationCohort(expr_data, gene_muts, [use_lvls], [args.gene],
+                              annot_dict, leaf_annot=None)
+    with bz2.BZ2File(os.path.join(out_path, "cohort-data.p.gz"), 'w') as f:
+        pickle.dump(cdata, f, protocol=-1)
+
+    max_samps = len(cdata.get_samples()) - use_params['samp_cutoff']
+    use_mtree = cdata.mtrees[tuple(use_lvls)]
+    brnch_mtypes = use_mtree.branchtypes(mtype=pnt_mtype,
+                                         min_size=use_params['samp_cutoff'])
+
+    comb_types = use_mtree.combtypes(
+        mtype=pnt_mtype,
+        comb_sizes=tuple(range(1, use_params['branch_combs'] + 1)),
+        min_type_size=use_params['samp_cutoff'],
+        min_branch_size=use_params['min_branch']
+        )
+
+    samp_dict = {mtype: mtype.get_samples(use_mtree) for mtype in comb_types}
+    pnt_samps = use_mtree['Point'].get_samples()
+    pnt_types = {mtype for mtype in comb_types
+                  if samp_dict[mtype] != pnt_samps}
+
+    print("found {} potential point mutations...".format(len(pnt_types)))
+
+    rmv_mtypes = set()
+    for rmv_mtype in sorted(pnt_types):
+        rmv_lvls = rmv_mtype.get_levels()
+
+        for cmp_mtype in pnt_types - {rmv_mtype} - rmv_mtypes:
+            if (samp_dict[rmv_mtype] == samp_dict[cmp_mtype]
+                    and (rmv_mtype.is_supertype(cmp_mtype)
+                         or len(rmv_lvls) < len(cmp_mtype.get_levels()))):
+                rmv_mtypes |= {rmv_mtype}
+                break
+
+    pnt_types -= rmv_mtypes
+    print("after filtering: {} point mutations...".format(len(pnt_types)))
+
+    if 'Copy' in dict(use_mtree):
+        copy_types = {gain_mtype, loss_mtype}
+
+        if 'ShalGain' in dict(use_mtree['Copy']):
+            copy_types |= {dict(cna_mtypes)['Gain']}
+        if 'ShalDel' in dict(use_mtree['Copy']):
+            copy_types |= {dict(cna_mtypes)['Loss']}
+
+    else:
+        copy_types = set()
+
+    copy_dyads = set()
+    for copy_type in copy_types:
+        samp_dict[copy_type] = copy_type.get_samples(use_mtree)
+
+        if len(samp_dict[copy_type]) >= 5:
+            for pnt_type in pnt_types:
+                new_dyad = pnt_type | copy_type
+                dyad_samps = new_dyad.get_samples(use_mtree)
+
+                if (dyad_samps > samp_dict[pnt_type]
+                        and dyad_samps > samp_dict[copy_type]):
+                    copy_dyads |= {new_dyad}
+                    samp_dict[new_dyad] = dyad_samps
+
+    print("found {} potential copy dyads...".format(len(copy_dyads)))
+    test_types = {
+        mtype for mtype in pnt_types | copy_types | copy_dyads
+        if use_params['samp_cutoff'] <= len(samp_dict[mtype]) <= max_samps
         }
 
-    if args.verbose:
-        print("\nFound {} exclusive sub-types and {} combination sub-types "
-              "to isolate!".format(
-                  len([x for x in use_mcombs if len(x.mtypes) == 1]),
-                  len([x for x in use_mcombs if len(x.mtypes) == 2])
-                ))
+    print("after filtering: {} total mutation types...".format(len(test_types)))
 
-    # save the list of found non-duplicate subtypes to file
-    pickle.dump(
-        sorted(use_mcombs),
-        open(os.path.join(out_path,
-                          'mtypes_list__samps_{}__levels_{}.p'.format(
-                              args.samp_cutoff, args.mut_levels)),
-             'wb')
-        )
+    """
+    # TODO: double-check that these are uniquely generated
+    use_mtypes |= {
+        RandomType(size_dist=int(np.sum(cdata.train_pheno(mtype))),
+                   base_mtype=pnt_mtype, seed=(i + 3) * j + 93307)
+        for i, mtype in enumerate(test_mtypes) for j in range(98, 102)
+        }
 
-    # save the number of found subtypes to file
-    with open(os.path.join(out_path,
-                           'mtypes_count__samps_{}__levels_{}.txt'.format(
-                               args.samp_cutoff, args.mut_levels)),
-              'w') as fl:
+    max_size = max(np.sum(cdata.train_pheno(mtype))
+                   for mtype in conf_df.index) + base_size
+    max_size = int(max_size / 2)
 
-        fl.write(str(len(use_mcombs)))
+    use_mtypes |= {RandomType(size_dist=(use_ctf, max_size), seed=seed + 39)
+                   for seed in range((max_size - use_ctf) * 2)}
+    use_mtypes |= {
+        RandomType(size_dist=(use_ctf, max_size),
+                   base_mtype=MuType({('Gene', args.gene): pnt_mtype}),
+                   seed=seed + 79103)
+        for seed in range((max_size - use_ctf) * 2)
+        }
+    """
 
-    with open(os.path.join(out_path, 'cohort_data__levels_{}.p'.format(
-            args.mut_levels)), 'wb') as f:
-        pickle.dump(cdata, f)
+    all_mtype = MuType(use_mtree.allkey())
+    ex_mtypes = [MuType({}), dict(cna_mtypes)['Shal']]
+    mtype_lvls = {mtype: mtype.get_levels() - {'Scale'}
+                  for mtype in pnt_types | copy_types}
+
+    use_pairs = {(mtype2, mtype1) if 'Copy' in lvls1 else (mtype1, mtype2)
+                 for (mtype1, lvls1), (mtype2, lvls2)
+                 in combn(mtype_lvls.items(), 2)
+                 if (('Copy' not in lvls1 or 'Copy' not in lvls2)
+                     and (mtype1 & mtype2).is_empty()
+                     and not samp_dict[mtype1] >= samp_dict[mtype2]
+                     and not samp_dict[mtype2] >= samp_dict[mtype1])}
+    print("found {} potential comb pairs...".format(len(use_pairs)))
+
+    use_mcombs = {Mcomb(*pair) for pair in use_pairs}
+    use_mcombs |= {ExMcomb(all_mtype - ex_mtype, *pair)
+                   for pair in use_pairs for ex_mtype in ex_mtypes}
+
+    use_mcombs |= {ExMcomb(all_mtype - ex_mtype, mtype)
+                   for mtype in test_types for ex_mtype in ex_mtypes
+                   if not isinstance(mtype, RandomType)}
+
+    test_combs = {mcomb for mcomb in use_mcombs
+                  if (use_params['samp_cutoff']
+                      <= len(mcomb.get_samples(use_mtree)) <= max_samps)}
+    print("after filtering: {} total combs...".format(len(test_combs)))
+
+    with open(os.path.join(out_path, "muts-list.p"), 'wb') as f:
+        pickle.dump(sorted(test_types | test_combs), f, protocol=-1)
+        with open(os.path.join(out_path, "muts-count.txt"), 'w') as fl:
+            fl.write(str(len(test_types) + len(test_combs)))
 
 
 if __name__ == '__main__':
