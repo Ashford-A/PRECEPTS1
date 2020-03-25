@@ -1,62 +1,80 @@
 #!/bin/bash
-
-#SBATCH --job-name=subv-isolate
-#SBATCH --partition=exacloud
+#SBATCH --job-name=subv-iso
 #SBATCH --verbose
-
-#SBATCH --mem=8000
-#SBATCH --time=500
 
 
 source activate HetMan
-export RUNDIR=$CODEDIR/HetMan/experiments/subvariant_isolate
-export BASEDIR=$DATADIR/HetMan/subvariant_isolate
-mkdir -p $BASEDIR/setup
+rewrite=false
 
-while getopts t:g:c:s:l:m: var
+# collect command line arguments
+while getopts t:g:l:s:c:m:r var
 do
 	case "$var" in
-		t)	export cohort=$OPTARG;;
-		g)	export gene=$OPTARG;;
-		c)	export classif=$OPTARG;;
-		s)	export samp_cutoff=$OPTARG;;
-		l)	export mut_levels=$OPTARG;;
-		m)	export test_max=$OPTARG;;
-		[?])    echo "Usage: $0 [-t] TCGA cohort [-g] mutated gene" \
-			     "[-c] mutation classifier [-s] minimum sample cutoff" \
-			     "[-l] mutation annotation levels" \
-			     "[-m] maximum tests per node";
+		t)	cohort=$OPTARG;;
+		g)	gene=$OPTARG;;
+		l)	mut_levels=$OPTARG;;
+		s)	search=$OPTARG;;
+		c)	classif=$OPTARG;;
+		m)	test_max=$OPTARG;;
+		r)      rewrite=true;;
+		[?])    echo "Usage: $0 [-t] tumour cohort [-g] mutated gene" \
+				"[-c] mutation classifier [-m] maximum tests per node" \
+				"[-r] rewrite existing results?"
 			exit 1;;
 	esac
 done
 
-export OUTDIR=$BASEDIR/output/$cohort/$gene/$classif/samps_${samp_cutoff}/$mut_levels
-rm -rf $OUTDIR
-mkdir -p $OUTDIR/slurm
+# decide where intermediate files will be stored, find code source directory and input files
+OUTDIR=$TEMPDIR/HetMan/subvariant_isolate/$gene/$cohort/$mut_levels/$search/$classif
+FINALDIR=$DATADIR/HetMan/subvariant_isolate/$gene
+export RUNDIR=$CODEDIR/HetMan/experiments/subvariant_isolate
+source $RUNDIR/files.sh
 
-# setup the experiment by finding a list of mutation subtypes to be tested
-if [ ! -e $BASEDIR/setup/$cohort/$gene/mtypes_list__samps_${samp_cutoff}__levels_${mut_levels}.p ]
+# if we want to rewrite the experiment, remove the intermediate output directory
+if $rewrite
 then
-
-	srun --output=$BASEDIR/setup/slurm_${cohort}.txt \
-		--error=$BASEDIR/setup/slurm_${cohort}.err \
-		python $RUNDIR/setup_isolate.py -v \
-		$cohort $gene $mut_levels --samp_cutoff=$samp_cutoff
+	rm -rf $OUTDIR
 fi
 
-# find how large of a batch array to submit based on how many mutation types were
-# found in the setup enumeration
-mtypes_count=$(cat $BASEDIR/setup/$cohort/$gene/mtypes_count__samps_${samp_cutoff}__levels_${mut_levels}.txt)
-export array_size=$(( $mtypes_count / $test_max ))
+# create the directories where intermediate and final output will be stored, move to working directory
+mkdir -p $FINALDIR $OUTDIR/setup $OUTDIR/output $OUTDIR/slurm
+cd $OUTDIR
 
-if [ $array_size -gt 199 ]
+# initiate version control in this directory if it hasn't been already
+if [ ! -d .dvc ]
 then
-	export array_size=199
+	dvc init --no-scm
 fi
 
-# run the subtype tests in parallel
-sbatch --output=$slurm_dir/subv-iso-fit.out \
-	--error=$slurm_dir/subv-iso-fit.err \
-	--exclude=$ex_nodes --no-requeue \
-	--array=0-$(( $array_size )) $RUNDIR/fit_isolate.sh
+# enumerate the mutation types that will be tested in this experiment
+dvc run -d $firehose_dir -d $mc3_file -d $gencode_file -d $subtype_file \
+	-d $RUNDIR/setup_isolate.py -d $CODEDIR/HetMan/environment.yml \
+	-o setup/muts-list.p -m setup/muts-count.txt \
+	-f setup.dvc --overwrite-dvcfile python $RUNDIR/setup_isolate.py \
+	$gene $cohort $search $mut_levels $OUTDIR
+
+# calculate how many parallel tasks the mutations will be tested over
+muts_count=$(cat setup/muts-count.txt)
+task_count=$(( $(( $muts_count - 1 )) / $test_max + 1 ))
+out_tag=${cohort}__${mut_levels}__${search}__${classif}
+
+# remove the Snakemake locks on the working directory if present
+if [ -d .snakemake ]
+then
+	snakemake --unlock
+	rm -rf .snakemake/locks/*
+fi
+
+dvc run -d setup/muts-list.p -d $RUNDIR/fit_isolate.py \
+	-o $FINALDIR/out-siml__${out_tag}.p.gz -f output.dvc --overwrite-dvcfile \
+	--no-commit 'snakemake -s $RUNDIR/Snakefile -j 200 --latency-wait 120 \
+	--cluster-config $RUNDIR/cluster.json \
+	--cluster "sbatch -p {cluster.partition} -J {cluster.job-name} \
+	-t {cluster.time} -o {cluster.output} -e {cluster.error} \
+	-n {cluster.ntasks} -c {cluster.cpus-per-task} \
+	--mem-per-cpu {cluster.mem-per-cpu} --exclude=$ex_nodes --no-requeue" \
+	--config cohort='"$cohort"' gene='"$gene"' mut_levels='"$mut_levels"' \
+	search='"$search"' classif='"$classif"' task_count='"$task_count"
+
+cp output.dvc $FINALDIR/output__${out_tag}.dvc
 
