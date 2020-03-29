@@ -22,16 +22,28 @@ def load_metabric_expression(metabric_dir, expr_source='microarray'):
                        sep='\t', index_col=0).transpose()[1:].fillna(0.0)
 
 
-def load_metabric_variants(metabric_dir, var_source='default'):
+def load_metabric_variants(metabric_dir, var_source='default', **var_args):
     if var_source == 'default':
-        use_cols = [0, 5, 9, 16, 37, 39, 40]
-        use_names = ['Gene', 'Start', 'Form', 'Sample',
-                     'Nucleo', 'Protein', 'Transcript']
+        field_dict = (
+            ('Gene', 0), ('Chr', 4), ('Start', 5), ('End', 6), ('Strand', 7),
+            ('Form', 9), ('RefAllele', 11), ('TumorAllele', 13),
+            ('Sample', 16), ('HGVSc', 37), ('HGVSp', 38), ('Protein', 39),
+            ('Transcript', 40), ('Position', 42)
+            )
+
+        if 'mut_fields' not in var_args or var_args['mut_fields'] is None:
+             use_fields, use_cols = tuple(zip(*field_dict))
+
+        else:
+            use_fields, use_cols = tuple(zip(*[
+                (name, col) for name, col in field_dict
+                if name in {'Sample'} | set(var_args['mut_fields'])
+                ]))
 
         mut_df = pd.read_csv(
             os.path.join(metabric_dir, "data_mutations_mskcc.txt"),
-            names=use_names, usecols=use_cols, engine='python', sep='\t',
-            header=None, comment='#', skiprows=2
+            engine='c', dtype='object', sep='\t', header=None,
+            usecols=use_cols, names=use_fields, comment='#', skiprows=2
             )
 
     elif var_source == 'profiles':
@@ -122,75 +134,74 @@ def choose_subtypes(samp_data, use_types):
     return sub_samps
 
 
+def process_input_datasets(metabric_dir, annot_dir, use_types=None,
+                           **data_args):
+
+    samp_data = load_metabric_samps(metabric_dir)
+    expr = drop_duplicate_genes(load_metabric_expression(metabric_dir))
+
+    use_samps = set(samp_data.SAMPLE_ID[
+        (samp_data.CANCER_TYPE == 'Breast Cancer')
+        & (samp_data.CANCER_TYPE_DETAILED
+           == 'Breast Invasive Ductal Carcinoma')
+        ]) & set(expr.index)
+
+    annot_file = os.path.join(annot_dir, "gencode.v19.annotation.gtf.gz")
+    if 'annot_fields' in data_args:
+        annot_data = get_gencode(annot_file, data_args['annot_fields'])
+    else:
+        annot_data = get_gencode(annot_file)
+
+    annot_dict = {at['gene_name']: {**{'Ens': ens}, **at}
+                  for ens, at in annot_data.items()
+                  if at['gene_name'] in set(expr.columns)}
+
+    variants = load_metabric_variants(metabric_dir)
+    copy_df = load_metabric_copies(metabric_dir)
+
+    use_samps &= set(copy_df.index)
+    with open(os.path.join(metabric_dir,
+                           "data_mutations_mskcc.txt"), 'r') as f:
+        use_samps &= set(f.readline().split(
+            "#Sequenced_Samples: ")[1].split('\t')[0].split(' '))
+
+    if use_types is not None:
+        use_samps &= choose_subtypes(samp_data, use_types)
+
+    expr_data = expr.loc[use_samps, expr.columns.isin(annot_dict)]
+    variants = variants.loc[variants.Sample.isin(use_samps)
+                            & variants.Gene.isin(annot_dict)]
+    copy_df = copy_df.loc[use_samps, copy_df.columns.isin(annot_dict)]
+
+    variants['Scale'] = 'Point'
+    copy_df = pd.DataFrame(copy_df.stack()).reset_index()
+    copy_df.columns = ['Sample', 'Gene', 'Copy']
+
+    copy_df = copy_df.loc[(copy_df.Copy != 0)]
+    copy_df.Copy = copy_df.Copy.map({-2: 'DeepDel', -1: 'ShalDel',
+                                     1: 'ShalGain', 2: 'DeepGain'})
+    copy_df['Scale'] = 'Copy'
+    mut_data = pd.concat([variants, copy_df], sort=True)
+
+    return expr_data, mut_data, annot_dict
+
+
 class MetabricCohort(BaseMutationCohort):
 
     def __init__(self,
-                 mut_levels, mut_genes, metabric_dir, annot_file,
-                 domain_dir=None, cv_seed=None, test_prop=0,
-                 leaf_annot=('Nucleo', ), **coh_args):
+                 metabric_dir, annot_dir, expr_data=None, mut_data=None,
+                 annot_data=None, mut_levels=None, mut_genes=None,
+                 leaf_annot=('Nucleo', ), cv_seed=None, test_prop=0,
+                 **coh_args):
         self.cohort = 'METABRIC'
 
-        samp_data = load_metabric_samps(metabric_dir)
-        expr = load_metabric_expression(metabric_dir)
-        muts = load_metabric_variants(metabric_dir)
-        copies = load_metabric_copies(metabric_dir)
+        if expr_data is None or mut_data is None or annot_data is None:
+            expr_data, mut_data, self.annot_data = process_input_datasets(
+                metabric_dir, annot_dir, **coh_args)
 
-        use_samps = set(samp_data.SAMPLE_ID[
-            (samp_data.CANCER_TYPE == 'Breast Cancer')
-            & (samp_data.CANCER_TYPE_DETAILED
-               == 'Breast Invasive Ductal Carcinoma')
-            ]) & set(expr.index)
+        else:
+            self.annot_data = annot_data
 
-        use_samps &= set(copies.index)
-        with open(os.path.join(metabric_dir,
-                               "data_mutations_mskcc.txt"), 'r') as f:
-            use_samps &= set(f.readline().split(
-                "#Sequenced_Samples: ")[1].split('\t')[0].split(' '))
-
-        if 'use_types' in coh_args and coh_args['use_types'] is not None:
-            use_samps &= choose_subtypes(samp_data, coh_args['use_types'])
-
-        expr = drop_duplicate_genes(expr.loc[use_samps])
-        muts = muts.loc[muts.Sample.isin(use_samps)]
-        annot_data = get_gencode(annot_file, ['transcript', 'exon'])
-
-        self.gene_annot = {at['gene_name']: {**{'Ens': ens}, **at}
-                           for ens, at in annot_data.items()
-                           if at['gene_name'] in set(expr.columns)}
-
-        expr = expr.loc[:, expr.columns.isin(self.gene_annot)]
-        muts = muts.loc[muts.Gene.isin(self.gene_annot.keys())]
-        muts['Scale'] = 'Point'
-
-        copies = copies.loc[use_samps, copies.columns.isin(self.gene_annot)]
-        copy_df = pd.DataFrame(copies.stack()).reset_index()
-        copy_df.columns = ['Sample', 'Gene', 'Copy']
-
-        copy_df = copy_df.loc[(copy_df.Copy != 0)]
-        copy_df.Copy = copy_df.Copy.map({-2: 'DeepDel', -1: 'ShalDel',
-                                         1: 'ShalGain', 2: 'DeepGain'})
-        copy_df['Scale'] = 'Copy'
-
-        muts['Exon'] = [
-            tuple(exn_no)[0] if len(exn_no) == 1 else '.'
-            for exn_no in [{
-                exn['number'] for exn in self.gene_annot[
-                    mut.Gene]['Transcripts'][mut.Transcript]['Exons']
-                if exn['Start'] <= mut.Start <= exn['End']
-                } for mut in muts.itertuples(index=False)]
-            ]
-
-        for i in range(len(mut_levels)):
-            if 'Scale' not in mut_levels[i]:
-                if 'Gene' in mut_levels[i]:
-                    scale_lvl = mut_levels[i].index('Gene') + 1
-                else:
-                    scale_lvl = 0
-
-                mut_levels[i].insert(scale_lvl, 'Scale')
-                mut_levels[i].insert(scale_lvl + 1, 'Copy')
-
-        super().__init__(expr, pd.concat([muts, copy_df], sort=True),
-                         mut_levels, mut_genes, domain_dir,
+        super().__init__(expr, mut_data, mut_levels, mut_genes,
                          leaf_annot, cv_seed, test_prop)
 
