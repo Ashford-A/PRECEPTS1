@@ -1,40 +1,17 @@
 
 import os
 import sys
+base_dir = os.path.dirname(__file__)
+sys.path.extend([os.path.join(base_dir, '..', '..', '..')])
 
-sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
-if 'BASEDIR' in os.environ:
-    base_dir = os.environ['BASEDIR']
-else:
-    base_dir = os.path.dirname(__file__)
-
-from HetMan.experiments.subvariant_isolate import *
-from HetMan.experiments.utilities.load_input import load_firehose_cohort
-from dryadic.features.mutations import MuType
-from HetMan.experiments.subvariant_isolate.setup_isolate import ExMcomb
-from HetMan.experiments.utilities.classifiers import *
+from HetMan.experiments.subvariant_isolate import cna_mtypes
+from HetMan.experiments.subvariant_test.utils import safe_load
+from HetMan.experiments.subvariant_tour.utils import RandomType
+from HetMan.experiments.subvariant_isolate.classifiers import *
 
 import argparse
 import dill as pickle
-
-
-def load_cohort_data(base_dir, cohort, gene, mut_levels):
-    cdata_path = os.path.join(base_dir, 'setup', cohort, gene,
-                              "cohort_data__levels_{}.p".format(mut_levels))
-
-    # load cached processed TCGA expression and mutation data if available
-    if os.path.exists(cdata_path):
-        cdata = pickle.load(open(cdata_path, 'rb'))
-
-    # otherwise, load and process the raw TCGA data and create the local cache
-    else:
-        cdata = load_firehose_cohort(cohort, [gene], mut_levels.split('__'))
-
-        os.makedirs(os.path.join(base_dir, 'setup', cohort, gene),
-                    exist_ok=True)
-        pickle.dump(cdata, open(cdata_path, 'wb'))
-
-    return cdata
+import random
 
 
 def main():
@@ -46,105 +23,115 @@ def main():
         "TCGA cohort."
         )
 
-    # positional command line arguments for where input data and output
-    # data is to be stored
-
     # positional arguments for which cohort of samples and which mutation
     # classifier to use for testing
-    parser.add_argument('cohort', type=str, help="a TCGA cohort")
+    parser.add_argument('gene', type=str,
+                        help="a classifier in HetMan.predict.classifiers")
     parser.add_argument('classif', type=str,
                         help="a classifier in HetMan.predict.classifiers")
-
-    parser.add_argument('gene', type=str,
-                        help="which gene's mutations to isolate against")
-    parser.add_argument('mut_levels', type=str,
-                        help="the mutation property levels to consider")
-
-    parser.add_argument('--samp_cutoff', type=int, default=20,
-                        help='subtype sample frequency threshold')
+    parser.add_argument('use_dir', type=str)
 
     parser.add_argument(
-        '--task_count', type=int, default=10,
+        '--task_count', type=int, default=1,
         help='how many parallel tasks the list of types to test is split into'
         )
+
     parser.add_argument('--task_id', type=int, default=0,
+                        help='the subset of subtypes to assign to this task')
+    parser.add_argument('--cv_id', type=int, default=0,
                         help='the subset of subtypes to assign to this task')
 
     args = parser.parse_args()
-    mcomb_list = pickle.load(open(
-        os.path.join(base_dir, 'setup', args.cohort, args.gene,
-                     "mtypes_list__samps_{}__levels_{}.p".format(
-                         args.samp_cutoff, args.mut_levels)),
-        'rb'))
+    setup_dir = os.path.join(args.use_dir, 'setup')
 
-    print("Subtypes at mutation annotation levels {} will be isolated "
-          "against gene {}".format(args.mut_levels, args.gene))
+    with open(os.path.join(setup_dir, "muts-list.p"), 'rb') as muts_f:
+        mtype_list = pickle.load(muts_f)
+    cdata = safe_load(os.path.join(setup_dir, "cohort-data.p.gz"),
+                      retry_pause=41)
 
-    cdata = load_cohort_data(base_dir,
-                             args.cohort, args.gene, args.mut_levels)
-    out_file = os.path.join(
-        base_dir, 'output', args.cohort, args.gene, args.classif,
-        'samps_{}'.format(args.samp_cutoff), args.mut_levels,
-        'out__task-{}.p'.format(args.task_id)
-        )
-
-    print("Loaded {} subtypes of which roughly {} will be isolated in "
-          "cohort {} with {} samples.".format(
-              len(mcomb_list), len(mcomb_list) // args.task_count,
-              args.cohort, len(cdata.samples)
-            ))
+    use_mtree = tuple(cdata.mtrees.values())[0]
+    mut_samps = use_mtree.get_samples()
+    shal_samps = dict(cna_mtypes)['Shal'].get_samples(use_mtree)
 
     clf = eval(args.classif)
-    clf.predict_proba = clf.calc_pred_labels
     mut_clf = clf()
-
-    out_tune = {mcomb: {par: None for par, _ in mut_clf.tune_priors}
-                for mcomb in mcomb_list}
-    out_iso = {mcomb: None for mcomb in mcomb_list}
-
-    if len(set(mcomb.all_mtype for mcomb in mcomb_list)) != 1:
-        raise ValueError("Mutation combinations must all come from the same "
-                         "background set of mutations!")
-
-    # find the genes on the same chromosome as the gene whose mutations are
-    # being isolated which will be removed from the features used for training
-    base_samps = cdata.train_mut.get_samples()
-    use_chr = cdata.gene_annot[args.gene]['Chr']
     ex_genes = {gene for gene, annot in cdata.gene_annot.items()
-                if annot['Chr'] == use_chr}
+                if annot['Chr'] == cdata.gene_annot[args.gene]['Chr']}
+
+    use_seed = 13101 + 103 * args.cv_id
+    cdata_samps = sorted(cdata.get_samples())
+    random.seed((args.cv_id // 4) * 3901 + 23)
+    random.shuffle(cdata_samps)
+    cdata.update_split(use_seed, test_samps=cdata_samps[(args.cv_id % 4)::4])
+
+    out_pars = {mtype: {smps: {par: None for par, _ in mut_clf.tune_priors}
+                        for smps in ['All', 'Iso', 'IsoShal']}
+                for mtype in mtype_list}
+
+    out_time = {mtype: {smps: dict() for smps in ['All', 'Iso', 'IsoShal']}
+                for mtype in mtype_list}
+    out_acc = {mtype: {smps: dict() for smps in ['All', 'Iso', 'IsoShal']}
+               for mtype in mtype_list}
+    out_pred = {mtype: {smps: None for smps in ['All', 'Iso', 'IsoShal']}
+                for mtype in mtype_list}
 
     # for each subtype, check if it has been assigned to this task
-    for i, mcomb in enumerate(mcomb_list):
+    for i, mtype in enumerate(mtype_list):
         if (i % args.task_count) == args.task_id:
-            print("Isolating {} ...".format(mcomb))
-            ex_samps = base_samps - mcomb.get_samples(cdata.train_mut)
+            print("Isolating {} ...".format(mtype))
 
-            # tune the hyper-parameters of the classifier
-            mut_clf.tune_coh(cdata, mcomb,
-                             exclude_genes=ex_genes, exclude_samps=ex_samps,
-                             tune_splits=4, test_count=24, parallel_jobs=8)
+            mtype_samps = mtype.get_samples(use_mtree)
+            ex_dict = {'All': set(), 'Iso': mut_samps - mtype_samps,
+                       'IsoShal': mut_samps - mtype_samps - shal_samps}
 
-            # save the tuned values of the hyper-parameters
-            clf_params = mut_clf.get_params()
-            for par, _ in mut_clf.tune_priors:
-                out_tune[mcomb][par] = clf_params[par]
+            for ex_lbl, ex_samps in ex_dict.items():
+                mut_clf, cv_output = mut_clf.tune_coh(
+                    cdata, mtype, exclude_feats=ex_genes,
+                    exclude_samps=ex_samps, tune_splits=4,
+                    test_count=mut_clf.test_count, parallel_jobs=8
+                    )
 
-            out_iso[mcomb] = mut_clf.infer_coh(
-                cdata, mcomb,
-                exclude_genes=ex_genes, force_test_samps=ex_samps,
-                infer_splits=40, infer_folds=4, parallel_jobs=8
-                )
+                # save the tuned values of the hyper-parameters
+                clf_params = mut_clf.get_params()
+                for par, _ in mut_clf.tune_priors:
+                    out_pars[mtype][ex_lbl][par] = clf_params[par]
+
+                out_time[mtype][ex_lbl]['avg'] = cv_output['mean_fit_time']
+                out_time[mtype][ex_lbl]['std'] = cv_output['std_fit_time']
+                out_acc[mtype][ex_lbl]['avg'] = cv_output['mean_test_score']
+                out_acc[mtype][ex_lbl]['std'] = cv_output['std_test_score']
+                out_acc[mtype][ex_lbl]['par'] = cv_output['params']
+
+                mut_clf.fit_coh(cdata, mtype, exclude_feats=ex_genes,
+                                exclude_samps=ex_samps)
+
+                out_pred[mtype][ex_lbl] = {
+                    'test': mut_clf.parse_preds(
+                        mut_clf.predict_test(cdata, lbl_type='raw',
+                                             exclude_feats=ex_genes)
+                        )
+                    }
+
+                if (ex_samps & set(cdata.get_train_samples())):
+                    out_pred[mtype][ex_lbl]['train'] = mut_clf.parse_preds(
+                        mut_clf.predict_train(cdata, lbl_type='raw',
+                                              exclude_feats=ex_genes,
+                                              include_samps=ex_samps)
+                        )
 
         else:
-            del(out_iso[mcomb])
-            del(out_tune[mcomb])
+            del(out_pars[mtype])
+            del(out_time[mtype])
+            del(out_acc[mtype])
+            del(out_pred[mtype])
 
-    pickle.dump(
-        {'Infer': out_iso, 'Tune': out_tune,
-         'Info': {'Clf': mut_clf.__class__,
-                  'TunePriors': mut_clf.tune_priors}},
-        open(out_file, 'wb')
-        )
+    with open(os.path.join(args.use_dir, 'output',
+                           "out__cv-{}_task-{}.p".format(
+                               args.cv_id, args.task_id)),
+              'wb') as fl:
+        pickle.dump({'Pred': out_pred, 'Pars': out_pars, 'Time': out_time,
+                     'Acc': out_acc, 'Clf': mut_clf.__class__},
+                    fl, protocol=-1)
 
 
 if __name__ == "__main__":
