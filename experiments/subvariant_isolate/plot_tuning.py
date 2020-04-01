@@ -1,98 +1,172 @@
 
 import os
-base_dir = os.path.dirname(__file__)
+import sys
+
+base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'subvariant_isolate')
+sys.path.extend([os.path.join(os.path.dirname(__file__), '..', '..', '..')])
 plot_dir = os.path.join(base_dir, 'plots', 'tuning')
 
-import sys
-sys.path.extend([os.path.join(base_dir, '../../..')])
-
 from HetMan.experiments.subvariant_isolate import *
-from HetMan.experiments.subvariant_isolate.utils import compare_scores
-from HetMan.features.cohorts.tcga import MutationCohort
-from dryadic.features.mutations import MuType
-
-from HetMan.experiments.utilities.process_output import (
-    load_infer_tuning, load_infer_output)
+from HetMan.experiments.subvariant_test.utils import choose_label_colour
+from HetMan.experiments.utilities.misc import detect_log_distr
 from HetMan.experiments.utilities import auc_cmap
-from HetMan.experiments.mut_baseline.plot_model import detect_log_distr
 
 import argparse
 from pathlib import Path
-import synapseclient
+import bz2
+import dill as pickle
 
 import numpy as np
 import pandas as pd
-from difflib import SequenceMatcher
 from itertools import combinations as combn
 
 import matplotlib as mpl
 mpl.use('Agg')
+import matplotlib.pyplot as plt
 import seaborn as sns
 
-import matplotlib.pyplot as plt
 plt.style.use('fivethirtyeight')
+plt.rcParams['axes.facecolor']='white'
+plt.rcParams['savefig.facecolor']='white'
+plt.rcParams['axes.edgecolor']='white'
+
 use_marks = [(0, 3, 0)]
 use_marks += [(i, 0, k) for k in (0, 70, 140, 210) for i in range(3, 8)]
 
 
-def plot_tuning_auc(tune_df, auc_vals, size_vals, use_clf, coh_vec, args):
-    fig, axarr = plt.subplots(figsize=(17, 1 + 7 * len(use_clf.tune_priors)),
-                              nrows=len(use_clf.tune_priors), ncols=1,
+def plot_chosen_parameters(out_tune, pheno_dict, out_aucs, use_clf, args):
+    fig, axarr = plt.subplots(figsize=(1 + 6 * len(use_clf.tune_priors), 10),
+                              nrows=3, ncols=len(use_clf.tune_priors),
                               squeeze=False)
 
-    # gets the gene and number of samples associated with each mutation tested
-    gene_vec = [[gn for gn, _ in mtypes[0].subtype_list()][0]
-                for mtypes in auc_vals.index]
-    size_vec = (417 * size_vals.values) / np.max(size_vals)
-
-    # assigns a plotting colour to each gene whose mutations were tested
-    use_genes = sorted(set(gene_vec))
-    gene_clrs = sns.color_palette("muted", n_colors=len(use_genes))
-    clr_vec = [gene_clrs[use_genes.index(gn)] for gn in gene_vec]
-
-    # assigns a plotting marker to each cohort wherein mutations were tested
-    use_cohs = sorted(set(coh_vec))
-    mark_vec = [use_marks[use_cohs.index(coh)] for coh in coh_vec]
-
-    for ax, (par_name, tune_distr) in zip(axarr.flatten(),
-                                          use_clf.tune_priors):
-        par_vals = np.array(tune_df.loc[:, par_name].values, dtype=np.float)
-
+    plt_ymin = 0.48
+    for j, (par_name, tune_distr) in enumerate(use_clf.tune_priors):
         if detect_log_distr(tune_distr):
-            par_vals = np.log10(par_vals)
+            par_fnc = np.log10
             plt_xmin = 2 * np.log10(tune_distr[0]) - np.log10(tune_distr[1])
             plt_xmax = 2 * np.log10(tune_distr[-1]) - np.log10(tune_distr[-2])
 
         else:
+            par_fnc = lambda x: x
             plt_xmin = 2 * tune_distr[0] - tune_distr[1]
             plt_xmax = 2 * tune_distr[-1] - tune_distr[-2]
 
-        # jitters the paramater values and plots them against mutation AUC
-        par_vals += np.random.normal(
-            0, (plt_xmax - plt_xmin) / (len(tune_distr) * 9), len(auc_vals))
+        for gene, (pars_dfs, _, _) in out_tune.items():
+            gene_clr = choose_label_colour(gene)
 
-        for par_val, auc_val, mark_val, size_val, clr_val in zip(
-                par_vals, auc_vals, mark_vec, size_vec, clr_vec):
-            ax.scatter(par_val, auc_val, marker=mark_val,
-                       s=size_val, c=clr_val, alpha=0.21)
+            for i, ex_lbl in enumerate(['All', 'Iso', 'IsoShal']):
+                for mtype, par_vals in pars_dfs[ex_lbl][par_name].iterrows():
+                    auc_val = np.mean(out_aucs[gene][ex_lbl]['CV'].loc[mtype])
+                    plt_ymin = min(plt_ymin, auc_val - 0.02)
+                    plt_sz = 91 * np.mean(pheno_dict[gene][mtype])
 
-        ax.set_xlim(plt_xmin, plt_xmax)
-        ax.set_ylim(0.48, 1.02)
-        ax.tick_params(labelsize=19)
-        ax.set_xlabel('Tuned {} Value'.format(par_name),
-                      fontsize=27, weight='semibold')
+                    axarr[i, j].scatter(par_fnc(par_vals).mean(), auc_val,
+                                        c=[gene_clr], s=plt_sz,
+                                        alpha=0.23, edgecolor='none')
 
-        ax.axhline(y=1.0, color='black', linewidth=2.1, alpha=0.37)
-        ax.axhline(y=0.5, color='#550000',
-                   linewidth=2.7, linestyle='--', alpha=0.29)
+        for i in range(3):
+            axarr[i, j].tick_params(labelsize=15)
+            axarr[i, j].axhline(y=1.0, color='black',
+                                linewidth=1.7, alpha=0.89)
+            axarr[i, j].axhline(y=0.5, color='#550000',
+                                linewidth=2.3, linestyle='--', alpha=0.29)
 
-    fig.text(-0.01, 0.5, 'Aggregate AUC', ha='center', va='center',
-             fontsize=27, weight='semibold', rotation='vertical')
+            for par_val in tune_distr:
+                axarr[i, j].axvline(x=par_fnc(par_val), color='#116611',
+                                    ls=':', linewidth=2.1, alpha=0.31)
+
+            if i == 2:
+                axarr[i, j].set_xlabel("Tested {} Value".format(par_name),
+                                       fontsize=23, weight='semibold')
+            else:
+                axarr[i, j].set_xticklabels([])
+
+    for i, ex_lbl in enumerate(['All', 'Iso', 'IsoShal']):
+        axarr[i, 0].set_ylabel("Inferred {} AUC".format(ex_lbl),
+                               fontsize=17, weight='semibold')
+
+    for ax in axarr.flatten():
+        ax.set_ylim(plt_xmin, plt_xmax)
+        ax.set_ylim(plt_ymin, 1 + (1 - plt_ymin) / 53)
+        ax.grid(axis='x', linewidth=0)
+        ax.grid(axis='y', alpha=0.53, linewidth=1.3)
 
     plt.tight_layout(h_pad=1.7)
     fig.savefig(
-        os.path.join(plot_dir, "{}__tuning-auc.png".format(args.classif)),
-        dpi=250, bbox_inches='tight'
+        os.path.join(plot_dir, "{}__chosen-params_{}.svg".format(
+            args.cohort, args.classif)),
+        bbox_inches='tight', format='svg'
+        )
+
+    plt.close()
+
+
+def plot_parameter_profile(out_tune, use_clf, args):
+    fig, axarr = plt.subplots(figsize=(1 + 5 * len(use_clf.tune_priors), 11),
+                              nrows=3, ncols=len(use_clf.tune_priors),
+                              squeeze=False)
+
+    plt_ymin = 0.48
+    for j, (par_name, tune_distr) in enumerate(use_clf.tune_priors):
+        if detect_log_distr(tune_distr):
+            par_fnc = np.log10
+            plt_xmin = 2 * np.log10(tune_distr[0]) - np.log10(tune_distr[1])
+            plt_xmax = 2 * np.log10(tune_distr[-1]) - np.log10(tune_distr[-2])
+
+        else:
+            par_fnc = lambda x: x
+            plt_xmin = 2 * tune_distr[0] - tune_distr[1]
+            plt_xmax = 2 * tune_distr[-1] - tune_distr[-2]
+
+        for gene, (_, _, tune_dfs) in out_tune.items():
+            gene_clr = choose_label_colour(gene)
+ 
+            for i, ex_lbl in enumerate(['All', 'Iso', 'IsoShal']):
+                for mtype, tune_vals in tune_dfs[ex_lbl].iterrows():
+                    plt_pars = pd.concat([
+                        pd.Series({par_fnc(pars[par_name]): avg_val
+                                   for pars, avg_val in zip(par_ols,
+                                                            avg_ols)})
+                        for par_ols, avg_ols in zip(tune_vals['par'],
+                                                    tune_vals['avg'])
+                        ], axis=1).quantile(q=0.25, axis=1)
+
+                    plt_ymin = min(plt_ymin, plt_pars.min() - 0.01)
+                    axarr[i, j].plot(plt_pars.index, plt_pars.values,
+                                     linewidth=5/13, alpha=0.17, c=gene_clr)
+
+        for i in range(3):
+            axarr[i, j].tick_params(labelsize=15)
+            axarr[i, j].axhline(y=1.0, color='black',
+                                linewidth=1.7, alpha=0.89)
+            axarr[i, j].axhline(y=0.5, color='#550000',
+                                linewidth=2.3, linestyle='--', alpha=0.29)
+
+            for par_val in tune_distr:
+                axarr[i, j].axvline(x=par_fnc(par_val), color='#116611',
+                                    ls=':', linewidth=2.1, alpha=0.31)
+
+            if i == 2:
+                axarr[i, j].set_xlabel("Tested {} Value".format(par_name),
+                                       fontsize=23, weight='semibold')
+            else:
+                axarr[i, j].set_xticklabels([])
+
+    for i, ex_lbl in enumerate(['All', 'Iso', 'IsoShal']):
+        axarr[i, 0].set_ylabel("Tuned {} AUC".format(ex_lbl),
+                               fontsize=21, weight='semibold')
+
+    for ax in axarr.flatten():
+        ax.set_ylim(plt_xmin, plt_xmax)
+        ax.set_ylim(plt_ymin, 1 + (1 - plt_ymin) / 53)
+        ax.grid(axis='x', linewidth=0)
+        ax.grid(axis='y', alpha=0.47, linewidth=1.3)
+
+    plt.tight_layout(h_pad=1.3)
+    fig.savefig(
+        os.path.join(plot_dir, "{}__param-profile_{}.svg".format(
+            args.cohort, args.classif)),
+        bbox_inches='tight', format='svg'
         )
 
     plt.close()
@@ -215,120 +289,102 @@ def main():
         "classifying the mutation status of the genes in a given cohort."
         )
 
-    parser.add_argument('classif', help='a mutation classifier')
+    parser.add_argument('cohort', help="a tumour cohort")
+    parser.add_argument('classif', help="a mutation classifier")
+
     args = parser.parse_args()
+    out_list = tuple(Path(base_dir).glob(
+        os.path.join("*", "out-conf__{}__*__*__{}.p.gz".format(
+            args.cohort, args.classif))
+        ))
+
+    if len(out_list) == 0:
+        raise ValueError("No completed experiments found for this "
+                         "combination of parameters!")
+
     os.makedirs(os.path.join(plot_dir), exist_ok=True)
-    out_path = Path(os.path.join(base_dir, 'output'))
+    out_use = pd.DataFrame(
+        [{'Gene': out_file.parts[-2],
+          'Levels': '__'.join(out_file.parts[-1].split('__')[2:-2]),
+          'File': out_file}
+         for out_file in out_list]
+        )
 
-    out_dirs = [
-        out_dir.parent for out_dir in out_path.glob(
-            "*/*/{}/**/out__task-0.p".format(args.classif))
-        if (len(tuple(out_dir.parent.glob("out__*.p"))) > 0
-            and (len(tuple(out_dir.parent.glob("out__*.p")))
-                 == len(tuple(out_dir.parent.glob("slurm/fit-*.txt")))))
-        ]
+    out_iter = out_use.groupby(['Gene', 'Levels'])['File']
+    out_tune = {(gene, lvls): list() for (gene, lvls), _ in out_iter}
+    out_aucs = {(gene, lvls): list() for (gene, lvls), _ in out_iter}
+    phn_dict = {gene: dict() for gene in set(out_use.Gene)}
 
-    out_paths = [str(out_dir).split("/output/")[1].split('/')
-                 for out_dir in out_dirs]
+    tune_dfs = {
+        gene: [{ex_lbl: pd.DataFrame([])
+                for ex_lbl in ['All', 'Iso', 'IsoShal']}
+               for _ in range(3)] + [[]]
+        for gene in set(out_use.Gene)
+        }
 
-    for coh, gene, mut_levels in set((out_path[0], out_path[1], out_path[4])
-                                     for out_path in out_paths):
-        use_data = [(i, out_path) for i, out_path in enumerate(out_paths)
-                    if (out_path[0] == coh and out_path[1] == gene
-                        and out_path[4] == mut_levels)]
+    auc_dfs = {gene: {ex_lbl: pd.DataFrame([])
+                      for ex_lbl in ['All', 'Iso', 'IsoShal']}
+               for gene in set(out_use.Gene)}
 
-        if len(use_data) > 1:
-            use_samps = np.argmin(int(x[1][2].split('samps_')[-1])
-                                  for x in use_data)
+    for (gene, lvls), out_files in out_iter:
+        for out_file in out_files:
+            out_tag = '__'.join(out_file.parts[-1].split('__')[1:])
 
-            for x in use_data[:use_samps] + use_data[(use_samps + 1):]:
-                del(out_dirs[x[0]])
+            with bz2.BZ2File(Path(base_dir, gene,
+                                  '__'.join(["out-pheno", out_tag])),
+                             'r') as f:
+                phn_dict[gene].update(pickle.load(f))
 
-    tune_list = [load_infer_tuning(str(out_dir)) for out_dir in out_dirs]
-    mut_clf = set(clf for _, clf in tune_list)
+            with bz2.BZ2File(Path(base_dir, gene,
+                                  '__'.join(["out-tune", out_tag])),
+                             'r') as f:
+                out_tune[gene, lvls] += [pickle.load(f)]
+
+            with bz2.BZ2File(Path(base_dir, gene,
+                                  '__'.join(["out-aucs", out_tag])),
+                             'r') as f:
+                out_aucs[gene, lvls] += [pickle.load(f)]
+
+        mtypes_comp = np.greater_equal.outer(
+            *([[set(auc_vals['All']['mean'].index)
+                for auc_vals in out_aucs[gene, lvls]]] * 2)
+            )
+        super_list = np.apply_along_axis(all, 1, mtypes_comp)
+
+        if super_list.any():
+            super_indx = super_list.argmax()
+            tune_dfs[gene][3] += [out_tune[gene, lvls][super_indx][3]]
+
+            for ex_lbl in ['All', 'Iso', 'IsoShal']:
+                auc_dfs[gene][ex_lbl] = pd.concat([
+                    auc_dfs[gene][ex_lbl],
+                    pd.DataFrame(out_aucs[gene, lvls][super_indx][ex_lbl])
+                    ])
+
+                for i in range(3):
+                    tune_dfs[gene][i][ex_lbl] = pd.concat([
+                        tune_dfs[gene][i][ex_lbl],
+                        out_tune[gene, lvls][super_indx][i][ex_lbl]
+                        ])
+
+    mut_clf = set(clf for _, _, _, clfs in tune_dfs.values() for clf in clfs)
     if len(mut_clf) != 1:
         raise ValueError("Each subvariant isolation experiment must be run "
                          "with exactly one classifier!")
 
-    # log into Synapse using locally stored credentials
-    syn = synapseclient.Synapse()
-    syn.cache.cache_root_dir = syn_root
-    syn.login()
-
     mut_clf = tuple(mut_clf)[0]
-    dir_parse = [str(out_dir).split("/output/")[1].split('/')
-                 for out_dir in out_dirs]
+    auc_dfs = {gene: {ex_lbl: auc_df.loc[~auc_df.index.duplicated()]
+                      for ex_lbl, auc_df in auc_dict.items()}
+               for gene, auc_dict in auc_dfs.items()}
 
-    out_cohs = [prs[0] for prs in dir_parse]
-    coh_lists = []
-    gene_lists = []
-    tune_lists = []
-    info_lists = []
+    tune_dfs = {gene: [{ex_lbl: out_df.loc[~out_df.index.duplicated()]
+                        for ex_lbl, out_df in tune_dict.items()}
+                       for tune_dict in tune_list[:3]]
+                for gene, tune_list in tune_dfs.items()}
 
-    for coh in set(out_cohs):
-        use_lvls = ['Gene']
-        tune_lists += [ls[0] for ls, out_coh
-                       in zip(tune_list, out_cohs) if out_coh == coh]
+    plot_chosen_parameters(tune_dfs, phn_dict, auc_dfs, mut_clf, args)
+    plot_parameter_profile(tune_dfs, mut_clf, args)
 
-        out_genes = [prs[1] for prs in dir_parse if prs[0] == coh]
-        gene_lists += out_genes
-        mut_lvls = [tuple(prs[4].split('__'))
-                    for prs in dir_parse if prs[0] == coh]
-
-        lvl_set = list(set(mut_lvls))
-        if len(lvl_set) > 1:
-            seq_match = SequenceMatcher(a=lvl_set[0], b=lvl_set[1])
- 
-            for (op, start1, end1, start2, end2) in seq_match.get_opcodes():
-                if op == 'equal' or op=='delete':
-                    use_lvls += lvl_set[0][start1:end1]
- 
-                elif op == 'insert':
-                    use_lvls += lvl_set[1][start2:end2]
- 
-                elif op == 'replace':
-                    use_lvls += lvl_set[0][start1:end1]
-                    use_lvls += lvl_set[1][start2:end2]
-
-        else:
-            use_lvls += lvl_set[0]
-
-        cdata = MutationCohort(cohort=coh, mut_genes=list(set(out_genes)),
-                               mut_levels=use_lvls, expr_source='Firehose',
-                               expr_dir=expr_dir, var_source='mc3',
-                               copy_dir=copy_dir, copy_source='Firehose',
-                               annot_file=annot_file, syn=syn, cv_prop=1.0)
-
-        iso_list = [load_infer_output(str(out_dir))
-                    for out_dir, out_coh in zip(out_dirs, out_cohs)
-                    if out_coh == coh]
-        coh_lists += [coh] * sum(ls.shape[0] for ls in iso_list)
-
-        info_lists += [
-            compare_scores(
-                iso_df, cdata, get_similarities=False,
-                muts=cdata.train_mut[out_gene],
-                all_mtype=MuType(cdata.train_mut[out_gene].allkey(
-                    ['Scale', 'Copy'] + list(out_lvl)))
-                )
-            for iso_df, out_gene, out_lvl in zip(iso_list, out_genes,
-                                                 mut_lvls)
-            ]
-
-    auc_list = [lists[1] for lists in info_lists]
-    size_list = [lists[2] for lists in info_lists]
-    out_lists = [tune_lists, auc_list, size_list, mut_clf, coh_lists, args]
-
-    for i in range(3):
-        for j, out_gene in enumerate(gene_lists):
-            out_lists[i][j].index = sorted(
-                tuple(MuType({('Gene', out_gene): mtype}) for mtype in mtypes)
-                for mtypes in out_lists[i][j].index
-                )
-
-        out_lists[i] = pd.concat(out_lists[i])
-
-    plot_tuning_auc(*out_lists)
     if len(mut_clf.tune_priors) > 1:
         plot_tuning_grid(*out_lists)
 
