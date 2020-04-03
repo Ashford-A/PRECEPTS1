@@ -1,0 +1,30 @@
+
+{
+    '__default__' : {
+        'partition' : "exacloud",
+        'account': "compbio",
+        'ntasks' : 1,
+        'output': 'slurm/master.out',
+        'error': 'slurm/master.err',
+        'exclude': '$ex_nodes',
+    },
+
+    'isolate' : {
+        'job-name' : "subv-iso_fit",
+        'output' : "slurm/classify_{wildcards.cv_id}_{wildcards.task_id}.out",
+        'error' : "slurm/classify_{wildcards.cv_id}_{wildcards.task_id}.err",
+        'time' : "35:55:00",
+        'cpus-per-task' : 8,
+        'mem-per-cpu': 4000,
+    },
+
+    'consolidate' : {
+        'job-name' : "subv-iso_cnsl",
+        'output' : "slurm/consolidate.out",
+        'error' : "slurm/consolidate.err",
+        'time' : "35:55:00",
+        'cpus-per-task' : 12,
+        'mem-per-cpu': 2000,
+    },
+}
+

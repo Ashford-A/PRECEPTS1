@@ -1,0 +1,73 @@
+
+import os
+
+LOCALDIR = os.path.join(os.environ['CODEDIR'],
+                        'HetMan', 'experiments', 'subvariant_isolate')
+
+TMPDIR = os.path.join(os.environ['TEMPDIR'], 'HetMan', 'subvariant_isolate',
+                      config['gene'], config['cohort'], config['mut_levels'],
+                      config['search'], config['classif'])
+
+OUTDIR = os.path.join(os.environ['DATADIR'],
+                      'HetMan', 'subvariant_isolate', config['gene'])
+
+
+localrules: target
+
+
+rule target:
+    input:
+        expand("{outdir}/out-siml__"
+               "{cohort}__{mut_levels}__{search}__{classif}.p.gz",
+               outdir=OUTDIR, **config)
+
+    threads: 1
+
+
+rule isolate:
+    output: "{TMPDIR}/output/out__cv-{cv_id}_task-{task_id}.p"
+
+    threads: 8
+
+    shell: """
+        set +u; source activate HetMan; set -u;
+        export OMP_NUM_THREADS=1;
+        sleep $(( ({wildcards.cv_id} + 1) * ({wildcards.task_id} + 1) \
+                * $(shuf -i 1-9 -n 1) ));
+ 
+        python {LOCALDIR}/fit_isolate.py {config[gene]} {config[classif]} \
+                {TMPDIR} --task_count={config[task_count]} \
+                --task_id={wildcards.task_id} --cv_id={wildcards.cv_id}
+        """
+
+
+rule consolidate:
+    input:
+        expand("{tmpdir}/output/out__cv-{cv_id}_task-{task_id}.p",
+               tmpdir=TMPDIR,
+               cv_id=range(40), task_id=range(config['task_count']))
+
+    output:
+        expand("{outdir}/out-siml__"
+               "{cohort}__{mut_levels}__{search}__{classif}.p.gz",
+               outdir=OUTDIR, **config)
+
+    threads: 12
+
+    shell: """
+        set +u; source activate HetMan; set -u;
+        python {LOCALDIR}/merge_isolate.py {TMPDIR}
+        out_tag={config[cohort]}__{config[mut_levels]}__{config[search]}__{config[classif]}
+
+        cp {TMPDIR}/setup/cohort-data.p.gz \
+                {OUTDIR}/cohort-data__${{out_tag}}.p.gz
+        cp {TMPDIR}/out-pred.p.gz {OUTDIR}/out-pred__${{out_tag}}.p.gz
+        cp {TMPDIR}/out-tune.p.gz {OUTDIR}/out-tune__${{out_tag}}.p.gz
+        cp {TMPDIR}/out-pheno.p.gz {OUTDIR}/out-pheno__${{out_tag}}.p.gz
+
+        cp {TMPDIR}/out-aucs.p.gz {OUTDIR}/out-aucs__${{out_tag}}.p.gz
+        cp {TMPDIR}/out-conf.p.gz {OUTDIR}/out-conf__${{out_tag}}.p.gz
+        cp {TMPDIR}/out-siml.p.gz {OUTDIR}/out-siml__${{out_tag}}.p.gz
+
+        """
+

@@ -21,7 +21,7 @@ from HetMan.features.cohorts.tcga import (
 
 from HetMan.experiments.subvariant_tour.utils import RandomType
 from HetMan.experiments.subvariant_isolate.utils import Mcomb, ExMcomb
-from dryadic.features.mutations import MuType
+from dryadic.features.mutations import MuType, MuTree
 from dryadic.features.cohorts.mut import BaseMutationCohort
 
 import argparse
@@ -107,7 +107,44 @@ def compare_lvls(lvls1, lvls2):
 
 
 class IsoMutationCohort(BaseMutationCohort):
-    pass
+
+    def __add__(self, other):
+        if not isinstance(other, IsoMutationCohort):
+            return NotImplemented
+
+
+def merge_cohorts(iso_cdatas):
+    expr_hash = {iso_cdata.data_hash()[0] for iso_cdata in iso_cdatas}
+    if len(expr_hash) > 1:
+        raise ValueError("Cohorts have mismatching expression datasets!")
+
+    annt_hash = {(tuple(iso_cdata.gene_annot), iso_cdata.leaf_annot)
+                 for iso_cdata in iso_cdatas}
+    if len(annt_hash) > 1:
+        raise ValueError("Cohorts have mismatching annotation settings!")
+
+    new_cdata = tuple(iso_cdatas)[0]
+    for iso_cdata in iso_cdatas:
+        for mut_lvls, mtree in iso_cdata.mtrees.items():
+            if mut_lvls in new_cdata.mtrees:
+
+                if hash(mtree) != hash(new_cdata.mtrees[mut_lvls]):
+                    raise ValueError("Cohorts have mismatching mutation "
+                                     "trees at levels `{}`!".format(mut_lvls))
+
+            else:
+                new_cdata.mtrees[mut_lvls] = mtree
+
+        new_cdata.muts = new_cdata.muts.merge(
+            iso_cdata.muts).drop_duplicates()
+
+    for mut_lvls, mtree in new_cdata.mtrees.items():
+        if hash(mtree) != hash(MuTree(new_cdata.muts, mut_lvls,
+                                      leaf_annot=new_cdata.leaf_annot)):
+            raise ValueError("Cohorts have internally inconsistent mutation "
+                             "datasets at levels `{}`!".format(mut_lvls))
+
+    return new_cdata
 
 
 def main():
