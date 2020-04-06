@@ -28,27 +28,42 @@ def compare_muts(*muts_lists):
                    for muts_list in muts_lists)) == 1
 
 
-def calculate_auc(phn_vec, pred_vals,
-                  cv_vals=None, cv_indx=None, use_mean=False):
-    if phn_vec.all() or not phn_vec.any():
+def calculate_auc(phn_vec, pred_vals, cv_indx=None, use_mean=False):
+    test_stat = [len(vals) == 10 for vals in pred_vals]
+    use_phn = phn_vec[test_stat]
+
+    if use_phn.all() or not use_phn.any():
         auc_val = 0.5
 
     else:
-        if cv_vals is not None:
-            pred_mat = np.array([
-                [pred_val for pred_val, cv_val in zip(pred_list, cv_list)
-                 if cv_val == 'test']
-                for pred_list, cv_list in zip(pred_vals, cv_vals)
-                ])
-
-        else:
-            pred_mat = np.vstack(pred_vals.values)
+        pred_mat = np.vstack(pred_vals.values[test_stat])
 
         if cv_indx is None:
-            cv_indx = [True] * 10
+            cv_indx = list(range(10))
+        elif isinstance(cv_indx, int):
+            cv_indx = [cv_indx]
 
-        mut_vals = pred_mat[phn_vec].T[cv_indx]
-        wt_vals = pred_mat[~phn_vec].T[cv_indx]
+        elif not isinstance(cv_indx, list):
+            raise TypeError("`cv_indx` must be a list, an integer value, "
+                            "or left as None to use all CV iterations!")
+
+        mut_vals = pred_mat[use_phn].T[cv_indx]
+        wt_vals = pred_mat[~use_phn].T[cv_indx]
+
+        assert (mut_vals.shape[0] == wt_vals.shape[0]
+                == len(cv_indx)), ("Wrong number of CV iterations in "
+                                   "classifier output, must be {}!".format(
+                                       len(cv_indx)))
+
+        assert mut_vals.shape[1] == use_phn.sum(), (
+            "Wrong number of mutated samples in classifier output, must "
+            "be {} instead of {}!".format(use_phn.sum(), mut_vals.shape[1])
+            )
+        assert wt_vals.shape[1] == (~use_phn).sum(), (
+            "Wrong number of wild-type samples in classifier output, must "
+            "be {} instead of {}!".format((~use_phn).sum(), wt_vals.shape[1])
+            )
+
         if use_mean:
             mut_vals, wt_vals = mut_vals.mean(axis=0), wt_vals.mean(axis=0)
 
@@ -121,12 +136,6 @@ def main():
     pred_lists = {ex_lbl: [None for cv_id in range(40)]
                   for ex_lbl in ['All', 'Iso', 'IsoShal']}
 
-    cv_lists = {ex_lbl: [pd.DataFrame(index=muts_list,
-                                      columns=cdata.get_samples()).applymap(
-                                          lambda x: [])
-                         for cv_id in range(40)]
-                for ex_lbl in ['All', 'Iso', 'IsoShal']}
-
     for cv_id, ols in enumerate(out_data):
         for k in out_dfs:
             for ex_lbl in ['All', 'Iso', 'IsoShal']:
@@ -153,10 +162,6 @@ def main():
                 "match those enumerated during setup!".format(ex_lbl, cv_id)
                 )
 
-            cv_lists[ex_lbl][cv_id][samps_dict['test']] = 'test'
-            cv_lists[ex_lbl][cv_id][samps_dict['test']] = cv_lists[
-                ex_lbl][cv_id][samps_dict['test']].applymap(lambda x: [x])
-
             pred_lists[ex_lbl][cv_id] = pd.DataFrame(
                 index=use_muts, columns=cdata.get_samples()).applymap(
                     lambda x: [])
@@ -166,12 +171,11 @@ def main():
                 index=use_muts, columns=samps_dict['test']
                 ).applymap(lambda x: [x])
 
-
             if 'train' in out_dfs['Pred'][ex_lbl][cv_id]:
-                train_preds = out_dfs['Pred'][ex_lbl][cv_id].train[
+                train_mat = out_dfs['Pred'][ex_lbl][cv_id].train[
                     ~out_dfs['Pred'][ex_lbl][cv_id].train.isnull()]
 
-                for mtype, preds in train_preds.iteritems():
+                for mtype, train_preds in train_mat.iteritems():
                     mtype_samps = mtype.get_samples(use_mtree)
 
                     if ex_lbl == 'Iso':
@@ -180,16 +184,11 @@ def main():
                         use_samps = mut_samps - mtype_samps - shal_samps
 
                     out_samps = sorted(use_samps & set(samps_dict['train']))
-                    cv_lists[ex_lbl][cv_id].loc[mtype][out_samps] = [
-                        ['holdout'] for _ in preds]
                     pred_lists[ex_lbl][cv_id].loc[mtype][out_samps] = [
-                        [x] for x in preds]
+                        [x] for x in train_preds]
 
     pred_dfs = {ex_lbl: reduce(add, pred_mats)
                 for ex_lbl, pred_mats in pred_lists.items()}
-    cv_info = {ex_lbl: reduce(add, cv_mats)
-               for ex_lbl, cv_mats in cv_lists.items()}
-
     assert (pred_dfs['All'].applymap(len) == 10).values.all(), (
         "Incorrect number of testing CV scores!")
 
@@ -247,7 +246,6 @@ def main():
                     delayed(calculate_auc)(
                         pheno_dict[mtype],
                         pred_dfs[ex_lbl].loc[mtype, train_samps],
-                        cv_info[ex_lbl].loc[mtype, train_samps]
                         )
                     for mtype in muts_list
                     )
@@ -260,7 +258,7 @@ def main():
                         delayed(calculate_auc)(
                             pheno_dict[mtype],
                             pred_dfs[ex_lbl].loc[mtype, train_samps],
-                            cv_info[ex_lbl].loc[mtype, train_samps], cv_id
+                            cv_indx=cv_id
                             )
                         for cv_id in range(10) for mtype in muts_list
                         )
@@ -274,7 +272,7 @@ def main():
                     delayed(calculate_auc)(
                         pheno_dict[mtype],
                         pred_dfs[ex_lbl].loc[mtype, train_samps],
-                        cv_info[ex_lbl].loc[mtype, train_samps], use_mean=True
+                        use_mean=True
                         )
                     for mtype in muts_list
                     )
@@ -302,8 +300,7 @@ def main():
                         delayed(calculate_auc)(
                             pheno_dict[mtype][sub_indx],
                             pred_dfs[ex_lbl].loc[
-                                mtype, train_samps[sub_indx]],
-                            cv_info[ex_lbl].loc[mtype, train_samps[sub_indx]]
+                                mtype, train_samps[sub_indx]]
                             )
                         for sub_indx in sub_inds for mtype in muts_list
                         )
@@ -317,7 +314,6 @@ def main():
                             pheno_dict[mtype][sub_indx],
                             pred_dfs[ex_lbl].loc[
                                 mtype, train_samps[sub_indx]],
-                            cv_info[ex_lbl].loc[mtype, train_samps[sub_indx]],
                             use_mean=True
                             )
                         for sub_indx in sub_inds for mtype in muts_list

@@ -2,17 +2,19 @@
 import os
 import sys
 
-base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'subvariant_infer')
+base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'subvariant_isolate')
 sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
 plot_dir = os.path.join(base_dir, 'plots', 'example')
 
-from HetMan.experiments.subvariant_infer import variant_mtypes, variant_clrs
-from HetMan.experiments.subvariant_infer.merge_infer import merge_cohort_dict
-from HetMan.experiments.subvariant_infer.utils import Mcomb, ExMcomb, calc_auc
 from HetMan.experiments.subvariant_tour.utils import RandomType
-from HetMan.experiments.subvariant_tour.plot_aucs import get_fancy_label
+from HetMan.experiments.subvariant_isolate.utils import (
+    Mcomb, ExMcomb, calc_auc)
 from dryadic.features.mutations import MuType
+
 from HetMan.experiments.utilities import simil_cmap
+from HetMan.experiments.subvariant_isolate.setup_isolate import merge_cohorts
+from HetMan.experiments.subvariant_test.utils import get_fancy_label
+from HetMan.experiments.subvariant_test import variant_clrs
 
 import argparse
 from pathlib import Path
@@ -34,34 +36,32 @@ from matplotlib.colorbar import ColorbarBase
 from matplotlib import colors
 
 
-def plot_base_classification(mut, use_vals, pheno_dict, cdata, args):
+def plot_base_classification(plt_clf, plt_mtype, plt_mcomb,
+                             pred_df, pheno_dict, cdata, args):
     fig, (coh_ax, clf_ax, ovp_ax) = plt.subplots(
         figsize=(6, 8), nrows=3, ncols=1,
         gridspec_kw=dict(height_ratios=[1, 3, 3])
         )
 
-    use_lvls, mtype = mut
-    mtype_str = " ".join([args.gene, get_fancy_label(mtype)])
-    mut_str = mtype_str.split(':')[-1]
-    rest_mtype = MuType({(
-        'Gene', args.gene): cdata.mtree[args.gene].allkey()}) - mtype
-
-    use_df = pd.DataFrame({
-        'Value': [np.mean(vals) for vals in use_vals.loc[[mut]].iloc[0]],
-        'cStat': pheno_dict[mtype], 'rStat': cdata.train_pheno(rest_mtype)
+    plt_df = pd.DataFrame({
+        'Value': pred_df.loc[
+            plt_mtype, cdata.get_train_samples()].apply(np.mean),
+        'cStat': pheno_dict[plt_mtype],
+        'rStat': np.array(cdata.train_pheno(plt_mcomb.not_mtype))
         })
 
-    mut_prop = np.sum(use_df.cStat) / len(cdata.get_samples())
-    ovlp_prop = np.mean(~use_df.rStat[~use_df.cStat]) * (1 - mut_prop)
+    mut_prop = np.sum(plt_df.cStat) / len(cdata.get_samples())
+    ovlp_prop = np.mean(~plt_df.rStat[~plt_df.cStat]) * (1 - mut_prop)
+    mtype_str = get_fancy_label(MuType({('Gene', args.gene): plt_mtype}))
+    mut_str = ' '.join(mtype_str.split('\n')[1:])
 
     for ax in coh_ax, clf_ax, ovp_ax:
         ax.axis('off')
 
-    coh_ax.text(
-        0.5, 1, "TCGA-{}\n({} samples)".format(args.cohort,
-                                               len(cdata.get_samples())),
-        size=10, ha='center', va='top'
-        )
+    coh_ax.text(0.5, 1,
+                "{}\n({} samples)".format(args.cohort,
+                                          len(cdata.get_samples())),
+                size=10, ha='center', va='top')
 
     coh_ax.add_patch(ptchs.FancyArrowPatch(
         posA=(0.5, 0.75), posB=(0.5, 0.66),
@@ -83,21 +83,21 @@ def plot_base_classification(mut, use_vals, pheno_dict, cdata, args):
                  size=8, ha='right', va='center')
 
     coh_ax.add_patch(ptchs.Rectangle((0.17 + ovlp_prop * 0.66, 0.12),
-                                      np.mean(use_df.rStat) * 0.66, 0.23,
+                                      np.mean(plt_df.rStat) * 0.66, 0.23,
                                       alpha=0.83, hatch='\\',
                                       linewidth=1.3, edgecolor='0.51',
                                       facecolor=variant_clrs['Point']))
 
     coh_ax.add_patch(ptchs.Rectangle((0.17 + ovlp_prop * 0.66, 0.42),
-                                     np.mean(use_df.rStat) * 0.66, 0.23,
+                                     np.mean(plt_df.rStat) * 0.66, 0.23,
                                      hatch='\\', linewidth=1.3,
                                      edgecolor='0.51', facecolor='None'))
 
     coh_ax.text(0.15 + ovlp_prop * 0.66, 0.23,
                 "{} mutations\nother than {}".format(args.gene, mut_str),
                 color=variant_clrs['Point'], size=8, ha='right', va='center')
-    coh_ax.text(0.17 + ovlp_prop * 0.66 + np.mean(use_df.rStat) * 0.33, 0.09,
-                "({} samples)".format(np.sum(use_df.rStat)),
+    coh_ax.text(0.17 + ovlp_prop * 0.66 + np.mean(plt_df.rStat) * 0.33, 0.09,
+                "({} samples)".format(np.sum(plt_df.rStat)),
                 color=variant_clrs['Point'], size=8, ha='center', va='top')
 
     diag_ax1 = inset_axes(clf_ax, width='100%', height='100%',
@@ -133,14 +133,14 @@ def plot_base_classification(mut, use_vals, pheno_dict, cdata, args):
                                     alpha=0.41))
     diag_ax1.text(0.5, 0.85,
                   "{}\nMutant\n({} samples)".format(
-                      mut_str, np.sum(use_df.cStat)),
+                      mut_str, np.sum(plt_df.cStat)),
                   size=8, ha='center', va='center')
 
     diag_ax1.add_patch(ptchs.Circle(
         (0.5, 0.32), radius=0.31, facecolor=variant_clrs['WT'], alpha=0.41))
     diag_ax1.text(0.5, 0.32,
                   "{}\nWild-Type\n({} samples)".format(
-                      mut_str, np.sum(~use_df.cStat)),
+                      mut_str, np.sum(~plt_df.cStat)),
                   size=13, ha='center', va='center')
 
     diag_ax1.text(0.22, 0.67, "classify\nmutations", color='red',
@@ -148,20 +148,21 @@ def plot_base_classification(mut, use_vals, pheno_dict, cdata, args):
     diag_ax1.axhline(y=0.67, xmin=0.23, xmax=0.86, color='red',
                      linestyle='--', linewidth=2.3, alpha=0.83)
 
-    diag_ax1.text(0.82, 0.68, "{} (+)".format(np.sum(use_df.cStat)),
+    diag_ax1.text(0.82, 0.68, "{} (+)".format(np.sum(plt_df.cStat)),
                   color='red', size=8, fontstyle='italic', 
                   ha='right', va='bottom')
-    diag_ax1.text(0.82, 0.655, "{} (\u2212)".format(np.sum(~use_df.cStat)),
+    diag_ax1.text(0.82, 0.655, "{} (\u2212)".format(np.sum(~plt_df.cStat)),
                   color='red', size=8, fontstyle='italic',
                   ha='right', va='top')
 
-    sns.violinplot(data=use_df[~use_df.cStat], y='Value', ax=vio_ax1,
+    sns.violinplot(data=plt_df[~plt_df.cStat], y='Value', ax=vio_ax1,
                    palette=[variant_clrs['WT']], linewidth=0, cut=0)
-    sns.violinplot(data=use_df[use_df.cStat], y='Value', ax=vio_ax1,
+    sns.violinplot(data=plt_df[plt_df.cStat], y='Value', ax=vio_ax1,
                    palette=[variant_clrs['Point']], linewidth=0, cut=0)
 
     vio_ax1.text(0.5, 0.99,
-                 "AUC: {:.3f}".format(calc_auc(use_df.Value, use_df.cStat)),
+                 "AUC: {:.3f}".format(calc_auc(plt_df.Value.values,
+                                               plt_df.cStat)),
                  color='red', size=10, fontstyle='italic',
                  ha='center', va='top', transform=vio_ax1.transAxes)
 
@@ -198,32 +199,32 @@ def plot_base_classification(mut, use_vals, pheno_dict, cdata, args):
 
     diag_ax2.text(0.33, 0.85,
                   "{}\nMutant\nw/o overlap\n({} samps)".format(
-                      mut_str, np.sum(use_df.cStat & ~use_df.rStat)),
+                      mut_str, np.sum(plt_df.cStat & ~plt_df.rStat)),
                   size=9, ha='right', va='center')
     diag_ax2.text(0.67, 0.85,
                   "{}\nMutant\nw/ overlap\n({} samps)".format(
-                      mut_str, np.sum(use_df.cStat & use_df.rStat)),
+                      mut_str, np.sum(plt_df.cStat & plt_df.rStat)),
                   size=9, ha='left', va='center')
 
     diag_ax2.text(0.47, 0.32,
                   "{}\nWild-Type\nw/o overlap\n({} samps)".format(
-                      mut_str, np.sum(~use_df.cStat & ~use_df.rStat)),
+                      mut_str, np.sum(~plt_df.cStat & ~plt_df.rStat)),
                   size=10, ha='right', va='center')
     diag_ax2.text(0.53, 0.32,
                   "{}\nWild-Type\nw/ overlap\n({} samps)".format(
-                      mut_str, np.sum(~use_df.cStat & use_df.rStat)),
+                      mut_str, np.sum(~plt_df.cStat & plt_df.rStat)),
                   size=10, ha='left', va='center')
 
-    sns.violinplot(data=use_df[~use_df.cStat], x='cStat', y='Value',
+    sns.violinplot(data=plt_df[~plt_df.cStat], x='cStat', y='Value',
                    hue='rStat', palette=[variant_clrs['WT']],
                    hue_order=[False, True], split=True, linewidth=0,
                    cut=0, ax=vio_ax2)
-    sns.violinplot(data=use_df[use_df.cStat], x='cStat', y='Value',
+    sns.violinplot(data=plt_df[plt_df.cStat], x='cStat', y='Value',
                    hue='rStat', palette=[variant_clrs['Point']],
                    hue_order=[False, True], split=True, linewidth=0,
                    cut=0, ax=vio_ax2)
 
-    vals_min, vals_max = use_df.Value.quantile(q=[0, 1])
+    vals_min, vals_max = plt_df.Value.quantile(q=[0, 1])
     vals_rng = (vals_max - vals_min) / 51
     vio_ax1.set_ylim(vals_min - vals_rng, vals_max + 4 * vals_rng)
     vio_ax2.set_ylim(vals_min - vals_rng, vals_max + 5 * vals_rng)
@@ -261,57 +262,63 @@ def plot_base_classification(mut, use_vals, pheno_dict, cdata, args):
         vio_ax2.get_children()[i].set_hatch('/\\')
         vio_ax2.get_children()[i].set_edgecolor('0.47')
 
-    vio_ax2.text(0.23, 0.98, "{}\nw/o overlap".format(mut_str),
+    vio_ax2.text(0.23, 0.93, "{}\nw/o overlap".format(mut_str),
                  color=variant_clrs['Point'], size=7,
                  fontstyle='italic', ha='center', va='bottom',
                  transform=vio_ax2.transAxes)
-    vio_ax2.text(0.23, 0.96,
-                 "AUC: {:.3f}".format(calc_auc(use_df.Value[~use_df.rStat],
-                                               use_df.cStat[~use_df.rStat])),
-                 color='red', size=10, fontstyle='italic',
-                 ha='center', va='top', transform=vio_ax2.transAxes)
 
-    vio_ax2.text(0.77, 0.98, "{}\nw/ overlap".format(mut_str),
+    vio_ax2.text(
+        0.23, 0.91,
+        "AUC: {:.3f}".format(calc_auc(plt_df.Value[~plt_df.rStat].values,
+                                      plt_df.cStat[~plt_df.rStat])),
+        color='red', size=10, fontstyle='italic',
+        ha='center', va='top', transform=vio_ax2.transAxes
+        )
+
+    vio_ax2.text(0.77, 0.93, "{}\nw/ overlap".format(mut_str),
                  color=variant_clrs['Point'], size=7,
                  fontstyle='italic', ha='center', va='bottom',
                  transform=vio_ax2.transAxes)
-    vio_ax2.text(0.77, 0.96,
-                 "AUC: {:.3f}".format(calc_auc(use_df.Value[use_df.rStat],
-                                               use_df.cStat[use_df.rStat])),
-                 color='red', size=10, fontstyle='italic',
-                 ha='center', va='top', transform=vio_ax2.transAxes)
+
+    vio_ax2.text(
+        0.77, 0.91,
+        "AUC: {:.3f}".format(calc_auc(plt_df.Value[plt_df.rStat].values,
+                                      plt_df.cStat[plt_df.rStat])),
+        color='red', size=10, fontstyle='italic',
+        ha='center', va='top', transform=vio_ax2.transAxes
+        )
 
     plt.tight_layout(pad=-0.2, w_pad=0, h_pad=0.5)
-    plt.savefig(os.path.join(plot_dir, args.cohort,
-                             "base_classification_{}.svg".format(args.gene)),
-                bbox_inches='tight', format='svg')
+    plt.savefig(
+        os.path.join(plot_dir, args.gene,
+                     "{}__base-classification.svg".format(args.cohort)),
+        bbox_inches='tight', format='svg'
+        )
 
     plt.close()
 
 
-def plot_iso_classification(mut, use_vals, pheno_dict, cdata, args):
+def plot_iso_classification(plt_clf, plt_mtype, plt_mcomb,
+                            pred_dfs, pheno_dict, cdata, args):
     fig, axarr = plt.subplots(figsize=(10, 8), nrows=2, ncols=2)
 
-    use_lvls, mtype = mut
-    mtype_str = " ".join([args.gene, get_fancy_label(mtype)])
-    mut_str = mtype_str.split(':')[-1]
+    mtype_str = get_fancy_label(MuType({('Gene', args.gene): plt_mtype}))
+    mut_str = ' '.join(mtype_str.split('\n')[1:])
 
-    all_mtype = MuType({('Gene', args.gene): cdata.mtree[args.gene].allkey()})
-    rest_stat = np.array(cdata.train_pheno(all_mtype - mtype))
-    use_mcombs = [('All', mtype), ('Ex', ExMcomb(all_mtype, mtype))]
+    rest_stat = np.array(cdata.train_pheno(plt_mcomb.not_mtype))
+    plt_muts = {'All': plt_mtype, 'Ex': plt_mcomb}
 
-    use_phns = {lbl: pheno_dict[mtype] for lbl, mtype in use_mcombs}
     mcomb_masks = [('All', {lbl: np.array([True] * len(cdata.get_samples()))
-                            for lbl in use_phns}),
-                   ('Iso', {lbl: ~(rest_stat & ~stat)
-                            for lbl, stat in use_phns.items()})]
+                            for lbl in plt_muts}),
+                   ('Iso', {lbl: ~(rest_stat & ~pheno_dict[mut])
+                            for lbl, mut in plt_muts.items()})]
 
     for i, (smp_lbl, msk) in enumerate(mcomb_masks):
-        for j, (mtp_lbl, mtp) in enumerate(use_mcombs):
-            vals_df = pd.DataFrame({
-                'Value': [np.mean(vals) for vals in use_vals[
-                    smp_lbl].loc[[(use_lvls, mtp)]].iloc[0]],
-                'cStat': use_phns[mtp_lbl], 'uStat': msk[mtp_lbl]
+        for j, (mut_lbl, mut) in enumerate(plt_muts.items()):
+            plt_df = pd.DataFrame({
+                'Value': pred_dfs[smp_lbl].loc[
+                    mut, cdata.get_train_samples()].apply(np.mean),
+                'cStat': pheno_dict[mut], 'uStat': msk[mut_lbl]
                 })
 
             diag_ax = inset_axes(axarr[i, j], width='100%', height='100%',
@@ -334,37 +341,33 @@ def plot_iso_classification(mut, use_vals, pheno_dict, cdata, args):
                             linestyle='--', linewidth=1.6, alpha=0.83)
  
             diag_ax.text(0.82, 0.68,
-                         "{} (+)".format(
-                             np.sum(vals_df.cStat[vals_df.uStat])),
+                         "{} (+)".format(np.sum(plt_df.cStat[plt_df.uStat])),
                          color='red', size=7, fontstyle='italic',
                          ha='right', va='bottom')
-            diag_ax.text(0.82, 0.655,
-                         "{} (\u2212)".format(
-                             np.sum(~vals_df.cStat[vals_df.uStat])),
-                         color='red', size=7, fontstyle='italic',
-                         ha='right', va='top')
 
-            sns.violinplot(
-                data=vals_df.loc[~vals_df.cStat].loc[vals_df.uStat],
-                y='Value', ax=vio_ax, palette=[variant_clrs['WT']],
-                linewidth=0, cut=0
+            diag_ax.text(
+                0.82, 0.655,
+                "{} (\u2212)".format(np.sum(~plt_df.cStat[plt_df.uStat])),
+                color='red', size=7, fontstyle='italic', ha='right', va='top'
                 )
-            sns.violinplot(
-                data=vals_df.loc[vals_df.cStat].loc[vals_df.uStat],
-                y='Value', ax=vio_ax, palette=[variant_clrs['Point']],
-                linewidth=0, cut=0
-                )
+
+            sns.violinplot(data=plt_df.loc[~plt_df.cStat].loc[plt_df.uStat],
+                           y='Value', ax=vio_ax, palette=[variant_clrs['WT']],
+                           linewidth=0, cut=0)
+            sns.violinplot(data=plt_df.loc[plt_df.cStat].loc[plt_df.uStat],
+                           y='Value', ax=vio_ax,
+                           palette=[variant_clrs['Point']],
+                           linewidth=0, cut=0)
 
             vio_ax.text(0.5, 0.99,
                         "AUC: {:.3f}".format(
-                            calc_auc(vals_df.Value[vals_df.uStat],
-                                     vals_df.cStat[vals_df.uStat])
+                            calc_auc(plt_df.Value[plt_df.uStat].values,
+                                     plt_df.cStat[plt_df.uStat])
                             ),
                         color='red', size=11, fontstyle='italic',
                         ha='center', va='top', transform=vio_ax.transAxes)
 
-            vals_min, vals_max = vals_df.Value[
-                vals_df.uStat].quantile(q=[0, 1])
+            vals_min, vals_max = plt_df.Value[plt_df.uStat].quantile(q=[0, 1])
             vals_rng = (vals_max - vals_min) / 71
             vio_ax.set_ylim(vals_min - vals_rng, vals_max + 4 * vals_rng)
 
@@ -376,17 +379,17 @@ def plot_iso_classification(mut, use_vals, pheno_dict, cdata, args):
                                           alpha=0.41, clip_on=False))
             diag_ax.text(0.37, 0.95,
                          "{}\nMutant\nw/o overlap\n({} samps)".format(
-                             mut_str, np.sum(vals_df.cStat & ~rest_stat)),
+                             mut_str, np.sum(plt_df.cStat & ~rest_stat)),
                          size=6, ha='right', va='center')
 
-            if np.sum(vals_df.cStat & rest_stat):
+            if np.sum(plt_df.cStat & rest_stat):
                 diag_ax.add_patch(ptchs.Wedge((0.42, 0.95), 0.25, 270, 90,
                                               facecolor=variant_clrs['Point'],
                                               alpha=0.41, clip_on=False))
 
                 diag_ax.text(0.43, 0.95,
                              "{}\nMutant\nw/ overlap\n({} samps)".format(
-                                 mut_str, np.sum(vals_df.cStat & rest_stat)),
+                                 mut_str, np.sum(plt_df.cStat & rest_stat)),
                              size=6, ha='left', va='center')
 
             diag_ax.add_patch(ptchs.Wedge((0.38, 0.22), 0.42, 90, 270,
@@ -394,17 +397,17 @@ def plot_iso_classification(mut, use_vals, pheno_dict, cdata, args):
                                           alpha=0.41, clip_on=False))
             diag_ax.text(0.37, 0.22,
                          "{}\nWild-Type\nw/o overlap\n({} samps)".format(
-                             mut_str, np.sum(~vals_df.cStat & ~rest_stat)),
+                             mut_str, np.sum(~plt_df.cStat & ~rest_stat)),
                          size=9, ha='right', va='center')
 
-            if np.sum(~vals_df.cStat & rest_stat & vals_df.uStat):
+            if np.sum(~plt_df.cStat & rest_stat & plt_df.uStat):
                 diag_ax.add_patch(ptchs.Wedge((0.42, 0.22), 0.42, 270, 90,
                                               facecolor=variant_clrs['WT'],
                                               alpha=0.41, clip_on=False))
 
                 diag_ax.text(0.43, 0.22,
                              "{}\nWild-Type\nw/ overlap\n({} samps)".format(
-                                 mut_str, np.sum(~vals_df.cStat & rest_stat)),
+                                 mut_str, np.sum(~plt_df.cStat & rest_stat)),
                              size=9, ha='left', va='center')
 
             diag_ax.add_patch(ptchs.FancyArrow(
@@ -419,9 +422,11 @@ def plot_iso_classification(mut, use_vals, pheno_dict, cdata, args):
             vio_ax.yaxis.label.set_visible(False)
 
     plt.tight_layout(pad=0, w_pad=2.3, h_pad=0)
-    plt.savefig(os.path.join(plot_dir, args.cohort,
-                             "iso_classification_{}.svg".format(args.gene)),
-                bbox_inches='tight', format='svg')
+    plt.savefig(
+        os.path.join(plot_dir, args.gene,
+                     "{}__iso-classification.svg".format(args.cohort)),
+        bbox_inches='tight', format='svg'
+        )
 
     plt.close()
 
@@ -692,8 +697,8 @@ def plot_iso_projection(mut, use_vals, pheno_dict, cdata, args):
         vio_ax.get_legend().remove()
 
     plt.tight_layout(pad=0, w_pad=-5, h_pad=1)
-    plt.savefig(os.path.join(plot_dir, args.cohort,
-                             "iso_projection_{}.svg".format(args.gene)),
+    plt.savefig(os.path.join(plot_dir, args.gene,
+                             "{}__iso-projection.svg".format(args.cohort)),
                 bbox_inches='tight', format='svg')
 
     plt.close()
@@ -847,8 +852,8 @@ def plot_iso_similarities(mut, use_vals, pheno_dict, cdata, args):
     clr_ax.tick_params(labelsize=11)
 
     plt.tight_layout(pad=0, h_pad=0, w_pad=-4.1)
-    plt.savefig(os.path.join(plot_dir, args.cohort,
-                             "iso_similarities_{}.svg".format(args.gene)),
+    plt.savefig(os.path.join(plot_dir, args.gene,
+                             "{}__iso-similarities.svg".format(args.cohort)),
                 bbox_inches='tight', format='svg')
 
     plt.close()
@@ -860,84 +865,168 @@ def main():
         "mutations can affect a mutation classification task."
         )
 
-    parser.add_argument('cohort', help='a TCGA cohort')
     parser.add_argument('gene', help='a mutated gene')
+    parser.add_argument('cohort', help='a TCGA cohort')
+
     args = parser.parse_args()
+    out_list = tuple(Path(base_dir, args.gene).glob(
+        "out-siml__{}__*__*__*.p.gz".format(args.cohort)))
 
-    os.makedirs(os.path.join(plot_dir, args.cohort), exist_ok=True)
-    cdict = merge_cohort_dict(os.path.join(base_dir, args.cohort),
-                              use_seed=709)
+    if len(out_list) == 0:
+        raise ValueError("No completed experiments found for gene {} "
+                         "in cohort `{}`!".format(args.gene, args.cohort))
 
-    out_infers = {
-        str(out_path).split('__')[-1].split(".p.gz")[0]: pickle.load(
-            bz2.BZ2File(str(out_path)), 'r')['Infer']
-        for out_path in Path(base_dir).glob(os.path.join(
-            args.cohort, "out-data__{}__*.p.gz".format(args.gene)))
-        }
+    os.makedirs(os.path.join(plot_dir, args.gene), exist_ok=True)
+    out_use = pd.DataFrame(
+        [{'Levels': '__'.join(out_file.stem.split('__')[2:-2]),
+          'Classif': out_file.stem.split('__')[-1].split('.p')[0],
+          'File': out_file}
+         for out_file in out_list]
+        )
 
-    out_datas = {
-        str(out_path).split('__')[-1].split(".p.gz")[0]: pickle.load(
-            bz2.BZ2File(str(out_path)), 'r')
-        for out_path in Path(base_dir).glob(os.path.join(
-            args.cohort, "out-simil__{}__*.p.gz".format(args.gene)))
-        }
+    out_iter = out_use.groupby(['Levels', 'Classif'])['File']
+    phn_dict = dict()
+    cdata_dict = {lvls: None for lvls in set(out_use.Levels)}
 
-    all_mtypes = {
-        lvls: MuType({('Gene', args.gene): cdata.mtree[args.gene].allkey()})
-        for lvls, cdata in cdict.items()
-        }
+    out_aucs = list()
+    out_preds = {clf: list() for clf in set(out_use.Classif)}
+    out_simls = {clf: list() for clf in set(out_use.Classif)}
+
+    for (lvls, clf), out_files in out_iter:
+        auc_list = [None for _ in out_files]
+        pred_list = [None for _ in out_files]
+        siml_list = [None for _ in out_files]
+
+        for i, out_file in enumerate(out_files):
+            out_tag = '__'.join(out_file.parts[-1].split('__')[1:])
+
+            if cdata_dict[lvls] is None:
+                with bz2.BZ2File(Path(base_dir, args.gene,
+                                      '__'.join(["cohort-data", out_tag])),
+                                 'r') as f:
+                    cdata_dict[lvls] = pickle.load(f)
+
+            with bz2.BZ2File(Path(base_dir, args.gene,
+                                  '__'.join(["out-pheno", out_tag])),
+                             'r') as f:
+                phn_dict.update(pickle.load(f))
+
+            with bz2.BZ2File(Path(base_dir, args.gene,
+                                  '__'.join(["out-aucs", out_tag])),
+                             'r') as f:
+                auc_dict = pickle.load(f)
+
+                auc_list[i] = pd.DataFrame({
+                    ex_lbl: auc_vals['mean']
+                    for ex_lbl, auc_vals in auc_dict.items()
+                    })
+
+                auc_list[i].index = pd.MultiIndex.from_tuples(
+                    [(clf, mtype) for mtype in auc_list[i].index],
+                    names=['Classif', 'Mutation']
+                    )
+
+            with bz2.BZ2File(Path(base_dir, args.gene,
+                                  '__'.join(["out-pred", out_tag])),
+                             'r') as f:
+                pred_list[i] = pickle.load(f)
+
+            with bz2.BZ2File(Path(base_dir, args.gene,
+                                  '__'.join(["out-siml", out_tag])),
+                             'r') as f:
+                siml_list[i] = pickle.load(f)
+
+        mtypes_comp = np.greater_equal.outer(
+            *([[set(auc_vals.index) for auc_vals in auc_list]] * 2))
+        super_list = np.apply_along_axis(all, 1, mtypes_comp)
+
+        if super_list.any():
+            super_indx = super_list.argmax()
+            out_aucs += [auc_list[super_indx]]
+            out_preds[clf] += [pred_list[super_indx]]
+            out_simls[clf] += [siml_list[super_indx]]
+
+        else:
+            raise ValueError
+
+    auc_df = pd.concat(out_aucs)
+    auc_df = auc_df.loc[~auc_df.index.duplicated()]
+
+    cdata = merge_cohorts(cdata_dict.values())
+    all_mtypes = {lvls: MuType(mtree.allkey())
+                  for lvls, mtree in cdata.mtrees.items()}
 
     # get list of hotspot mutations that appear in enough samples by
     # themselves to have had inferred values calculated for them
-    base_mtypes = [
-        {'All': mtype, 'Ex': ExMcomb(all_mtypes[lvls], mtype), 'Lvls': lvls}
-        for lvls, mtype in tuple(out_infers.values())[0]['All'].index
-        if (lvls != 'Copy'
-            and not isinstance(mtype, (Mcomb, ExMcomb, RandomType))
-            and 'Protein' in mtype.get_levels() and len(mtype.subkeys()) == 1
-            and (ExMcomb(all_mtypes[lvls], mtype)
-                 in tuple(out_datas.values())[0][0]))
-        ]
+    base_muts = {(clf, mtype) for clf, mtype in auc_df.index
+                 if (not isinstance(mtype, (Mcomb, ExMcomb, RandomType))
+                     and 'Copy' not in mtype.get_levels()
+                     and len(mtype.subkeys()) == 1
+                     and ('Exon' in mtype.get_levels()
+                          or 'Position' in mtype.get_levels()
+                          or 'HGVSp' in mtype.get_levels())
+                     and any(oth_clf == clf and isinstance(mcomb, ExMcomb)
+                             and len(mcomb.mtypes) == 1
+                             and tuple(mcomb.mtypes)[0] == mtype
+                             for oth_clf, mcomb in auc_df.index))}
 
-    auc_dict = {
-        (clf, mtps['All'], mtps['Lvls']): out_data[1].loc[
-            [(mtps['Lvls'], mtps['All']), (mtps['Lvls'], mtps['Ex'])]]
-        for mtps in base_mtypes for clf, out_data in out_datas.items()
+    ex_muts = {
+        (clf, mtype): {
+            mcomb for oth_clf, mcomb in auc_df.index
+            if (oth_clf == clf and isinstance(mcomb, ExMcomb)
+                and len(mcomb.mtypes) == 1 and tuple(mcomb.mtypes)[0] == mtype
+                and mcomb.not_mtype | mtype in all_mtypes.values())
+            }
+        for clf, mtype in base_muts
         }
+
+    for (clf, mtype), ex_mcombs in ex_muts.items():
+        assert len(ex_mcombs) <= 1, ("Found multiple ExMcombs matching {} "
+                                     "with testing classifier `{}`!".format(
+                                         mtype, clf))
 
     # find experiments where the classifier performed well and also with an
     # improvement when samples with overlapping mutations were removed
-    good_exs = {k for k, aucs in auc_dict.items()
-                if aucs.Iso[1] > aucs.All[0] > 0.65}
-    off_diags = {k: auc_dict[k].values[~np.equal(*np.indices((2, 2)))]
-                 for k in good_exs}
+    mut_aucs = {
+        (clf, mtype): auc_df.loc[[(clf, mtype), (clf, tuple(ex_mcomb)[0])],
+                                 ['All', 'Iso']].set_index([['All', 'Ex']])
+        for (clf, mtype), ex_mcomb in ex_muts.items() if len(ex_mcomb) == 1
+        }
 
-    use_clf, use_mtype, use_lvls = sorted(
-        [(k, max(auc_dict[k].All[0] - np.min(off_diags[k]),
-                 np.max(off_diags[k]) - auc_dict[k].Iso[1]))
-         for k in good_exs],
-        key=itemgetter(1)
-        )[0][0]
+    off_diags = {mut: aucs.values[~np.equal(*np.indices((2, 2)))]
+                 for mut, aucs in mut_aucs.items()}
 
-    plot_base_classification((use_lvls, use_mtype),
-                             out_infers.copy()[use_clf]['All'],
-                             out_datas.copy()[use_clf][0],
-                             cdict[use_lvls], args)
+    use_clf, use_mtype = sorted(
+        mut_aucs, key=lambda mut: sum([
+            mut_aucs[mut].loc['All', 'All'] - np.min(off_diags[mut]),
+            np.max(off_diags[mut]) - mut_aucs[mut].loc['Ex', 'Iso']
+            ])
+        )[0]
+    use_mcomb = tuple(ex_muts[use_clf, use_mtype])[0]
 
-    plot_iso_classification((use_lvls, use_mtype),
-                            out_infers.copy()[use_clf],
-                            out_datas.copy()[use_clf][0],
-                            cdict[use_lvls], args)
+    pred_dfs = {ex_lbl: pd.concat([pred_list[ex_lbl]
+                                   for pred_list in out_preds[use_clf]])
+                for ex_lbl in ['All', 'Iso']}
+    pred_dfs = {ex_lbl: pred_df.loc[~pred_df.index.duplicated()]
+                for ex_lbl, pred_df in pred_dfs.items()}
 
-    plot_iso_projection((use_lvls, use_mtype),
+    plot_base_classification(use_clf, use_mtype, use_mcomb,
+                             pred_dfs['All'], phn_dict, cdata, args)
+
+    plot_iso_classification(use_clf, use_mtype, use_mcomb,
+                            pred_dfs, phn_dict, cdata, args)
+
+    """
+    plot_iso_projection((use_clf, use_mtype),
                         out_infers.copy()[use_clf]['Iso'],
                         out_datas.copy()[use_clf][0],
                         cdict[use_lvls], args)
 
-    plot_iso_similarities((use_lvls, use_mtype),
+    plot_iso_similarities((use_clf, use_mtype),
                           out_infers.copy()[use_clf]['Iso'],
                           out_datas.copy()[use_clf][0],
                           cdict[use_lvls], args)
+    """
 
 if __name__ == '__main__':
     main()
