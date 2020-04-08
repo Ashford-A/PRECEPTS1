@@ -1,11 +1,14 @@
 
 from HetMan.experiments.subvariant_tour.utils import RandomType
+from HetMan.experiments.subvariant_test.utils import ordinal_label
 from dryadic.features.mutations import MuType, MutComb
+
 import numpy as np
 import pandas as pd
 
 from functools import reduce
 from operator import or_
+import re
 
 
 class Mcomb(MutComb):
@@ -114,6 +117,146 @@ class ExMcomb(MutComb):
 
     def get_sorted_levels(self):
         return self.all_mtype.get_sorted_levels()
+
+
+def nest_label(mtype, sub_link=' or '):
+    sub_lbls = []
+
+    for lbls, tp in mtype.child_iter():
+        if (tp is not None and len(lbls) == 1
+                and tp.get_sorted_levels()[-1][:4] == 'HGVS'):
+            hgvs_lbl = re.sub('[a-z]', '',
+                              str(tp).split(':')[-1].split('.')[-1])
+
+            if hgvs_lbl == '-':
+                sub_lbls += ["(no location)"]
+            else:
+                sub_lbls += [hgvs_lbl]
+
+        else:
+            if mtype.cur_level == 'Exon':
+                if len(lbls) == 1:
+                    if tuple(lbls)[0] != '-':
+                        sub_lbls += ["on {} exon".format(
+                            ordinal_label(int(tuple(lbls)[0].split('/')[0])))]
+                    else:
+                        sub_lbls += ["not on any exon"]
+
+                else:
+                    exn_lbls = [ordinal_label(int(lbl.split('/')[0]))
+                                for lbl in sorted(lbls)]
+                    exn_lbls[-1] = 'or {}'.format(exn_lbls[-1])
+
+                    if len(exn_lbls) > 2:
+                        exn_jn = ', '
+                    else:
+                        exn_jn = ' '
+
+                    sub_lbls += ["on {} exons".format(exn_jn.join(exn_lbls))]
+
+            elif mtype.cur_level == 'Position':
+                if len(lbls) == 1:
+                    if tuple(lbls)[0] != '-':
+                        sub_lbls += ["at codon {}".format(tuple(lbls)[0])]
+                    else:
+                        sub_lbls += ["(no codon)"]
+
+                else:
+                    cdn_lbls = sorted(lbls)
+                    cdn_lbls[-1] = 'or {}'.format(cdn_lbls[-1])
+
+                    if len(cdn_lbls) > 2:
+                        cdn_jn = ', '
+                    else:
+                        cdn_jn = ' '
+
+                    sub_lbls += ["at codons {}".format(cdn_jn.join(cdn_lbls))]
+
+            elif mtype.cur_level == 'Consequence':
+                sub_lbls += [' or '.join([
+                    lbl.replace("_variant", "").replace(',', '/')
+                    for lbl in sorted(lbls)
+                    ])]
+
+            elif '-domain' in mtype.cur_level:
+                dtb_lbl = mtype.cur_level.split('-domain')[0]
+
+                if len(lbls) == 1:
+                    if tuple(lbls)[0] != 'none':
+                        sub_lbls += ["on domain {}".format(tuple(lbls)[0])]
+                    else:
+                        sub_lbls += ["not on any {} domain".format(dtb_lbl)]
+
+                else:
+                    dmn_lbls = sorted(lbls)
+                    dmn_lbls[-1] = 'or {}'.format(dmn_lbls[-1])
+
+                    if len(dmn_lbls) > 2:
+                        dmn_jn = ', '
+                    else:
+                        dmn_jn = ' '
+
+                    sub_lbls += ["on domains {}".format(
+                        dmn_jn.join(dmn_lbls))]
+
+            else:
+                raise ValueError("Unrecognized type of mutation "
+                                 "level `{}`!".format(mtype.cur_level))
+
+            if tp is not None:
+                if tp.cur_level == 'Consequence':
+                    sub_lbls[-1] = ' '.join([nest_label(tp), sub_lbls[-1]])
+                else:
+                    sub_lbls[-1] = ' '.join([sub_lbls[-1], nest_label(tp)])
+
+    return sub_link.join(sub_lbls)
+
+
+def get_fancy_label(mtype, scale_link=' or ', pnt_link=' or '):
+    sub_dict = dict(mtype.subtype_list())
+
+    if 'Copy' in sub_dict:
+        if sub_dict['Copy'] == MuType({
+                ('Copy', ('ShalDel', 'DeepDel')): None}):
+            use_lbls = ["any loss"]
+
+        elif sub_dict['Copy'] == MuType({
+                ('Copy', ('ShalGain', 'DeepGain')): None}):
+            use_lbls = ["any gain"]
+
+        elif sub_dict['Copy'] == MuType({
+                ('Copy', ('DeepDel', 'DeepGain')): None}):
+            use_lbls = ["any deep loss/gain"]
+
+        elif sub_dict['Copy'] == MuType({
+                ('Copy', ('ShalDel', 'ShalGain')): None}):
+            use_lbls = ["any shallow loss/gain"]
+
+        elif sub_dict['Copy'] == MuType({('Copy', 'DeepDel'): None}):
+            use_lbls = ["deep loss"]
+        elif sub_dict['Copy'] == MuType({('Copy', 'DeepGain'): None}):
+            use_lbls = ["deep gain"]
+
+        elif sub_dict['Copy'] == MuType({('Copy', 'ShalDel'): None}):
+            use_lbls = ["shallow loss"]
+        elif sub_dict['Copy'] == MuType({('Copy', 'ShalGain'): None}):
+            use_lbls = ["shallow gain"]
+
+        else:
+            raise ValueError("Unrecognized alteration `{}`!".format(
+                repr(sub_dict['Copy'])))
+
+    else:
+        use_lbls = []
+
+    if 'Point' in sub_dict:
+        if sub_dict['Point'] is None:
+            use_lbls += ["any point mutation"]
+
+        else:
+            use_lbls += [nest_label(sub_dict['Point'], pnt_link)]
+
+    return scale_link.join(use_lbls)
 
 
 def get_mtype_gene(mtype):
