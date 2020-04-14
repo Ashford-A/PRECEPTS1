@@ -1,5 +1,4 @@
 
-from HetMan.experiments.subvariant_tour.utils import RandomType
 from HetMan.experiments.subvariant_test.utils import ordinal_label
 from dryadic.features.mutations import MuType, MutComb
 
@@ -119,7 +118,7 @@ class ExMcomb(MutComb):
         return self.all_mtype.get_sorted_levels()
 
 
-def nest_label(mtype, sub_link=' or '):
+def nest_label(mtype, sub_link=' or ', phrase_link=' '):
     sub_lbls = []
 
     for lbls, tp in mtype.child_iter():
@@ -192,12 +191,12 @@ def nest_label(mtype, sub_link=' or '):
                     dmn_lbls[-1] = 'or {}'.format(dmn_lbls[-1])
 
                     if len(dmn_lbls) > 2:
-                        dmn_jn = ', '
+                        dmn_link = ', '
                     else:
-                        dmn_jn = ' '
+                        dmn_link = ' '
 
                     sub_lbls += ["on domains {}".format(
-                        dmn_jn.join(dmn_lbls))]
+                        dmn_link.join(dmn_lbls))]
 
             else:
                 raise ValueError("Unrecognized type of mutation "
@@ -205,14 +204,25 @@ def nest_label(mtype, sub_link=' or '):
 
             if tp is not None:
                 if tp.cur_level == 'Consequence':
-                    sub_lbls[-1] = ' '.join([nest_label(tp), sub_lbls[-1]])
+                    sub_lbls[-1] = phrase_link.join([
+                        nest_label(tp), sub_lbls[-1]])
+
                 else:
-                    sub_lbls[-1] = ' '.join([sub_lbls[-1], nest_label(tp)])
+                    sub_lbls[-1] = phrase_link.join([
+                        sub_lbls[-1], nest_label(tp)])
 
     return sub_link.join(sub_lbls)
 
 
-def get_fancy_label(mtype, scale_link=' or ', pnt_link=' or '):
+def get_fancy_label(mtype, scale_link=None, pnt_link=None, phrase_link=None):
+    if scale_link is None:
+        scale_link = ' or '
+
+    if pnt_link is None:
+        pnt_link = scale_link
+    if phrase_link is None:
+        phrase_link = scale_link
+
     sub_dict = dict(mtype.subtype_list())
 
     if 'Copy' in sub_dict:
@@ -254,39 +264,9 @@ def get_fancy_label(mtype, scale_link=' or ', pnt_link=' or '):
             use_lbls += ["any point mutation"]
 
         else:
-            use_lbls += [nest_label(sub_dict['Point'], pnt_link)]
+            use_lbls += [nest_label(sub_dict['Point'], pnt_link, phrase_link)]
 
     return scale_link.join(use_lbls)
-
-
-def get_mtype_gene(mtype):
-    mtype_genes = None
-
-    if isinstance(mtype, RandomType):
-        if mtype.base_mtype is not None:
-            mtype_genes = mtype.base_mtype.get_labels()
-
-    elif isinstance(mtype, ExMcomb):
-        mtype_genes = mtype.all_mtype.get_labels()
-
-    elif isinstance(mtype, Mcomb):
-        mtype_genes = {mtp.get_labels() for mtp in mtype.mtypes}
-
-    elif isinstance(mtype, MuType):
-        mtype_genes = mtype.get_labels()
-
-    else:
-        raise ValueError("Cannot retrieve gene for something that is "
-                         "not a mutation!")
-
-    if mtype_genes is None:
-        mtype_genes = [None]
-
-    if len(mtype_genes) > 1:
-        raise ValueError("Cannot retrieve gene for a mutation associated "
-                         "with multiple genes!")
-
-    return mtype_genes[0]
 
 
 def compare_scores(iso_df, samps, muts_dict,
