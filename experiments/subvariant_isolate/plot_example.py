@@ -15,7 +15,8 @@ from dryadic.features.mutations import MuType
 from HetMan.experiments.utilities import simil_cmap
 from HetMan.experiments.subvariant_isolate.setup_isolate import merge_cohorts
 from HetMan.experiments.subvariant_isolate.utils import get_fancy_label
-from HetMan.experiments.subvariant_test import variant_clrs, pnt_mtype
+from HetMan.experiments.subvariant_test import (
+    variant_clrs, pnt_mtype, copy_mtype)
 from HetMan.experiments.subvariant_isolate import cna_mtypes
 
 import argparse
@@ -32,7 +33,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 import matplotlib.patches as ptchs
-from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from matplotlib.colorbar import ColorbarBase
 from matplotlib import colors
 
@@ -42,8 +42,8 @@ plt.rcParams['savefig.facecolor']='white'
 plt.rcParams['axes.edgecolor']='white'
 
 
-def plot_base_classification(plt_clf, plt_mtype, plt_mcomb,
-                             pred_df, pheno_dict, cdata, args):
+def plot_base_classification(plt_mtype, plt_mcomb, pred_df,
+                             pheno_dict, cdata, args):
     fig, (coh_ax, clf_ax, ovp_ax) = plt.subplots(
         figsize=(5, 8), nrows=3, ncols=1,
         gridspec_kw=dict(height_ratios=[1, 3, 3])
@@ -106,23 +106,10 @@ def plot_base_classification(plt_clf, plt_mtype, plt_mcomb,
                 "({} samples)".format(np.sum(plt_df.rStat)),
                 color=variant_clrs['Point'], size=10, ha='center', va='top')
 
-    diag_ax1 = inset_axes(clf_ax, width='100%', height='100%',
-                          loc=10, borderpad=0,
-                          bbox_to_anchor=(0, 0, 0.67, 1),
-                          bbox_transform=clf_ax.transAxes)
-    vio_ax1 = inset_axes(clf_ax, width='100%', height='100%',
-                         loc=10, borderpad=0,
-                         bbox_to_anchor=(0.67, 0, 0.33, 1),
-                         bbox_transform=clf_ax.transAxes)
-
-    diag_ax2 = inset_axes(ovp_ax, width='100%', height='100%',
-                          loc=10, borderpad=0,
-                          bbox_to_anchor=(0, 0, 0.67, 1),
-                          bbox_transform=ovp_ax.transAxes)
-    vio_ax2 = inset_axes(ovp_ax, width='100%', height='100%',
-                         loc=10, borderpad=0,
-                         bbox_to_anchor=(0.67, -0.11, 0.33, 0.97),
-                         bbox_transform=ovp_ax.transAxes)
+    diag_ax1 = clf_ax.inset_axes(bounds=(0, 0, 0.67, 1))
+    vio_ax1 = clf_ax.inset_axes(bounds=(0.67, 0, 0.33, 1))
+    diag_ax2 = ovp_ax.inset_axes(bounds=(0, 0, 0.67, 1))
+    vio_ax2 = ovp_ax.inset_axes(bounds=(0.67, -0.11, 0.33, 0.97))
 
     for diag_ax in diag_ax1, diag_ax2:
         diag_ax.axis('off')
@@ -237,7 +224,8 @@ def plot_base_classification(plt_clf, plt_mtype, plt_mcomb,
 
     diag_ax2.text(0.5, -0.05,
                   "partition scored samples according to\noverlap with "
-                  "{} mutations\nthat are not {}".format(args.gene, mtype_lbl),
+                  "{} mutations\nthat are not {}".format(
+                      args.gene, mtype_lbl),
                   color=variant_clrs['Point'], size=10,
                   fontstyle='italic', ha='center', va='top')
 
@@ -299,8 +287,8 @@ def plot_base_classification(plt_clf, plt_mtype, plt_mcomb,
     plt.close()
 
 
-def plot_iso_classification(plt_clf, plt_mtype, plt_mcomb,
-                            pred_dfs, pheno_dict, cdata, args):
+def plot_iso_classification(plt_mtype, plt_mcomb, pred_dfs,
+                            pheno_dict, cdata, args):
     fig, axarr = plt.subplots(figsize=(10, 8), nrows=2, ncols=2)
 
     mtype_tbox = get_fancy_label(plt_mtype, phrase_link='\n')
@@ -320,15 +308,8 @@ def plot_iso_classification(plt_clf, plt_mtype, plt_mcomb,
                 'cStat': pheno_dict[mut], 'uStat': msk[mut_lbl]
                 })
 
-            diag_ax = inset_axes(axarr[i, j], width='100%', height='100%',
-                                 loc=10, borderpad=0,
-                                 bbox_to_anchor=(0, 0, 0.67, 1),
-                                 bbox_transform=axarr[i, j].transAxes)
-            vio_ax = inset_axes(axarr[i, j], width='100%', height='100%',
-                                loc=10, borderpad=0,
-                                bbox_to_anchor=(0.67, 0, 0.33, 0.93),
-                                bbox_transform=axarr[i, j].transAxes)
-
+            diag_ax = axarr[i, j].inset_axes(bounds=(0, 0, 0.67, 1))
+            vio_ax = axarr[i, j].inset_axes(bounds=(0.67, 0, 0.33, 0.93))
             axarr[i, j].axis('off')
             diag_ax.axis('off')
             diag_ax.set_aspect('equal')
@@ -430,8 +411,8 @@ def plot_iso_classification(plt_clf, plt_mtype, plt_mcomb,
     plt.close()
 
 
-def plot_iso_projection(plt_clf, plt_mtype, plt_mcomb,
-                        pred_df, pheno_dict, cdata, args):
+def plot_iso_projection(plt_mtype, plt_mcomb, pred_df,
+                        pheno_dict, cdata, args):
     fig, ((base_ax, pnt_ax), (loss_ax, gain_ax)) = plt.subplots(
         figsize=(11, 9), nrows=2, ncols=2)
 
@@ -444,16 +425,11 @@ def plot_iso_projection(plt_clf, plt_mtype, plt_mcomb,
         'mStat': pheno_dict[plt_mtype], 'eStat': rest_stat, 'dummy': 0
         })
 
-    base_diag_ax = inset_axes(base_ax, loc=10, width='100%', height='100%',
-                              borderpad=0, bbox_to_anchor=(0, 0, 0.63, 0.9),
-                              bbox_transform=base_ax.transAxes)
-    base_vio_ax = inset_axes(base_ax, width='100%', height='100%',
-                             loc=10, borderpad=0,
-                             bbox_to_anchor=(0.63, 0, 0.37, 0.8),
-                             bbox_transform=base_ax.transAxes)
-
+    base_diag_ax = base_ax.inset_axes(bounds=(0, 0, 0.63, 0.9))
+    base_vio_ax = base_ax.inset_axes(bounds=(0.63, 0, 0.37, 0.8))
     base_diag_ax.axis('off')
     base_diag_ax.set_aspect('equal')
+
     base_ax.text(0.1, 0.95, "1) train\nclassifier", color='red',
                  size=15, fontstyle='italic', ha='center', va='top')
 
@@ -558,19 +534,14 @@ def plot_iso_projection(plt_clf, plt_mtype, plt_mcomb,
                 'Loss': "loss CNAs", 'Gain': "gain CNAs"}
 
     for ax, lbl in zip([pnt_ax, loss_ax, gain_ax], ['Point', 'Loss', 'Gain']):
+        diag_ax = ax.inset_axes(bounds=(0, 0, 0.63, 0.9))
+        vio_ax = ax.inset_axes(bounds=(0.63, 0, 0.37, 0.8))
+        diag_ax.axis('off')
+        diag_ax.set_aspect('equal')
+
         cur_mcomb = ExMcomb(plt_mcomb.all_mtype, pnl_mtypes[lbl])
         vals_df['cStat'] = np.array(cdata.train_pheno(cur_mcomb))
         vals_df['rStat'] = np.array(cdata.train_pheno(cur_mcomb.not_mtype))
-
-        diag_ax = inset_axes(ax, width='100%', height='100%', loc=10,
-                             borderpad=0, bbox_to_anchor=(0, 0, 0.63, 0.9),
-                             bbox_transform=ax.transAxes)
-        vio_ax = inset_axes(ax, width='100%', height='100%', loc=10,
-                            borderpad=0, bbox_to_anchor=(0.63, 0, 0.37, 0.8),
-                            bbox_transform=ax.transAxes)
-
-        diag_ax.axis('off')
-        diag_ax.set_aspect('equal')
 
         diag_ax.axhline(y=0.61, xmin=0.07, xmax=0.38, color='red',
                         alpha=0.57, linestyle='--', linewidth=2.3)
@@ -590,7 +561,7 @@ def plot_iso_projection(plt_clf, plt_mtype, plt_mcomb,
                                       hatch='\\', alpha=0.41, linewidth=2.9))
 
         diag_ax.text(
-            0.55, 0.19,
+            0.51, 0.17,
             "mutant for:\n{}\nw/o overlap\n({} samps)".format(
                 pnl_lbls[lbl], np.sum(vals_df.cStat & ~vals_df.rStat)),
             size=12, ha='left', va='center'
@@ -649,101 +620,85 @@ def plot_iso_projection(plt_clf, plt_mtype, plt_mcomb,
     plt.close()
 
 
-def plot_iso_similarities(mut, use_vals, pheno_dict, cdata, args):
-    use_lvls, use_mtype = mut
-    mtype_lbl = " ".join([args.gene,
-                          get_fancy_label(use_mtype)]).replace('\n', ' ')
-
-    all_mtype = MuType({('Gene', args.gene): cdata.mtree[args.gene].allkey()})
-    use_mcomb = ExMcomb(all_mtype, use_mtype)
-    pnt_mtype = MuType({('Gene', args.gene): dict(variant_mtypes)['Point']})
+def plot_iso_similarities(plt_clf, plt_mtype, plt_mcomb,
+                          pred_df, pheno_dict, cdata, args):
+    mtype_lbl = get_fancy_label(plt_mtype)
 
     sim_mcombs = {
-        mcomb: ExMcomb(all_mtype, *[mtype & all_mtype - use_mtype
-                                    for mtype in mcomb.mtypes])
-        for lvls, mcomb in use_vals.index
-        if (isinstance(mcomb, ExMcomb) and mcomb.all_mtype == all_mtype
-            and ((lvls == use_lvls and mcomb != use_mcomb
-                  and not any(use_mtype.is_supertype(mtype)
-                              for mtype in mcomb.mtypes)
-                  and ((len(mcomb.mtypes) == 1
-                        and len(tuple(mcomb.mtypes)[0].subkeys()) == 1)
-                       or (all(((len(mtype.subkeys()) == 2
-                                 and (mtype & pnt_mtype).is_empty())
-                                or (len(mtype.subkeys()) == 1
-                                    and not (mtype & pnt_mtype).is_empty()
-                                    and (mtype.get_levels()
-                                         == use_mtype.get_levels())))
-                               for mtype in mcomb.mtypes)
-                           and any((mtype & pnt_mtype).is_empty()
-                                   for mtype in mcomb.mtypes))))
-                 or lvls == 'Copy'))
+        mcomb for mcomb in pred_df.index
+        if (isinstance(mcomb, ExMcomb) and mcomb != plt_mcomb
+            and len(mcomb.mtypes) == 1
+            and ((copy_mtype.is_supertype(tuple(mcomb.mtypes)[0])
+                  and mcomb.all_mtype == plt_mcomb.all_mtype)
+                 or (len(tuple(mcomb.mtypes)[0].subkeys()) == 1
+                     and not any('domain' in lvl for lvl
+                                 in tuple(mcomb.mtypes)[0].get_levels())))
+            and not (mcomb.all_mtype & dict(cna_mtypes)['Shal']).is_empty())
         }
 
-    fig, (vio_ax, sim_ax, clr_ax) = plt.subplots(
-        figsize=(3 + len(sim_mcombs), 6), nrows=1, ncols=3,
-        gridspec_kw=dict(width_ratios=[6, 5 * len(sim_mcombs), 1])
+    fig, (vio_ax, sim_ax, lgnd_ax) = plt.subplots(
+        figsize=(2 + len(sim_mcombs), 6), nrows=1, ncols=3,
+        gridspec_kw=dict(width_ratios=[1, len(sim_mcombs), 1])
         )
 
     vals_df = pd.DataFrame({
-        'Value': [np.mean(vals)
-                  for vals in use_vals.loc[[(use_lvls, use_mcomb)]].iloc[0]],
-        'cStat': pheno_dict[use_mcomb],
-        'rStat': np.array(cdata.train_pheno(all_mtype - use_mtype))
+        'Value': pred_df.loc[
+            plt_mcomb, cdata.get_train_samples()].apply(np.mean),
+        'mStat': pheno_dict[plt_mtype], 'dummy': 0,
+        'eStat': np.array(cdata.train_pheno(plt_mcomb.not_mtype))
         })
 
-    sns.violinplot(data=vals_df[~vals_df.cStat & ~vals_df.rStat], x='cStat',
-                   y='Value', hue='rStat', palette=[variant_clrs['WT']],
-                   hue_order=[False, True], split=True, linewidth=0, cut=0,
-                   ax=vio_ax)
-    sns.violinplot(data=vals_df[vals_df.cStat & ~vals_df.rStat], x='cStat',
-                   y='Value', hue='rStat', palette=[variant_clrs['Point']],
-                   hue_order=[False, True], split=True, linewidth=0, cut=0,
-                   ax=vio_ax)
+    sim_df = pd.concat([
+        pd.DataFrame({
+            'Mcomb': mcomb,
+            'Value': pred_df.loc[mcomb, cdata.get_train_samples()][
+                pheno_dict[mcomb]].apply(np.mean)
+            })
+        for mcomb in sim_mcombs
+        ])
 
-    vals_min, vals_max = vals_df.Value.quantile(q=[0, 1])
-    vals_rng = (vals_max - vals_min) / 101
+    sns.violinplot(data=vals_df[~vals_df.mStat & ~vals_df.eStat],
+                   x='dummy', y='Value', hue='eStat',
+                   palette=[variant_clrs['WT']], hue_order=[False, True],
+                   split=True, linewidth=0, cut=0, ax=vio_ax)
+    sns.violinplot(data=vals_df[vals_df.mStat & ~vals_df.eStat],
+                   x='dummy', y='Value', hue='eStat',
+                   palette=[variant_clrs['Point']], hue_order=[False, True],
+                   split=True, linewidth=0, cut=0, ax=vio_ax)
+
     vio_ax.set_xlim(-0.5, 0.01)
-
     for art in vio_ax.get_children()[:2]:
         art.set_alpha(0.41)
 
     vio_ax.set_yticks([])
     vio_ax.get_legend().remove()
     vio_ax.set_zorder(1)
-    clr_ax.set_zorder(2)
 
-    wt_mean = np.mean(vals_df.Value[~vals_df.cStat & ~vals_df.rStat])
-    vio_ax.axhline(y=wt_mean, xmin=0, xmax=1.91 + len(sim_mcombs) * 0.83,
-                   color=variant_clrs['WT'], clip_on=False, linestyle='--',
-                   linewidth=1.6, alpha=0.51)
+    wt_mean = np.mean(vals_df.Value[~vals_df.mStat & ~vals_df.eStat])
+    vio_ax.axhline(y=wt_mean, xmin=0, xmax=1.31 + len(sim_mcombs),
+                   color=variant_clrs['WT'], clip_on=False,
+                   linestyle='--', linewidth=1.7, alpha=0.47)
 
-    mut_mean = np.mean(vals_df.Value[vals_df.cStat & ~vals_df.rStat])
-    vio_ax.axhline(y=mut_mean, xmin=0, xmax=1.91 + len(sim_mcombs) * 0.83,
-                   color=variant_clrs['Point'], clip_on=False, linestyle='--',
-                   linewidth=1.6, alpha=0.51)
+    mut_mean = np.mean(vals_df.Value[vals_df.mStat & ~vals_df.eStat])
+    vio_ax.axhline(y=mut_mean, xmin=0, xmax=1.31 + len(sim_mcombs),
+                   color=variant_clrs['Point'], clip_on=False,
+                   linestyle='--', linewidth=1.7, alpha=0.47)
+
+    vals_min, vals_max = pd.concat([vals_df, sim_df]).Value.quantile(q=[0, 1])
+    vals_rng = (vals_max - vals_min) / 103
+    plt_min = min(vals_min - vals_rng * 13, 2 * wt_mean - mut_mean)
+    plt_max = max(vals_max + vals_rng, 2 * mut_mean - wt_mean)
 
     vio_ax.text(-0.52, wt_mean, "0",
-                size=12, fontstyle='italic', ha='right', va='center')
+                size=15, fontweight='bold', ha='right', va='center')
     vio_ax.text(-0.52, mut_mean, "1",
-                size=12, fontstyle='italic', ha='right', va='center')
+                size=15, fontweight='bold', ha='right', va='center')
 
-    vio_ax.text(0, vals_min - 7 * vals_rng,
-                "Isolated\nClassification\n of {}\n(M1)".format(
-                    mtype_lbl.replace(" with ", "\n")),
-                size=13, fontweight='semibold', ha='right', va='top')
-
-    sim_df = pd.concat([
-        pd.DataFrame({
-            'Mcomb': mcomb, 'Value': [
-                np.mean(vals) for vals in use_vals.loc[
-                    [(use_lvls, use_mcomb)],
-                    np.array(cdata.train_pheno(ex_mcomb))
-                    ].iloc[0]
-                ]
-            })
-        for mcomb, ex_mcomb in sim_mcombs.items()
-        ])
+    vio_ax.text(0.99, 0,
+                "Isolated\nClassification\n of "
+                "{}\nMutations (M1)".format(mtype_lbl),
+                size=13, fontstyle='italic', ha='right', va='top',
+                transform=vio_ax.transAxes)
 
     mcomb_grps = sim_df.groupby('Mcomb')['Value']
     mcomb_scores = mcomb_grps.mean().sort_values(ascending=False) - wt_mean
@@ -754,49 +709,49 @@ def plot_iso_similarities(mut, use_vals, pheno_dict, cdata, args):
     mcomb_sizes = mcomb_grps.count()
     clr_norm = colors.Normalize(vmin=-1, vmax=2)
 
-    sns.violinplot(data=sim_df, x='Mcomb', y='Value',
-                   order=mcomb_scores.index,
-                   palette=simil_cmap(clr_norm(mcomb_scores.values)),
-                   saturation=1, linewidth=10/7, cut=0, width=0.87, ax=sim_ax)
+    sns.violinplot(
+        data=sim_df, x='Mcomb', y='Value', order=mcomb_scores.index,
+        palette=simil_cmap(clr_norm(mcomb_scores.values)), saturation=1,
+        linewidth=10/7, cut=0, width=16 / 17, ax=sim_ax
+        )
 
     for i, (mcomb, scr) in enumerate(mcomb_scores.iteritems()):
         sim_ax.get_children()[i * 2].set_alpha(8/11)
+        mcomb_lbl = get_fancy_label(tuple(mcomb.mtypes)[0], phrase_link='\n')
 
-        mcomb_lbl = '\nAND '.join(
-            ['\n'.join(["any other", get_fancy_label(mtype), "mutation"])
-             if mtype.is_supertype(use_mtype) else get_fancy_label(mtype)
-             for mtype in mcomb.mtypes]
-            )
-
-        sim_ax.text(i, mcomb_mins[mcomb] - vals_rng / 2,
+        sim_ax.text(i, mcomb_mins[mcomb] - vals_rng,
                     "{}\n({} samples)".format(mcomb_lbl, mcomb_sizes[mcomb]),
-                    size=9, ha='center', va='top')
+                    size=7, ha='center', va='top')
         sim_ax.text(i, mcomb_maxs[mcomb] + vals_rng / 2, format(scr, '.2f'),
-                    size=11, fontstyle='italic', ha='center', va='bottom')
+                    size=12, fontweight='bold', ha='center', va='bottom')
 
-    sim_ax.text(len(mcomb_scores) / 2, vals_min - 7 * vals_rng,
-                "{} Classifier Scoring\nof Other "
-                "Isolated {} Mutations\n(M2)".format(mtype_lbl, args.gene),
-                size=13, fontweight='semibold', ha='center', va='top')
+    sim_ax.text(0.5, 0,
+                "<{}> Classifier\nScoring of Other "
+                "Isolated\n{} Mutations (M2)".format(mtype_lbl, args.gene),
+                size=13, fontstyle='italic', ha='center', va='top',
+                transform=sim_ax.transAxes)
 
-    for ax in vio_ax, sim_ax:
-        ax.axis('off')
-        ax.set_ylim(vals_min - 0.5 * vals_rng, vals_max + vals_rng)
+    clr_min = 2 * wt_mean - mut_mean
+    clr_max = 2 * mut_mean - wt_mean
+    clr_btm = (clr_min - plt_min) / (plt_max - plt_min)
+    clr_top = (clr_max - plt_min) / (plt_max - plt_min)
+    clr_rng = (clr_max - clr_min) * 1.38 / (plt_max - plt_min)
+    clr_btm = clr_btm - (clr_top - clr_btm) * 0.19
 
-    clr_min = clr_norm((vals_min - vals_rng - wt_mean) / (mut_mean - wt_mean))
-    clr_max = clr_norm((vals_max + vals_rng - wt_mean) / (mut_mean - wt_mean))
-    clr_ext = min(0.2, -clr_min, clr_max - 1)
-
+    clr_ax = lgnd_ax.inset_axes(bounds=(0, clr_btm, 0.53, clr_rng))
     clr_bar = ColorbarBase(ax=clr_ax, cmap=simil_cmap, norm=clr_norm,
-                           extend='both', extendfrac=clr_ext,
+                           extend='both', extendfrac=0.19,
                            ticks=[-0.5, 0, 0.5, 1.0, 1.5])
 
     clr_bar.set_ticklabels(
         ['M2 < WT', 'M2 = WT', 'WT < M2 < M1', 'M2 = M1', 'M2 > M1'])
-    clr_ax.set_ylim(clr_min, clr_max)
-    clr_ax.tick_params(labelsize=11)
+    clr_ax.tick_params(labelsize=12)
 
-    plt.tight_layout(pad=0, h_pad=0, w_pad=-4.1)
+    for ax in vio_ax, sim_ax, lgnd_ax:
+        ax.set_ylim(plt_min, plt_max)
+        ax.axis('off')
+
+    plt.tight_layout(pad=0, w_pad=1.1)
     plt.savefig(os.path.join(plot_dir, args.gene,
                              "{}__iso-similarities.svg".format(args.cohort)),
                 bbox_inches='tight', format='svg')
@@ -919,7 +874,7 @@ def main():
             mcomb for oth_clf, mcomb in auc_df.index
             if (oth_clf == clf and isinstance(mcomb, ExMcomb)
                 and len(mcomb.mtypes) == 1 and tuple(mcomb.mtypes)[0] == mtype
-                and mcomb.not_mtype | mtype in all_mtypes.values())
+                and mcomb.all_mtype in all_mtypes.values())
             }
         for clf, mtype in base_muts
         }
@@ -958,20 +913,17 @@ def main():
     pred_dfs = {ex_lbl: pred_df.loc[~pred_df.index.duplicated()]
                 for ex_lbl, pred_df in pred_dfs.items()}
 
-    plot_base_classification(use_clf, use_mtype, use_mcomb,
+    # create the plots
+    plot_base_classification(use_mtype, use_mcomb,
                              pred_dfs['All'], phn_dict, cdata, args)
-    plot_iso_classification(use_clf, use_mtype, use_mcomb,
+    plot_iso_classification(use_mtype, use_mcomb,
                             pred_dfs, phn_dict, cdata, args)
 
-    plot_iso_projection(use_clf, use_mtype, use_mcomb,
+    plot_iso_projection(use_mtype, use_mcomb,
                         pred_dfs['Iso'], phn_dict, cdata, args)
+    plot_iso_similarities(use_clf, use_mtype, use_mcomb,
+                          pred_dfs['Iso'], phn_dict, cdata, args)
 
-    """
-    plot_iso_similarities((use_clf, use_mtype),
-                          out_infers.copy()[use_clf]['Iso'],
-                          out_datas.copy()[use_clf][0],
-                          cdict[use_lvls], args)
-    """
 
 if __name__ == '__main__':
     main()
