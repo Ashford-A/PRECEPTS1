@@ -88,8 +88,7 @@ def main():
             cur_mtree = use_mtree[cur_gene]
             mut_samps = cur_mtree.get_samples()
             shal_samps = dict(cna_mtypes)['Shal'].get_samples(cur_mtree)
-            ex_genes = {gene for gene, annot in cdata.gene_annot.items()
-                        if annot['Chr'] == cdata.gene_annot[cur_gene]['Chr']}
+            ex_genes = cdata.get_cis_genes('Chrm', cur_genes=[cur_gene])
 
             mtype_samps = mtype.get_samples(use_mtree)
             ex_dict = {'All': set(), 'Iso': mut_samps - mtype_samps,
