@@ -9,13 +9,14 @@ plot_dir = os.path.join(base_dir, 'plots', 'classif')
 from HetMan.experiments.subvariant_test import (
     pnt_mtype, copy_mtype, train_cohorts)
 from HetMan.experiments.subvariant_tour.utils import RandomType
-from HetMan.experiments.subvariant_test.plot_aucs import place_labels
+from HetMan.experiments.utilities.label_placement import (
+    place_scatterpie_labels)
 from dryadic.features.mutations import MuType
 
 from HetMan.experiments.subvariant_test.utils import choose_label_colour
 from HetMan.experiments.subvariant_test.plot_gene import (
     get_cohort_label, choose_cohort_colour)
-from HetMan.experiments.variant_baseline.plot_tuning import detect_log_distr
+from HetMan.experiments.utilities.misc import detect_log_distr
 
 import argparse
 from pathlib import Path
@@ -46,14 +47,14 @@ def plot_gene_accuracy(auc_vals, pheno_dict, args):
     # a suitably sized figure with a panel for each cohort
     plt_cohs = sorted(set(use_aucs.index.get_level_values('Cohort')))
     fig, axarr = plt.subplots(figsize=(1 + 1.5 * len(plt_cohs), 6),
-                              nrows=1, ncols=len(plt_cohs))
+                              nrows=1, ncols=len(plt_cohs), squeeze=False)
 
     pnt_dict = {coh: dict() for coh in plt_cohs}
     clr_dict = dict()
     plt_ylims = use_aucs.min() - 0.01, 1.003
 
     for (coh, mtype), auc_val in use_aucs.iteritems():
-        cur_ax = axarr[plt_cohs.index(coh)]
+        cur_ax = axarr[0, plt_cohs.index(coh)]
         cur_gene = mtype.get_labels()[0]
         clr_dict[cur_gene] = choose_label_colour(cur_gene)
 
@@ -71,32 +72,7 @@ def plot_gene_accuracy(auc_vals, pheno_dict, args):
         cur_ax.scatter(plt_x, auc_val, s=311 * plt_size,
                        c=[clr_dict[cur_gene]], alpha=0.37, edgecolors='none')
 
-    for i, (ax, coh) in enumerate(zip(axarr, plt_cohs)):
-        lbl_pos = place_labels(pnt_dict[coh],
-                               lims=(0.83, 0.98), lbl_dens=0.19)
-
-        for (pnt_x, pnt_y), pos in lbl_pos.items():
-            ax.text(pos[0][0], pos[0][1] + 700 ** -1,
-                    pnt_dict[coh][pnt_x, pnt_y][1][0],
-                    size=10, ha=pos[1], va='bottom')
-
-            x_delta = pnt_x - pos[0][0]
-            y_delta = pnt_y - pos[0][1]
-            ln_lngth = np.sqrt((x_delta ** 2) + (y_delta ** 2))
-
-            # if the label is sufficiently far away from its point...
-            if ln_lngth > (0.021 + pnt_dict[coh][pnt_x, pnt_y][0] / 31):
-                use_clr = clr_dict[pnt_dict[coh][pnt_x, pnt_y][1][0]]
-                pnt_gap = pnt_dict[coh][pnt_x, pnt_y][0] / (29 * ln_lngth)
-                lbl_gap = 0.006 / ln_lngth
-
-                ax.plot([pnt_x - pnt_gap * x_delta,
-                         pos[0][0] + lbl_gap * x_delta],
-                        [pnt_y - pnt_gap * y_delta,
-                         pos[0][1] + lbl_gap * y_delta
-                         + 0.008 + 0.004 * np.sign(y_delta)],
-                        c=use_clr, linewidth=2.3, alpha=0.27)
-
+    for i, (ax, coh) in enumerate(zip(axarr.flatten(), plt_cohs)):
         if i == 0:
             ax.set_ylabel('Gene-Wide Classifier AUC',
                           size=25, weight='semibold')
@@ -111,10 +87,36 @@ def plot_gene_accuracy(auc_vals, pheno_dict, args):
         ax.plot([0, 1], [0.5, 0.5],
                 color='black', linewidth=1.7, linestyle=':', alpha=0.71)
 
-        ax.set_xlim([0, 1])
-        ax.set_ylim(plt_ylims)
         ax.set_xticklabels([])
         ax.grid(axis='x', linewidth=0)
+
+    for ax, coh in zip(axarr.flatten(), plt_cohs):
+        ax.set_xlim([0, 1])
+        ax.set_ylim(plt_ylims)
+
+        lbl_pos = place_scatterpie_labels(pnt_dict[coh], fig, ax,
+                                          lbl_dens=4.1, seed=args.seed)
+
+        for (pnt_x, pnt_y), pos in lbl_pos.items():
+            ax.text(pos[0][0], pos[0][1], pnt_dict[coh][pnt_x, pnt_y][1][0],
+                    size=10, ha=pos[1], va='bottom')
+
+            x_delta = pnt_x - pos[0][0]
+            y_delta = pnt_y - pos[0][1]
+            ln_lngth = np.sqrt((x_delta ** 2) + (y_delta ** 2))
+
+            # if the label is sufficiently far away from its point...
+            if ln_lngth > (0.021 + pnt_dict[coh][pnt_x, pnt_y][0] / 31):
+                use_clr = clr_dict[pnt_dict[coh][pnt_x, pnt_y][1][0]]
+                pnt_gap = pnt_dict[coh][pnt_x, pnt_y][0] / (19 * ln_lngth)
+                lbl_gap = 0.006 / ln_lngth
+
+                ax.plot([pnt_x - pnt_gap * x_delta,
+                         pos[0][0] + lbl_gap * x_delta],
+                        [pnt_y - pnt_gap * y_delta,
+                         pos[0][1] + lbl_gap * y_delta
+                         + 0.008 + 0.004 * np.sign(y_delta)],
+                        c=use_clr, linewidth=1.3, alpha=0.27)
 
     fig.tight_layout(w_pad=0)
     fig.savefig(os.path.join(plot_dir, args.expr_source,
@@ -175,7 +177,21 @@ def plot_gene_results(auc_vals, conf_vals, pheno_dict, args):
                                wedgeprops=dict(edgecolor='black',
                                                linewidth=4 / 13))
 
-    lbl_pos = place_labels(pnt_dict, lims=(0.76, 1), lbl_dens=0.89)
+    ax.plot([0.65, 1.0005], [1, 1], color='black', linewidth=1.7, alpha=0.89)
+    ax.plot([1, 1], [0.59, 1.0005], color='black', linewidth=1.7, alpha=0.89)
+
+    ax.set_xlabel('AUC of Best Found Subgrouping',
+                  size=23, weight='semibold')
+    ax.set_ylabel('Down-Sampled AUC\nSuperiority Confidence',
+                  size=23, weight='semibold')
+
+    ax.tick_params(pad=5.3)
+    ax.set_xlim([0.68, 1.002])
+    ax.set_ylim([0.77, 1.005])
+
+    lbl_pos = place_scatterpie_labels(pnt_dict, fig, ax,
+                                      lbl_dens=0.17, seed=args.seed)
+
     for (pnt_x, pnt_y), pos in lbl_pos.items():
         ax.text(pos[0][0], pos[0][1] + 700 ** -1,
                 pnt_dict[pnt_x, pnt_y][1][0],
@@ -189,7 +205,7 @@ def plot_gene_results(auc_vals, conf_vals, pheno_dict, args):
         ln_lngth = np.sqrt((x_delta ** 2) + (y_delta ** 2))
 
         # if the label is sufficiently far away from its point...
-        if ln_lngth > (0.021 + pnt_dict[pnt_x, pnt_y][0] / 31):
+        if ln_lngth > (0.017 + pnt_dict[pnt_x, pnt_y][0] / 31):
             use_clr = clr_dict[pnt_dict[pnt_x, pnt_y][1]]
             pnt_gap = pnt_dict[pnt_x, pnt_y][0] / (29 * ln_lngth)
             lbl_gap = 0.006 / ln_lngth
@@ -200,18 +216,6 @@ def plot_gene_results(auc_vals, conf_vals, pheno_dict, args):
                      pos[0][1] + lbl_gap * y_delta
                      + 0.008 + 0.004 * np.sign(y_delta)],
                     c=use_clr, linewidth=2.3, alpha=0.27)
-
-    ax.plot([0.65, 1.0005], [1, 1], color='black', linewidth=1.7, alpha=0.89)
-    ax.plot([1, 1], [0.59, 1.0005], color='black', linewidth=1.7, alpha=0.89)
-
-    ax.set_xlabel('AUC of Best Found Subgrouping',
-                  size=23, weight='semibold')
-    ax.set_ylabel('Down-Sampled AUC\nSuperiority Confidence',
-                  size=23, weight='semibold')
-
-    ax.tick_params(pad=5.3)
-    ax.set_xlim([0.68, 1.002])
-    ax.set_ylim([0.77, 1.005])
 
     fig.savefig(os.path.join(plot_dir, args.expr_source,
                              "{}__gene-results.svg".format(args.classif)),
@@ -235,6 +239,7 @@ def plot_tuning_profile(acc_df, out_clf, auc_vals, args):
     use_cohs = sorted(set(acc_df.index.get_level_values('Cohort')))
     coh_clrs = dict(zip(use_cohs,
                         sns.color_palette("muted", n_colors=len(use_cohs))))
+    plt_min = 0.47
 
     for ax, (par_name, tune_distr) in zip(axarr.flatten(),
                                           out_clf.tune_priors):
@@ -265,10 +270,11 @@ def plot_tuning_profile(acc_df, out_clf, auc_vals, args):
 
         for auc_bin, bin_vals in plot_df.groupby('auc_bin'):
             plot_vals = bin_vals.groupby('par').mean()
+            plt_min = min(plt_min, plot_vals.auc.min() - 0.03)
             ax.plot(plot_vals.index, plot_vals.auc)
 
         ax.set_xlim(plt_xmin, plt_xmax)
-        ax.set_ylim(0.45, 1.01)
+        ax.set_ylim(plt_min, 1 + (1 - plt_min) / 91)
         ax.tick_params(labelsize=19)
         ax.set_xlabel("Tested {} Value".format(par_name),
                       fontsize=27, weight='semibold')
@@ -294,13 +300,18 @@ def main():
         "classifier over a particular source of expression data."
         )
 
-    # create and collect positional command line arguments
     parser.add_argument('expr_source',
                         help="a source of expression data", type=str)
     parser.add_argument('classif', help='a mutation classifier')
-    args = parser.parse_args()
 
-    # find experiments matching the given criteria that have run to completion
+    parser.add_argument(
+        '--seed', type=int,
+        help="random seed for fixing plot elements like label placement"
+        )
+
+    # parse command line arguments, find experiments matching the given
+    # criteria that have run to completion
+    args = parser.parse_args()
     out_datas = [
         out_file.parts[-2:] for out_file in Path(base_dir).glob(os.path.join(
             "{}__*__samps-*".format(args.expr_source),
@@ -336,10 +347,11 @@ def main():
 
     phn_dict = {coh: dict()
                 for coh in set(out_use.index.get_level_values('Cohort'))}
+
     auc_dict = dict()
     conf_dict = dict()
     acc_dict = dict()
-    out_clf = dict()
+    out_clf = None
 
     for (coh, lvls), ctf in out_use.iteritems():
         if coh == 'beatAML':
@@ -351,15 +363,15 @@ def main():
                 os.path.join(base_dir, out_tag,
                              "out-pheno__{}__{}.p.gz".format(
                                  lvls, args.classif)),
-                'r') as fl:
-            phn_dict[coh].update(pickle.load(fl))
+                'r') as f:
+            phn_dict[coh].update(pickle.load(f))
 
         with bz2.BZ2File(
                 os.path.join(base_dir, out_tag,
                              "out-aucs__{}__{}.p.gz".format(
                                  lvls, args.classif)),
-                'r') as fl:
-            auc_vals = pickle.load(fl)['mean']
+                'r') as f:
+            auc_vals = pickle.load(f)['mean']
 
         auc_vals.index = pd.MultiIndex.from_product([[coh], auc_vals.index],
                                                     names=('Cohort', 'Mtype'))
@@ -369,8 +381,8 @@ def main():
                 os.path.join(base_dir, out_tag,
                              "out-conf__{}__{}.p.gz".format(
                                  lvls, args.classif)),
-                'r') as fl:
-            conf_vals = pickle.load(fl)['mean']
+                'r') as f:
+            conf_vals = pickle.load(f)['mean']
 
         conf_vals = conf_vals[[not isinstance(mtype, RandomType)
                                for mtype in conf_vals.index]]
@@ -382,8 +394,16 @@ def main():
                 os.path.join(base_dir, out_tag,
                              "out-tune__{}__{}.p.gz".format(
                                  lvls, args.classif)),
-                'r') as fl:
-            (_, _, acc_vals, out_clf[coh, lvls]) = pickle.load(fl)
+                'r') as f:
+            (_, _, acc_vals, cur_clf) = pickle.load(f)
+
+        if out_clf is not None:
+            if cur_clf != out_clf:
+                raise ValueError("Mismatching classifiers in subvariant "
+                                 "testing experment output!")
+
+        else:
+            out_clf = cur_clf
 
         acc_vals.index = pd.MultiIndex.from_product([[coh], acc_vals.index],
                                                     names=('Cohort', 'Mtype'))
@@ -393,10 +413,6 @@ def main():
     auc_vals = pd.concat(auc_dict.values()).sort_index()
     conf_vals = pd.concat(conf_dict.values()).sort_index()
     acc_df = pd.concat(acc_dict.values()).sort_index()
-
-    out_clf = set(out_clf.values())
-    assert len(out_clf) == 1
-    out_clf = tuple(out_clf)[0]
 
     # create the plots
     plot_gene_accuracy(auc_vals, phn_dict, args)
