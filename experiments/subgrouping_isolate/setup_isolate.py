@@ -37,14 +37,15 @@ from itertools import combinations as combn
 from itertools import product
 
 
-def get_input_datasets(cohort, expr_source, use_genes=None, mut_fields=None):
+def get_input_datasets(cohort, expr_source,
+                       use_genes=None, min_sources=2, mut_fields=None):
     if use_genes is None:
         gene_df = pd.read_csv(gene_list, sep='\t', skiprows=1, index_col=0)
         use_genes = gene_df.index[
             (gene_df.loc[
                 :, ['Vogelstein', 'SANGER CGC(05/30/2017)',
                     'FOUNDATION ONE', 'MSK-IMPACT']]
-                == 'Yes').sum(axis=1) > 1
+                == 'Yes').sum(axis=1) >= min_sources
             ].tolist()
 
     else:
@@ -116,10 +117,6 @@ def main():
     args = parser.parse_args()
     out_path = os.path.join(args.out_dir, 'setup')
 
-    lvls_list = args.mut_levels.split('__')
-    use_lvls = ['Gene', 'Scale', 'Copy'] + lvls_list
-    use_params = params[args.search_params]
-
     expr_data, mut_data, annot_dict, use_genes, use_asmb = get_input_datasets(
         args.cohort, args.expr_source,
         mut_fields=['Sample', 'Gene', 'Chr', 'Start', 'End',
@@ -138,8 +135,11 @@ def main():
                            'Strand': var_data.Strand,
                            'Sample': var_data.Sample})
 
+    lvl_list = ('Gene', 'Scale', 'Copy') + tuple(args.mut_levels.split('__'))
+    search_dict = params[args.search_params]
     var_fields = ['Gene', 'Canonical', 'Location', 'VarAllele']
-    for lvl in lvls_list:
+
+    for lvl in lvl_list[3:]:
         if '-domain' in lvl and 'Domains' not in var_fields:
             var_fields += ['Domains']
         else:
@@ -149,30 +149,29 @@ def main():
                                 cache_dir=vep_cache_dir,
                                 temp_dir=out_path, assembly=use_asmb,
                                 distance=0, consequence_choose='pick',
-                                forks=1, update_cache=False)
+                                forks=4, update_cache=False)
 
     variants = variants.loc[variants.CANONICAL == 'YES']
     variants['Scale'] = 'Point'
     variants['Copy'] = np.nan
+    use_muts = pd.concat([variants, copy_data], sort=True)
+    use_muts = use_muts.loc[use_muts.Gene.isin(use_genes)]
 
-    cdata = IsoMutationCohort(expr_data,
-                              pd.concat([variants, copy_data], sort=True),
-                              [use_lvls], use_genes,
+    cdata = IsoMutationCohort(expr_data, use_muts, [lvl_list],
                               annot_dict, leaf_annot=None)
-
     with bz2.BZ2File(os.path.join(out_path, "cohort-data.p.gz"), 'w') as f:
         pickle.dump(cdata, f, protocol=-1)
 
-    max_samps = len(cdata.get_samples()) - use_params['samp_cutoff']
+    max_samps = len(cdata.get_samples()) - search_dict['samp_cutoff']
     test_muts = set()
 
-    for gene, mtree in cdata.mtrees[tuple(use_lvls)]:
-        if len(pnt_mtype.get_samples(mtree)) >= use_params['samp_cutoff']:
+    for gene, mtree in cdata.mtrees[lvl_list]:
+        if len(pnt_mtype.get_samples(mtree)) >= search_dict['samp_cutoff']:
             comb_types = mtree.combtypes(
                 mtype=pnt_mtype,
-                comb_sizes=tuple(range(1, use_params['branch_combs'] + 1)),
-                min_type_size=use_params['samp_cutoff'],
-                min_branch_size=use_params['min_branch']
+                comb_sizes=tuple(range(1, search_dict['branch_combs'] + 1)),
+                min_type_size=search_dict['samp_cutoff'],
+                min_branch_size=search_dict['min_branch']
                 )
 
             samp_dict = {mtype: mtype.get_samples(mtree)
@@ -228,7 +227,7 @@ def main():
 
             test_muts |= {MuType({('Gene', gene): mtype})
                           for mtype in test_types
-                          if (use_params['samp_cutoff']
+                          if (search_dict['samp_cutoff']
                               <= len(samp_dict[mtype]) <= max_samps)}
 
             all_mtype = MuType(mtree.allkey())
@@ -265,7 +264,7 @@ def main():
 
                 for mcomb in use_mcombs
                 if (isinstance(mcomb, (Mcomb, ExMcomb))
-                    and (use_params['samp_cutoff']
+                    and (search_dict['samp_cutoff']
                          <= len(mcomb.get_samples(mtree)) <= max_samps))
                 }
 

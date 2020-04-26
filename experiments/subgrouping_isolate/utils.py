@@ -1,11 +1,11 @@
 
 from HetMan.experiments.subvariant_tour.utils import RandomType
-from HetMan.experiments.subvariant_isolate.utils import ExMcomb
+from HetMan.experiments.subvariant_isolate.utils import Mcomb, ExMcomb
 from dryadic.features.mutations import *
 from dryadic.features.cohorts.mut import BaseMutationCohort
 
 from functools import reduce
-from operator import or_
+from operator import or_, and_
 
 
 def get_mtype_gene(mtype):
@@ -14,12 +14,16 @@ def get_mtype_gene(mtype):
             mtype_genes = mtype.base_mtype.get_labels()
 
         else:
-            mtype_genes = [None]
+            raise ValueError("Cannot retrieve gene for a random mutation "
+                             "associated with no genes!")
 
     elif isinstance(mtype, ExMcomb):
-        mtype_genes = mtype.all_mtype.get_labels()
+        mtype_genes = set(mtype.all_mtype.get_labels())
+        mtype_genes = list(mtype_genes
+                           | reduce(or_, [set(mtp.get_labels())
+                                          for mtp in mtype.mtypes]))
 
-    elif isinstance(mtype, MutComb):
+    elif isinstance(mtype, Mcomb):
         mtype_genes = list(reduce(or_, [set(mtp.get_labels())
                                         for mtp in mtype.mtypes]))
 
@@ -31,16 +35,7 @@ def get_mtype_gene(mtype):
                          "not a mutation!")
 
     assert isinstance(mtype_genes, list)
-
-    if len(mtype_genes) > 1:
-        raise ValueError("Cannot retrieve gene for a mutation associated "
-                         "with multiple genes!")
-
-    if len(mtype_genes) == 0:
-        raise ValueError("Cannot retrieve gene for a mutation associated "
-                         "with no genes!")
-
-    return mtype_genes[0]
+    return mtype_genes
 
 
 class IsoMutationCohort(BaseMutationCohort):
@@ -99,7 +94,4 @@ class IsoMutationCohort(BaseMutationCohort):
                     raise ValueError("Cohorts have internally inconsistent "
                                      "mutation datasets for gene {} at "
                                      "levels `{}`!".format(gene, mut_lvls))
-
-        #TODO: should this return `None`?
-        return self
 

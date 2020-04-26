@@ -58,7 +58,7 @@ def main():
     random.shuffle(cdata_samps)
     cdata.update_split(use_seed, test_samps=cdata_samps[(args.cv_id % 4)::4])
 
-    mtype_genes = {mtype: get_mtype_gene(mtype) for mtype in mtype_list
+    mtype_genes = {mtype: get_mtype_gene(mtype)[0] for mtype in mtype_list
                    if not isinstance(mtype, RandomType)}
 
     out_pars = {mtype: {smps: {par: None for par, _ in mut_clf.tune_priors}
