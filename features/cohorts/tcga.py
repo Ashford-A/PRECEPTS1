@@ -2,7 +2,7 @@
 from ..data.expression import get_expr_firehose, get_expr_bmeg, get_expr_toil
 from ..data.copies import get_copies_firehose
 from .mut_freq import BaseMutFreqCohort
-from ...experiments.utilities.load_input import parse_subtypes
+from .utils import parse_subtypes
 
 from dryadic.features.cohorts.mut import (
     BaseMutationCohort, BaseCopyCohort, BaseTransferMutationCohort)
@@ -72,6 +72,7 @@ def get_variant_data(cohort, var_source, **var_args):
         # and PolyPhen scores
         i = 0
         while i < 10:
+            #TODO: handle I/O errors on the cohort/experiment level?
             try:
                 var_data = pd.read_csv(mc3.path, engine='c', dtype='object',
                                        sep='\t', header=None,

@@ -4,11 +4,10 @@ import sys
 base_dir = os.path.dirname(__file__)
 sys.path.extend([os.path.join(base_dir, '..', '..', '..')])
 
+from HetMan.experiments.utilities.handle_input import safe_load
 from HetMan.experiments.subvariant_isolate import cna_mtypes
-from HetMan.experiments.subvariant_test.utils import safe_load
 from HetMan.experiments.subvariant_tour.utils import RandomType
 from HetMan.experiments.subvariant_isolate.classifiers import *
-from HetMan.experiments.subgrouping_isolate.utils import get_mtype_genes
 
 import argparse
 import dill as pickle
@@ -58,7 +57,7 @@ def main():
     random.shuffle(cdata_samps)
     cdata.update_split(use_seed, test_samps=cdata_samps[(args.cv_id % 4)::4])
 
-    mtype_genes = {mtype: get_mtype_genes(mtype)[0] for mtype in mtype_list
+    mtype_genes = {mtype: mtype.get_labels()[0] for mtype in mtype_list
                    if not isinstance(mtype, RandomType)}
 
     out_pars = {mtype: {smps: {par: None for par, _ in mut_clf.tune_priors}

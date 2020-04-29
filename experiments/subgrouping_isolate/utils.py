@@ -1,44 +1,33 @@
 
-from HetMan.experiments.subvariant_tour.utils import RandomType
-from HetMan.experiments.subvariant_isolate.utils import Mcomb, ExMcomb
-from dryadic.features.mutations import *
+from dryadic.features.mutations import MuTree
 from dryadic.features.cohorts.mut import BaseMutationCohort
-
-from functools import reduce
-from operator import or_, and_
-
-
-def get_mtype_gene(mtype):
-    if isinstance(mtype, RandomType):
-        if mtype.base_mtype is not None:
-            mtype_genes = mtype.base_mtype.get_labels()
-
-        else:
-            raise ValueError("Cannot retrieve gene for a random mutation "
-                             "associated with no genes!")
-
-    elif isinstance(mtype, ExMcomb):
-        mtype_genes = set(mtype.all_mtype.get_labels())
-        mtype_genes = list(mtype_genes
-                           | reduce(or_, [set(mtp.get_labels())
-                                          for mtp in mtype.mtypes]))
-
-    elif isinstance(mtype, Mcomb):
-        mtype_genes = list(reduce(or_, [set(mtp.get_labels())
-                                        for mtp in mtype.mtypes]))
-
-    elif isinstance(mtype, MuType):
-        mtype_genes = mtype.get_labels()
-
-    else:
-        raise ValueError("Cannot retrieve gene for something that is "
-                         "not a mutation!")
-
-    assert isinstance(mtype_genes, list)
-    return mtype_genes
 
 
 class IsoMutationCohort(BaseMutationCohort):
+
+    def mtrees_status(self, mtype, samps=None):
+        for lvls, mtree in self.mtrees.items():
+            if mtree.match_levels(mtype):
+                phn = mtree.status(samps, mtype)
+                break
+
+        else:
+            if mtype.cur_level == 'Gene':
+                phns = []
+
+                for lbls, subtype in mtype.child_iter():
+                    for lvls, mtree in self.mtrees.items():
+                        if mtree.match_levels(subtype):
+                            phns += [mtree.status(samps, subtype)]
+                            break
+
+                phn = [any(phn_vals) for phn_vals in zip(*phns)]
+
+            else:
+                raise ValueError("Unable to retrieve phenotype data "
+                                 "for `{}`!".format(mtype))
+
+        return phn
 
     def data_hash(self):
         return ({gene: round(expr_val, 2)

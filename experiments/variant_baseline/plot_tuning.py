@@ -30,14 +30,6 @@ plt.rcParams['savefig.facecolor']='white'
 plt.rcParams['axes.edgecolor']='white'
 
 
-def detect_log_distr(tune_distr):
-    distr_diff = np.array(tune_distr[1:]) - np.array(tune_distr[:-1])
-    diff_min = np.log10(np.min(distr_diff))
-    diff_max = np.log10(np.max(distr_diff))
-
-    return (diff_max - diff_min) > 4./3
-
-
 def plot_generalization_error(train_aucs, test_aucs, args):
     plot_min = min(train_aucs.min().min(), test_aucs.min().min()) - 0.01
 

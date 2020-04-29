@@ -1,13 +1,6 @@
 
 import re
-import numpy as np
 from dryadic.features.mutations import MuType
-from colorsys import hls_to_rgb
-
-
-def ordinal_label(n):
-    return "%d%s" % (n, {1: "st", 2: "nd", 3: "rd"}.get(n if n < 20
-                                                        else n % 10, "th"))
 
 
 def label_subtype(sub_type):
@@ -90,11 +83,4 @@ def get_cohort_label(coh):
         coh_lbl = str(coh)
 
     return coh_lbl
-
-
-def choose_label_colour(gene, clr_seed=15707, clr_lum=0.5, clr_sat=0.8):
-    np.random.seed(int((clr_seed + np.prod([ord(char) for char in gene]))
-                       % (2 ** 14)))
-
-    return hls_to_rgb(h=np.random.uniform(size=1)[0], l=clr_lum, s=clr_sat)
 
