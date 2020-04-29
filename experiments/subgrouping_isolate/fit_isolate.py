@@ -8,7 +8,7 @@ from HetMan.experiments.subvariant_isolate import cna_mtypes
 from HetMan.experiments.subvariant_test.utils import safe_load
 from HetMan.experiments.subvariant_tour.utils import RandomType
 from HetMan.experiments.subvariant_isolate.classifiers import *
-from HetMan.experiments.subgrouping_isolate.utils import get_mtype_gene
+from HetMan.experiments.subgrouping_isolate.utils import get_mtype_genes
 
 import argparse
 import dill as pickle
@@ -24,8 +24,6 @@ def main():
         "TCGA cohort."
         )
 
-    # positional arguments for which cohort of samples and which mutation
-    # classifier to use for testing
     parser.add_argument('classif', type=str,
                         help="a classifier in HetMan.predict.classifiers")
     parser.add_argument('use_dir', type=str)
@@ -40,9 +38,11 @@ def main():
     parser.add_argument('--cv_id', type=int, default=0,
                         help='the subset of subtypes to assign to this task')
 
+    # collect command line arguments, get directory where input has been saved
     args = parser.parse_args()
     setup_dir = os.path.join(args.use_dir, 'setup')
 
+    # load the list of mutation types to test and the cohort -omic data
     with open(os.path.join(setup_dir, "muts-list.p"), 'rb') as muts_f:
         mtype_list = pickle.load(muts_f)
     cdata = safe_load(os.path.join(setup_dir, "cohort-data.p.gz"),
@@ -58,7 +58,7 @@ def main():
     random.shuffle(cdata_samps)
     cdata.update_split(use_seed, test_samps=cdata_samps[(args.cv_id % 4)::4])
 
-    mtype_genes = {mtype: get_mtype_gene(mtype)[0] for mtype in mtype_list
+    mtype_genes = {mtype: get_mtype_genes(mtype)[0] for mtype in mtype_list
                    if not isinstance(mtype, RandomType)}
 
     out_pars = {mtype: {smps: {par: None for par, _ in mut_clf.tune_priors}

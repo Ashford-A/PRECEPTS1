@@ -123,10 +123,12 @@ def main():
                     'Strand', 'RefAllele', 'TumorAllele']
         )
 
+    # segregate mutations into point mutations and CNAs
     var_data = mut_data.loc[mut_data.Scale == 'Point']
     copy_data = mut_data.loc[mut_data.Scale == 'Copy',
                              ['Sample', 'Gene', 'Scale', 'Copy']]
 
+    # create the table used as input for the VEP command line tool
     var_df = pd.DataFrame({'Chr': var_data.Chr.astype('int'),
                            'Start': var_data.Start.astype('int'),
                            'End': var_data.End.astype('int'),
@@ -135,27 +137,39 @@ def main():
                            'Strand': var_data.Strand,
                            'Sample': var_data.Sample})
 
+    # get the combination of mutation attributes and search constraints
+    # that will govern the enumeration of subgroupings
     lvl_list = ('Gene', 'Scale', 'Copy') + tuple(args.mut_levels.split('__'))
     search_dict = params[args.search_params]
-    var_fields = ['Gene', 'Canonical', 'Location', 'VarAllele']
 
+    # figure out which mutation attribute fields to request from VEP, starting
+    # with those necessary to uniquely identify any mutation
+    var_fields = ['Gene', 'Canonical', 'Location', 'VarAllele']
     for lvl in lvl_list[3:]:
         if '-domain' in lvl and 'Domains' not in var_fields:
             var_fields += ['Domains']
         else:
             var_fields += [lvl]
 
+    # run the VEP command line wrapper to obtain a standardized
+    # set of point mutation calls
     variants = process_variants(var_df, out_fields=var_fields,
                                 cache_dir=vep_cache_dir,
                                 temp_dir=out_path, assembly=use_asmb,
                                 distance=0, consequence_choose='pick',
                                 forks=4, update_cache=False)
 
+    # remove VEP calls from non-canonical transcripts, add fields that
+    # distinguish these calls from CNA calls
     variants = variants.loc[variants.CANONICAL == 'YES']
     variants['Scale'] = 'Point'
     variants['Copy'] = np.nan
+
+    # reunify CNA calls with VEP point mutation calls, filter out calls from
+    # non-cancer genes and those that are duplicated
     use_muts = pd.concat([variants, copy_data], sort=True)
     use_muts = use_muts.loc[use_muts.Gene.isin(use_genes)]
+    use_muts = use_muts.loc[~use_muts.duplicated()]
 
     cdata = IsoMutationCohort(expr_data, use_muts, [lvl_list],
                               annot_dict, leaf_annot=None)

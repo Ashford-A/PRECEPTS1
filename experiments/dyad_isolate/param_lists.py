@@ -14,11 +14,11 @@ search_params = {
     }
 
 mut_lvls = {
-    'default': [['Exon', 'Position', 'HGVSp'],
-                ['Consequence', 'Exon'],
-                ['Pfam-domain', 'Consequence'],
-                ['SMART-domains', 'Consequence']],
+    'default': (('Exon', 'Position', 'HGVSp'),
+                ('Consequence', 'Exon'),
+                ('Pfam-domain', 'Consequence'),
+                ('SMART-domains', 'Consequence')),
 
-    'form_base': [['Form_base', 'Exon']],
+    'exons': (('Exon', 'Consequence'), ),
     }
 

@@ -12,7 +12,7 @@ from HetMan.experiments.subvariant_test import (
 from HetMan.experiments.subvariant_isolate import cna_mtypes
 from dryadic.features.mutations import MuType
 
-from HetMan.experiments.subgrouping_isolate.utils import get_mtype_gene
+from HetMan.experiments.subgrouping_isolate.utils import get_mtype_genes
 from HetMan.experiments.subvariant_isolate.utils import ExMcomb
 from HetMan.experiments.subvariant_test.utils import (
     choose_label_colour, get_cohort_label)
@@ -23,6 +23,7 @@ from pathlib import Path
 import bz2
 import dill as pickle
 import random
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -38,6 +39,12 @@ plt.rcParams['savefig.facecolor']='white'
 plt.rcParams['axes.edgecolor']='white'
 
 
+def warning_on_one_line(message, category, filename, lineno,
+                        file=None, line=None):
+    return '%s:%s: %s: %s\n' % (filename, lineno, category.__name__, message)
+warnings.formatwarning = warning_on_one_line
+
+
 def plot_copy_adjacencies(siml_dict, pheno_dict, auc_vals,
                           args, add_lgnd=False):
     fig, (gain_ax, loss_ax) = plt.subplots(figsize=(10, 9), nrows=2, ncols=1)
@@ -51,7 +58,7 @@ def plot_copy_adjacencies(siml_dict, pheno_dict, auc_vals,
             and not (mcomb.all_mtype & dict(cna_mtypes)['Shal']).is_empty())
         ]]
 
-    plt_gby = use_aucs.groupby(get_mtype_gene)
+    plt_gby = use_aucs.groupby(lambda mtype: get_mtype_genes(mtype)[0])
     clr_dict = {gene: None for gene in plt_gby.groups.keys()}
     lbl_pos = {gene: None for gene in plt_gby.groups.keys()}
     plt_lims = [0.1, 0.9]
@@ -107,15 +114,16 @@ def plot_copy_adjacencies(siml_dict, pheno_dict, auc_vals,
                     lbl_pos[gene] = new_x, 0
 
     plt_rng = (plt_lims[1] - plt_lims[0]) / 67
-    for gene, gene_clr in clr_dict.items():
-        if gene_clr is None:
-            use_clr = '0.13'
-        else:
-            use_clr = gene_clr
+    for gene, pos in lbl_pos.items():
+        if pos is not None:
+            if clr_dict[gene] is None:
+                use_clr = '0.87'
+            else:
+                use_clr = clr_dict[gene]
 
-        gain_ax.text(lbl_pos[gene][0], plt_lims[1] + plt_rng, gene,
-                     size=17, color=use_clr, fontweight='bold',
-                     ha='center', va='bottom')
+            gain_ax.text(pos[0], plt_lims[1] + plt_rng, gene,
+                         size=17, color=use_clr, fontweight='bold',
+                         ha='center', va='bottom')
 
     clr_norm = colors.Normalize(vmin=-1, vmax=2)
     for ax in gain_ax, loss_ax:
@@ -225,8 +233,15 @@ def main():
     auc_dfs = {ex_lbl: auc_df.loc[~auc_df.index.duplicated()]
                for ex_lbl, auc_df in auc_dfs.items()}
 
-    plot_copy_adjacencies(siml_dfs['Iso'],
-                          phn_dict, auc_dfs['Iso']['mean'], args)
+    if 'Consequence__Exon' in out_iter.groups.keys():
+        plot_copy_adjacencies(siml_dfs['Iso'],
+                              phn_dict, auc_dfs['Iso']['mean'], args)
+
+    else:
+        warnings.warn("Cannot analyze the similarities between CNAs and "
+                      "point mutation types until this experiment has been "
+                      "run with the `Conseqeuence__Exon` mutation level "
+                      "combination on this cohort!")
 
 
 if __name__ == '__main__':

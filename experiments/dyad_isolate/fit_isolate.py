@@ -50,6 +50,7 @@ def main():
     cdata = safe_load(os.path.join(setup_dir, "cohort-data.p.gz"),
                       retry_pause=31)
 
+    use_mtree = tuple(cdata.mtrees.values())[0]
     clf = eval(args.classif)
     mut_clf = clf()
 
@@ -86,17 +87,15 @@ def main():
             else:
                 cur_genes = random.choice(list(mtype_genes.values()))
 
-            cur_lvls = cdata.choose_mtree(mtype)
             ex_genes = cdata.get_cis_genes('Chrm', cur_genes=cur_genes)
-
             mut_samps = reduce(or_,
-                               [cdata.mtrees[cur_lvls][gene].get_samples()
+                               [use_mtree[gene].get_samples()
                                 for gene in cur_genes])
 
             shal_samps = reduce(
                 or_,
-                [dict(cna_mtypes)['Shal'].get_samples(
-                    cdata.mtrees[cur_lvls][gene]) for gene in cur_genes]
+                [dict(cna_mtypes)['Shal'].get_samples(use_mtree[gene])
+                 for gene in cur_genes]
                 )
 
             mtype_samps = {

@@ -17,7 +17,7 @@ import random
 from dryadic.features.mutations import MuType
 from HetMan.experiments.subvariant_isolate import cna_mtypes, ex_mtypes
 from HetMan.experiments.subvariant_isolate.utils import ExMcomb
-from HetMan.experiments.subgrouping_isolate.utils import get_mtype_gene
+from HetMan.experiments.subgrouping_isolate.utils import get_mtype_genes
 from HetMan.experiments.subvariant_isolate.merge_isolate import (
     compare_muts, calculate_auc, calculate_siml)
 
@@ -36,10 +36,13 @@ def main():
         "out__cv-*_task*.p"))
     assert (len(file_list) % 40) == 0, "Missing output files detected!"
 
+    # initialize list for storing raw output data
     task_count = len(file_list) // 40
     out_data = [[None for task_id in range(task_count)]
                 for cv_id in range(40)]
 
+    # populate raw output list with data from each combination of
+    # parallelized task split and cross-validation run
     for out_fl in file_list: 
         base_name = out_fl.stem.split('out__')[1]
         cv_id = int(base_name.split('cv-')[1].split('_')[0])
@@ -48,16 +51,19 @@ def main():
         with open(out_fl, 'rb') as f:
             out_data[cv_id][task_id] = pickle.load(f)
 
+    # find the mutation classifier that was used in this experiment
     use_clfs = set(out_dict['Clf'] for ols in out_data for out_dict in ols)
     assert len(use_clfs) == 1, ("Each experiment must be run with "
                                 "exactly one classifier!")
     use_clf = tuple(use_clfs)[0]
 
+    # find the hyper-parameter tuning grid that was used in this experiment
     use_tune = set(out_dict['Clf'].tune_priors for ols in out_data
                    for out_dict in ols)
     assert len(use_tune) == 1, ("Each experiment must be run with "
                                 "exactly one set of tuning priors!")
 
+    # load the -omic datasets for this experiment's tumour cohort
     with bz2.BZ2File(os.path.join(args.use_dir, 'setup',
                                   "cohort-data.p.gz"), 'r') as f:
         cdata = pickle.load(f)
@@ -115,7 +121,7 @@ def main():
                 for mtype, train_preds in train_mat.iteritems():
                     mtype_samps = mtype.get_samples(use_mtree)
 
-                    cur_gene = get_mtype_gene(mtype)
+                    cur_gene = get_mtype_genes(mtype)[0]
                     mut_samps = use_mtree[cur_gene].get_samples()
                     shal_samps = dict(cna_mtypes)['Shal'].get_samples(
                         use_mtree[cur_gene])
@@ -278,7 +284,7 @@ def main():
     mcomb_list = {mtype for mtype in muts_list if isinstance(mtype, ExMcomb)}
     for ex_lbl, ex_mtype in ex_mtypes:
         for mcomb in mcomb_list:
-            cur_gene = get_mtype_gene(mcomb)
+            cur_gene = get_mtype_genes(mcomb)[0]
 
             all_mtype = MuType({(
                 'Gene', cur_gene): use_mtree[cur_gene].allkey()})
