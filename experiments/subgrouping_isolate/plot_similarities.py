@@ -16,14 +16,17 @@ from HetMan.experiments.subgrouping_isolate.utils import get_mtype_genes
 from HetMan.experiments.subvariant_isolate.utils import ExMcomb
 from HetMan.experiments.subvariant_test.utils import (
     choose_label_colour, get_cohort_label)
-from HetMan.experiments.utilities import simil_cmap
+from HetMan.experiments.utilities.colour_maps import simil_cmap
 
 import argparse
 from pathlib import Path
 import bz2
 import dill as pickle
 import random
+
 import warnings
+from HetMan.experiments.utilities.misc import warning_on_one_line
+warnings.formatwarning = warning_on_one_line
 
 import numpy as np
 import pandas as pd
@@ -37,12 +40,6 @@ plt.style.use('fivethirtyeight')
 plt.rcParams['axes.facecolor']='white'
 plt.rcParams['savefig.facecolor']='white'
 plt.rcParams['axes.edgecolor']='white'
-
-
-def warning_on_one_line(message, category, filename, lineno,
-                        file=None, line=None):
-    return '%s:%s: %s: %s\n' % (filename, lineno, category.__name__, message)
-warnings.formatwarning = warning_on_one_line
 
 
 def plot_copy_adjacencies(siml_dict, pheno_dict, auc_vals,

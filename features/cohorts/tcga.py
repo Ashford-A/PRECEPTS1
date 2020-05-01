@@ -56,7 +56,7 @@ def get_variant_data(cohort, var_source, **var_args):
             ('Form', 8), ('RefAllele', 10), ('TumorAllele', 12),
             ('Sample', 15), ('HGVS', 34), ('Protein', 36), ('Transcript', 37),
             ('Exon', 38), ('depth', 39), ('ref_count', 40), ('alt_count', 41),
-            ('SIFT', 71), ('PolyPhen', 72)
+            ('SIFT', 71), ('PolyPhen', 72), ('Filter', 108)
             )
 
         if 'mut_fields' not in var_args or var_args['mut_fields'] is None:
@@ -65,7 +65,7 @@ def get_variant_data(cohort, var_source, **var_args):
         else:
             use_fields, use_cols = tuple(zip(*[
                 (name, col) for name, col in field_dict
-                if name in {'Sample'} | set(var_args['mut_fields'])
+                if name in {'Sample', 'Filter'} | set(var_args['mut_fields'])
                 ]))
 
         # imports mutation data into a DataFrame, parses TCGA sample barcodes
@@ -82,6 +82,10 @@ def get_variant_data(cohort, var_source, **var_args):
 
             except OSError:
                 i = i + 1
+
+        #TODO: more fine-grained Filtering control?
+        var_data = var_data.loc[~var_data.Filter.str.contains(
+            'nonpreferredpair')]
 
         for annt, null_val in zip(['PolyPhen', 'SIFT'], [0, 1]):
             if annt in var_data:
@@ -275,8 +279,8 @@ def process_input_datasets(cohort, expr_source, var_source, copy_source,
     expr_data = expr.loc[use_samps]
     variants = variants.loc[variants.Sample.isin(use_samps)]
     copy_df = copy_df.loc[copy_df.Sample.isin(use_samps)]
-    variants['Scale'] = 'Point'
-    copy_df['Scale'] = 'Copy'
+    variants = variants.assign(Scale='Point')
+    copy_df = copy_df.assign(Scale='Copy')
     mut_data = pd.concat([variants, copy_df], sort=True)
 
     return expr_data, mut_data, annot_dict

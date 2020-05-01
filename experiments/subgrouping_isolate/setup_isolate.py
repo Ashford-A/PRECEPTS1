@@ -19,9 +19,9 @@ from HetMan.features.cohorts.metabric import (
 from HetMan.features.cohorts.tcga import (
     process_input_datasets as process_tcga_datasets)
 
-from HetMan.experiments.subvariant_tour.utils import RandomType
-from HetMan.experiments.subvariant_isolate.utils import Mcomb, ExMcomb
 from HetMan.experiments.subgrouping_isolate.utils import IsoMutationCohort
+from HetMan.experiments.subvariant_tour.utils import RandomType
+from HetMan.experiments.utilities.mutations import Mcomb, ExMcomb
 from dryadic.features.mutations import MuType
 
 import argparse
@@ -166,10 +166,14 @@ def main():
     variants['Copy'] = np.nan
 
     # reunify CNA calls with VEP point mutation calls, filter out calls from
-    # non-cancer genes and those that are duplicated
+    # non-cancer genes and double-check all calls are unique
     use_muts = pd.concat([variants, copy_data], sort=True)
     use_muts = use_muts.loc[use_muts.Gene.isin(use_genes)]
-    use_muts = use_muts.loc[~use_muts.duplicated()]
+
+    assert not use_muts.duplicated().any(), (
+        "Variant data contains {} duplicate entries!".format(
+            use_muts.duplicated().sum())
+        )
 
     cdata = IsoMutationCohort(expr_data, use_muts, [lvl_list],
                               annot_dict, leaf_annot=None)
@@ -179,6 +183,8 @@ def main():
     max_samps = len(cdata.get_samples()) - search_dict['samp_cutoff']
     test_muts = set()
 
+    # for each gene with enough point mutations, find all of the combinations
+    # of its mutation subtypes that satisfy the search criteria
     for gene, mtree in cdata.mtrees[lvl_list]:
         if len(pnt_mtype.get_samples(mtree)) >= search_dict['samp_cutoff']:
             comb_types = mtree.combtypes(
@@ -188,16 +194,22 @@ def main():
                 min_branch_size=search_dict['min_branch']
                 )
 
+            # get the samples mutated for each subtype combination in this
+            # cohort; remove subtypes that span all of the gene's mutations
             samp_dict = {mtype: mtype.get_samples(mtree)
                          for mtype in comb_types}
             pnt_samps = mtree['Point'].get_samples()
             pnt_types = {mtype for mtype in comb_types
                          if samp_dict[mtype] != pnt_samps}
 
+            # remove subtypes that are mutated in the same set of samples as
+            # another subtype and are less granular in their definition
             rmv_mtypes = set()
             for rmv_mtype in sorted(pnt_types):
                 rmv_lvls = rmv_mtype.get_levels()
 
+                # e.g. remove `Missense` in favour of `Missense->5th Exon` if
+                # all of this gene's missense mutations are on the fifth exon
                 for cmp_mtype in pnt_types - {rmv_mtype} - rmv_mtypes:
                     if (samp_dict[rmv_mtype] == samp_dict[cmp_mtype]
                             and (rmv_mtype.is_supertype(cmp_mtype)

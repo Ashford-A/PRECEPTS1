@@ -16,8 +16,7 @@ import random
 
 from dryadic.features.mutations import MuType
 from HetMan.experiments.subvariant_isolate import cna_mtypes, ex_mtypes
-from HetMan.experiments.subvariant_isolate.utils import ExMcomb
-from HetMan.experiments.subgrouping_isolate.utils import get_mtype_genes
+from HetMan.experiments.utilities.mutations import ExMcomb
 from HetMan.experiments.subvariant_isolate.merge_isolate import (
     compare_muts, calculate_auc, calculate_siml)
 
@@ -121,7 +120,7 @@ def main():
                 for mtype, train_preds in train_mat.iteritems():
                     mtype_samps = mtype.get_samples(use_mtree)
 
-                    cur_gene = get_mtype_genes(mtype)[0]
+                    cur_gene = mtype.get_labels()[0]
                     mut_samps = use_mtree[cur_gene].get_samples()
                     shal_samps = dict(cna_mtypes)['Shal'].get_samples(
                         use_mtree[cur_gene])
@@ -284,7 +283,7 @@ def main():
     mcomb_list = {mtype for mtype in muts_list if isinstance(mtype, ExMcomb)}
     for ex_lbl, ex_mtype in ex_mtypes:
         for mcomb in mcomb_list:
-            cur_gene = get_mtype_genes(mcomb)[0]
+            cur_gene = mcomb.get_labels()[0]
 
             all_mtype = MuType({(
                 'Gene', cur_gene): use_mtree[cur_gene].allkey()})
