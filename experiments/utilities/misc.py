@@ -1,6 +1,7 @@
 
 import numpy as np
 from colorsys import hls_to_rgb
+from importlib import import_module
 
 
 def detect_log_distr(tune_distr):
@@ -26,4 +27,17 @@ def choose_label_colour(gene, clr_seed=15707, clr_lum=0.5, clr_sat=0.8):
                        % (2 ** 14)))
 
     return hls_to_rgb(h=np.random.uniform(size=1)[0], l=clr_lum, s=clr_sat)
+
+
+def load_mut_clf(clf_lbl):
+    if clf_lbl[:6] == 'Stan__':
+        use_module = import_module('HetMan.experiments.utilities'
+                                   '.stan_models.{}'.format(
+                                       clf_lbl.split('Stan__')[1]))
+        mut_clf = getattr(use_module, 'UsePipe')
+
+    else:
+        mut_clf = eval(clf_lbl)
+
+    return mut_clf
 
