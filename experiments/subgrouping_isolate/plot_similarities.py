@@ -10,12 +10,12 @@ plot_dir = os.path.join(base_dir, 'plots', 'similarities')
 from HetMan.experiments.subvariant_test import (
     pnt_mtype, copy_mtype, gain_mtype, loss_mtype)
 from HetMan.experiments.subvariant_isolate import cna_mtypes
+from HetMan.experiments.utilities.mutations import ExMcomb
 from dryadic.features.mutations import MuType
 
-from HetMan.experiments.subgrouping_isolate.utils import get_mtype_genes
-from HetMan.experiments.subvariant_isolate.utils import ExMcomb
-from HetMan.experiments.subvariant_test.utils import (
-    choose_label_colour, get_cohort_label)
+from HetMan.experiments.subvariant_isolate.merge_isolate import calculate_siml
+from HetMan.experiments.utilities.misc import choose_label_colour
+from HetMan.experiments.subvariant_test.utils import get_cohort_label
 from HetMan.experiments.utilities.colour_maps import simil_cmap
 
 import argparse
@@ -23,6 +23,7 @@ from pathlib import Path
 import bz2
 import dill as pickle
 import random
+from operator import itemgetter
 
 import warnings
 from HetMan.experiments.utilities.misc import warning_on_one_line
@@ -42,40 +43,86 @@ plt.rcParams['savefig.facecolor']='white'
 plt.rcParams['axes.edgecolor']='white'
 
 
-def plot_copy_adjacencies(siml_dict, pheno_dict, auc_vals,
-                          args, add_lgnd=False):
+def search_copy_simls(siml_dict, mut, other_mut):
+    return {mut_lvls: siml_df.loc[mut, other_mut]
+            for mut_lvls, siml_df in siml_dict.items()
+            if mut in siml_df.index and other_mut in siml_df.columns}
+
+
+def plot_copy_adjacencies(siml_dict, pheno_dict, auc_vals, pred_vals,
+                          cdata, args, add_lgnd=False):
     fig, (gain_ax, loss_ax) = plt.subplots(figsize=(10, 9), nrows=2, ncols=1)
 
-    use_aucs = auc_vals[[
-        mcomb for mcomb, auc_val in auc_vals.iteritems()
-        if (auc_val > 0.6 and isinstance(mcomb, ExMcomb)
-            and len(mcomb.mtypes) == 1
+    use_combs = {mcomb for mcomb in auc_vals.index
+                 if (isinstance(mcomb, ExMcomb) and len(mcomb.mtypes) == 1
+                     and not (mcomb.all_mtype
+                              & dict(cna_mtypes)['Shal']).is_empty())}
+
+    pnt_aucs = auc_vals[[
+        mcomb for mcomb in use_combs
+        if (auc_vals[mcomb] > 0.6
             and pnt_mtype.is_supertype(
-                tuple(mcomb.mtypes)[0].subtype_list()[0][1])
-            and not (mcomb.all_mtype & dict(cna_mtypes)['Shal']).is_empty())
+                tuple(mcomb.mtypes)[0].subtype_list()[0][1]))
         ]]
 
-    plt_gby = use_aucs.groupby(lambda mtype: get_mtype_genes(mtype)[0])
+    plt_gby = pnt_aucs.groupby(lambda mtype: mtype.get_labels()[0])
     clr_dict = {gene: None for gene in plt_gby.groups.keys()}
     lbl_pos = {gene: None for gene in plt_gby.groups.keys()}
+    test_list = list()
     plt_lims = [0.1, 0.9]
 
     for cur_gene, auc_list in plt_gby:
         for mcomb, auc_val in auc_list.iteritems():
             plt_types = {
-                cna_lbl: ExMcomb(mcomb.all_mtype,
-                                 MuType({('Gene', cur_gene): cna_type}))
+                cna_lbl: {mcomb for mcomb in use_combs
+                          if (tuple(mcomb.mtypes)[0]
+                              == MuType({('Gene', cur_gene): cna_type}))}
                 for cna_lbl, cna_type in cna_mtypes
                 }
 
             for cna_lbl, ax in zip(['Gain', 'Loss'], [gain_ax, loss_ax]):
-                if plt_types[cna_lbl] in auc_vals.index:
+                #TODO: differentiate between genes without CNAs and those with
+                # too much overlap between CNAs and point mutations?
+                if len(plt_types[cna_lbl]) > 1:
+                    raise ValueError("Too many exclusive {} CNAs matching "
+                                     "`{}`!".format(cna_lbl, mcomb))
+
+                elif len(plt_types[cna_lbl]) == 1:
+                    plt_type = tuple(plt_types[cna_lbl])[0]
                     if clr_dict[cur_gene] is None:
                         clr_dict[cur_gene] = choose_label_colour(cur_gene)
 
-                    copy_siml = [siml_df.loc[mcomb, plt_types[cna_lbl]]
-                                 for siml_df in siml_dict.values()
-                                 if mcomb in siml_df.index][0]
+                    copy_simls = search_copy_simls(siml_dict, mcomb, plt_type)
+                    if (len(copy_simls) == 0
+                            or (len(copy_simls) == 1 and args.test)):
+                        use_mtree = tuple(cdata.mtrees.values())[0][cur_gene]
+
+                        all_mtype = MuType({(
+                            'Gene', cur_gene): use_mtree.allkey()})
+                        pheno_dict['Iso', mcomb] = np.array(
+                            cdata.train_pheno(all_mtype))
+
+                        use_phns = {lbl: phn_vals
+                                    for lbl, phn_vals in pheno_dict.items()
+                                    if lbl in {mcomb, ('Iso', mcomb),
+                                               plt_type}}
+
+                        copy_siml = calculate_siml(
+                            mcomb, use_phns, ('Iso', mcomb),
+                            pred_vals.loc[mcomb, cdata.get_train_samples()]
+                            )[plt_type]
+
+                        if len(copy_simls) == 1:
+                            test_list += [(mcomb, plt_type)]
+
+                            assert (
+                                copy_siml == tuple(copy_simls.values())[0]), (
+                                    "Similarity values are "
+                                    "internally inconsistent!"
+                                    )
+
+                    else:
+                        copy_siml = np.mean(tuple(copy_simls.values()))
 
                     plt_lims[0] = min(plt_lims[0], copy_siml - 0.11)
                     plt_lims[1] = max(plt_lims[1], copy_siml + 0.11)
@@ -85,20 +132,30 @@ def plot_copy_adjacencies(siml_dict, pheno_dict, auc_vals,
                                c=[clr_dict[cur_gene]],
                                alpha=0.43, edgecolor='none')
 
-    i = -1
+    if args.test:
+        print("Successfully tested the copy-similarities of {} "
+              "mutation types from {} different genes for internal "
+              "consistency!".format(len(test_list),
+                                    len(set(mcomb.get_labels()[0]
+                                            for mcomb, _ in test_list))))
+
+    auc_clip = sorted([(gene,
+                        sorted(np.clip(auc_list.values,
+                                       *auc_list.quantile(q=[0.15, 0.85]))))
+                       for gene, auc_list in plt_gby], key=itemgetter(0))
+
     random.seed(args.seed)
-    auc_clip = {gene: np.clip(auc_list.values,
-                              *auc_list.quantile(q=[0.15, 0.85]))
-                for gene, auc_list in plt_gby}
+    random.shuffle(auc_clip)
+    i = -1
 
     while i < 1000 and any(pos is None for pos in lbl_pos.values()):
         i += 1
 
-        for gene, auc_list in auc_clip.items():
+        for gene, auc_list in auc_clip:
             if lbl_pos[gene] is None:
                 collided = False
                 new_x = random.choice(auc_list)
-                new_x += np.random.normal(scale=0.42 * i / 10000)
+                new_x += random.gauss(0, 0.42 * i / 10000)
 
                 for oth_gene, oth_pos in lbl_pos.items():
                     if oth_gene != gene and oth_pos is not None:
@@ -163,7 +220,10 @@ def main():
     parser.add_argument('expr_source', help="a source of expression datasets")
     parser.add_argument('cohort', help="a tumour cohort")
     parser.add_argument('classif', help="a mutation classifier")
+
     parser.add_argument('--seed', type=int)
+    parser.add_argument('--test', action='store_true',
+                        help="run diagnostic tests?")
 
     args = parser.parse_args()
     out_dir = Path(base_dir, '__'.join([args.expr_source, args.cohort]))
@@ -186,12 +246,17 @@ def main():
     out_iter = out_use.groupby('Levels')['File']
     out_aucs = {lvls: list() for lvls, _ in out_iter}
     out_simls = {lvls: list() for lvls, _ in out_iter}
+    out_preds = {lvls: list() for lvls, _ in out_iter}
+
     phn_dict = dict()
+    cdata = None
 
     auc_dfs = {ex_lbl: pd.DataFrame([])
                for ex_lbl in ['All', 'Iso', 'IsoShal']}
     siml_dfs = {ex_lbl: {lvls: None for lvls, _ in out_iter}
                 for ex_lbl in ['Iso', 'IsoShal']}
+    pred_dfs = {ex_lbl: pd.DataFrame([])
+                for ex_lbl in ['All', 'Iso', 'IsoShal']}
 
     for lvls, out_files in out_iter:
         for out_file in out_files:
@@ -209,6 +274,20 @@ def main():
                              'r') as f:
                 out_simls[lvls] += [pickle.load(f)]
 
+            with bz2.BZ2File(Path(out_dir, '__'.join(["out-pred", out_tag])),
+                             'r') as f:
+                out_preds[lvls] += [pickle.load(f)]
+
+            with bz2.BZ2File(Path(out_dir,
+                                  '__'.join(["cohort-data", out_tag])),
+                             'r') as f:
+                new_cdata = pickle.load(f)
+
+                if cdata is None:
+                    cdata = new_cdata
+                else:
+                    cdata.merge(new_cdata)
+
         mtypes_comp = np.greater_equal.outer(
             *([[set(auc_vals['All']['mean'].index)
                 for auc_vals in out_aucs[lvls]]] * 2)
@@ -222,7 +301,12 @@ def main():
                 auc_dfs[ex_lbl] = pd.concat([
                     auc_dfs[ex_lbl],
                     pd.DataFrame(out_aucs[lvls][super_indx][ex_lbl])
-                    ])
+                    ], sort=False)
+
+                pred_dfs[ex_lbl] = pd.concat([
+                    pred_dfs[ex_lbl],
+                    pd.DataFrame(out_preds[lvls][super_indx][ex_lbl])
+                    ], sort=False)
 
             for ex_lbl in ['Iso', 'IsoShal']:
                 siml_dfs[ex_lbl][lvls] = out_simls[lvls][super_indx][ex_lbl]
@@ -231,8 +315,9 @@ def main():
                for ex_lbl, auc_df in auc_dfs.items()}
 
     if 'Consequence__Exon' in out_iter.groups.keys():
-        plot_copy_adjacencies(siml_dfs['Iso'],
-                              phn_dict, auc_dfs['Iso']['mean'], args)
+        plot_copy_adjacencies(siml_dfs['Iso'], phn_dict,
+                              auc_dfs['Iso']['mean'], pred_dfs['Iso'],
+                              cdata, args)
 
     else:
         warnings.warn("Cannot analyze the similarities between CNAs and "
