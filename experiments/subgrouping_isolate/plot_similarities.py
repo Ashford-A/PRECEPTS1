@@ -13,7 +13,7 @@ from HetMan.experiments.subvariant_isolate import cna_mtypes
 from HetMan.experiments.utilities.mutations import ExMcomb
 from dryadic.features.mutations import MuType
 
-from HetMan.experiments.subvariant_isolate.merge_isolate import calculate_siml
+from HetMan.experiments.subgrouping_isolate.utils import calculate_pair_siml
 from HetMan.experiments.utilities.misc import choose_label_colour
 from HetMan.experiments.subvariant_test.utils import get_cohort_label
 from HetMan.experiments.utilities.colour_maps import simil_cmap
@@ -43,12 +43,6 @@ plt.rcParams['savefig.facecolor']='white'
 plt.rcParams['axes.edgecolor']='white'
 
 
-def search_copy_simls(siml_dict, mut, other_mut):
-    return {mut_lvls: siml_df.loc[mut, other_mut]
-            for mut_lvls, siml_df in siml_dict.items()
-            if mut in siml_df.index and other_mut in siml_df.columns}
-
-
 def plot_copy_adjacencies(siml_dict, pheno_dict, auc_vals, pred_vals,
                           cdata, args, add_lgnd=False):
     fig, (gain_ax, loss_ax) = plt.subplots(figsize=(10, 9), nrows=2, ncols=1)
@@ -68,8 +62,12 @@ def plot_copy_adjacencies(siml_dict, pheno_dict, auc_vals, pred_vals,
     plt_gby = pnt_aucs.groupby(lambda mtype: mtype.get_labels()[0])
     clr_dict = {gene: None for gene in plt_gby.groups.keys()}
     lbl_pos = {gene: None for gene in plt_gby.groups.keys()}
-    test_list = list()
     plt_lims = [0.1, 0.9]
+
+    if args.test:
+        test_list = list()
+    else:
+        test_list = None
 
     for cur_gene, auc_list in plt_gby:
         for mcomb, auc_val in auc_list.iteritems():
@@ -92,37 +90,21 @@ def plot_copy_adjacencies(siml_dict, pheno_dict, auc_vals, pred_vals,
                     if clr_dict[cur_gene] is None:
                         clr_dict[cur_gene] = choose_label_colour(cur_gene)
 
-                    copy_simls = search_copy_simls(siml_dict, mcomb, plt_type)
-                    if (len(copy_simls) == 0
-                            or (len(copy_simls) == 1 and args.test)):
-                        use_mtree = tuple(cdata.mtrees.values())[0][cur_gene]
+                    use_mtree = tuple(cdata.mtrees.values())[0][cur_gene]
+                    all_mtype = MuType({(
+                        'Gene', cur_gene): use_mtree.allkey()})
 
-                        all_mtype = MuType({(
-                            'Gene', cur_gene): use_mtree.allkey()})
-                        pheno_dict['Iso', mcomb] = np.array(
-                            cdata.train_pheno(all_mtype))
-
-                        use_phns = {lbl: phn_vals
-                                    for lbl, phn_vals in pheno_dict.items()
-                                    if lbl in {mcomb, ('Iso', mcomb),
-                                               plt_type}}
-
-                        copy_siml = calculate_siml(
-                            mcomb, use_phns, ('Iso', mcomb),
-                            pred_vals.loc[mcomb, cdata.get_train_samples()]
-                            )[plt_type]
-
-                        if len(copy_simls) == 1:
-                            test_list += [(mcomb, plt_type)]
-
-                            assert (
-                                copy_siml == tuple(copy_simls.values())[0]), (
-                                    "Similarity values are "
-                                    "internally inconsistent!"
-                                    )
+                    if args.test:
+                        copy_siml, test_list = calculate_pair_siml(
+                            mcomb, plt_type, all_mtype, siml_dict, pheno_dict,
+                            pred_vals, 'Iso', cdata, test_list
+                            )
 
                     else:
-                        copy_siml = np.mean(tuple(copy_simls.values()))
+                        copy_siml = calculate_pair_siml(
+                            mcomb, plt_type, all_mtype, siml_dict, pheno_dict,
+                            pred_vals, 'Iso', cdata, test_list
+                            )
 
                     plt_lims[0] = min(plt_lims[0], copy_siml - 0.11)
                     plt_lims[1] = max(plt_lims[1], copy_siml + 0.11)
@@ -304,9 +286,9 @@ def main():
                     ], sort=False)
 
                 pred_dfs[ex_lbl] = pd.concat([
-                    pred_dfs[ex_lbl],
-                    pd.DataFrame(out_preds[lvls][super_indx][ex_lbl])
-                    ], sort=False)
+                    pred_dfs[ex_lbl], out_preds[lvls][super_indx][ex_lbl]],
+                    sort=False
+                    )
 
             for ex_lbl in ['Iso', 'IsoShal']:
                 siml_dfs[ex_lbl][lvls] = out_simls[lvls][super_indx][ex_lbl]

@@ -7,9 +7,8 @@ base_dir = os.path.join(os.environ['DATADIR'], 'HetMan',
 sys.path.extend([os.path.join(os.path.dirname(__file__), '..', '..', '..')])
 plot_dir = os.path.join(base_dir, 'plots', 'tuning')
 
-from HetMan.experiments.subvariant_test.utils import choose_label_colour
-from HetMan.experiments.subgrouping_isolate.utils import get_mtype_genes
-from HetMan.experiments.utilities.misc import detect_log_distr
+from HetMan.experiments.utilities.misc import (
+    detect_log_distr, choose_label_colour)
 
 import argparse
 from pathlib import Path
@@ -48,7 +47,7 @@ def plot_chosen_parameters(pars_dfs, pheno_dict, auc_dfs, use_clf, args):
 
         for i, ex_lbl in enumerate(['All', 'Iso', 'IsoShal']):
             for mtype, par_vals in pars_dfs[ex_lbl][par_name].iterrows():
-                cur_gene = get_mtype_genes(mtype)[0]
+                cur_gene = mtype.get_labels()[0]
 
                 if cur_gene is None:
                     gene_clr = '0.89'
@@ -118,7 +117,7 @@ def plot_parameter_profile(acc_dfs, use_clf, args):
 
         for i, ex_lbl in enumerate(['All', 'Iso', 'IsoShal']):
             for mtype, acc_vals in acc_dfs[ex_lbl].iterrows():
-                cur_gene = get_mtype_genes(mtype)[0]
+                cur_gene = mtype.get_labels()[0]
 
                 if cur_gene is None:
                     gene_clr = '0.89'
