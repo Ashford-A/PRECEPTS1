@@ -29,7 +29,7 @@ import numpy as np
 import pandas as pd
 
 from itertools import combinations as combn
-from itertools import permutations
+from itertools import permutations, product
 
 import matplotlib as mpl
 mpl.use('Agg')
@@ -305,6 +305,94 @@ def plot_iso_comparisons(auc_dfs, pheno_dict, args):
     plt.close()
 
 
+def plot_dyad_comparisons(auc_vals, pheno_dict, conf_vals, args):
+    fig, (gain_ax, loss_ax) = plt.subplots(figsize=(17, 8), nrows=1, ncols=2)
+
+    pnt_aucs = auc_vals[[
+        not isinstance(mtype, (RandomType, Mcomb, ExMcomb))
+        and (mtype.subtype_list()[0][1] & copy_mtype).is_empty()
+        for mtype in auc_vals.index
+        ]]
+
+    plot_df = pd.DataFrame(
+        index=pnt_aucs.index,
+        columns=pd.MultiIndex.from_product([['gain', 'loss'],
+                                            ['all', 'deep']]),
+        dtype=float
+        )
+
+    for pnt_type, (copy_indx, copy_type) in product(
+            pnt_aucs.index,
+            zip(plot_df.columns, [dict(cna_mtypes)['Gain'], gain_mtype,
+                                  dict(cna_mtypes)['Loss'], loss_mtype])
+            ):
+        dyad_type = MuType({('Gene', pnt_type.get_labels()[0]): copy_type})
+        dyad_type |= pnt_type
+
+        if dyad_type in auc_vals.index:
+            plot_df.loc[pnt_type, copy_indx] = auc_vals[dyad_type]
+
+    clr_dict = dict()
+    plt_min = 0.57
+
+    for ax, copy_lbl in zip([gain_ax, loss_ax], ['gain', 'loss']):
+        for dpth_lbl in ['all', 'deep']:
+            copy_aucs = plot_df[copy_lbl, dpth_lbl]
+            copy_aucs = copy_aucs[~copy_aucs.isnull()]
+
+            for pnt_type, copy_auc in copy_aucs.iteritems():
+                plt_min = min(plt_min,
+                              pnt_aucs[pnt_type] - 0.03, copy_auc - 0.03)
+                mtype_sz = 581 * np.mean(pheno_dict[pnt_type])
+
+                cur_gene = pnt_type.get_labels()[0]
+                if cur_gene not in clr_dict:
+                    clr_dict[cur_gene] = choose_label_colour(cur_gene)
+
+                if dpth_lbl == 'all':
+                    dpth_clr = clr_dict[cur_gene]
+                    edg_lw = 0
+                else:
+                    dpth_clr = 'none'
+                    edg_lw = mtype_sz ** 0.5 / 4.7
+
+                ax.scatter(pnt_aucs[pnt_type], copy_auc,
+                           facecolor=dpth_clr, s=mtype_sz, alpha=0.21,
+                           edgecolor=clr_dict[cur_gene], linewidths=edg_lw)
+
+    plt_lims = plt_min, 1 + (1 - plt_min) / 91
+    for ax in (gain_ax, loss_ax):
+        ax.set_xlim(plt_lims)
+        ax.set_ylim(plt_lims)
+
+        ax.plot(plt_lims, [0.5, 0.5],
+                color='black', linewidth=1.1, linestyle=':', alpha=0.71)
+        ax.plot([0.5, 0.5], plt_lims,
+                color='black', linewidth=1.1, linestyle=':', alpha=0.71)
+
+        ax.plot(plt_lims, [1, 1], color='black', linewidth=1.7, alpha=0.89)
+        ax.plot([1, 1], plt_lims, color='black', linewidth=1.7, alpha=0.89)
+        ax.plot(plt_lims, plt_lims,
+                color='#550000', linewidth=1.9, linestyle='--', alpha=0.41)
+
+        ax.set_xlabel("Accuracy of Subgrouping Classifier",
+                      size=23, weight='semibold')
+
+    gain_ax.set_ylabel("Accuracy of\n(Subgrouping or CNAs) Classifier",
+                       size=23, weight='semibold')
+    gain_ax.set_title("Gain CNAs", size=27, weight='semibold')
+    loss_ax.set_title("Loss CNAs", size=27, weight='semibold')
+
+    plt.tight_layout(w_pad=3.1)
+    plt.savefig(
+        os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
+                     "dyad-comparisons_{}.svg".format(args.classif)),
+        bbox_inches='tight', format='svg'
+        )
+
+    plt.close()
+
+
 def main():
     parser = argparse.ArgumentParser(
         "Plots comparisons between the performances of subgrouping "
@@ -392,6 +480,9 @@ def main():
     plot_sub_comparisons(auc_dfs['All']['mean'], phn_dict,
                          conf_dfs['All']['mean'], args)
     plot_iso_comparisons(auc_dfs, phn_dict, args)
+
+    plot_dyad_comparisons(auc_dfs['All']['mean'], phn_dict,
+                          conf_dfs['All']['mean'], args)
 
 
 if __name__ == '__main__':
