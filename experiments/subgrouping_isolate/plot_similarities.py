@@ -43,7 +43,7 @@ plt.rcParams['savefig.facecolor']='white'
 plt.rcParams['axes.edgecolor']='white'
 
 
-def plot_copy_adjacencies(siml_dict, pheno_dict, auc_vals, pred_vals,
+def plot_copy_adjacencies(siml_dicts, pheno_dict, auc_vals, pred_vals,
                           cdata, args, add_lgnd=False):
     fig, (gain_ax, loss_ax) = plt.subplots(figsize=(10, 9), nrows=2, ncols=1)
 
@@ -96,13 +96,13 @@ def plot_copy_adjacencies(siml_dict, pheno_dict, auc_vals, pred_vals,
 
                     if args.test:
                         copy_siml, test_list = calculate_pair_siml(
-                            mcomb, plt_type, all_mtype, siml_dict, pheno_dict,
+                            mcomb, plt_type, all_mtype, siml_dicts, pheno_dict,
                             pred_vals, 'Iso', cdata, test_list
                             )
 
                     else:
                         copy_siml = calculate_pair_siml(
-                            mcomb, plt_type, all_mtype, siml_dict, pheno_dict,
+                            mcomb, plt_type, all_mtype, siml_dicts, pheno_dict,
                             pred_vals, 'Iso', cdata, test_list
                             )
 
@@ -235,8 +235,8 @@ def main():
 
     auc_dfs = {ex_lbl: pd.DataFrame([])
                for ex_lbl in ['All', 'Iso', 'IsoShal']}
-    siml_dfs = {ex_lbl: {lvls: None for lvls, _ in out_iter}
-                for ex_lbl in ['Iso', 'IsoShal']}
+    siml_dicts = {ex_lbl: {lvls: None for lvls, _ in out_iter}
+                  for ex_lbl in ['Iso', 'IsoShal']}
     pred_dfs = {ex_lbl: pd.DataFrame([])
                 for ex_lbl in ['All', 'Iso', 'IsoShal']}
 
@@ -291,13 +291,13 @@ def main():
                     )
 
             for ex_lbl in ['Iso', 'IsoShal']:
-                siml_dfs[ex_lbl][lvls] = out_simls[lvls][super_indx][ex_lbl]
+                siml_dicts[ex_lbl][lvls] = out_simls[lvls][super_indx][ex_lbl]
 
     auc_dfs = {ex_lbl: auc_df.loc[~auc_df.index.duplicated()]
                for ex_lbl, auc_df in auc_dfs.items()}
 
     if 'Consequence__Exon' in out_iter.groups.keys():
-        plot_copy_adjacencies(siml_dfs['Iso'], phn_dict,
+        plot_copy_adjacencies(siml_dicts['Iso'], phn_dict,
                               auc_dfs['Iso']['mean'], pred_dfs['Iso'],
                               cdata, args)
 

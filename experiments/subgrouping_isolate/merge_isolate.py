@@ -18,15 +18,33 @@ from dryadic.features.mutations import MuType
 from HetMan.experiments.subvariant_isolate import cna_mtypes, ex_mtypes
 from HetMan.experiments.utilities.mutations import ExMcomb
 from HetMan.experiments.subvariant_isolate.merge_isolate import (
-    compare_muts, calculate_auc, calculate_siml)
+    compare_muts, calculate_auc)
 
 from itertools import cycle
 from functools import reduce
 from operator import add
 
 
+def calculate_siml(base_mtype, phn_dict, ex_k, pred_vals):
+    cur_genes = set(base_mtype.get_labels())
+
+    none_mean = np.concatenate(pred_vals[~phn_dict[ex_k]].values).mean()
+    base_mean = np.concatenate(pred_vals[phn_dict[base_mtype]].values).mean()
+    cur_diff = base_mean - none_mean
+
+    return {othr_mtype: (np.concatenate(pred_vals[phn].values).mean()
+                         - none_mean) / cur_diff
+            for othr_mtype, phn in phn_dict.items()
+            if (isinstance(othr_mtype, ExMcomb)
+                and set(othr_mtype.get_labels()) == cur_genes)}
+
+
 def main():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        "Processes and consolidates the distributed output of an iteration "
+        "of the subgrouping isolation experiment for use in further analyses."
+        )
+
     parser.add_argument('use_dir', type=str, default=base_dir)
     args = parser.parse_args()
 
@@ -67,17 +85,23 @@ def main():
                                   "cohort-data.p.gz"), 'r') as f:
         cdata = pickle.load(f)
 
+    # get the mutations present in this cohort sorted into the attribute
+    # hierarchy used in this experiment as well as the subgroupings tested
     use_mtree = tuple(cdata.mtrees.values())[0]
     with open(os.path.join(args.use_dir, 'setup', "muts-list.p"), 'rb') as f:
         muts_list = pickle.load(f)
 
+    # initialize object that will store raw experiment output data
     out_dfs = {k: {ex_lbl: [None for cv_id in range(40)]
                    for ex_lbl in ['All', 'Iso', 'IsoShal']}
                for k in ['Pars', 'Time', 'Acc', 'Pred']}
 
+    # initialize object that will store collated classifier scores
     pred_lists = {ex_lbl: [None for cv_id in range(40)]
                   for ex_lbl in ['All', 'Iso', 'IsoShal']}
 
+    # reorganize the contents of each output file into matrices
+    # sorted by the type of output stored therein
     for cv_id, ols in enumerate(out_data):
         for k in out_dfs:
             for ex_lbl in ['All', 'Iso', 'IsoShal']:
@@ -87,6 +111,8 @@ def main():
                     for mtype, out_vals in out_dict[k].items()
                     }).transpose()
 
+        # recover the cohort training/testing data split that was
+        # used to generate the results in this file
         cdata_samps = sorted(cdata.get_samples())
         random.seed((cv_id // 4) * 3901 + 23)
         random.shuffle(cdata_samps)
@@ -237,23 +263,10 @@ def main():
 
     random.seed(9903)
     sub_inds = [random.choices([False, True], k=len(cdata.get_samples()))
-                for _ in range(50)]
+                for _ in range(100)]
 
     conf_lists = {
         ex_lbl: {
-            'all': pd.DataFrame.from_records(
-                tuple(zip(cycle(muts_list), Parallel(
-                    backend='threading', n_jobs=12, pre_dispatch=12)(
-                        delayed(calculate_auc)(
-                            pheno_dict[mtype][sub_indx],
-                            pred_dfs[ex_lbl].loc[
-                                mtype, train_samps[sub_indx]]
-                            )
-                        for sub_indx in sub_inds for mtype in muts_list
-                        )
-                    ))
-                ).pivot_table(index=0, values=1, aggfunc=list).iloc[:, 0],
-
             'mean': pd.DataFrame.from_records(
                 tuple(zip(cycle(muts_list), Parallel(
                     backend='threading', n_jobs=12, pre_dispatch=12)(
@@ -272,9 +285,7 @@ def main():
         }
 
     for ex_lbl in ['All', 'Iso', 'IsoShal']:
-        conf_lists[ex_lbl]['all'].name = None
         conf_lists[ex_lbl]['mean'].name = None
-        conf_lists[ex_lbl]['all'].index.name = None
         conf_lists[ex_lbl]['mean'].index.name = None
 
     with bz2.BZ2File(os.path.join(args.use_dir, "out-conf.p.gz"), 'w') as fl:
@@ -292,8 +303,8 @@ def main():
             pheno_dict[ex_lbl, mcomb] = np.array(cdata.train_pheno(
                 all_mtype - gene_ex))
 
-    siml_lists = {
-        ex_lbl: pd.DataFrame(dict(zip(mcomb_list, Parallel(
+    siml_dicts = {
+        ex_lbl: dict(zip(mcomb_list, Parallel(
             backend='threading', n_jobs=12, pre_dispatch=12)(
                 delayed(calculate_siml)(
                     mcomb, pheno_dict, (ex_lbl, mcomb),
@@ -301,12 +312,12 @@ def main():
                     )
                 for mcomb in mcomb_list
                 )
-            ))).transpose()
+            ))
         for ex_lbl in ['Iso', 'IsoShal']
         }
 
     with bz2.BZ2File(os.path.join(args.use_dir, "out-siml.p.gz"), 'w') as fl:
-        pickle.dump(siml_lists, fl, protocol=-1)
+        pickle.dump(siml_dicts, fl, protocol=-1)
 
 
 if __name__ == "__main__":

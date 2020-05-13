@@ -5,26 +5,28 @@ from dryadic.features.cohorts.mut import BaseMutationCohort
 import numpy as np
 
 
-def search_siml_pair(siml_dict, mut, other_mut):
-    return {mut_lvls: siml_df.loc[mut, other_mut]
-            for mut_lvls, siml_df in siml_dict.items()
-            if mut in siml_df.index and other_mut in siml_df.columns}
+def search_siml_pair(siml_dicts, mut, other_mut):
+    return {mut_lvls: siml_dict[mut][other_mut]
+            for mut_lvls, siml_dict in siml_dicts.items()
+            if mut in siml_dict and other_mut in siml_dict[mut]}
 
 
-def calculate_pair_siml(mcomb1, mcomb2, all_mtype, siml_dfs,
+def calculate_pair_siml(mcomb1, mcomb2, all_mtype, siml_dicts,
                         pheno_dict, pred_df, ex_lbl, cdata, test_list=None):
-    pair_simls = search_siml_pair(siml_dfs, mcomb1, mcomb2)
+    pair_simls = search_siml_pair(siml_dicts, mcomb1, mcomb2)
 
     if len(pair_simls) == 0 or (len(pair_simls) == 1
                                 and test_list is not None):
-        pheno_dict[ex_lbl, mcomb1] = np.array(cdata.train_pheno(all_mtype))
-        use_phns = {lbl: phn_vals for lbl, phn_vals in pheno_dict.items()
-                    if lbl in {mcomb1, (ex_lbl, mcomb1), mcomb2}}
+        pred_vals = pred_df.loc[mcomb1, cdata.get_train_samples()]
+        all_phn = np.array(cdata.train_pheno(all_mtype))
 
-        pair_siml = calculate_siml(
-            mcomb1, use_phns, (ex_lbl, mcomb1),
-            pred_df.loc[mcomb1, cdata.get_train_samples()]
-            )[mcomb2]
+        none_mean = np.concatenate(pred_vals[~all_phn].values).mean()
+        base_mean = np.concatenate(
+            pred_vals[pheno_dict[mcomb1]].values).mean()
+
+        pair_siml = np.concatenate(
+            pred_vals[pheno_dict[mcomb2]].values).mean() - none_mean
+        pair_siml /= (base_mean - none_mean)
 
         if test_list is not None and len(pair_simls) == 1:
             test_list += [(mcomb1, mcomb2)]
