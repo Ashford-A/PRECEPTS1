@@ -20,7 +20,6 @@ from HetMan.features.cohorts.tcga import (
     process_input_datasets as process_tcga_datasets)
 
 from HetMan.experiments.subgrouping_isolate.utils import IsoMutationCohort
-from HetMan.experiments.subvariant_tour.utils import RandomType
 from HetMan.experiments.utilities.mutations import Mcomb, ExMcomb
 from dryadic.features.mutations import MuType
 
@@ -276,8 +275,7 @@ def main():
 
             use_mcombs |= {ExMcomb(all_mtype - ex_mtype, mtype)
                            for mtype in test_types
-                           for ex_mtype in ex_mtypes
-                           if not isinstance(mtype, RandomType)}
+                           for ex_mtype in ex_mtypes}
 
             test_muts |= {
                 Mcomb(*[MuType({('Gene', gene): mtype})
