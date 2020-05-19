@@ -28,6 +28,9 @@ import dill as pickle
 import numpy as np
 import pandas as pd
 
+from itertools import combinations as combn
+from itertools import permutations, product
+
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
@@ -36,6 +39,23 @@ plt.style.use('fivethirtyeight')
 plt.rcParams['axes.facecolor']='white'
 plt.rcParams['savefig.facecolor']='white'
 plt.rcParams['axes.edgecolor']='white'
+
+
+def choose_subtype_colour(mut):
+    if (copy_mtype & mut).is_empty():
+        mut_clr = variant_clrs['Point']
+
+    elif dict(cna_mtypes)['Gain'].is_supertype(mut):
+        mut_clr = variant_clrs['Gain']
+    elif dict(cna_mtypes)['Loss'].is_supertype(mut):
+        mut_clr = variant_clrs['Loss']
+
+    elif not (dict(cna_mtypes)['Gain'] & mut).is_empty():
+        mut_clr = mcomb_clrs['Point+Gain']
+    elif not (dict(cna_mtypes)['Loss'] & mut).is_empty():
+        mut_clr = mcomb_clrs['Point+Loss']
+
+    return mut_clr
 
 
 def plot_size_comparisons(auc_vals, pheno_dict, conf_vals,
@@ -55,19 +75,7 @@ def plot_size_comparisons(auc_vals, pheno_dict, conf_vals,
         if isinstance(mut, MuType):
             sub_mut = mut.subtype_list()[0][1]
             plt_mrk = 'o'
-
-            if (copy_mtype & sub_mut).is_empty():
-                plt_clr = variant_clrs['Point']
-
-            elif dict(cna_mtypes)['Gain'].is_supertype(sub_mut):
-                plt_clr = variant_clrs['Gain']
-            elif dict(cna_mtypes)['Loss'].is_supertype(sub_mut):
-                plt_clr = variant_clrs['Loss']
-
-            elif not (dict(cna_mtypes)['Gain'] & sub_mut).is_empty():
-                plt_clr = mcomb_clrs['Point+Gain']
-            elif not (dict(cna_mtypes)['Loss'] & sub_mut).is_empty():
-                plt_clr = mcomb_clrs['Point+Loss']
+            plt_clr = choose_subtype_colour(sub_mut)
 
             if sub_mut.is_supertype(pnt_mtype):
                 plt_sz = 413
@@ -94,19 +102,7 @@ def plot_size_comparisons(auc_vals, pheno_dict, conf_vals,
         elif len(mut.mtypes) == 1:
             iso_mtype = tuple(mut.mtypes)[0].subtype_list()[0][1]
             plt_mrk = 'D'
-
-            if (copy_mtype & iso_mtype).is_empty():
-                plt_clr = variant_clrs['Point']
-
-            elif dict(cna_mtypes)['Gain'].is_supertype(iso_mtype):
-                plt_clr = variant_clrs['Gain']
-            elif dict(cna_mtypes)['Loss'].is_supertype(iso_mtype):
-                plt_clr = variant_clrs['Loss']
-
-            elif not (dict(cna_mtypes)['Gain'] & iso_mtype).is_empty():
-                plt_clr = mcomb_clrs['Point+Gain']
-            elif not (dict(cna_mtypes)['Loss'] & iso_mtype).is_empty():
-                plt_clr = mcomb_clrs['Point+Loss']
+            plt_clr = choose_subtype_colour(iso_mtype)
 
             if iso_mtype.is_supertype(pnt_mtype):
                 plt_sz = 413
@@ -206,6 +202,218 @@ def plot_size_comparisons(auc_vals, pheno_dict, conf_vals,
     plt.close()
 
 
+def plot_iso_comparisons(auc_dfs, pheno_dict, use_coh, args):
+    fig, axarr = plt.subplots(figsize=(15, 15), nrows=3, ncols=3)
+
+    base_aucs = {
+        ex_lbl: auc_vals[[not isinstance(mtype, (RandomType, Mcomb, ExMcomb))
+                          for mtype in auc_vals.index]]
+        for ex_lbl, auc_vals in auc_dfs.items()
+        }
+
+    base_mtypes = {tuple(sorted(auc_vals.index))
+                   for auc_vals in base_aucs.values()}
+    assert len(base_mtypes) == 1, ("Mismatching mutation types across "
+                                   "isolation testing holdout modes!")
+
+    base_mtypes = tuple(base_mtypes)[0]
+    iso_aucs = {'All': base_aucs['All']}
+
+    iso_aucs['Iso'] = auc_dfs['Iso'][[
+        isinstance(mcomb, ExMcomb) and len(mcomb.mtypes) == 1
+        and tuple(mcomb.mtypes)[0] in base_mtypes
+        and not (mcomb.all_mtype & dict(cna_mtypes)['Shal']).is_empty()
+        for mcomb in auc_dfs['Iso'].index
+        ]]
+
+    iso_aucs['IsoShal'] = auc_dfs['IsoShal'][[
+        isinstance(mcomb, ExMcomb) and len(mcomb.mtypes) == 1
+        and tuple(mcomb.mtypes)[0] in base_mtypes
+        and (mcomb.all_mtype & dict(cna_mtypes)['Shal']).is_empty()
+        for mcomb in auc_dfs['IsoShal'].index
+        ]]
+
+    assert not set(iso_aucs['Iso'].index & iso_aucs['IsoShal'].index)
+    for ex_lbl in ('Iso', 'IsoShal'):
+        iso_aucs[ex_lbl].index = [tuple(mcomb.mtypes)[0]
+                                  for mcomb in iso_aucs[ex_lbl].index]
+
+    plt_min = 0.83
+    for (i, ex_lbl1), (j, ex_lbl2) in combn(enumerate(base_aucs.keys()), 2):
+        for mtype, auc_val1 in base_aucs[ex_lbl1].iteritems():
+            plt_min = min(plt_min, auc_val1 - 0.013,
+                          base_aucs[ex_lbl2][mtype] - 0.013)
+
+            mtype_sz = 503 * np.mean(pheno_dict[mtype])
+            plt_clr = choose_subtype_colour(mtype.subtype_list()[0][1])
+
+            axarr[i, j].scatter(base_aucs[ex_lbl2][mtype], auc_val1,
+                                c=[plt_clr], s=mtype_sz,
+                                alpha=0.19, edgecolor='none')
+
+        for mtype in set(iso_aucs[ex_lbl1].index & iso_aucs[ex_lbl2].index):
+            plt_x = iso_aucs[ex_lbl1][mtype]
+            plt_y = iso_aucs[ex_lbl2][mtype]
+
+            plt_min = min(plt_min, plt_x - 0.013, plt_y - 0.013)
+            mtype_sz = 503 * np.mean(pheno_dict[mtype])
+            plt_clr = choose_subtype_colour(mtype.subtype_list()[0][1])
+
+            axarr[j, i].scatter(plt_x, plt_y, c=[plt_clr],
+                                s=mtype_sz, alpha=0.19, edgecolor='none')
+
+    for i, j in permutations(range(3), r=2):
+        axarr[i, j].grid(alpha=0.53, linewidth=0.7)
+        axarr[j, i].grid(alpha=0.53, linewidth=0.7)
+
+        if j - i != 1 and i < 2:
+            axarr[i, j].xaxis.set_major_formatter(plt.NullFormatter())
+        else:
+            axarr[i, j].xaxis.set_major_locator(
+                plt.MaxNLocator(7, steps=[1, 2, 4]))
+
+        if j - i != 1 and j > 0:
+            axarr[i, j].yaxis.set_major_formatter(plt.NullFormatter())
+        else:
+            axarr[i, j].yaxis.set_major_locator(
+                plt.MaxNLocator(7, steps=[1, 2, 4]))
+
+        axarr[i, j].plot([plt_min, 1], [0.5, 0.5], color='black',
+                         linewidth=1.3, linestyle=':', alpha=0.71)
+        axarr[i, j].plot([0.5, 0.5], [plt_min, 1], color='black',
+                         linewidth=1.3, linestyle=':', alpha=0.71)
+
+        axarr[i, j].plot([plt_min, 1], [1, 1],
+                         color='black', linewidth=1.7, alpha=0.89)
+        axarr[i, j].plot([1, 1], [plt_min, 1],
+                         color='black', linewidth=1.7, alpha=0.89)
+
+        axarr[i, j].plot([plt_min, 0.997], [plt_min, 0.997], color='#550000',
+                         linewidth=2.1, linestyle='--', alpha=0.41)
+
+        axarr[i, j].set_xlim([plt_min, 1 + (1 - plt_min) / 113])
+        axarr[i, j].set_ylim([plt_min, 1 + (1 - plt_min) / 113])
+
+    for i, (ex_lbl, auc_vals) in enumerate(base_aucs.items()):
+        axarr[i, i].axis('off')
+        axarr[i, i].text(0.5, 0.5, ex_lbl,
+                         size=37, fontweight='bold', ha='center', va='center')
+
+    plt.tight_layout(w_pad=1.7, h_pad=1.7)
+    plt.savefig(
+        os.path.join(plot_dir, args.gene,
+                     "{}__iso-comparisons_{}_{}.svg".format(
+                         use_coh, args.classif, args.expr_source)),
+        bbox_inches='tight', format='svg'
+        )
+
+    plt.close()
+
+
+def plot_dyad_comparisons(auc_vals, pheno_dict, conf_vals, use_coh, args):
+    fig, (gain_ax, loss_ax) = plt.subplots(figsize=(17, 8), nrows=1, ncols=2)
+
+    pnt_aucs = auc_vals[[
+        not isinstance(mtype, (RandomType, Mcomb, ExMcomb))
+        and (mtype.subtype_list()[0][1] & copy_mtype).is_empty()
+        for mtype in auc_vals.index
+        ]]
+
+    plot_df = pd.DataFrame(
+        index=pnt_aucs.index,
+        columns=pd.MultiIndex.from_product([['gain', 'loss'],
+                                            ['all', 'deep']]),
+        dtype=float
+        )
+
+    for pnt_type, (copy_indx, copy_type) in product(
+            pnt_aucs.index,
+            zip(plot_df.columns, [dict(cna_mtypes)['Gain'], gain_mtype,
+                                  dict(cna_mtypes)['Loss'], loss_mtype])
+            ):
+        dyad_type = MuType({('Gene', args.gene): copy_type}) | pnt_type
+
+        if dyad_type in auc_vals.index:
+            plot_df.loc[pnt_type, copy_indx] = auc_vals[dyad_type]
+
+    plt_min = 0.83
+    for ax, copy_lbl in zip([gain_ax, loss_ax], ['gain', 'loss']):
+        for dpth_lbl in ['all', 'deep']:
+            copy_aucs = plot_df[copy_lbl, dpth_lbl]
+            copy_aucs = copy_aucs[~copy_aucs.isnull()]
+
+            for pnt_type, copy_auc in copy_aucs.iteritems():
+                plt_min = min(plt_min,
+                              pnt_aucs[pnt_type] - 0.03, copy_auc - 0.03)
+
+                mtype_sz = 1003 * np.mean(pheno_dict[pnt_type])
+                plt_clr = choose_subtype_colour(pnt_type.subtype_list()[0][1])
+
+                if dpth_lbl == 'all':
+                    dpth_clr = plt_clr
+                    edg_lw = 0
+                else:
+                    dpth_clr = 'none'
+                    edg_lw = mtype_sz ** 0.5 / 4.7
+
+                ax.scatter(pnt_aucs[pnt_type], copy_auc,
+                           facecolor=dpth_clr, s=mtype_sz, alpha=0.21,
+                           edgecolor=plt_clr, linewidths=edg_lw)
+
+    for copy_lbl, copy_type, copy_ax, copy_lw in zip(
+            ['All Gains', 'Deep Gains', 'All Losses', 'Deep Losses'],
+            [dict(cna_mtypes)['Gain'], gain_mtype,
+             dict(cna_mtypes)['Loss'], loss_mtype],
+            [gain_ax, gain_ax, loss_ax, loss_ax],
+            [3.1, 4.3, 3.1, 4.3]
+        ):
+        gene_copy = MuType({('Gene', args.gene): copy_type})
+
+        if gene_copy in auc_vals.index:
+            copy_auc = auc_vals[gene_copy]
+            copy_clr = choose_subtype_colour(copy_type)
+            use_lbl = ' '.join([copy_lbl.split(' ')[0], args.gene,
+                                copy_lbl.split(' ')[1]])
+
+            copy_ax.text(max(plt_min, 0.51), copy_auc + (1 - copy_auc) / 173,
+                         use_lbl, c=copy_clr, size=13, ha='left', va='bottom')
+            copy_ax.plot([plt_min, 1], [copy_auc, copy_auc], color=copy_clr,
+                         linewidth=copy_lw, linestyle=':', alpha=0.83)
+
+    plt_lims = plt_min, 1 + (1 - plt_min) / 91
+    for ax in (gain_ax, loss_ax):
+        ax.set_xlim(plt_lims)
+        ax.set_ylim(plt_lims)
+
+        ax.plot(plt_lims, [0.5, 0.5],
+                color='black', linewidth=1.1, linestyle=':', alpha=0.71)
+        ax.plot([0.5, 0.5], plt_lims,
+                color='black', linewidth=1.1, linestyle=':', alpha=0.71)
+
+        ax.plot(plt_lims, [1, 1], color='black', linewidth=1.7, alpha=0.89)
+        ax.plot([1, 1], plt_lims, color='black', linewidth=1.7, alpha=0.89)
+        ax.plot(plt_lims, plt_lims,
+                color='#550000', linewidth=1.9, linestyle='--', alpha=0.41)
+
+        ax.set_xlabel("Accuracy of Subgrouping Classifier",
+                      size=23, weight='semibold')
+
+    gain_ax.set_ylabel("Accuracy of\n(Subgrouping or CNAs) Classifier",
+                       size=23, weight='semibold')
+    gain_ax.set_title("Gain CNAs", size=27, weight='semibold')
+    loss_ax.set_title("Loss CNAs", size=27, weight='semibold')
+
+    plt.tight_layout(w_pad=3.1)
+    plt.savefig(
+        os.path.join(plot_dir, args.gene,
+                     "{}__dyad-comparisons_{}_{}.svg".format(
+                         use_coh, args.classif, args.expr_source)),
+        bbox_inches='tight', format='svg'
+        )
+
+    plt.close()
+
+
 def main():
     parser = argparse.ArgumentParser(
         "Creates assorted plots for the output related to one particular "
@@ -230,7 +438,7 @@ def main():
         raise ValueError("No completed experiments found for this "
                          "combination of parameters!")
 
-    out_use = pd.DataFrame(
+    out_df = pd.DataFrame(
         [{'Cohort': out_file.parts[-2].split('__')[1],
           'Levels': '__'.join(out_file.parts[-1].split('__')[1:-2]),
           'File': out_file}
@@ -238,23 +446,19 @@ def main():
         )
 
     os.makedirs(os.path.join(plot_dir, args.gene), exist_ok=True)
-    out_iter = out_use.groupby(['Cohort', 'Levels'])['File']
-    out_aucs = {(coh, lvls): list() for coh, lvls in out_iter.groups}
-    out_confs = {(coh, lvls): list() for coh, lvls in out_iter.groups}
-
-    phn_dicts = {coh: dict() for coh in set(out_use.Cohort)}
-    auc_dfs = {ex_lbl: {coh: pd.DataFrame([]) for coh in set(out_use.Cohort)}
-               for ex_lbl in ['All', 'Iso', 'IsoShal']}
-    conf_dfs = {ex_lbl: {coh: pd.DataFrame([]) for coh in set(out_use.Cohort)}
-                for ex_lbl in ['All', 'Iso', 'IsoShal']}
+    out_iter = out_df.groupby(['Cohort', 'Levels'])['File']
+    phn_dicts = {coh: dict() for coh in out_df.Cohort.unique()}
+ 
+    out_dirs = {coh: Path(base_dir, '__'.join([args.expr_source, coh]))
+                for coh in out_df.Cohort.values}
+    out_tags = {fl: '__'.join(fl.parts[-1].split('__')[1:])
+                for fl in out_df.File}
 
     for (coh, lvls), out_files in out_iter:
         for out_file in out_files:
-            out_dir = os.path.join(base_dir,
-                                   '__'.join([args.expr_source, coh]))
-            out_tag = '__'.join(out_file.parts[-1].split('__')[1:])
-
-            with bz2.BZ2File(Path(out_dir, '__'.join(["out-pheno", out_tag])),
+            with bz2.BZ2File(Path(out_dirs[coh],
+                                  '__'.join(["out-pheno",
+                                             out_tags[out_file]])),
                              'r') as f:
                 phn_vals = pickle.load(f)
 
@@ -263,7 +467,23 @@ def main():
                     if mut.get_labels()[0] == args.gene
                     })
 
-            with bz2.BZ2File(Path(out_dir, '__'.join(["out-aucs", out_tag])),
+    use_cohs = {coh for coh, phn_dict in phn_dicts.items() if phn_dict}
+    out_use = out_df.loc[out_df.Cohort.isin(use_cohs)]
+    use_iter = out_use.groupby(['Cohort', 'Levels'])['File']
+
+    out_aucs = {(coh, lvls): list() for coh, lvls in use_iter.groups}
+    out_confs = {(coh, lvls): list() for coh, lvls in use_iter.groups}
+
+    auc_dfs = {ex_lbl: {coh: pd.DataFrame([]) for coh in use_cohs}
+               for ex_lbl in ['All', 'Iso', 'IsoShal']}
+    conf_dfs = {ex_lbl: {coh: pd.DataFrame([]) for coh in use_cohs}
+                for ex_lbl in ['All', 'Iso', 'IsoShal']}
+
+    for (coh, lvls), out_files in use_iter:
+        for out_file in out_files:
+            with bz2.BZ2File(Path(out_dirs[coh],
+                                  '__'.join(["out-aucs",
+                                             out_tags[out_file]])),
                              'r') as f:
                 auc_vals = pickle.load(f)
 
@@ -275,7 +495,9 @@ def main():
                         } for ex_lbl, auc_dict in auc_vals.items()}
                     ]
 
-            with bz2.BZ2File(Path(out_dir, '__'.join(["out-conf", out_tag])),
+            with bz2.BZ2File(Path(out_dirs[coh],
+                                  '__'.join(["out-conf",
+                                             out_tags[out_file]])),
                              'r') as f:
                 conf_vals = pickle.load(f)
 
@@ -308,21 +530,29 @@ def main():
                     ])
 
     for coh, coh_use in out_use.groupby('Cohort')['Levels']:
-        if phn_dicts[coh]:
-            for ex_lbl in ['All', 'Iso', 'IsoShal']:
-                auc_dfs[ex_lbl][coh] = auc_dfs[ex_lbl][coh].loc[
-                    ~auc_dfs[ex_lbl][coh].index.duplicated()]
-                conf_dfs[ex_lbl][coh] = conf_dfs[ex_lbl][coh].loc[
-                    ~conf_dfs[ex_lbl][coh].index.duplicated()]
+        for ex_lbl in ['All', 'Iso', 'IsoShal']:
+            auc_dfs[ex_lbl][coh] = auc_dfs[ex_lbl][coh].loc[
+                ~auc_dfs[ex_lbl][coh].index.duplicated()]
+            conf_dfs[ex_lbl][coh] = conf_dfs[ex_lbl][coh].loc[
+                ~conf_dfs[ex_lbl][coh].index.duplicated()]
 
-            plot_size_comparisons(auc_dfs['All'][coh]['mean'], phn_dicts[coh],
-                                  conf_dfs['All'][coh]['mean'], coh, args)
+        coh_aucs = {ex_lbl: auc_df[coh]['mean']
+                    for ex_lbl, auc_df in auc_dfs.items()}
+        coh_confs = {ex_lbl: conf_df[coh]['mean']
+                     for ex_lbl, conf_df in conf_dfs.items()}
 
-            if 'Consequence__Exon' not in set(coh_use.tolist()):
-                if args.verbose:
-                    print("Cannot compare AUCs until this experiment is run "
-                          "with mutation levels `Consequence__Exon` "
-                          "which tests genes' base mutations!")
+        plot_size_comparisons(coh_aucs['All'], phn_dicts[coh],
+                              coh_confs['All'], coh, args)
+
+        plot_iso_comparisons(coh_aucs, phn_dicts[coh], coh, args)
+        plot_dyad_comparisons(coh_aucs['All'], phn_dicts[coh],
+                              coh_confs['All'], coh, args)
+
+        if 'Consequence__Exon' not in set(coh_use.tolist()):
+            if args.verbose:
+                print("Cannot compare AUCs until this experiment is run "
+                      "with mutation levels `Consequence__Exon` "
+                      "which tests genes' base mutations!")
 
 
 if __name__ == '__main__':
