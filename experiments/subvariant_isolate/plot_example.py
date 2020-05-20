@@ -3,21 +3,20 @@ import os
 import sys
 
 base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'subvariant_isolate')
-sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
+sys.path.extend([os.path.join(os.path.dirname(__file__), '..', '..', '..')])
 plot_dir = os.path.join(base_dir, 'plots', 'example')
 
-from HetMan.experiments.subvariant_isolate.utils import (
-    Mcomb, ExMcomb, calc_auc)
+from HetMan.experiments.utilities.mutations import Mcomb, ExMcomb
 from HetMan.experiments.subvariant_tour.utils import RandomType
-from HetMan.experiments.subvariant_test.utils import get_cohort_label
 from dryadic.features.mutations import MuType
 
-from HetMan.experiments.utilities import simil_cmap
-from HetMan.experiments.subvariant_isolate.setup_isolate import merge_cohorts
-from HetMan.experiments.subvariant_isolate.utils import get_fancy_label
+from HetMan.experiments.subvariant_isolate import cna_mtypes
 from HetMan.experiments.subvariant_test import (
     variant_clrs, pnt_mtype, copy_mtype)
-from HetMan.experiments.subvariant_isolate import cna_mtypes
+from HetMan.experiments.subvariant_isolate.utils import (
+    calc_auc, get_fancy_label)
+from HetMan.experiments.utilities.colour_maps import simil_cmap
+from HetMan.experiments.subvariant_test.utils import get_cohort_label
 
 import argparse
 from pathlib import Path
@@ -628,12 +627,11 @@ def plot_iso_similarities(plt_clf, plt_mtype, plt_mcomb,
         mcomb for mcomb in pred_df.index
         if (isinstance(mcomb, ExMcomb) and mcomb != plt_mcomb
             and len(mcomb.mtypes) == 1
-            and ((copy_mtype.is_supertype(tuple(mcomb.mtypes)[0])
-                  and mcomb.all_mtype == plt_mcomb.all_mtype)
+            and not (mcomb.all_mtype & dict(cna_mtypes)['Shal']).is_empty()
+            and (copy_mtype.is_supertype(tuple(mcomb.mtypes)[0])
                  or (len(tuple(mcomb.mtypes)[0].subkeys()) == 1
                      and not any('domain' in lvl for lvl
-                                 in tuple(mcomb.mtypes)[0].get_levels())))
-            and not (mcomb.all_mtype & dict(cna_mtypes)['Shal']).is_empty())
+                                 in tuple(mcomb.mtypes)[0].get_levels()))))
         }
 
     fig, (vio_ax, sim_ax, lgnd_ax) = plt.subplots(
@@ -684,7 +682,8 @@ def plot_iso_similarities(plt_clf, plt_mtype, plt_mcomb,
                    color=variant_clrs['Point'], clip_on=False,
                    linestyle='--', linewidth=1.7, alpha=0.47)
 
-    vals_min, vals_max = pd.concat([vals_df, sim_df]).Value.quantile(q=[0, 1])
+    vals_min, vals_max = pd.concat([vals_df, sim_df],
+                                   sort=False).Value.quantile(q=[0, 1])
     vals_rng = (vals_max - vals_min) / 103
     plt_min = min(vals_min - vals_rng * 13, 2 * wt_mean - mut_mean)
     plt_max = max(vals_max + vals_rng, 2 * mut_mean - wt_mean)
@@ -762,7 +761,7 @@ def plot_iso_similarities(plt_clf, plt_mtype, plt_mcomb,
 def main():
     parser = argparse.ArgumentParser(
         "Plot an example diagram showing how overlap with other types of "
-        "mutations can affect a mutation classification task."
+        "mutations can affect a gene's mutation classification task."
         )
 
     parser.add_argument('gene', help='a mutated gene')
@@ -786,25 +785,27 @@ def main():
 
     out_iter = out_use.groupby(['Levels', 'Classif'])['File']
     phn_dict = dict()
-    cdata_dict = {lvls: None for lvls in set(out_use.Levels)}
-
+    cdata = None
     out_aucs = list()
     out_preds = {clf: list() for clf in set(out_use.Classif)}
-    out_simls = {clf: list() for clf in set(out_use.Classif)}
 
     for (lvls, clf), out_files in out_iter:
         auc_list = [None for _ in out_files]
         pred_list = [None for _ in out_files]
-        siml_list = [None for _ in out_files]
 
         for i, out_file in enumerate(out_files):
             out_tag = '__'.join(out_file.parts[-1].split('__')[1:])
 
-            if cdata_dict[lvls] is None:
+            if cdata is None:
                 with bz2.BZ2File(Path(base_dir, args.gene,
                                       '__'.join(["cohort-data", out_tag])),
                                  'r') as f:
-                    cdata_dict[lvls] = pickle.load(f)
+                    new_cdata = pickle.load(f)
+
+                    if cdata is None:
+                        cdata = new_cdata
+                    else:
+                        cdata.merge(new_cdata)
 
             with bz2.BZ2File(Path(base_dir, args.gene,
                                   '__'.join(["out-pheno", out_tag])),
@@ -831,11 +832,6 @@ def main():
                              'r') as f:
                 pred_list[i] = pickle.load(f)
 
-            with bz2.BZ2File(Path(base_dir, args.gene,
-                                  '__'.join(["out-siml", out_tag])),
-                             'r') as f:
-                siml_list[i] = pickle.load(f)
-
         mtypes_comp = np.greater_equal.outer(
             *([[set(auc_vals.index) for auc_vals in auc_list]] * 2))
         super_list = np.apply_along_axis(all, 1, mtypes_comp)
@@ -844,17 +840,12 @@ def main():
             super_indx = super_list.argmax()
             out_aucs += [auc_list[super_indx]]
             out_preds[clf] += [pred_list[super_indx]]
-            out_simls[clf] += [siml_list[super_indx]]
 
         else:
             raise ValueError
 
-    auc_df = pd.concat(out_aucs)
+    auc_df = pd.concat(out_aucs, sort=True)
     auc_df = auc_df.loc[~auc_df.index.duplicated()]
-
-    cdata = merge_cohorts(cdata_dict.values())
-    all_mtypes = {lvls: MuType(mtree.allkey())
-                  for lvls, mtree in cdata.mtrees.items()}
 
     # get list of hotspot mutations that appear in enough samples by
     # themselves to have had inferred values calculated for them
@@ -863,6 +854,7 @@ def main():
                      and 'Copy' not in mtype.get_levels()
                      and not any('domain' in lvl
                                  for lvl in mtype.get_levels())
+                     and mtype.subtype_list()[0][1] != pnt_mtype
                      and len(mtype.subkeys()) == 1
                      and any(oth_clf == clf and isinstance(mcomb, ExMcomb)
                              and len(mcomb.mtypes) == 1
@@ -874,7 +866,8 @@ def main():
             mcomb for oth_clf, mcomb in auc_df.index
             if (oth_clf == clf and isinstance(mcomb, ExMcomb)
                 and len(mcomb.mtypes) == 1 and tuple(mcomb.mtypes)[0] == mtype
-                and mcomb.all_mtype in all_mtypes.values())
+                and not (mcomb.all_mtype
+                         & dict(cna_mtypes)['Shal']).is_empty())
             }
         for clf, mtype in base_muts
         }
@@ -907,9 +900,11 @@ def main():
         )[0]
     use_mcomb = tuple(ex_muts[use_clf, use_mtype])[0]
 
-    pred_dfs = {ex_lbl: pd.concat([pred_list[ex_lbl]
-                                   for pred_list in out_preds[use_clf]])
-                for ex_lbl in ['All', 'Iso']}
+    pred_dfs = {
+        ex_lbl: pd.concat([pred_list[ex_lbl]
+                           for pred_list in out_preds[use_clf]], sort=True)
+                for ex_lbl in ['All', 'Iso']
+        }
     pred_dfs = {ex_lbl: pred_df.loc[~pred_df.index.duplicated()]
                 for ex_lbl, pred_df in pred_dfs.items()}
 

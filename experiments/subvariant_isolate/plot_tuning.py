@@ -7,9 +7,9 @@ sys.path.extend([os.path.join(os.path.dirname(__file__), '..', '..', '..')])
 plot_dir = os.path.join(base_dir, 'plots', 'tuning')
 
 from HetMan.experiments.subvariant_isolate import *
-from HetMan.experiments.subvariant_test.utils import choose_label_colour
-from HetMan.experiments.utilities.misc import detect_log_distr
-from HetMan.experiments.utilities import auc_cmap
+from HetMan.experiments.utilities.misc import (
+    detect_log_distr, choose_label_colour)
+from HetMan.experiments.utilities.colour_maps import auc_cmap
 
 import argparse
 from pathlib import Path
@@ -294,7 +294,7 @@ def main():
 
     args = parser.parse_args()
     out_list = tuple(Path(base_dir).glob(
-        os.path.join("*", "out-conf__{}__*__*__{}.p.gz".format(
+        os.path.join("*", "out-siml__{}__*__*__{}.p.gz".format(
             args.cohort, args.classif))
         ))
 
@@ -311,20 +311,19 @@ def main():
         )
 
     out_iter = out_use.groupby(['Gene', 'Levels'])['File']
-    out_tune = {(gene, lvls): list() for (gene, lvls), _ in out_iter}
-    out_aucs = {(gene, lvls): list() for (gene, lvls), _ in out_iter}
-    phn_dict = {gene: dict() for gene in set(out_use.Gene)}
+    out_tune = {(gene, lvls): list() for gene, lvls in out_iter.groups}
+    out_aucs = {(gene, lvls): list() for gene, lvls in out_iter.groups}
+    phn_dict = {gene: dict() for gene in out_use.Gene.unique()}
 
-    tune_dfs = {
-        gene: [{ex_lbl: pd.DataFrame([])
-                for ex_lbl in ['All', 'Iso', 'IsoShal']}
-               for _ in range(3)] + [[]]
-        for gene in set(out_use.Gene)
-        }
+    tune_dfs = {gene: [{ex_lbl: pd.DataFrame([])
+                        for ex_lbl in ['All', 'Iso', 'IsoShal']}
+                       for _ in range(3)] + [[]]
+                for gene in out_use.Gene.unique()}
+    out_clf = None
 
     auc_dfs = {gene: {ex_lbl: pd.DataFrame([])
                       for ex_lbl in ['All', 'Iso', 'IsoShal']}
-               for gene in set(out_use.Gene)}
+               for gene in out_use.Gene.unique()}
 
     for (gene, lvls), out_files in out_iter:
         for out_file in out_files:
@@ -353,7 +352,13 @@ def main():
 
         if super_list.any():
             super_indx = super_list.argmax()
-            tune_dfs[gene][3] += [out_tune[gene, lvls][super_indx][3]]
+
+            if out_clf is not None:
+                if out_tune[gene, lvls][super_indx][3] != out_clf:
+                    raise ValueError("Mismatching classifiers in subvariant "
+                                     "isolation experment output!")
+            else:
+                out_clf = out_tune[gene, lvls][super_indx][3]
 
             for ex_lbl in ['All', 'Iso', 'IsoShal']:
                 auc_dfs[gene][ex_lbl] = pd.concat([
@@ -367,12 +372,6 @@ def main():
                         out_tune[gene, lvls][super_indx][i][ex_lbl]
                         ])
 
-    mut_clf = set(clf for _, _, _, clfs in tune_dfs.values() for clf in clfs)
-    if len(mut_clf) != 1:
-        raise ValueError("Each subvariant isolation experiment must be run "
-                         "with exactly one classifier!")
-
-    mut_clf = tuple(mut_clf)[0]
     auc_dfs = {gene: {ex_lbl: auc_df.loc[~auc_df.index.duplicated()]
                       for ex_lbl, auc_df in auc_dict.items()}
                for gene, auc_dict in auc_dfs.items()}
@@ -382,10 +381,10 @@ def main():
                        for tune_dict in tune_list[:3]]
                 for gene, tune_list in tune_dfs.items()}
 
-    plot_chosen_parameters(tune_dfs, phn_dict, auc_dfs, mut_clf, args)
-    plot_parameter_profile(tune_dfs, mut_clf, args)
+    plot_chosen_parameters(tune_dfs, phn_dict, auc_dfs, out_clf, args)
+    plot_parameter_profile(tune_dfs, out_clf, args)
 
-    if len(mut_clf.tune_priors) > 1:
+    if len(out_clf.tune_priors) > 1:
         plot_tuning_grid(*out_lists)
 
 

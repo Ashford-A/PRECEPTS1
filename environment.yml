@@ -23,10 +23,10 @@ dependencies:
   - boto3=1.9.199
   - botocore=1.12.199
   - bzip2=1.0.8
-  - ca-certificates=2020.1.1
+  - ca-certificates=2020.4.5.1
   - cachetools=2.1.0
   - cairo=1.16.0
-  - certifi=2019.11.28
+  - certifi=2020.4.5.1
   - cffi=1.12.3
   - chardet=3.0.4
   - clustalw=2.1
@@ -94,6 +94,7 @@ dependencies:
   - importlib_metadata=0.19
   - inflect=4.1.0
   - intel-openmp=2019.4
+  - ipdb=0.12.3
   - ipython=7.8.0
   - ipython_genutils=0.2.0
   - jbig=2.1
@@ -408,6 +409,7 @@ dependencies:
   - python-dateutil=2.8.0
   - python-irodsclient=0.7.0
   - python-wget=3.2
+  - python_abi=3.6
   - pytz=2019.2
   - pyyaml=5.1.2
   - qt=5.9.7
@@ -473,10 +475,10 @@ dependencies:
   - pip:
     - backports-csv==1.0.7
     - deprecated==1.2.4
-    - dryad==0.4.3a4
+    - dryad==0.4.3a7
     - entrypoints==0.3
     - keyring==12.0.2
     - keyrings-alt==3.1
     - secretstorage==2.3.1
-    - synapseclient==1.9.3
+    - synapseclient==2.0.0
 
