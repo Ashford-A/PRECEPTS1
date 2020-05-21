@@ -22,8 +22,10 @@ import argparse
 from pathlib import Path
 import bz2
 import dill as pickle
+
 import random
 from operator import itemgetter
+from itertools import combinations as combn
 
 import warnings
 from HetMan.experiments.utilities.misc import warning_on_one_line
@@ -31,6 +33,7 @@ warnings.formatwarning = warning_on_one_line
 
 import numpy as np
 import pandas as pd
+from math import ceil
 
 import matplotlib as mpl
 mpl.use('Agg')
@@ -193,6 +196,145 @@ def plot_copy_adjacencies(siml_dicts, pheno_dict, auc_vals, pred_vals,
     plt.close()
 
 
+def plot_score_symmetry(siml_dicts, pheno_dict, auc_dfs, pred_dfs,
+                        cdata, args):
+    fig, (iso_ax, ish_ax) = plt.subplots(figsize=(15, 8), nrows=1, ncols=2)
+
+    assert sorted(auc_dfs['Iso'].index) == sorted(auc_dfs['IsoShal'].index)
+    plt_gby = auc_dfs['Iso']['mean'][[
+        mcomb for mcomb in auc_dfs['Iso'].index
+        if isinstance(mcomb, ExMcomb) and len(mcomb.mtypes) == 1
+        ]].groupby(lambda mcomb: mcomb.get_labels()[0])
+
+    if args.test:
+        test_list = list()
+    else:
+        test_list = None
+
+    plt_lims = [0.1, 0.9]
+    for cur_gene, iso_aucs in plt_gby:
+        gene_clr = choose_label_colour(cur_gene)
+
+        use_mtree = tuple(cdata.mtrees.values())[0][cur_gene]
+        all_mtypes = {'Iso': MuType({('Gene', cur_gene): use_mtree.allkey()})}
+        all_mtypes['IsoShal'] = all_mtypes['Iso'] - MuType({
+            ('Gene', cur_gene): dict(cna_mtypes)['Shal']})
+
+        iso_combs = {mcomb for mcomb, auc_val in iso_aucs.iteritems()
+                     if (auc_val >= 0.7
+                         and not (mcomb.all_mtype
+                                  & dict(cna_mtypes)['Shal']).is_empty())}
+
+        ish_combs = {
+            mcomb for mcomb, auc_val in auc_dfs['IsoShal']['mean'].iteritems()
+            if (mcomb in iso_aucs.index and auc_val >= 0.7
+                and (tuple(mcomb.mtypes)[0]
+                     & dict(cna_mtypes)['Shal']).is_empty()
+                and (mcomb.all_mtype & dict(cna_mtypes)['Shal']).is_empty())
+            }
+
+        for ax, ex_lbl, use_combs in zip([iso_ax, ish_ax], ['Iso', 'IsoShal'],
+                                         [iso_combs, ish_combs]):
+            use_pairs = {
+                (mcomb1, mcomb2) for mcomb1, mcomb2 in combn(use_combs, 2)
+                if (not (pheno_dict[mcomb1] & pheno_dict[mcomb2]).any()
+                    or (tuple(mcomb1.mtypes)[0]
+                        & tuple(mcomb2.mtypes)[0]).is_empty())
+                }
+
+            if args.verbose and use_pairs:
+                print('\n'.join([
+                    '\n##########', "{}({})  {} pairs from {} types".format(
+                        cur_gene, ex_lbl, len(use_pairs), len(use_combs)),
+                    '----------'
+                    ] + ['\txxxxx\t'.join([str(mcomb) for mcomb in pair])
+                         for pair in tuple(use_pairs)[
+                             ::(len(use_pairs) // (args.verbose * 3) + 1)]]
+                    ))
+
+            for mcomb1, mcomb2 in use_pairs:
+                if args.test:
+                    copy_siml1, test_list = calculate_pair_siml(
+                        mcomb1, mcomb2, all_mtypes[ex_lbl],
+                        siml_dicts[ex_lbl], pheno_dict, pred_dfs[ex_lbl],
+                        ex_lbl, cdata, test_list
+                        )
+
+                    copy_siml2, test_list = calculate_pair_siml(
+                        mcomb2, mcomb1, all_mtypes[ex_lbl],
+                        siml_dicts[ex_lbl], pheno_dict, pred_dfs[ex_lbl],
+                        ex_lbl, cdata, test_list
+                        )
+
+                else:
+                    copy_siml1 = calculate_pair_siml(
+                        mcomb1, mcomb2, all_mtypes[ex_lbl],
+                        siml_dicts[ex_lbl], pheno_dict, pred_dfs[ex_lbl],
+                        ex_lbl, cdata, test_list
+                        )
+
+                    copy_siml2 = calculate_pair_siml(
+                        mcomb2, mcomb1, all_mtypes[ex_lbl],
+                        siml_dicts[ex_lbl], pheno_dict, pred_dfs[ex_lbl],
+                        ex_lbl, cdata, test_list
+                        )
+
+                plt_lims[0] = min(plt_lims[0],
+                                  copy_siml1 - 0.19, copy_siml2 - 0.19)
+                plt_lims[1] = max(plt_lims[1],
+                                  copy_siml1 + 0.19, copy_siml2 + 0.19)
+                plt_sz = 377 * (np.mean(pheno_dict[mcomb1])
+                                * np.mean(pheno_dict[mcomb2])) ** 0.5
+
+                ax.scatter(copy_siml1, copy_siml2, s=plt_sz, c=[gene_clr],
+                           alpha=0.13, edgecolor='none')
+
+    if args.test:
+        print("Successfully tested the inferred similarities of {} mutation "
+              "type pairs which included {} different genes for internal "
+              "consistency!".format(len(test_list),
+                                    len(set(mcomb.get_labels()[0]
+                                            for mcomb, _ in test_list))))
+
+    clr_norm = colors.Normalize(vmin=-1, vmax=2)
+    for ax in iso_ax, ish_ax:
+        ax.grid(alpha=0.53, linewidth=0.9)
+
+        ax.plot(plt_lims, [0, 0],
+                color='black', linewidth=1.3, linestyle=':', alpha=0.53)
+        ax.plot([0, 0], plt_lims,
+                color='black', linewidth=1.3, linestyle=':', alpha=0.53)
+
+        ax.plot(plt_lims, plt_lims,
+                color='#550000', linewidth=1.7, linestyle='--', alpha=0.41)
+
+        for siml_val in [-1, 1, 2]:
+            ax.plot(plt_lims, [siml_val] * 2,
+                    color=simil_cmap(clr_norm(siml_val)),
+                    linewidth=4.1, linestyle=':', alpha=0.53)
+
+        ax.set_xlim(*plt_lims)
+        ax.set_ylim(*plt_lims)
+
+    iso_ax.set_title(
+        "Similarities Computed Treating\nShallow CNAs as Mutant\n",
+        size=23, weight='semibold'
+        )
+    ish_ax.set_title(
+        "Similarities Computed Treating\nShallow CNAs as Wild-Type\n",
+        size=23, weight='semibold'
+        )
+
+    plt.tight_layout(w_pad=3.7)
+    plt.savefig(
+        os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
+                     "score-symmetry_{}.svg".format(args.classif)),
+        bbox_inches='tight', format='svg'
+        )
+
+    plt.close()
+
+
 def main():
     parser = argparse.ArgumentParser(
         "Plots the similarities between various pairs of genes' "
@@ -206,6 +348,7 @@ def main():
     parser.add_argument('--seed', type=int)
     parser.add_argument('--test', action='store_true',
                         help="run diagnostic tests?")
+    parser.add_argument('--verbose', '-v', action='count', default=0)
 
     args = parser.parse_args()
     out_dir = Path(base_dir, '__'.join([args.expr_source, args.cohort]))
@@ -306,6 +449,8 @@ def main():
                       "point mutation types until this experiment has been "
                       "run with the `Conseqeuence__Exon` mutation level "
                       "combination on this cohort!")
+
+    plot_score_symmetry(siml_dicts, phn_dict, auc_dfs, pred_dfs, cdata, args)
 
 
 if __name__ == '__main__':
