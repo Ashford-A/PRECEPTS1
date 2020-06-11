@@ -14,11 +14,15 @@ from HetMan.experiments.subvariant_tour.utils import RandomType
 from HetMan.experiments.utilities.mutations import Mcomb, ExMcomb
 from dryadic.features.mutations import MuType
 
+from HetMan.experiments.subgrouping_isolate.utils import calculate_pair_siml
+from HetMan.experiments.subvariant_isolate import mcomb_clrs
+from HetMan.experiments.utilities.colour_maps import simil_cmap
+from HetMan.experiments.utilities.misc import create_twotone_circle
+
 from HetMan.experiments.subvariant_isolate.utils import get_fancy_label
+from HetMan.experiments.subvariant_test.utils import get_cohort_label
 from HetMan.experiments.utilities.label_placement import (
     place_scatterpie_labels)
-from HetMan.experiments.subvariant_test.utils import get_cohort_label
-from HetMan.experiments.subvariant_isolate import mcomb_clrs
 
 import argparse
 from pathlib import Path
@@ -30,10 +34,13 @@ import pandas as pd
 
 from itertools import combinations as combn
 from itertools import permutations, product
+from functools import reduce
+from operator import or_
 
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
+from matplotlib import colors
 
 plt.style.use('fivethirtyeight')
 plt.rcParams['axes.facecolor']='white'
@@ -71,6 +78,7 @@ def plot_size_comparisons(auc_vals, pheno_dict, conf_vals,
         if not isinstance(mut, RandomType)
         }).transpose().astype({'Size': int})
 
+    #TODO: differentiate between deep- and shal-exclusive mutations?
     for mut, (size_val, auc_val) in plt_df.iterrows():
         if isinstance(mut, MuType):
             sub_mut = mut.subtype_list()[0][1]
@@ -414,6 +422,132 @@ def plot_dyad_comparisons(auc_vals, pheno_dict, conf_vals, use_coh, args):
     plt.close()
 
 
+def plot_score_symmetry(siml_dicts, pheno_dict, auc_dfs, pred_dfs,
+                        use_coh, cdata, args):
+    fig, (iso_ax, ish_ax) = plt.subplots(figsize=(15, 8), nrows=1, ncols=2)
+
+    use_mtree = tuple(cdata.mtrees.values())[0][args.gene]
+    plt_lims = [0.1, 0.9]
+
+    all_mtypes = {
+        'Iso': MuType({('Gene', args.gene): use_mtree.allkey()})}
+    all_mtypes['IsoShal'] = all_mtypes['Iso'] - MuType({
+        ('Gene', args.gene): dict(cna_mtypes)['Shal']})
+
+    iso_combs = {mut for mut, auc_val in auc_dfs['Iso'].iteritems()
+                 if (isinstance(mut, ExMcomb) and auc_val >= 0.7
+                     and not (mut.all_mtype
+                              & dict(cna_mtypes)['Shal']).is_empty())}
+
+    ish_combs = {
+        mut for mut, auc_val in auc_dfs['IsoShal'].iteritems()
+        if (isinstance(mut, ExMcomb) and auc_val >= 0.7
+            and (mut.all_mtype & dict(cna_mtypes)['Shal']).is_empty()
+            and all((mtp & dict(cna_mtypes)['Shal']).is_empty()
+                    for mtp in mut.mtypes))
+        }
+
+    for ax, ex_lbl, use_combs in zip([iso_ax, ish_ax], ['Iso', 'IsoShal'],
+                                     [iso_combs, ish_combs]):
+        use_pairs = {
+            (mcomb1, mcomb2) for mcomb1, mcomb2 in combn(use_combs, 2)
+            if (not (pheno_dict[mcomb1] & pheno_dict[mcomb2]).any()
+                or all((mtp1 & mtp2).is_empty()
+                       for mtp1, mtp2 in product(
+                           mcomb1.mtypes, mcomb2.mtypes)))
+            }
+
+        if args.verbose and use_pairs:
+            print('\n'.join([
+                '\n##########', "{}: {}({})  {} pairs from {} types".format(
+                    use_coh, args.gene, ex_lbl,
+                    len(use_pairs), len(use_combs)
+                    ),
+                '----------'
+                ] + ['\txxxxx\t'.join([str(mcomb) for mcomb in pair])
+                     for pair in tuple(use_pairs)[
+                         ::(len(use_pairs) // (args.verbose * 7) + 1)]]
+                ))
+
+        for mcomb1, mcomb2 in use_pairs:
+            plt_clrs = [
+                choose_subtype_colour(
+                    reduce(or_, mcomb.mtypes).subtype_list()[0][1])
+                for mcomb in (mcomb1, mcomb2)
+                ]
+
+            copy_siml1 = calculate_pair_siml(
+                mcomb1, mcomb2, all_mtypes[ex_lbl], siml_dicts[ex_lbl],
+                pheno_dict, pred_dfs[ex_lbl], cdata
+                )
+
+            copy_siml2 = calculate_pair_siml(
+                mcomb2, mcomb1, all_mtypes[ex_lbl], siml_dicts[ex_lbl],
+                pheno_dict, pred_dfs[ex_lbl], cdata
+                )
+
+            plt_lims[0] = min(plt_lims[0],
+                              copy_siml1 - 0.19, copy_siml2 - 0.19)
+            plt_lims[1] = max(plt_lims[1],
+                              copy_siml1 + 0.19, copy_siml2 + 0.19)
+
+            #TODO: scale by plot ranges or leave as is and thus make sizes
+            # relative to "true" plotting area?
+            mcomb_sz = (np.mean(pheno_dict[mcomb1])
+                        * np.mean(pheno_dict[mcomb2])) ** 0.5
+            plt_sz = (mcomb_sz ** 0.5) / 19
+
+            for ptch in create_twotone_circle((copy_siml1, copy_siml2),
+                                              plt_clrs, plt_sz, alpha=0.23,
+                                              edgecolor='none'):
+                ax.add_artist(ptch)
+
+    clr_norm = colors.Normalize(vmin=-1, vmax=2)
+    for ax in iso_ax, ish_ax:
+        ax.grid(alpha=0.47, linewidth=0.9)
+
+        ax.plot(plt_lims, [0, 0],
+                color='black', linewidth=1.37, linestyle=':', alpha=0.53)
+        ax.plot([0, 0], plt_lims,
+                color='black', linewidth=1.37, linestyle=':', alpha=0.53)
+
+        ax.plot(plt_lims, plt_lims,
+                color='#550000', linewidth=1.43, linestyle='--', alpha=0.41)
+
+        for siml_val in [-1, 1, 2]:
+            ax.plot(plt_lims, [siml_val] * 2,
+                    color=simil_cmap(clr_norm(siml_val)),
+                    linewidth=4.1, linestyle=':', alpha=0.37)
+            ax.plot([siml_val] * 2, plt_lims,
+                    color=simil_cmap(clr_norm(siml_val)),
+                    linewidth=4.1, linestyle=':', alpha=0.37)
+
+        plt_lctr = plt.MaxNLocator(7, steps=[1, 2, 5])
+        ax.xaxis.set_major_locator(plt_lctr)
+        ax.yaxis.set_major_locator(plt_lctr)
+        ax.set_xlim(*plt_lims)
+        ax.set_ylim(*plt_lims)
+
+    iso_ax.set_title(
+        "Similarities Computed Treating\nShallow CNAs as Mutant\n",
+        size=23, weight='semibold'
+        )
+    ish_ax.set_title(
+        "Similarities Computed Treating\nShallow CNAs as Wild-Type\n",
+        size=23, weight='semibold'
+        )
+
+    plt.tight_layout(w_pad=3.7)
+    plt.savefig(
+        os.path.join(plot_dir, args.gene,
+                     "{}__score-symmetry_{}_{}.svg".format(
+                         use_coh, args.classif, args.expr_source)),
+        bbox_inches='tight', format='svg'
+        )
+
+    plt.close()
+
+
 def main():
     parser = argparse.ArgumentParser(
         "Creates assorted plots for the output related to one particular "
@@ -424,6 +558,7 @@ def main():
     parser.add_argument('gene', help="a mutated gene")
     parser.add_argument('classif', help="a mutation classifier")
 
+    parser.add_argument('--cohorts', nargs='+')
     parser.add_argument('--seed', type=int)
     parser.add_argument('--verbose', '-v', action='store_true',
                         help="print info about created plots")
@@ -445,6 +580,13 @@ def main():
          for out_file in out_list]
         )
 
+    if args.cohorts:
+        out_df = out_df.loc[out_df.Cohort.isin(args.cohorts)]
+
+        if out_df.shape[0] == 0:
+            raise ValueError("No completed experiments found for given "
+                             "cohort(s) {} !".format(set(args.cohorts)))
+
     os.makedirs(os.path.join(plot_dir, args.gene), exist_ok=True)
     out_iter = out_df.groupby(['Cohort', 'Levels'])['File']
     phn_dicts = {coh: dict() for coh in out_df.Cohort.unique()}
@@ -462,21 +604,38 @@ def main():
                              'r') as f:
                 phn_vals = pickle.load(f)
 
-                phn_dicts[coh].update({
-                    mut: phns for mut, phns in phn_vals.items()
-                    if mut.get_labels()[0] == args.gene
-                    })
+            phn_dicts[coh].update({
+                mut: phns for mut, phns in phn_vals.items()
+                if mut.get_labels()[0] == args.gene
+                })
 
     use_cohs = {coh for coh, phn_dict in phn_dicts.items() if phn_dict}
+    if not use_cohs:
+        raise ValueError("No completed experiments found having tested "
+                         "mutations of the gene {} for the given "
+                         "parameters!".format(args.gene))
+
     out_use = out_df.loc[out_df.Cohort.isin(use_cohs)]
     use_iter = out_use.groupby(['Cohort', 'Levels'])['File']
 
     out_aucs = {(coh, lvls): list() for coh, lvls in use_iter.groups}
     out_confs = {(coh, lvls): list() for coh, lvls in use_iter.groups}
+    out_simls = {(coh, lvls): list() for coh, lvls in use_iter.groups}
+    out_preds = {(coh, lvls): list() for coh, lvls in use_iter.groups}
+    cdata_dict = {coh: None for coh, _ in use_iter.groups}
 
+    #TODO: why not cohorts as the outer index?
     auc_dfs = {ex_lbl: {coh: pd.DataFrame([]) for coh in use_cohs}
                for ex_lbl in ['All', 'Iso', 'IsoShal']}
     conf_dfs = {ex_lbl: {coh: pd.DataFrame([]) for coh in use_cohs}
+                for ex_lbl in ['All', 'Iso', 'IsoShal']}
+
+    siml_dicts = {ex_lbl: {coh: {lvls: dict()
+                                 for out_coh, lvls in out_iter.groups
+                                 if out_coh == coh}
+                           for coh in use_cohs}
+                  for ex_lbl in ['Iso', 'IsoShal']}
+    pred_dfs = {ex_lbl: {coh: pd.DataFrame([]) for coh in use_cohs}
                 for ex_lbl in ['All', 'Iso', 'IsoShal']}
 
     for (coh, lvls), out_files in use_iter:
@@ -487,13 +646,14 @@ def main():
                              'r') as f:
                 auc_vals = pickle.load(f)
 
-                out_aucs[coh, lvls] += [
-                    {ex_lbl: {
-                        cv_k: auc_list[[mut for mut in auc_list.index
-                                        if mut.get_labels()[0] == args.gene]]
-                        for cv_k, auc_list in auc_dict.items()
-                        } for ex_lbl, auc_dict in auc_vals.items()}
-                    ]
+            auc_vals = {ex_lbl: pd.DataFrame(auc_dict)
+                        for ex_lbl, auc_dict in auc_vals.items()}
+
+            out_aucs[coh, lvls] += [
+                {ex_lbl: auc_df.loc[[mut for mut in auc_df.index
+                                     if mut.get_labels()[0] == args.gene]]
+                 for ex_lbl, auc_df in auc_vals.items()}
+                ]
 
             with bz2.BZ2File(Path(out_dirs[coh],
                                   '__'.join(["out-conf",
@@ -501,13 +661,46 @@ def main():
                              'r') as f:
                 conf_vals = pickle.load(f)
 
-                out_confs[coh, lvls] += [
-                    {ex_lbl: {
-                        cv_k: conf_list[[mut for mut in conf_list.index
-                                        if mut.get_labels()[0] == args.gene]]
-                        for cv_k, conf_list in conf_dict.items()
-                        } for ex_lbl, conf_dict in conf_vals.items()}
-                    ]
+            out_confs[coh, lvls] += [{
+                ex_lbl: pd.DataFrame(conf_dict).loc[
+                    out_aucs[coh, lvls][-1][ex_lbl].index]
+                for ex_lbl, conf_dict in conf_vals.items()
+                }]
+
+            with bz2.BZ2File(Path(out_dirs[coh],
+                                  '__'.join(["out-siml",
+                                             out_tags[out_file]])),
+                             'r') as f:
+                siml_vals = pickle.load(f)
+
+            out_simls[coh, lvls] += [{
+                ex_lbl: {mut: simls for mut, simls in siml_dict.items()
+                         if mut.get_labels()[0] == args.gene}
+                for ex_lbl, siml_dict in siml_vals.items()
+                }]
+
+            with bz2.BZ2File(Path(out_dirs[coh],
+                                  '__'.join(["out-pred",
+                                             out_tags[out_file]])),
+                             'r') as f:
+                pred_vals = pickle.load(f)
+
+            out_preds[coh, lvls] += [{
+                ex_lbl: pd.DataFrame(pred_dict).loc[
+                    out_aucs[coh, lvls][-1][ex_lbl].index]
+                for ex_lbl, pred_dict in pred_vals.items()
+                }]
+
+            with bz2.BZ2File(Path(out_dirs[coh],
+                                  '__'.join(["cohort-data",
+                                             out_tags[out_file]])),
+                             'r') as f:
+                new_cdata = pickle.load(f)
+
+            if cdata_dict[coh] is None:
+                cdata_dict[coh] = new_cdata
+            else:
+                cdata_dict[coh].merge(new_cdata, use_genes=[args.gene])
 
         mtypes_comp = np.greater_equal.outer(
             *([[set(auc_vals['All']['mean'].index)
@@ -521,15 +714,24 @@ def main():
             for ex_lbl in ['All', 'Iso', 'IsoShal']:
                 auc_dfs[ex_lbl][coh] = pd.concat([
                     auc_dfs[ex_lbl][coh],
-                    pd.DataFrame(out_aucs[coh, lvls][super_indx][ex_lbl])
-                    ])
+                    out_aucs[coh, lvls][super_indx][ex_lbl]
+                    ], sort=False)
 
                 conf_dfs[ex_lbl][coh] = pd.concat([
                     conf_dfs[ex_lbl][coh],
-                    pd.DataFrame(out_confs[coh, lvls][super_indx][ex_lbl])
-                    ])
+                    out_confs[coh, lvls][super_indx][ex_lbl]
+                    ], sort=False)
 
-    for coh, coh_use in out_use.groupby('Cohort')['Levels']:
+                pred_dfs[ex_lbl][coh] = pd.concat([
+                    pred_dfs[ex_lbl][coh],
+                    out_preds[coh, lvls][super_indx][ex_lbl]
+                    ], sort=False)
+
+            for ex_lbl in ['Iso', 'IsoShal']:
+                siml_dicts[ex_lbl][coh][lvls] = out_simls[
+                    coh, lvls][super_indx][ex_lbl]
+
+    for coh, coh_lvls in out_use.groupby('Cohort')['Levels']:
         for ex_lbl in ['All', 'Iso', 'IsoShal']:
             auc_dfs[ex_lbl][coh] = auc_dfs[ex_lbl][coh].loc[
                 ~auc_dfs[ex_lbl][coh].index.duplicated()]
@@ -541,6 +743,11 @@ def main():
         coh_confs = {ex_lbl: conf_df[coh]['mean']
                      for ex_lbl, conf_df in conf_dfs.items()}
 
+        coh_simls = {ex_lbl: simls[coh]
+                     for ex_lbl, simls in siml_dicts.items()}
+        coh_preds = {ex_lbl: pred_df[coh]
+                     for ex_lbl, pred_df in pred_dfs.items()}
+
         plot_size_comparisons(coh_aucs['All'], phn_dicts[coh],
                               coh_confs['All'], coh, args)
 
@@ -548,7 +755,10 @@ def main():
         plot_dyad_comparisons(coh_aucs['All'], phn_dicts[coh],
                               coh_confs['All'], coh, args)
 
-        if 'Consequence__Exon' not in set(coh_use.tolist()):
+        plot_score_symmetry(coh_simls, phn_dicts[coh],
+                            coh_aucs, coh_preds, coh, cdata_dict[coh], args)
+
+        if 'Consequence__Exon' not in set(coh_lvls.tolist()):
             if args.verbose:
                 print("Cannot compare AUCs until this experiment is run "
                       "with mutation levels `Consequence__Exon` "
