@@ -18,13 +18,13 @@
         'mem-per-cpu': 4000,
     },
 
-    'consolidate' : {
-        'job-name' : "dyad-iso_cnsl",
-        'output' : "slurm/consolidate.out",
-        'error' : "slurm/consolidate.err",
+    'gather' : {
+        'job-name' : "dyad-iso_gthr",
+        'output' : "slurm/gather_{wildcards.tasks}.out",
+        'error' : "slurm/gather_{wildcards.tasks}.err",
         'time' : "35:55:00",
-        'cpus-per-task' : 12,
-        'mem-per-cpu': 2000,
+        'cpus-per-task' : 16,
+        'mem-per-cpu': 4000,
     },
 }
 

@@ -14,7 +14,6 @@ dependencies:
   - atomicwrites=1.3.0
   - attrs=19.1.0
   - backcall=0.1.0
-  - backports=1.0
   - bcrypt=3.1.6
   - binutils_impl_linux-64=2.31.1
   - binutils_linux-64=2.31.1
@@ -23,7 +22,7 @@ dependencies:
   - boto3=1.9.199
   - botocore=1.12.199
   - bzip2=1.0.8
-  - ca-certificates=2020.4.5.1
+  - ca-certificates=2020.1.1
   - cachetools=2.1.0
   - cairo=1.16.0
   - certifi=2020.4.5.1
@@ -34,7 +33,7 @@ dependencies:
   - colorama=0.4.3
   - configargparse=0.14.0
   - configobj=5.0.6
-  - configparser=3.7.4
+  - configparser=5.0.0
   - contextlib2=0.6.0.post1
   - cryptography=2.7
   - curl=7.65.3
@@ -103,7 +102,7 @@ dependencies:
   - jmespath=0.9.4
   - joblib=0.13.2
   - jpeg=9c
-  - jsonpath-ng=1.4.3
+  - jsonpath-ng=1.5.1
   - jsonschema=3.0.2
   - kiwisolver=1.1.0
   - krb5=1.16.1
@@ -135,6 +134,7 @@ dependencies:
   - llvmlite=0.29.0
   - markupsafe=1.1.1
   - matplotlib=3.1.1
+  - memory_profiler=0.57.0
   - mkl=2019.4
   - mkl-service=2.0.2
   - mkl_fft=1.0.14
@@ -427,7 +427,7 @@ dependencies:
   - scipy=1.3.1
   - seaborn=0.9.0
   - setuptools=41.0.1
-  - shortuuid=0.5.0
+  - shortuuid=1.0.1
   - sip=4.19.13
   - six=1.12.0
   - smmap2=2.0.5
@@ -442,7 +442,7 @@ dependencies:
   - tornado=6.0.3
   - tqdm=4.32.1
   - traitlets=4.3.2
-  - treelib=1.5.5
+  - treelib=1.6.1
   - twine=1.13.0
   - umap-learn=0.3.10
   - unzip=6.0
@@ -452,7 +452,7 @@ dependencies:
   - wheel=0.33.4
   - wrapt=1.11.2
   - xlrd=1.2.0
-  - xlsxwriter=1.2.7
+  - xlsxwriter=1.2.8
   - xmlrunner=1.7.7
   - xorg-kbproto=1.0.7
   - xorg-libice=1.0.10

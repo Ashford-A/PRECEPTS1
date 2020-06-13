@@ -44,10 +44,11 @@ then
 	rm -rf $OUTDIR
 fi
 
-# create the directories where intermediate and final output will be stored, move to working directory
-mkdir -p $FINALDIR $TEMPDIR/HetMan/dyad_isolate/$expr_source/$cohort/setup
-mkdir -p $OUTDIR/setup $OUTDIR/output $OUTDIR/slurm
+# move to working directory, clean up files from previous experiment runs, and
+# create the directories where intermediate and final output will be stored
+mkdir -p $FINALDIR $OUTDIR/setup $OUTDIR/output $OUTDIR/slurm $OUTDIR/merge
 cd $OUTDIR
+rm -rf .snakemake
 
 # initiate version control in this directory if it hasn't been already
 if [ ! -d .dvc ]
@@ -69,26 +70,22 @@ then
 fi
 
 # calculate how many parallel tasks the mutations will be tested over
+merge_max=2000
 muts_count=$(cat setup/muts-count.txt)
 task_count=$(( $(( $muts_count - 1 )) / $test_max + 1 ))
+merge_count=$(( $(( $muts_count - 1)) / $merge_max + 1 ))
+xargs -n $merge_count <<< $(seq 0 $(( $task_count - 1 ))) > setup/tasks.txt
 
-# remove the Snakemake locks on the working directory if present
-if [ -d .snakemake ]
-then
-	snakemake --unlock
-	rm -rf .snakemake/locks/*
-fi
-
-dvc run -d setup/muts-list.p -d $RUNDIR/fit_isolate.py -f output.dvc \
-	--overwrite-dvcfile --no-commit 'snakemake -s $RUNDIR/Snakefile \
+dvc run -d setup/muts-list.p -d $RUNDIR/fit_isolate.py -O out-siml.p.gz \
+	-f output.dvc --overwrite-dvcfile --ignore-build-cache \
+	'snakemake -s $RUNDIR/Snakefile \
 	-j 400 --latency-wait 120 --cluster-config $RUNDIR/cluster.json \
 	--cluster "sbatch -p {cluster.partition} -J {cluster.job-name} \
 	-t {cluster.time} -o {cluster.output} -e {cluster.error} \
 	-n {cluster.ntasks} -c {cluster.cpus-per-task} \
 	--mem-per-cpu {cluster.mem-per-cpu} --exclude=$ex_nodes --no-requeue" \
 	--config expr_source='"$expr_source"' cohort='"$cohort"' \
-	search='"$search"' mut_lvls='"$mut_lvls"' \
-	classif='"$classif"' task_count='"$task_count"
+	search='"$search"' mut_lvls='"$mut_lvls"' classif='"$classif"
 
 cp output.dvc $FINALDIR/output_${search}_${mut_lvls}_${classif}.dvc
 
