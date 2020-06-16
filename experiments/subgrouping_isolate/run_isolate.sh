@@ -78,7 +78,6 @@ task_count=$(( $(( $muts_count - 1 )) / $test_max + 1 ))
 merge_count=$(( $(( $muts_count - 1)) / $merge_max + 1 ))
 xargs -n $merge_count <<< $(seq 0 $(( $task_count - 1 ))) > setup/tasks.txt
 
-# remove the Snakemake locks on the working directory if present
 dvc run -d setup/muts-list.p -d $RUNDIR/fit_isolate.py -O out-siml.p.gz \
 	-f output.dvc --overwrite-dvcfile --ignore-build-cache \
 	'snakemake -s $RUNDIR/Snakefile \

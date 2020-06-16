@@ -154,8 +154,8 @@ def main():
 
         for ex_lbl in args.ex_lbls:
             out_preds = pd.DataFrame({
-                mtype: out_vals[ex_lbl] for out_dicts in out_list
-                for mtype, out_vals in out_dicts['Pred'].items()
+                mut: out_vals[ex_lbl] for out_dicts in out_list
+                for mut, out_vals in out_dicts['Pred'].items()
                 }).transpose()
 
             assert sorted(out_preds.index) == sorted(use_muts), (
@@ -183,8 +183,8 @@ def main():
         for k in out_dfs:
             for ex_lbl in args.ex_lbls:
                 out_dfs[k][ex_lbl][cv_id] = pd.DataFrame({
-                    mtype: out_vals[ex_lbl] for out_dicts in out_list
-                    for mtype, out_vals in out_dicts[k].items()
+                    mut: out_vals[ex_lbl] for out_dicts in out_list
+                    for mut, out_vals in out_dicts[k].items()
                     }).transpose()
 
     pred_dfs = {ex_lbl: reduce(add, pred_mats)
@@ -254,8 +254,7 @@ def main():
 
     cdata.update_split(test_prop=0)
     train_samps = np.array(cdata.get_train_samples())
-    pheno_dict = {mtype: np.array(cdata.train_pheno(mtype))
-                  for mtype in use_muts}
+    pheno_dict = {mut: np.array(cdata.train_pheno(mut)) for mut in use_muts}
 
     with bz2.BZ2File(os.path.join(args.use_dir, 'merge',
                                   "out-pheno{}.p.gz".format(out_tag)),
@@ -348,30 +347,37 @@ def main():
         pickle.dump(conf_lists, fl, protocol=-1)
 
     if 'Iso' in args.ex_lbls or 'IsoShal' in args.ex_lbls:
-        mcomb_list = {mtype for mtype in use_muts
-                      if isinstance(mtype, ExMcomb)}
         use_exs = [(ex_lbl, ex_mtype) for ex_lbl, ex_mtype in ex_mtypes
                    if ex_lbl in args.ex_lbls]
 
+        mcomb_lists = {
+            'Iso': {mut for mut in use_muts
+                    if (isinstance(mut, ExMcomb)
+                        and not (mut.all_mtype
+                                 & dict(cna_mtypes)['Shal']).is_empty())},
+            'IsoShal': {mut for mut in use_muts
+                        if (isinstance(mut, ExMcomb)
+                            and (mut.all_mtype
+                                 & dict(cna_mtypes)['Shal']).is_empty())}
+            }
+
         for ex_lbl, ex_mtype in use_exs:
-            for mcomb in mcomb_list:
-                cur_gene = mcomb.get_labels()[0]
+            for mcomb in mcomb_lists[ex_lbl]:
+                all_mtype = MuType({('Gene', mut_genes[mcomb]): use_mtree[
+                    mut_genes[mcomb]].allkey()})
 
-                all_mtype = MuType({(
-                    'Gene', cur_gene): use_mtree[cur_gene].allkey()})
-                gene_ex = MuType({('Gene', cur_gene): ex_mtype})
-
+                gene_ex = MuType({('Gene', mut_genes[mcomb]): ex_mtype})
                 pheno_dict[ex_lbl, mcomb] = np.array(cdata.train_pheno(
                     all_mtype - gene_ex))
 
         siml_dicts = {
-            ex_lbl: dict(zip(mcomb_list, Parallel(
+            ex_lbl: dict(zip(mcomb_lists[ex_lbl], Parallel(
                 n_jobs=12, prefer='threads', pre_dispatch=120)(
                     delayed(calculate_siml)(
                         mcomb, pheno_dict, (ex_lbl, mcomb),
                         pred_dfs[ex_lbl].loc[mcomb][train_samps]
                         )
-                    for mcomb in mcomb_list
+                    for mcomb in mcomb_lists[ex_lbl]
                     )
                 ))
             for ex_lbl in set(args.ex_lbls) & {'Iso', 'IsoShal'}

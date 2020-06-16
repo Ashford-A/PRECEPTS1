@@ -14,9 +14,9 @@ from dryadic.features.mutations import MuType
 from HetMan.experiments.subvariant_isolate import cna_mtypes
 from HetMan.experiments.subvariant_test import (
     variant_clrs, pnt_mtype, copy_mtype)
-from HetMan.experiments.subvariant_isolate.utils import calc_auc
+from HetMan.experiments.subvariant_isolate.utils import (
+    calc_auc, get_fancy_label)
 from HetMan.experiments.utilities.colour_maps import simil_cmap
-from HetMan.experiments.subvariant_isolate.utils import get_fancy_label
 from HetMan.experiments.subvariant_test.utils import get_cohort_label
 
 import argparse
@@ -882,8 +882,8 @@ def main():
                      and 'Copy' not in mtype.get_levels()
                      and not any('domain' in lvl
                                  for lvl in mtype.get_levels())
-                     and len(mtype.subkeys()) == 1
                      and mtype.subtype_list()[0][1] != pnt_mtype
+                     and len(mtype.subkeys()) == 1
                      and any(oth_clf == clf and isinstance(mcomb, ExMcomb)
                              and len(mcomb.mtypes) == 1
                              and tuple(mcomb.mtypes)[0] == mtype

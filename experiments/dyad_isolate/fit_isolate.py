@@ -128,18 +128,19 @@ def main():
                                 exclude_samps=ex_samps)
 
                 out_pred[mtype][ex_lbl] = {
-                    'test': mut_clf.parse_preds(
+                    'test': np.round(mut_clf.parse_preds(
                         mut_clf.predict_test(cdata, lbl_type='raw',
                                              exclude_feats=ex_genes)
-                        )
+                        ), 7)
                     }
 
                 if (ex_samps & set(cdata.get_train_samples())):
-                    out_pred[mtype][ex_lbl]['train'] = mut_clf.parse_preds(
-                        mut_clf.predict_train(cdata, lbl_type='raw',
-                                              exclude_feats=ex_genes,
-                                              include_samps=ex_samps)
-                        )
+                    out_pred[mtype][ex_lbl]['train'] = np.round(
+                        mut_clf.parse_preds(mut_clf.predict_train(
+                            cdata, lbl_type='raw',
+                            exclude_feats=ex_genes, include_samps=ex_samps
+                            )),
+                        7)
 
         else:
             del(out_pars[mtype])

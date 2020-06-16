@@ -1,5 +1,6 @@
 
 from ..subvariant_isolate.merge_isolate import calculate_siml
+from ..subvariant_tour.utils import RandomType
 from dryadic.features.mutations import MuTree
 from dryadic.features.cohorts.mut import BaseMutationCohort
 import numpy as np
@@ -12,7 +13,7 @@ def search_siml_pair(siml_dicts, mut, other_mut):
 
 
 def calculate_pair_siml(mcomb1, mcomb2, all_mtype, siml_dicts,
-                        pheno_dict, pred_df, ex_lbl, cdata, test_list=None):
+                        pheno_dict, pred_df, cdata, test_list=None):
     pair_simls = search_siml_pair(siml_dicts, mcomb1, mcomb2)
 
     if len(pair_simls) == 0 or (len(pair_simls) == 1
@@ -51,7 +52,10 @@ class IsoMutationCohort(BaseMutationCohort):
 
     def mtrees_status(self, mtype, samps=None):
         for lvls, mtree in self.mtrees.items():
-            if mtree.match_levels(mtype):
+            if ((not isinstance(mtype, RandomType)
+                 and mtree.match_levels(mtype))
+                    or (isinstance(mtype, RandomType)
+                        and mtree.match_levels(mtype.base_mtype))):
                 phn = mtree.status(samps, mtype)
                 break
 
