@@ -4,6 +4,20 @@ from functools import reduce
 from operator import or_
 
 
+pnt_mtype = MuType({('Scale', 'Point'): None})
+copy_mtype = MuType({('Scale', 'Copy'): None})
+shal_mtype = MuType({('Scale', 'Copy'): {(
+    'Copy', ('ShalGain', 'ShalDel')): None}})
+
+dup_mtype = MuType({('Scale', 'Copy'): {('Copy', 'DeepGain'): None}})
+gains_mtype = MuType({('Scale', 'Copy'): {(
+    'Copy', ('ShalGain', 'DeepGain')): None}})
+
+loss_mtype = MuType({('Scale', 'Copy'): {('Copy', 'DeepDel'): None}})
+dels_mtype = MuType({('Scale', 'Copy'): {(
+    'Copy', ('ShalDel', 'DeepDel')): None}})
+
+
 class Mcomb(MutComb):
 
     def __new__(cls, *mtypes):

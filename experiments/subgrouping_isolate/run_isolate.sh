@@ -36,7 +36,7 @@ done
 OUTDIR=$TEMPDIR/HetMan/subgrouping_isolate/$expr_source/$cohort/$mut_levels/$search/$classif
 FINALDIR=$DATADIR/HetMan/subgrouping_isolate/${expr_source}__${cohort}
 export RUNDIR=$CODEDIR/HetMan/experiments/subgrouping_isolate
-source $RUNDIR/files.sh
+eval $(python $RUNDIR/data_dirs.py $expr_source $cohort)
 
 # if we want to rewrite the experiment, remove the intermediate output directory
 if $rewrite
@@ -44,11 +44,9 @@ then
 	rm -rf $OUTDIR
 fi
 
-# create the directories where intermediate and final output will be stored
-mkdir -p $FINALDIR $TEMPDIR/HetMan/subgrouping_isolate/$expr_source/$cohort/setup
-mkdir -p $OUTDIR/setup $OUTDIR/output $OUTDIR/slurm $OUTDIR/merge
-
+# create the directories where intermediate and final output will be stored,
 # move to working directory
+mkdir -p $FINALDIR $OUTDIR/setup $OUTDIR/output $OUTDIR/slurm $OUTDIR/merge
 cd $OUTDIR
 rm -rf .snakemake
 
@@ -59,7 +57,7 @@ then
 fi
 
 # enumerate the mutation types that will be tested in this experiment
-dvc run -d $firehose_dir -d $mc3_file -d $gencode_file -d $subtype_file \
+dvc run -d $COH_DIR -d $GENCODE_DIR -d $ONCOGENE_LIST -d $SUBTYPE_LIST \
 	-d $RUNDIR/setup_isolate.py -d $CODEDIR/HetMan/environment.yml \
 	-o setup/muts-list.p -m setup/muts-count.txt \
 	-f setup.dvc --overwrite-dvcfile python $RUNDIR/setup_isolate.py \

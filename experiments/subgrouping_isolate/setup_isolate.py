@@ -7,11 +7,12 @@ sys.path.extend([os.path.join(base_dir, '..', '..', '..')])
 from HetMan.experiments.subgrouping_isolate import *
 from HetMan.experiments.subgrouping_isolate.param_list import params
 
-from dryadic.features.data.vep import process_variants
-from HetMan.experiments.subvariant_test import (
-    pnt_mtype, gain_mtype, loss_mtype)
-from HetMan.experiments.subvariant_isolate import cna_mtypes, ex_mtypes
+from HetMan.experiments.utilities.mutations import (
+    pnt_mtype, copy_mtype, shal_mtype,
+    dup_mtype, gains_mtype, loss_mtype, dels_mtype
+    )
 
+from dryadic.features.data.vep import process_variants
 from HetMan.features.cohorts.beatAML import (
     process_input_datasets as process_baml_datasets)
 from HetMan.features.cohorts.metabric import (
@@ -39,7 +40,9 @@ from itertools import product
 def get_input_datasets(cohort, expr_source,
                        use_genes=None, min_sources=2, mut_fields=None):
     if use_genes is None:
-        gene_df = pd.read_csv(gene_list, sep='\t', skiprows=1, index_col=0)
+        gene_df = pd.read_csv(oncogene_list,
+                              sep='\t', skiprows=1, index_col=0)
+
         use_genes = gene_df.index[
             (gene_df.loc[
                 :, ['Vogelstein', 'SANGER CGC(05/30/2017)',
@@ -62,7 +65,7 @@ def get_input_datasets(cohort, expr_source,
         use_asmb = 'GRCh37'
 
         expr_data, mut_data, annot_dict = process_baml_datasets(
-            baml_dir, annot_dir, syn,
+            baml_dir, genocode_dir, syn,
             annot_fields=['transcript'], mut_fields=mut_fields
             )
 
@@ -79,7 +82,7 @@ def get_input_datasets(cohort, expr_source,
             use_types = None
 
         expr_data, mut_data, annot_dict = process_metabric_datasets(
-            metabric_dir, annot_dir, use_types,
+            metabric_dir, gencode_dir, use_types,
             annot_fields=['transcript'], mut_fields=mut_fields
             )
 
@@ -92,7 +95,7 @@ def get_input_datasets(cohort, expr_source,
         expr_data, mut_data, annot_dict = process_tcga_datasets(
             cohort, expr_source=source_base, var_source='mc3',
             copy_source='Firehose', expr_dir=expr_sources[source_base],
-            annot_dir=annot_dir, type_file=type_file,
+            annot_dir=gencode_dir, type_file=subtype_file,
             collapse_txs=collapse_txs, annot_fields=['transcript'],
             syn=syn, mut_fields=mut_fields
             )
@@ -222,12 +225,12 @@ def main():
                 pnt_types |= {pnt_mtype}
 
             if 'Copy' in dict(mtree):
-                copy_types = {gain_mtype, loss_mtype}
+                copy_types = {dup_mtype, loss_mtype}
 
                 if 'ShalGain' in dict(mtree['Copy']):
-                    copy_types |= {dict(cna_mtypes)['Gain']}
+                    copy_types |= {gains_mtype}
                 if 'ShalDel' in dict(mtree['Copy']):
-                    copy_types |= {dict(cna_mtypes)['Loss']}
+                    copy_types |= {dels_mtype}
 
             else:
                 copy_types = set()
@@ -256,7 +259,7 @@ def main():
                               <= len(samp_dict[mtype]) <= max_samps)}
 
             all_mtype = MuType(mtree.allkey())
-            ex_mtypes = [MuType({}), dict(cna_mtypes)['Shal']]
+            ex_mtypes = [MuType({}), shal_mtype]
             mtype_lvls = {mtype: mtype.get_levels() - {'Scale'}
                           for mtype in pnt_types | copy_types}
 

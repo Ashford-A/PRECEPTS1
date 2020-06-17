@@ -5,9 +5,9 @@ base_dir = os.path.dirname(__file__)
 sys.path.extend([os.path.join(base_dir, '..', '..', '..')])
 
 from HetMan.experiments.utilities.handle_input import safe_load
-from HetMan.experiments.subvariant_isolate import cna_mtypes
-from HetMan.experiments.subvariant_tour.utils import RandomType
 from HetMan.experiments.subvariant_isolate.classifiers import *
+from HetMan.experiments.utilities.mutations import (
+    pnt_mtype, shal_mtype, ExMcomb)
 
 import argparse
 import dill as pickle
@@ -58,9 +58,6 @@ def main():
     random.shuffle(cdata_samps)
     cdata.update_split(use_seed, test_samps=cdata_samps[(args.cv_id % 4)::4])
 
-    mtype_genes = {mtype: mtype.get_labels()[0] for mtype in mtype_list
-                   if not isinstance(mtype, RandomType)}
-
     out_pars = {mtype: {smps: {par: None for par, _ in mut_clf.tune_priors}
                         for smps in ['All', 'Iso', 'IsoShal']}
                 for mtype in mtype_list}
@@ -77,17 +74,10 @@ def main():
         if (i % args.task_count) == args.task_id:
             print("Isolating {} ...".format(mtype))
 
-            if not isinstance(mtype, RandomType):
-                cur_gene = mtype_genes[mtype]
-
-            elif mtype.base_mtype is not None:
-                cur_gene = mtype.base_mtype.get_labels()[0]
-            else:
-                cur_gene = random.choice(list(mtype_genes.values()))
-
+            cur_gene = mtype.get_labels()[0]
             cur_mtree = use_mtree[cur_gene]
             mut_samps = cur_mtree.get_samples()
-            shal_samps = dict(cna_mtypes)['Shal'].get_samples(cur_mtree)
+            shal_samps = ExMcomb(pnt_mtype, shal_mtype).get_samples(cur_mtree)
             ex_genes = cdata.get_cis_genes('Chrm', cur_genes=[cur_gene])
 
             mtype_samps = mtype.get_samples(use_mtree)
