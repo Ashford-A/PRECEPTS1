@@ -15,8 +15,8 @@ from joblib import Parallel, delayed
 import random
 
 from dryadic.features.mutations import MuType
-from HetMan.experiments.subvariant_isolate import cna_mtypes, ex_mtypes
-from HetMan.experiments.utilities.mutations import ExMcomb
+from HetMan.experiments.utilities.mutations import (
+    pnt_mtype, shal_mtype, ExMcomb)
 from HetMan.experiments.subvariant_isolate.merge_isolate import (
     compare_muts, calculate_auc)
 
@@ -65,8 +65,25 @@ def main():
 
     # get list of output files from all parallelized jobs
     file_list = tuple(Path(args.use_dir, 'output').glob("out__cv-*_task*.p"))
-    assert (len(file_list) % 40) == 0, "Missing output files detected!"
-    task_count = len(file_list) // 40
+    file_dict = dict()
+
+    for out_fl in file_list:
+        fl_info = out_fl.stem.split("out__")[1]
+        out_task = int(fl_info.split("task-")[1])
+
+        if args.task_ids is None or out_task in args.task_ids:
+            out_cv = int(fl_info.split("cv-")[1].split("_")[0])
+            file_dict[out_fl] = out_task, out_cv
+
+    assert (len(file_dict) % 40) == 0, "Missing output files detected!"
+    task_count = 1
+    with open(os.path.join(args.use_dir, 'setup', "tasks.txt"), 'r') as f:
+        task_list = f.readline().strip()
+
+        while task_list:
+            task_count = max(task_count,
+                             *[int(tsk) + 1 for tsk in task_list.split(' ')])
+            task_list = f.readline().strip()
 
     if args.task_ids is None:
         use_tasks = set(range(task_count))
@@ -77,18 +94,11 @@ def main():
         out_tag = "_{}".format('-'.join([
             str(tsk) for tsk in sorted(use_tasks)]))
 
-    use_muts = [mut for i, mut in enumerate(muts_list)
-                if i % task_count in use_tasks]
-
-    # initialize list for storing raw output data
-    file_sets = {cv_id: set() for cv_id in range(40)}
-    for out_fl in file_list:
-        fl_info = out_fl.stem.split("out__")[1]
-        out_cv = int(fl_info.split("cv-")[1].split("_")[0])
-        out_task = int(fl_info.split("task-")[1])
-
-        if out_task in use_tasks:
-            file_sets[out_cv] |= {out_fl}
+    file_sets = {
+        cv_id: {out_fl for out_fl, (out_task, out_cv) in file_dict.items()
+                if out_task in use_tasks and out_cv == cv_id}
+        for cv_id in range(40)
+        }
 
     # initialize object that will store raw experiment output data
     out_dfs = {k: {ex_lbl: [None for cv_id in range(40)]
@@ -96,6 +106,9 @@ def main():
                for k in ['Pars', 'Time', 'Acc']}
     out_clf = None
     out_tune = None
+
+    use_muts = [mut for i, mut in enumerate(muts_list)
+                if i % task_count in use_tasks]
 
     # initialize object that will store collated classifier scores
     pred_lists = {
@@ -113,7 +126,7 @@ def main():
         gene_samps = {gene: mtree.get_samples() for gene, mtree in use_mtree}
 
     if 'IsoShal' in args.ex_lbls:
-        shal_samps = {gene: dict(cna_mtypes)['Shal'].get_samples(mtree)
+        shal_samps = {gene: ExMcomb(pnt_mtype, shal_mtype).get_samples(mtree)
                       for gene, mtree in use_mtree}
 
     for cv_id, out_fls in file_sets.items():
@@ -200,11 +213,19 @@ def main():
 
             if 'Iso' in args.ex_lbls:
                 assert (pred_dfs['Iso'].loc[
+                    mut, set(cdata.get_samples()) - hld_samps].apply(len)
+                    == 10).all(), ("Incorrect number of testing CV scores!")
+
+                assert (pred_dfs['Iso'].loc[
                     mut, hld_samps].apply(len) == 40).all(), (
                         "Incorrect number of testing CV scores!")
 
             if 'IsoShal' in args.ex_lbls:
                 hld_samps -= shal_samps[mut_genes[mut]]
+
+                assert (pred_dfs['IsoShal'].loc[
+                    mut, set(cdata.get_samples()) - hld_samps].apply(len)
+                    == 10).all(), ("Incorrect number of testing CV scores!")
 
                 assert (pred_dfs['IsoShal'].loc[
                     mut, hld_samps].apply(len) == 40).all(), (
@@ -347,18 +368,17 @@ def main():
         pickle.dump(conf_lists, fl, protocol=-1)
 
     if 'Iso' in args.ex_lbls or 'IsoShal' in args.ex_lbls:
+        ex_mtypes = [('Iso', MuType({})), ('IsoShal', shal_mtype)]
         use_exs = [(ex_lbl, ex_mtype) for ex_lbl, ex_mtype in ex_mtypes
                    if ex_lbl in args.ex_lbls]
 
         mcomb_lists = {
             'Iso': {mut for mut in use_muts
                     if (isinstance(mut, ExMcomb)
-                        and not (mut.all_mtype
-                                 & dict(cna_mtypes)['Shal']).is_empty())},
+                        and not (mut.all_mtype & shal_mtype).is_empty())},
             'IsoShal': {mut for mut in use_muts
                         if (isinstance(mut, ExMcomb)
-                            and (mut.all_mtype
-                                 & dict(cna_mtypes)['Shal']).is_empty())}
+                            and (mut.all_mtype & shal_mtype).is_empty())}
             }
 
         for ex_lbl, ex_mtype in use_exs:
