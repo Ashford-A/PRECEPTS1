@@ -1,14 +1,9 @@
 
+from ..utilities.handle_input import safe_load
+from ..utilities.mutations import pnt_mtype, shal_mtype, ExMcomb
+from ..subvariant_isolate.classifiers import *
+
 import os
-import sys
-base_dir = os.path.dirname(__file__)
-sys.path.extend([os.path.join(base_dir, '..', '..', '..')])
-
-from HetMan.experiments.utilities.handle_input import safe_load
-from HetMan.experiments.subvariant_isolate.classifiers import *
-from HetMan.experiments.utilities.mutations import (
-    pnt_mtype, shal_mtype, ExMcomb)
-
 import argparse
 import dill as pickle
 import random

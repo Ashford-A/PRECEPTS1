@@ -48,19 +48,17 @@ fi
 # move to working directory
 mkdir -p $FINALDIR $OUTDIR/setup $OUTDIR/output $OUTDIR/slurm $OUTDIR/merge
 cd $OUTDIR
-rm -rf .snakemake
 
-# initiate version control in this directory if it hasn't been already
-if [ ! -d .dvc ]
-then
-	dvc init --no-scm
-fi
+rm -rf .snakemake
+dvc init --no-scm -f
+export PYTHONPATH="$CODEDIR"
 
 # enumerate the mutation types that will be tested in this experiment
 dvc run -d $COH_DIR -d $GENCODE_DIR -d $ONCOGENE_LIST -d $SUBTYPE_LIST \
 	-d $RUNDIR/setup_isolate.py -d $CODEDIR/HetMan/environment.yml \
 	-o setup/muts-list.p -m setup/muts-count.txt \
-	-f setup.dvc --overwrite-dvcfile python $RUNDIR/setup_isolate.py \
+	-f setup.dvc --overwrite-dvcfile \
+	python -m HetMan.experiments.subgrouping_isolate.setup_isolate \
 	$expr_source $cohort $mut_levels $search $OUTDIR
 
 # if we are only enumerating, we quit before classification jobs are launched

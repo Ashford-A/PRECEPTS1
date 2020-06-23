@@ -50,9 +50,10 @@ rule isolate:
         task_count=$(( 1 + $( grep -Eo '[0-9]+' \
                 {TMPDIR}/setup/tasks.txt | sort -rn | head -n 1 ) ))
 
-        python {LOCALDIR}/fit_isolate.py {config[classif]} {TMPDIR} \
-                --task_count=$task_count --task_id={wildcards.task_id} \
-                --cv_id={wildcards.cv_id}
+        python -m HetMan.experiments.subgrouping_isolate.fit_isolate \
+                {config[classif]} {TMPDIR} --task_count=$task_count \
+                --task_id={wildcards.task_id} --cv_id={wildcards.cv_id}
+
         """
 
 
@@ -73,8 +74,8 @@ rule gather:
         set +u; source activate HetMan; set -u;
 
         tasks={wildcards.tasks}
-        python {LOCALDIR}/gather_isolate.py {TMPDIR} \
-                --task_ids ${{tasks//-/ }}
+        python -m HetMan.experiments.subgrouping_isolate.gather_isolate \
+                {TMPDIR} --task_ids ${{tasks//-/ }}
 
         """
 
@@ -93,7 +94,8 @@ rule merge:
 
     shell:"""
         set +u; source activate HetMan; set -u;
-        python {LOCALDIR}/merge_isolate.py {TMPDIR}
+        python -m HetMan.experiments.subgrouping_isolate.merge_isolate \
+                {TMPDIR}
         out_tag={config[mut_levels]}__{config[search]}__{config[classif]}
 
         cp {TMPDIR}/setup/cohort-data.p.gz \

@@ -1,29 +1,22 @@
 
-import os
-import sys
-base_dir = os.path.dirname(__file__)
-sys.path.extend([os.path.join(base_dir, '..', '..', '..')])
-
-from HetMan.experiments.subgrouping_isolate import *
-from HetMan.experiments.subgrouping_isolate.param_list import params
-
-from HetMan.experiments.utilities.mutations import (
-    pnt_mtype, copy_mtype, shal_mtype,
-    dup_mtype, gains_mtype, loss_mtype, dels_mtype
-    )
+from ..subgrouping_isolate import *
+from ..subgrouping_isolate.param_list import params
 
 from dryadic.features.data.vep import process_variants
-from HetMan.features.cohorts.beatAML import (
+from ...features.cohorts.beatAML import (
     process_input_datasets as process_baml_datasets)
-from HetMan.features.cohorts.metabric import (
+from ...features.cohorts.metabric import (
     process_input_datasets as process_metabric_datasets)
-from HetMan.features.cohorts.tcga import (
+from ...features.cohorts.tcga import (
     process_input_datasets as process_tcga_datasets)
 
-from HetMan.experiments.subgrouping_isolate.utils import IsoMutationCohort
-from HetMan.experiments.utilities.mutations import Mcomb, ExMcomb
+from ..utilities.mutations import (pnt_mtype, copy_mtype, shal_mtype,
+                                   dup_mtype, gains_mtype, loss_mtype,
+                                   dels_mtype, Mcomb, ExMcomb)
+from ..subgrouping_isolate.utils import IsoMutationCohort
 from dryadic.features.mutations import MuType
 
+import os
 import argparse
 import synapseclient
 import bz2

@@ -1,9 +1,5 @@
 
 import os
-import sys
-base_dir = os.path.dirname(__file__)
-sys.path.extend([os.path.join(base_dir, '..', '..', '..')])
-
 import argparse
 import bz2
 from pathlib import Path
@@ -17,7 +13,7 @@ def main():
         "of the subgrouping isolation experiment for use in further analyses."
         )
 
-    parser.add_argument('use_dir', type=str, default=base_dir)
+    parser.add_argument('use_dir', type=str)
     parser.add_argument('--ex_lbls', type=str, nargs='+',
                         choices=['All', 'Iso', 'IsoShal'],
                         default=['All', 'Iso', 'IsoShal'])

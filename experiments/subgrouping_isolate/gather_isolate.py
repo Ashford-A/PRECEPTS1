@@ -1,9 +1,5 @@
 
 import os
-import sys
-base_dir = os.path.dirname(__file__)
-sys.path.extend([os.path.join(base_dir, '..', '..', '..')])
-
 import argparse
 import bz2
 from pathlib import Path
@@ -15,10 +11,8 @@ from joblib import Parallel, delayed
 import random
 
 from dryadic.features.mutations import MuType
-from HetMan.experiments.utilities.mutations import (
-    pnt_mtype, shal_mtype, ExMcomb)
-from HetMan.experiments.subvariant_isolate.merge_isolate import (
-    compare_muts, calculate_auc)
+from ..utilities.mutations import pnt_mtype, shal_mtype, ExMcomb
+from ..subvariant_isolate.merge_isolate import compare_muts, calculate_auc
 
 from itertools import cycle
 from functools import reduce
@@ -45,7 +39,7 @@ def main():
         "of the subgrouping isolation experiment for use in further analyses."
         )
 
-    parser.add_argument('use_dir', type=str, default=base_dir)
+    parser.add_argument('use_dir', type=str)
     parser.add_argument('--ex_lbls', type=str, nargs='+',
                         choices=['All', 'Iso', 'IsoShal'],
                         default=['All', 'Iso', 'IsoShal'])
