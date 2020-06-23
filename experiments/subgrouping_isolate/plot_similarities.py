@@ -1,23 +1,15 @@
 
-import os
-import sys
-
-base_dir = os.path.join(os.environ['DATADIR'], 'HetMan',
-                        'subgrouping_isolate')
-sys.path.extend([os.path.join(os.path.dirname(__file__), '..', '..', '..')])
-plot_dir = os.path.join(base_dir, 'plots', 'similarities')
-
-from HetMan.experiments.subvariant_test import (
-    pnt_mtype, copy_mtype, gain_mtype, loss_mtype)
-from HetMan.experiments.subvariant_isolate import cna_mtypes
-from HetMan.experiments.utilities.mutations import ExMcomb
+from ..utilities.mutations import (pnt_mtype, copy_mtype, shal_mtype,
+                                   dup_mtype, gains_mtype, loss_mtype,
+                                   dels_mtype, ExMcomb)
 from dryadic.features.mutations import MuType
 
-from HetMan.experiments.subgrouping_isolate.utils import calculate_pair_siml
-from HetMan.experiments.utilities.misc import choose_label_colour
-from HetMan.experiments.subvariant_test.utils import get_cohort_label
-from HetMan.experiments.utilities.colour_maps import simil_cmap
+from ..subgrouping_isolate.utils import calculate_pair_siml
+from ..utilities.misc import choose_label_colour
+from ..subvariant_test.utils import get_cohort_label
+from ..utilities.colour_maps import simil_cmap
 
+import os
 import argparse
 from pathlib import Path
 import bz2
@@ -26,9 +18,10 @@ import dill as pickle
 import random
 from operator import itemgetter
 from itertools import combinations as combn
+from itertools import product
 
 import warnings
-from HetMan.experiments.utilities.misc import warning_on_one_line
+from ..utilities.misc import warning_on_one_line
 warnings.formatwarning = warning_on_one_line
 
 import numpy as np
@@ -41,9 +34,14 @@ import matplotlib.pyplot as plt
 from matplotlib import colors
 
 plt.style.use('fivethirtyeight')
-plt.rcParams['axes.facecolor']='white'
-plt.rcParams['savefig.facecolor']='white'
-plt.rcParams['axes.edgecolor']='white'
+plt.rcParams['axes.facecolor'] = 'white'
+plt.rcParams['savefig.facecolor'] = 'white'
+plt.rcParams['axes.edgecolor'] = 'white'
+
+
+base_dir = os.path.join(os.environ['DATADIR'], 'HetMan',
+                        'subgrouping_isolate')
+plot_dir = os.path.join(base_dir, 'plots', 'similarities')
 
 
 def plot_copy_adjacencies(siml_dicts, pheno_dict, auc_vals, pred_vals,
@@ -52,8 +50,7 @@ def plot_copy_adjacencies(siml_dicts, pheno_dict, auc_vals, pred_vals,
 
     use_combs = {mcomb for mcomb in auc_vals.index
                  if (isinstance(mcomb, ExMcomb) and len(mcomb.mtypes) == 1
-                     and not (mcomb.all_mtype
-                              & dict(cna_mtypes)['Shal']).is_empty())}
+                     and not (mcomb.all_mtype & shal_mtype).is_empty())}
 
     pnt_aucs = auc_vals[[
         mcomb for mcomb in use_combs
@@ -62,6 +59,7 @@ def plot_copy_adjacencies(siml_dicts, pheno_dict, auc_vals, pred_vals,
                 tuple(mcomb.mtypes)[0].subtype_list()[0][1]))
         ]]
 
+    cna_mtypes = {'Gain': gains_mtype, 'Loss': dels_mtype}
     plt_gby = pnt_aucs.groupby(lambda mtype: mtype.get_labels()[0])
     clr_dict = {gene: None for gene in plt_gby.groups.keys()}
     lbl_pos = {gene: None for gene in plt_gby.groups.keys()}
@@ -72,18 +70,19 @@ def plot_copy_adjacencies(siml_dicts, pheno_dict, auc_vals, pred_vals,
     else:
         test_list = None
 
+    auc_list: pd.Series
     for cur_gene, auc_list in plt_gby:
         for mcomb, auc_val in auc_list.iteritems():
             plt_types = {
                 cna_lbl: {mcomb for mcomb in use_combs
                           if (tuple(mcomb.mtypes)[0]
                               == MuType({('Gene', cur_gene): cna_type}))}
-                for cna_lbl, cna_type in cna_mtypes
+                for cna_lbl, cna_type in cna_mtypes.items()
                 }
 
             for cna_lbl, ax in zip(['Gain', 'Loss'], [gain_ax, loss_ax]):
-                #TODO: differentiate between genes without CNAs and those with
-                # too much overlap between CNAs and point mutations?
+                # TODO: differentiate between genes without CNAs and those
+                #  with too much overlap between CNAs and point mutations?
                 if len(plt_types[cna_lbl]) > 1:
                     raise ValueError("Too many exclusive {} CNAs matching "
                                      "`{}`!".format(cna_lbl, mcomb))
@@ -100,13 +99,13 @@ def plot_copy_adjacencies(siml_dicts, pheno_dict, auc_vals, pred_vals,
                     if args.test:
                         copy_siml, test_list = calculate_pair_siml(
                             mcomb, plt_type, all_mtype, siml_dicts, pheno_dict,
-                            pred_vals, 'Iso', cdata, test_list
+                            pred_vals, cdata, test_list
                             )
 
                     else:
                         copy_siml = calculate_pair_siml(
                             mcomb, plt_type, all_mtype, siml_dicts, pheno_dict,
-                            pred_vals, 'Iso', cdata, test_list
+                            pred_vals, cdata, test_list
                             )
 
                     plt_lims[0] = min(plt_lims[0], copy_siml - 0.11)
@@ -203,7 +202,7 @@ def plot_score_symmetry(siml_dicts, pheno_dict, auc_dfs, pred_dfs,
     assert sorted(auc_dfs['Iso'].index) == sorted(auc_dfs['IsoShal'].index)
     plt_gby = auc_dfs['Iso']['mean'][[
         mcomb for mcomb in auc_dfs['Iso'].index
-        if isinstance(mcomb, ExMcomb) and len(mcomb.mtypes) == 1
+        if isinstance(mcomb, ExMcomb)
         ]].groupby(lambda mcomb: mcomb.get_labels()[0])
 
     if args.test:
@@ -212,25 +211,25 @@ def plot_score_symmetry(siml_dicts, pheno_dict, auc_dfs, pred_dfs,
         test_list = None
 
     plt_lims = [0.1, 0.9]
+    iso_aucs: pd.Series
     for cur_gene, iso_aucs in plt_gby:
         gene_clr = choose_label_colour(cur_gene)
 
         use_mtree = tuple(cdata.mtrees.values())[0][cur_gene]
         all_mtypes = {'Iso': MuType({('Gene', cur_gene): use_mtree.allkey()})}
         all_mtypes['IsoShal'] = all_mtypes['Iso'] - MuType({
-            ('Gene', cur_gene): dict(cna_mtypes)['Shal']})
+            ('Gene', cur_gene): shal_mtype})
 
         iso_combs = {mcomb for mcomb, auc_val in iso_aucs.iteritems()
-                     if (auc_val >= 0.7
-                         and not (mcomb.all_mtype
-                                  & dict(cna_mtypes)['Shal']).is_empty())}
+                     if (auc_val >= 0.75
+                         and not (mcomb.all_mtype & shal_mtype).is_empty())}
 
         ish_combs = {
             mcomb for mcomb, auc_val in auc_dfs['IsoShal']['mean'].iteritems()
             if (mcomb in iso_aucs.index and auc_val >= 0.7
-                and (tuple(mcomb.mtypes)[0]
-                     & dict(cna_mtypes)['Shal']).is_empty()
-                and (mcomb.all_mtype & dict(cna_mtypes)['Shal']).is_empty())
+                and (mcomb.all_mtype & shal_mtype).is_empty()
+                and all((mtp & shal_mtype).is_empty()
+                        for mtp in mcomb.mtypes))
             }
 
         for ax, ex_lbl, use_combs in zip([iso_ax, ish_ax], ['Iso', 'IsoShal'],
@@ -238,8 +237,9 @@ def plot_score_symmetry(siml_dicts, pheno_dict, auc_dfs, pred_dfs,
             use_pairs = {
                 (mcomb1, mcomb2) for mcomb1, mcomb2 in combn(use_combs, 2)
                 if (not (pheno_dict[mcomb1] & pheno_dict[mcomb2]).any()
-                    or (tuple(mcomb1.mtypes)[0]
-                        & tuple(mcomb2.mtypes)[0]).is_empty())
+                    or all((mtp1 & mtp2).is_empty()
+                           for mtp1, mtp2 in product(
+                               mcomb1.mtypes, mcomb2.mtypes)))
                 }
 
             if args.verbose and use_pairs:
@@ -257,33 +257,33 @@ def plot_score_symmetry(siml_dicts, pheno_dict, auc_dfs, pred_dfs,
                     copy_siml1, test_list = calculate_pair_siml(
                         mcomb1, mcomb2, all_mtypes[ex_lbl],
                         siml_dicts[ex_lbl], pheno_dict, pred_dfs[ex_lbl],
-                        ex_lbl, cdata, test_list
+                        cdata, test_list
                         )
 
                     copy_siml2, test_list = calculate_pair_siml(
                         mcomb2, mcomb1, all_mtypes[ex_lbl],
                         siml_dicts[ex_lbl], pheno_dict, pred_dfs[ex_lbl],
-                        ex_lbl, cdata, test_list
+                        cdata, test_list
                         )
 
                 else:
                     copy_siml1 = calculate_pair_siml(
                         mcomb1, mcomb2, all_mtypes[ex_lbl],
                         siml_dicts[ex_lbl], pheno_dict, pred_dfs[ex_lbl],
-                        ex_lbl, cdata, test_list
+                        cdata, test_list
                         )
 
                     copy_siml2 = calculate_pair_siml(
                         mcomb2, mcomb1, all_mtypes[ex_lbl],
                         siml_dicts[ex_lbl], pheno_dict, pred_dfs[ex_lbl],
-                        ex_lbl, cdata, test_list
+                        cdata, test_list
                         )
 
                 plt_lims[0] = min(plt_lims[0],
                                   copy_siml1 - 0.19, copy_siml2 - 0.19)
                 plt_lims[1] = max(plt_lims[1],
                                   copy_siml1 + 0.19, copy_siml2 + 0.19)
-                plt_sz = 377 * (np.mean(pheno_dict[mcomb1])
+                plt_sz = 293 * (np.mean(pheno_dict[mcomb1])
                                 * np.mean(pheno_dict[mcomb2])) ** 0.5
 
                 ax.scatter(copy_siml1, copy_siml2, s=plt_sz, c=[gene_clr],
@@ -369,16 +369,16 @@ def main():
         )
 
     out_iter = out_use.groupby('Levels')['File']
-    out_aucs = {lvls: list() for lvls, _ in out_iter}
-    out_simls = {lvls: list() for lvls, _ in out_iter}
-    out_preds = {lvls: list() for lvls, _ in out_iter}
+    out_aucs = {lvls: list() for lvls in out_iter.groups}
+    out_simls = {lvls: list() for lvls in out_iter.groups}
+    out_preds = {lvls: list() for lvls in out_iter.groups}
 
     phn_dict = dict()
     cdata = None
 
     auc_dfs = {ex_lbl: pd.DataFrame([])
                for ex_lbl in ['All', 'Iso', 'IsoShal']}
-    siml_dicts = {ex_lbl: {lvls: None for lvls, _ in out_iter}
+    siml_dicts = {ex_lbl: {lvls: None for lvls in out_iter.groups}
                   for ex_lbl in ['Iso', 'IsoShal']}
     pred_dfs = {ex_lbl: pd.DataFrame([])
                 for ex_lbl in ['All', 'Iso', 'IsoShal']}
@@ -455,4 +455,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
