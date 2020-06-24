@@ -1,25 +1,16 @@
 
-import os
-import sys
-
-base_dir = os.path.join(os.environ['DATADIR'], 'HetMan',
-                        'subgrouping_isolate')
-sys.path.extend([os.path.join(os.path.dirname(__file__), '..', '..', '..')])
-plot_dir = os.path.join(base_dir, 'plots', 'aucs')
-
-from HetMan.experiments.subvariant_test import (
-    pnt_mtype, copy_mtype, gain_mtype, loss_mtype)
-from HetMan.experiments.subvariant_isolate import cna_mtypes
-from HetMan.experiments.subvariant_tour.utils import RandomType
-from HetMan.experiments.utilities.mutations import Mcomb, ExMcomb
+from ..utilities.mutations import (
+    pnt_mtype, copy_mtype, shal_mtype,
+    dup_mtype, gains_mtype, loss_mtype, dels_mtype, Mcomb, ExMcomb
+    )
 from dryadic.features.mutations import MuType
 
-from HetMan.experiments.subvariant_isolate.utils import get_fancy_label
-from HetMan.experiments.utilities.label_placement import (
-    place_scatterpie_labels)
-from HetMan.experiments.subvariant_test.utils import get_cohort_label
-from HetMan.experiments.utilities.misc import choose_label_colour
+from ..subvariant_isolate.utils import get_fancy_label
+from ..utilities.label_placement import place_scatterpie_labels
+from ..subvariant_test.utils import get_cohort_label
+from ..utilities.misc import choose_label_colour
 
+import os
 import argparse
 from pathlib import Path
 import bz2
@@ -38,9 +29,14 @@ import seaborn as sns
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 plt.style.use('fivethirtyeight')
-plt.rcParams['axes.facecolor']='white'
-plt.rcParams['savefig.facecolor']='white'
-plt.rcParams['axes.edgecolor']='white'
+plt.rcParams['axes.facecolor'] = 'white'
+plt.rcParams['savefig.facecolor'] = 'white'
+plt.rcParams['axes.edgecolor'] = 'white'
+
+
+base_dir = os.path.join(os.environ['DATADIR'], 'HetMan',
+                        'subgrouping_isolate')
+plot_dir = os.path.join(base_dir, 'plots', 'aucs')
 
 
 def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals,
@@ -52,7 +48,7 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals,
     plt_min = 0.57
 
     use_aucs = auc_vals[[
-        not isinstance(mtype, (RandomType, Mcomb, ExMcomb))
+        not isinstance(mtype, (Mcomb, ExMcomb))
         and (mtype.subtype_list()[0][1] & copy_mtype).is_empty()
         for mtype in auc_vals.index
         ]]
@@ -193,7 +189,7 @@ def plot_iso_comparisons(auc_dfs, pheno_dict, args):
 
     base_aucs = {
         ex_lbl: auc_df.loc[[
-            not isinstance(mtype, (RandomType, Mcomb, ExMcomb))
+            not isinstance(mtype, (Mcomb, ExMcomb))
             and (mtype.subtype_list()[0][1] & copy_mtype).is_empty()
             for mtype in auc_df.index
             ], 'mean']
@@ -211,14 +207,14 @@ def plot_iso_comparisons(auc_dfs, pheno_dict, args):
     iso_aucs['Iso'] = auc_dfs['Iso'].loc[[
         isinstance(mcomb, ExMcomb) and len(mcomb.mtypes) == 1
         and tuple(mcomb.mtypes)[0] in base_mtypes
-        and not (mcomb.all_mtype & dict(cna_mtypes)['Shal']).is_empty()
+        and not (mcomb.all_mtype & shal_mtype).is_empty()
         for mcomb in auc_dfs['Iso'].index
         ], 'mean']
 
     iso_aucs['IsoShal'] = auc_dfs['IsoShal'].loc[[
         isinstance(mcomb, ExMcomb) and len(mcomb.mtypes) == 1
         and tuple(mcomb.mtypes)[0] in base_mtypes
-        and (mcomb.all_mtype & dict(cna_mtypes)['Shal']).is_empty()
+        and (mcomb.all_mtype & shal_mtype).is_empty()
         for mcomb in auc_dfs['IsoShal'].index
         ], 'mean']
 
@@ -309,7 +305,7 @@ def plot_dyad_comparisons(auc_vals, pheno_dict, conf_vals, args):
     fig, (gain_ax, loss_ax) = plt.subplots(figsize=(17, 8), nrows=1, ncols=2)
 
     pnt_aucs = auc_vals[[
-        not isinstance(mtype, (RandomType, Mcomb, ExMcomb))
+        not isinstance(mtype, (Mcomb, ExMcomb))
         and (mtype.subtype_list()[0][1] & copy_mtype).is_empty()
         for mtype in auc_vals.index
         ]]
@@ -323,8 +319,8 @@ def plot_dyad_comparisons(auc_vals, pheno_dict, conf_vals, args):
 
     for pnt_type, (copy_indx, copy_type) in product(
             pnt_aucs.index,
-            zip(plot_df.columns, [dict(cna_mtypes)['Gain'], gain_mtype,
-                                  dict(cna_mtypes)['Loss'], loss_mtype])
+            zip(plot_df.columns, [gains_mtype, dup_mtype,
+                                  dels_mtype, loss_mtype])
             ):
         dyad_type = MuType({('Gene', pnt_type.get_labels()[0]): copy_type})
         dyad_type |= pnt_type
@@ -462,6 +458,8 @@ def main():
             super_indx = super_list.argmax()
 
             for ex_lbl in ['All', 'Iso', 'IsoShal']:
+                #TODO: remove casting to dataframes once all experiments run
+                # before June are redone
                 auc_dfs[ex_lbl] = pd.concat([
                     auc_dfs[ex_lbl],
                     pd.DataFrame(out_aucs[lvls][super_indx][ex_lbl])

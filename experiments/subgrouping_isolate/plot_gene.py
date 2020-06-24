@@ -1,29 +1,21 @@
 
-import os
-import sys
-
-base_dir = os.path.join(os.environ['DATADIR'], 'HetMan',
-                        'subgrouping_isolate')
-sys.path.extend([os.path.join(os.path.dirname(__file__), '..', '..', '..')])
-plot_dir = os.path.join(base_dir, 'plots', 'gene')
-
-from HetMan.experiments.subvariant_test import (
-    variant_clrs, pnt_mtype, copy_mtype, gain_mtype, loss_mtype)
-from HetMan.experiments.subvariant_isolate import cna_mtypes
-from HetMan.experiments.subvariant_tour.utils import RandomType
-from HetMan.experiments.utilities.mutations import Mcomb, ExMcomb
+from ..utilities.mutations import (
+    pnt_mtype, copy_mtype, shal_mtype,
+    dup_mtype, loss_mtype, gains_mtype, dels_mtype, Mcomb, ExMcomb
+    )
 from dryadic.features.mutations import MuType
 
-from HetMan.experiments.subgrouping_isolate.utils import calculate_pair_siml
-from HetMan.experiments.subvariant_isolate import mcomb_clrs
-from HetMan.experiments.utilities.colour_maps import simil_cmap
-from HetMan.experiments.utilities.misc import create_twotone_circle
+from ..subgrouping_isolate.utils import calculate_pair_siml
+from ..subvariant_test import variant_clrs
+from ..subvariant_isolate import mcomb_clrs
+from ..utilities.colour_maps import simil_cmap
+from ..utilities.misc import create_twotone_circle
 
-from HetMan.experiments.subvariant_isolate.utils import get_fancy_label
-from HetMan.experiments.subvariant_test.utils import get_cohort_label
-from HetMan.experiments.utilities.label_placement import (
-    place_scatterpie_labels)
+from ..subvariant_isolate.utils import get_fancy_label
+from ..subvariant_test.utils import get_cohort_label
+from ..utilities.label_placement import place_scatterpie_labels
 
+import os
 import argparse
 from pathlib import Path
 import bz2
@@ -43,23 +35,28 @@ import matplotlib.pyplot as plt
 from matplotlib import colors
 
 plt.style.use('fivethirtyeight')
-plt.rcParams['axes.facecolor']='white'
-plt.rcParams['savefig.facecolor']='white'
-plt.rcParams['axes.edgecolor']='white'
+plt.rcParams['axes.facecolor'] = 'white'
+plt.rcParams['savefig.facecolor'] = 'white'
+plt.rcParams['axes.edgecolor'] = 'white'
+
+
+base_dir = os.path.join(os.environ['DATADIR'], 'HetMan',
+                        'subgrouping_isolate')
+plot_dir = os.path.join(base_dir, 'plots', 'gene')
 
 
 def choose_subtype_colour(mut):
     if (copy_mtype & mut).is_empty():
         mut_clr = variant_clrs['Point']
 
-    elif dict(cna_mtypes)['Gain'].is_supertype(mut):
+    elif gains_mtype.is_supertype(mut):
         mut_clr = variant_clrs['Gain']
-    elif dict(cna_mtypes)['Loss'].is_supertype(mut):
+    elif dels_mtype.is_supertype(mut):
         mut_clr = variant_clrs['Loss']
 
-    elif not (dict(cna_mtypes)['Gain'] & mut).is_empty():
+    elif not (gains_mtype & mut).is_empty():
         mut_clr = mcomb_clrs['Point+Gain']
-    elif not (dict(cna_mtypes)['Loss'] & mut).is_empty():
+    elif not (dels_mtype & mut).is_empty():
         mut_clr = mcomb_clrs['Point+Loss']
 
     return mut_clr
@@ -75,7 +72,6 @@ def plot_size_comparisons(auc_vals, pheno_dict, conf_vals,
     plt_df = pd.DataFrame({
         mut: {'Size': np.sum(pheno_dict[mut]), 'AUC': auc_val}
         for mut, auc_val in auc_vals.iteritems()
-        if not isinstance(mut, RandomType)
         }).transpose().astype({'Size': int})
 
     #TODO: differentiate between deep- and shal-exclusive mutations?
@@ -92,12 +88,12 @@ def plot_size_comparisons(auc_vals, pheno_dict, conf_vals,
                 if sub_mut == pnt_mtype:
                     plt_lbl = "Any Point"
 
-                elif sub_mut.is_supertype(dict(cna_mtypes)['Gain']):
+                elif sub_mut.is_supertype(dup_mtype):
                     plt_lbl = "Any Point + Any Gain"
-                elif sub_mut.is_supertype(dict(cna_mtypes)['Loss']):
+                elif sub_mut.is_supertype(loss_mtype):
                     plt_lbl = "Any Point + Any Loss"
 
-                elif sub_mut.is_supertype(gain_mtype):
+                elif sub_mut.is_supertype(dup_mtype):
                     plt_lbl = "Any Point + Deep Gains"
                 elif sub_mut.is_supertype(loss_mtype):
                     plt_lbl = "Any Point + Deep Losses"
@@ -119,12 +115,12 @@ def plot_size_comparisons(auc_vals, pheno_dict, conf_vals,
                 if iso_mtype == pnt_mtype:
                     plt_lbl = "Only: Any Point"
 
-                elif iso_mtype.is_supertype(dict(cna_mtypes)['Gain']):
+                elif iso_mtype.is_supertype(gains_mtype):
                     plt_lbl = "Only: Any Point + Any Gain"
-                elif iso_mtype.is_supertype(dict(cna_mtypes)['Loss']):
+                elif iso_mtype.is_supertype(dels_mtype):
                     plt_lbl = "Only: Any Point + Any Loss"
 
-                elif iso_mtype.is_supertype(gain_mtype):
+                elif iso_mtype.is_supertype(dup_mtype):
                     plt_lbl = "Only: Any Point + Deep Gains"
                 elif iso_mtype.is_supertype(loss_mtype):
                     plt_lbl = "Only: Any Point + Deep Losses"
@@ -214,7 +210,7 @@ def plot_iso_comparisons(auc_dfs, pheno_dict, use_coh, args):
     fig, axarr = plt.subplots(figsize=(15, 15), nrows=3, ncols=3)
 
     base_aucs = {
-        ex_lbl: auc_vals[[not isinstance(mtype, (RandomType, Mcomb, ExMcomb))
+        ex_lbl: auc_vals[[not isinstance(mtype, (Mcomb, ExMcomb))
                           for mtype in auc_vals.index]]
         for ex_lbl, auc_vals in auc_dfs.items()
         }
@@ -230,14 +226,14 @@ def plot_iso_comparisons(auc_dfs, pheno_dict, use_coh, args):
     iso_aucs['Iso'] = auc_dfs['Iso'][[
         isinstance(mcomb, ExMcomb) and len(mcomb.mtypes) == 1
         and tuple(mcomb.mtypes)[0] in base_mtypes
-        and not (mcomb.all_mtype & dict(cna_mtypes)['Shal']).is_empty()
+        and not (mcomb.all_mtype & shal_mtype).is_empty()
         for mcomb in auc_dfs['Iso'].index
         ]]
 
     iso_aucs['IsoShal'] = auc_dfs['IsoShal'][[
         isinstance(mcomb, ExMcomb) and len(mcomb.mtypes) == 1
         and tuple(mcomb.mtypes)[0] in base_mtypes
-        and (mcomb.all_mtype & dict(cna_mtypes)['Shal']).is_empty()
+        and (mcomb.all_mtype & shal_mtype).is_empty()
         for mcomb in auc_dfs['IsoShal'].index
         ]]
 
@@ -322,7 +318,7 @@ def plot_dyad_comparisons(auc_vals, pheno_dict, conf_vals, use_coh, args):
     fig, (gain_ax, loss_ax) = plt.subplots(figsize=(17, 8), nrows=1, ncols=2)
 
     pnt_aucs = auc_vals[[
-        not isinstance(mtype, (RandomType, Mcomb, ExMcomb))
+        not isinstance(mtype, (Mcomb, ExMcomb))
         and (mtype.subtype_list()[0][1] & copy_mtype).is_empty()
         for mtype in auc_vals.index
         ]]
@@ -336,8 +332,8 @@ def plot_dyad_comparisons(auc_vals, pheno_dict, conf_vals, use_coh, args):
 
     for pnt_type, (copy_indx, copy_type) in product(
             pnt_aucs.index,
-            zip(plot_df.columns, [dict(cna_mtypes)['Gain'], gain_mtype,
-                                  dict(cna_mtypes)['Loss'], loss_mtype])
+            zip(plot_df.columns, [gains_mtype, dup_mtype,
+                                  dels_mtype, loss_mtype])
             ):
         dyad_type = MuType({('Gene', args.gene): copy_type}) | pnt_type
 
@@ -370,8 +366,7 @@ def plot_dyad_comparisons(auc_vals, pheno_dict, conf_vals, use_coh, args):
 
     for copy_lbl, copy_type, copy_ax, copy_lw in zip(
             ['All Gains', 'Deep Gains', 'All Losses', 'Deep Losses'],
-            [dict(cna_mtypes)['Gain'], gain_mtype,
-             dict(cna_mtypes)['Loss'], loss_mtype],
+            [gains_mtype, dup_mtype, dels_mtype, loss_mtype],
             [gain_ax, gain_ax, loss_ax, loss_ax],
             [3.1, 4.3, 3.1, 4.3]
         ):
@@ -432,19 +427,17 @@ def plot_score_symmetry(siml_dicts, pheno_dict, auc_dfs, pred_dfs,
     all_mtypes = {
         'Iso': MuType({('Gene', args.gene): use_mtree.allkey()})}
     all_mtypes['IsoShal'] = all_mtypes['Iso'] - MuType({
-        ('Gene', args.gene): dict(cna_mtypes)['Shal']})
+        ('Gene', args.gene): shal_mtype})
 
     iso_combs = {mut for mut, auc_val in auc_dfs['Iso'].iteritems()
                  if (isinstance(mut, ExMcomb) and auc_val >= 0.7
-                     and not (mut.all_mtype
-                              & dict(cna_mtypes)['Shal']).is_empty())}
+                     and not (mut.all_mtype & shal_mtype).is_empty())}
 
     ish_combs = {
         mut for mut, auc_val in auc_dfs['IsoShal'].iteritems()
         if (isinstance(mut, ExMcomb) and auc_val >= 0.7
-            and (mut.all_mtype & dict(cna_mtypes)['Shal']).is_empty()
-            and all((mtp & dict(cna_mtypes)['Shal']).is_empty()
-                    for mtp in mut.mtypes))
+            and (mut.all_mtype & shal_mtype).is_empty()
+            and all((mtp & shal_mtype).is_empty() for mtp in mut.mtypes))
         }
 
     for ax, ex_lbl, use_combs in zip([iso_ax, ish_ax], ['Iso', 'IsoShal'],
