@@ -36,7 +36,10 @@ done
 OUTDIR=$TEMPDIR/HetMan/subgrouping_isolate/$expr_source/$cohort/$mut_levels/$search/$classif
 FINALDIR=$DATADIR/HetMan/subgrouping_isolate/${expr_source}__${cohort}
 export RUNDIR=$CODEDIR/HetMan/experiments/subgrouping_isolate
-eval $(python $RUNDIR/data_dirs.py $expr_source $cohort)
+
+cd $CODEDIR
+eval $(python -m HetMan.experiments.subgrouping_isolate.data_dirs \
+	$expr_source $cohort)
 
 # if we want to rewrite the experiment, remove the intermediate output directory
 if $rewrite

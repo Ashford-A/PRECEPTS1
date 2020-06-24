@@ -17,6 +17,7 @@ dependencies:
   - bcrypt=3.1.6
   - binutils_impl_linux-64=2.31.1
   - binutils_linux-64=2.31.1
+  - biopython=1.76
   - blas=1.0
   - bleach=3.1.0
   - boto3=1.9.199
@@ -25,7 +26,7 @@ dependencies:
   - ca-certificates=2020.1.1
   - cachetools=2.1.0
   - cairo=1.16.0
-  - certifi=2020.4.5.1
+  - certifi=2020.4.5.2
   - cffi=1.12.3
   - chardet=3.0.4
   - clustalw=2.1
@@ -481,4 +482,3 @@ dependencies:
     - keyrings-alt==3.1
     - secretstorage==2.3.1
     - synapseclient==2.0.0
-

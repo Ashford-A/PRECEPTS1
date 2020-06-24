@@ -3,7 +3,4 @@ experiments/old
 experiments/**/setup
 experiments/**/output
 experiments/**/plots
-experiments/**/data_dirs.py
-experiments/**/files.sh
 experiments/**/TODO*
-
