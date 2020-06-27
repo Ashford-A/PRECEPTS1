@@ -85,18 +85,18 @@ def main():
 
     siml_exs = set(args.ex_lbls) & {'Iso', 'IsoShal'}
     if siml_exs:
-        siml_dicts = {ex_lbl: dict() for ex_lbl in siml_exs}
+        siml_dfs = {ex_lbl: list() for ex_lbl in siml_exs}
 
         for siml_file in Path(args.use_dir, 'merge').glob("out-siml_*.p.gz"):
             with bz2.BZ2File(siml_file, 'r') as fl:
                 siml_data = pickle.load(fl)
 
             for ex_lbl in siml_exs:
-                siml_dicts[ex_lbl].update(siml_data[ex_lbl])
+                siml_dfs[ex_lbl] += [siml_data[ex_lbl]]
 
         with bz2.BZ2File(os.path.join(args.use_dir, "out-siml.p.gz"),
                          'w') as fl:
-            pickle.dump(siml_dicts, fl, protocol=-1)
+            pickle.dump(siml_dfs, fl, protocol=-1)
 
     tune_dfs = [{ex_lbl: pd.DataFrame() for ex_lbl in args.ex_lbls}
                 for _ in range(3)] + [None]

@@ -107,7 +107,7 @@ def main():
                         ), 7)
                     }
 
-                if (ex_samps & set(cdata.get_train_samples())):
+                if ex_samps & set(cdata.get_train_samples()):
                     out_pred[mtype][ex_lbl]['train'] = np.round(
                         mut_clf.parse_preds(mut_clf.predict_train(
                             cdata, lbl_type='raw',

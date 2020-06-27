@@ -1,15 +1,7 @@
 
+from ..utilities.misc import detect_log_distr, choose_label_colour
+
 import os
-import sys
-
-base_dir = os.path.join(os.environ['DATADIR'], 'HetMan',
-                        'subgrouping_isolate')
-sys.path.extend([os.path.join(os.path.dirname(__file__), '..', '..', '..')])
-plot_dir = os.path.join(base_dir, 'plots', 'tuning')
-
-from HetMan.experiments.utilities.misc import (
-    detect_log_distr, choose_label_colour)
-
 import argparse
 from pathlib import Path
 import bz2
@@ -23,9 +15,14 @@ mpl.use('Agg')
 import matplotlib.pyplot as plt
 
 plt.style.use('fivethirtyeight')
-plt.rcParams['axes.facecolor']='white'
-plt.rcParams['savefig.facecolor']='white'
-plt.rcParams['axes.edgecolor']='white'
+plt.rcParams['axes.facecolor'] = 'white'
+plt.rcParams['savefig.facecolor'] = 'white'
+plt.rcParams['axes.edgecolor'] = 'white'
+
+
+base_dir = os.path.join(os.environ['DATADIR'], 'HetMan',
+                        'subgrouping_isolate')
+plot_dir = os.path.join(base_dir, 'plots', 'tuning')
 
 
 def plot_chosen_parameters(pars_dfs, pheno_dict, auc_dfs, use_clf, args):
@@ -199,8 +196,8 @@ def main():
         )
 
     out_iter = out_use.groupby('Levels')['File']
-    out_tune = {lvls: list() for lvls, _ in out_iter}
-    out_aucs = {lvls: list() for lvls, _ in out_iter}
+    out_tune = {lvls: list() for lvls in out_iter.groups}
+    out_aucs = {lvls: list() for lvls in out_iter.groups}
     phn_dict = dict()
 
     tune_list = [

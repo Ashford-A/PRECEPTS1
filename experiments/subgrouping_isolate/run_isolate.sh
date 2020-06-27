@@ -11,15 +11,15 @@ count_only=false
 while getopts e:t:l:s:c:m:rn var
 do
 	case "$var" in
-		e)      expr_source=$OPTARG;;
-		t)	cohort=$OPTARG;;
-		l)	mut_levels=$OPTARG;;
-		s)	search=$OPTARG;;
-		c)	classif=$OPTARG;;
-		m)	test_max=$OPTARG;;
-		r)      rewrite=true;;
-		n)      count_only=true;;
-		[?])    echo "Usage: $0 " \
+		e)  expr_source=$OPTARG;;
+		t)  cohort=$OPTARG;;
+		l)  mut_levels=$OPTARG;;
+		s)  search=$OPTARG;;
+		c)  classif=$OPTARG;;
+		m)  test_max=$OPTARG;;
+		r)  rewrite=true;;
+		n)  count_only=true;;
+		[?])  echo "Usage: $0 " \
 				"[-e] cohort expression source" \
 				"[-t] tumour cohort" \
 				"[-l] mutation annotation levels" \
@@ -37,9 +37,9 @@ OUTDIR=$TEMPDIR/HetMan/subgrouping_isolate/$expr_source/$cohort/$mut_levels/$sea
 FINALDIR=$DATADIR/HetMan/subgrouping_isolate/${expr_source}__${cohort}
 export RUNDIR=$CODEDIR/HetMan/experiments/subgrouping_isolate
 
-cd $CODEDIR
-eval $(python -m HetMan.experiments.subgrouping_isolate.data_dirs \
-	$expr_source $cohort)
+cd $CODEDIR || exit
+eval "$(python -m HetMan.experiments.subgrouping_isolate.data_dirs \
+	$expr_source $cohort)"
 
 # if we want to rewrite the experiment, remove the intermediate output directory
 if $rewrite
@@ -50,7 +50,7 @@ fi
 # create the directories where intermediate and final output will be stored,
 # move to working directory
 mkdir -p $FINALDIR $OUTDIR/setup $OUTDIR/output $OUTDIR/slurm $OUTDIR/merge
-cd $OUTDIR
+cd $OUTDIR || exit
 
 rm -rf .snakemake
 dvc init --no-scm -f
@@ -71,7 +71,7 @@ then
 fi
 
 # calculate how many parallel tasks the mutations will be tested over
-merge_max=2000
+merge_max=1000
 muts_count=$(cat setup/muts-count.txt)
 task_count=$(( $(( $muts_count - 1 )) / $test_max + 1 ))
 merge_count=$(( $(( $muts_count - 1)) / $merge_max + 1 ))

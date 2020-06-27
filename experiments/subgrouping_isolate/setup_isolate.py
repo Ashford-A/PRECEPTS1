@@ -24,10 +24,7 @@ import dill as pickle
 
 import numpy as np
 import pandas as pd
-
-import random
 from itertools import combinations as combn
-from itertools import product
 
 
 def get_input_datasets(cohort, expr_source,
@@ -58,7 +55,7 @@ def get_input_datasets(cohort, expr_source,
         use_asmb = 'GRCh37'
 
         expr_data, mut_data, annot_dict = process_baml_datasets(
-            baml_dir, genocode_dir, syn,
+            baml_dir, gencode_dir, syn,
             annot_fields=['transcript'], mut_fields=mut_fields
             )
 

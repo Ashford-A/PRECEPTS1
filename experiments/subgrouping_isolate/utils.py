@@ -7,9 +7,10 @@ import numpy as np
 
 
 def search_siml_pair(siml_dicts, mut, other_mut):
-    return {mut_lvls: siml_dict[mut][other_mut]
-            for mut_lvls, siml_dict in siml_dicts.items()
-            if mut in siml_dict and other_mut in siml_dict[mut]}
+    return {mut_lvls: siml_df[mut][other_mut]
+            for mut_lvls, siml_dfs in siml_dicts.items()
+            for siml_df in siml_dfs
+            if other_mut in siml_df.index and mut in siml_df.columns}
 
 
 def calculate_pair_siml(mcomb1, mcomb2, all_mtype, siml_dicts,

@@ -1,24 +1,14 @@
 
-import os
-import sys
-
-base_dir = os.path.join(os.environ['DATADIR'], 'HetMan',
-                        'subgrouping_isolate')
-sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
-plot_dir = os.path.join(base_dir, 'plots', 'example')
-
-from HetMan.experiments.utilities.mutations import Mcomb, ExMcomb
-from HetMan.experiments.subvariant_tour.utils import RandomType
+from ..utilities.mutations import (pnt_mtype, copy_mtype, shal_mtype,
+                                   dels_mtype, gains_mtype, Mcomb, ExMcomb)
 from dryadic.features.mutations import MuType
 
-from HetMan.experiments.subvariant_isolate import cna_mtypes
-from HetMan.experiments.subvariant_test import (
-    variant_clrs, pnt_mtype, copy_mtype)
-from HetMan.experiments.subvariant_isolate.utils import (
-    calc_auc, get_fancy_label)
-from HetMan.experiments.utilities.colour_maps import simil_cmap
-from HetMan.experiments.subvariant_test.utils import get_cohort_label
+from ..subvariant_isolate.utils import calc_auc, get_fancy_label
+from ..utilities.colour_maps import simil_cmap
+from ..subvariant_test import variant_clrs
+from ..subvariant_test.utils import get_cohort_label
 
+import os
 import argparse
 from pathlib import Path
 import bz2
@@ -37,9 +27,14 @@ from matplotlib.colorbar import ColorbarBase
 from matplotlib import colors
 
 plt.style.use('fivethirtyeight')
-plt.rcParams['axes.facecolor']='white'
-plt.rcParams['savefig.facecolor']='white'
-plt.rcParams['axes.edgecolor']='white'
+plt.rcParams['axes.facecolor'] = 'white'
+plt.rcParams['savefig.facecolor'] = 'white'
+plt.rcParams['axes.edgecolor'] = 'white'
+
+
+base_dir = os.path.join(os.environ['DATADIR'], 'HetMan',
+                        'subgrouping_isolate')
+plot_dir = os.path.join(base_dir, 'plots', 'example')
 
 
 def plot_base_classification(plt_mtype, plt_mcomb, pred_df,
@@ -100,10 +95,10 @@ def plot_base_classification(plt_mtype, plt_mcomb, pred_df,
                                      edgecolor='0.51', facecolor='None'))
 
     coh_ax.add_patch(ptchs.Rectangle((0.3 + ovlp_prop * 0.66, 0.01),
-                                      np.mean(plt_df.rStat) * 0.66, 0.22,
-                                      alpha=0.83, hatch='\\',
-                                      linewidth=1.3, edgecolor='0.51',
-                                      facecolor=variant_clrs['Point']))
+                                     np.mean(plt_df.rStat) * 0.66, 0.22,
+                                     alpha=0.83, hatch='\\',
+                                     linewidth=1.3, edgecolor='0.51',
+                                     facecolor=variant_clrs['Point']))
 
     coh_ax.text(0.29 + ovlp_prop * 0.66, 0.23,
                 "{} mutations\nother than\n{}".format(
@@ -544,8 +539,7 @@ def plot_iso_projection(plt_mtype, plt_mcomb, pred_df,
     base_vio_ax.yaxis.label.set_visible(False)
     base_vio_ax.get_legend().remove()
 
-    pnl_mtypes = {'Point': pnt_mtype, 'Loss': dict(cna_mtypes)['Loss'],
-                  'Gain': dict(cna_mtypes)['Gain']}
+    pnl_mtypes = {'Point': pnt_mtype, 'Loss': dels_mtype, 'Gain': gains_mtype}
     pnl_lbls = {'Point': "other {}\npoint mutations".format(cur_gene),
                 'Loss': "loss CNAs", 'Gain': "gain CNAs"}
 
@@ -653,7 +647,7 @@ def plot_iso_similarities(plt_clf, plt_mtype, plt_mcomb,
         if (isinstance(mcomb, ExMcomb) and mcomb != plt_mcomb
             and mcomb.get_labels()[0] == plt_mtype.get_labels()[0]
             and len(mcomb.mtypes) == 1
-            and not (mcomb.all_mtype & dict(cna_mtypes)['Shal']).is_empty()
+            and not (mcomb.all_mtype & shal_mtype).is_empty()
             and (copy_mtype.is_supertype(tuple(mcomb.mtypes)[0])
                  or (len(tuple(mcomb.mtypes)[0].subkeys()) == 1
                      and not any('domain' in lvl for lvl
@@ -878,7 +872,7 @@ def main():
     auc_df = auc_df.loc[~auc_df.index.duplicated()]
 
     base_muts = {(clf, mtype) for clf, mtype in auc_df.index
-                 if (not isinstance(mtype, (Mcomb, ExMcomb, RandomType))
+                 if (not isinstance(mtype, (Mcomb, ExMcomb))
                      and 'Copy' not in mtype.get_levels()
                      and not any('domain' in lvl
                                  for lvl in mtype.get_levels())
@@ -898,8 +892,7 @@ def main():
             mcomb for oth_clf, mcomb in auc_df.index
             if (oth_clf == clf and isinstance(mcomb, ExMcomb)
                 and len(mcomb.mtypes) == 1 and tuple(mcomb.mtypes)[0] == mtype
-                and not (mcomb.all_mtype
-                         & dict(cna_mtypes)['Shal']).is_empty())
+                and not (mcomb.all_mtype & shal_mtype).is_empty())
             }
         for clf, mtype in base_muts
         }

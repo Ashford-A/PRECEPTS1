@@ -384,8 +384,8 @@ def main():
                 pheno_dict[ex_lbl, mcomb] = np.array(cdata.train_pheno(
                     all_mtype - gene_ex))
 
-        siml_dicts = {
-            ex_lbl: dict(zip(mcomb_lists[ex_lbl], Parallel(
+        siml_dfs = {
+            ex_lbl: pd.DataFrame(dict(zip(mcomb_lists[ex_lbl], Parallel(
                 n_jobs=12, prefer='threads', pre_dispatch=120)(
                     delayed(calculate_siml)(
                         mcomb, pheno_dict, (ex_lbl, mcomb),
@@ -393,14 +393,14 @@ def main():
                         )
                     for mcomb in mcomb_lists[ex_lbl]
                     )
-                ))
+                )))
             for ex_lbl in set(args.ex_lbls) & {'Iso', 'IsoShal'}
             }
 
         with bz2.BZ2File(os.path.join(args.use_dir, 'merge',
                                       "out-siml{}.p.gz".format(out_tag)),
                          'w') as fl:
-            pickle.dump(siml_dicts, fl, protocol=-1)
+            pickle.dump(siml_dfs, fl, protocol=-1)
 
 
 if __name__ == "__main__":
