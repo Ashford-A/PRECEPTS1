@@ -1,21 +1,12 @@
 
-import os
-import sys
-
-base_dir = os.path.join(os.environ['DATADIR'], 'HetMan',
-                        'subgrouping_isolate')
-sys.path.extend([os.path.join(os.path.dirname(__file__), '..', '..', '..')])
-plot_dir = os.path.join(base_dir, 'plots', 'orderings')
-
-from HetMan.experiments.utilities.mutations import ExMcomb
-from HetMan.experiments.subvariant_isolate import cna_mtypes
-from HetMan.experiments.subvariant_test import pnt_mtype, copy_mtype
+from ..utilities.mutations import pnt_mtype, copy_mtype, shal_mtype, ExMcomb
 from dryadic.features.mutations import MuType
 
-from HetMan.experiments.subgrouping_isolate.utils import calculate_pair_siml
-from HetMan.experiments.subvariant_isolate.utils import get_fancy_label
-from HetMan.experiments.utilities.colour_maps import simil_cmap
+from ..subgrouping_isolate.utils import calculate_pair_siml
+from ..subvariant_isolate.utils import get_fancy_label
+from ..utilities.colour_maps import simil_cmap
 
+import os
 import argparse
 from pathlib import Path
 import bz2
@@ -34,6 +25,11 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from matplotlib.colorbar import ColorbarBase
 from matplotlib import colors
+
+
+base_dir = os.path.join(os.environ['DATADIR'], 'HetMan',
+                        'subgrouping_isolate')
+plot_dir = os.path.join(base_dir, 'plots', 'orderings')
 
 
 def get_xaxis_labels(mcombs, pheno_dict):
@@ -62,7 +58,7 @@ def get_yaxis_labels(mcombs):
     return yaxis_lbls
 
 
-def plot_singleton_ordering(siml_dicts, auc_vals, pheno_dict, pred_df,
+def plot_singleton_ordering(siml_dfs, auc_vals, pheno_dict, pred_df,
                             ex_lbl, cdata, args, cluster=False):
     use_gene = set(mcomb.get_labels()[0] for mcomb in auc_vals.index)
     assert len(use_gene) == 1, ("This plot can only be created using the "
@@ -72,7 +68,7 @@ def plot_singleton_ordering(siml_dicts, auc_vals, pheno_dict, pred_df,
     all_type = MuType(tuple(cdata.mtrees.values())[0][use_gene].allkey())
 
     if ex_lbl == 'IsoShal':
-        all_type -= dict(cna_mtypes)['Shal']
+        all_type -= shal_mtype
     all_mtype = MuType({('Gene', use_gene): all_type})
 
     singl_mcombs = {
@@ -84,8 +80,7 @@ def plot_singleton_ordering(siml_dicts, auc_vals, pheno_dict, pred_df,
 
     if ex_lbl == 'IsoShal':
         singl_mcombs = {mcomb for mcomb in singl_mcombs
-                        if (tuple(mcomb.mtypes)[0]
-                            & dict(cna_mtypes)['Shal']).is_empty()}
+                        if (tuple(mcomb.mtypes)[0] & shal_mtype).is_empty()}
 
     if len(singl_mcombs) <= 1:
         return None
@@ -107,14 +102,14 @@ def plot_singleton_ordering(siml_dicts, auc_vals, pheno_dict, pred_df,
     for mcomb1, mcomb2 in product(singl_mcombs, repeat=2):
         if args.test:
             siml_df.loc[mcomb1, mcomb2], test_list = calculate_pair_siml(
-                mcomb1, mcomb2, all_mtype, siml_dicts,
-                pheno_dict, pred_df, cdata, test_list
+                mcomb1, mcomb2, all_mtype,
+                siml_dfs, pheno_dict, pred_df, cdata, test_list
                 )
 
         else:
             siml_df.loc[mcomb1, mcomb2] = calculate_pair_siml(
-                mcomb1, mcomb2, all_mtype, siml_dicts,
-                pheno_dict, pred_df, cdata, test_list
+                mcomb1, mcomb2, all_mtype,
+                siml_dfs, pheno_dict, pred_df, cdata, test_list
                 )
 
     if args.test:
@@ -122,7 +117,7 @@ def plot_singleton_ordering(siml_dicts, auc_vals, pheno_dict, pred_df,
               "{} mutation pairs within {} for internal consistency!".format(
                   len(test_list), use_gene))
 
-    #TODO: place the dendrogram on top of the heatmap?
+    # TODO: place the dendrogram on top of the heatmap?
     if cluster:
         plt_tag = 'singleton-clust'
         siml_order = siml_df.index[
@@ -245,89 +240,86 @@ def main():
             with bz2.BZ2File(Path(out_dir, '__'.join(["out-pheno", out_tag])),
                              'r') as f:
                 phn_vals = pickle.load(f)
-                phn_vals = {mut: phns for mut, phns in phn_vals.items()
-                            if isinstance(mut, ExMcomb)}
 
-                if args.genes:
-                    phn_vals = {
-                        mcomb: phns for mcomb, phns in phn_vals.items()
-                        if mcomb.get_labels()[0] in set(args.genes)
-                        }
+            phn_vals = {mut: phns for mut, phns in phn_vals.items()
+                        if isinstance(mut, ExMcomb)}
 
-                phn_dict.update(phn_vals)
+            if args.genes:
+                phn_vals = {
+                    mcomb: phns for mcomb, phns in phn_vals.items()
+                    if mcomb.get_labels()[0] in set(args.genes)
+                    }
+
+            phn_dict.update(phn_vals)
 
             with bz2.BZ2File(Path(out_dir, '__'.join(["out-aucs", out_tag])),
                              'r') as f:
                 auc_vals = pickle.load(f)
 
-                auc_vals = pd.DataFrame({
-                    ex_lbl: auc_vals[ex_lbl]['mean'][
-                        [mut for mut in auc_vals[ex_lbl]['mean'].index
-                         if isinstance(mut, ExMcomb)]
-                        ]
-                    for ex_lbl in ['Iso', 'IsoShal']
-                    })
+            auc_vals = pd.DataFrame({
+                ex_lbl: auc_vals[ex_lbl]['mean'][
+                    [mut for mut in auc_vals[ex_lbl]['mean'].index
+                     if isinstance(mut, ExMcomb)]
+                    ]
+                for ex_lbl in ['Iso', 'IsoShal']
+                })
 
-                if args.genes:
-                    auc_vals = auc_vals.loc[[
-                        mcomb for mcomb in auc_vals.index
-                        if mcomb.get_labels()[0] in set(args.genes)
-                        ]]
+            if args.genes:
+                auc_vals = auc_vals.loc[[
+                    mcomb for mcomb in auc_vals.index
+                    if mcomb.get_labels()[0] in set(args.genes)
+                    ]]
 
-                out_aucs[lvls] += [auc_vals]
+            out_aucs[lvls] += [auc_vals]
 
             with bz2.BZ2File(Path(out_dir, '__'.join(["out-siml", out_tag])),
                              'r') as f:
                 siml_vals = pickle.load(f)
 
-                if args.genes:
-                    siml_vals = {
-                        ex_lbl: {
-                            mcomb1: {
-                                mcomb2: siml_val
-                                for mcomb2, siml_val in siml_dict.items()
-                                if mcomb2.get_labels()[0] in set(args.genes)
-                                }
-                            for mcomb1, siml_dict in siml_dicts.items()
-                            if mcomb1.get_labels()[0] in set(args.genes)
-                            }
-                        for ex_lbl, siml_dicts in siml_vals.items()
-                        }
+            if args.genes:
+                siml_vals = {
+                    ex_lbl: [
+                        siml_df[[mut for mut in siml_df
+                                 if mut.get_labels()[0] in set(args.genes)]]
+                        for siml_df in siml_dfs
+                        ]
+                    for ex_lbl, siml_dfs in siml_vals.items()
+                    }
 
-                out_simls[lvls] += [siml_vals]
+            out_simls[lvls] += [siml_vals]
 
             with bz2.BZ2File(Path(out_dir, '__'.join(["out-pred", out_tag])),
                              'r') as f:
                 pred_vals = pickle.load(f)
 
+            pred_vals = {
+                ex_lbl: pred_vals[ex_lbl].loc[
+                    [mut for mut in pred_vals[ex_lbl].index
+                     if isinstance(mut, ExMcomb)]
+                    ]
+                for ex_lbl in ['Iso', 'IsoShal']
+                }
+
+            if args.genes:
                 pred_vals = {
-                    ex_lbl: pred_vals[ex_lbl].loc[
-                        [mut for mut in pred_vals[ex_lbl].index
-                         if isinstance(mut, ExMcomb)]
+                    ex_lbl: pred_mat.loc[
+                        [mcomb for mcomb in pred_mat.index
+                         if mcomb.get_labels()[0] in set(args.genes)]
                         ]
-                    for ex_lbl in ['Iso', 'IsoShal']
+                    for ex_lbl, pred_mat in pred_vals.items()
                     }
 
-                if args.genes:
-                    pred_vals = {
-                        ex_lbl: pred_mat.loc[
-                            [mcomb for mcomb in pred_mat.index
-                             if mcomb.get_labels()[0] in set(args.genes)]
-                            ]
-                        for ex_lbl, pred_mat in pred_vals.items()
-                        }
-
-                out_preds[lvls] += [pred_vals]
+            out_preds[lvls] += [pred_vals]
 
             with bz2.BZ2File(Path(out_dir,
                                   '__'.join(["cohort-data", out_tag])),
                              'r') as f:
                 new_cdata = pickle.load(f)
 
-                if cdata is None:
-                    cdata = new_cdata
-                else:
-                    cdata.merge(new_cdata, use_genes=args.genes)
+            if cdata is None:
+                cdata = new_cdata
+            else:
+                cdata.merge(new_cdata, use_genes=args.genes)
 
         mtypes_comp = np.greater_equal.outer(
             *([[set(auc_vals['Iso'].index)
@@ -359,11 +351,9 @@ def main():
     auc_df = auc_df.loc[~auc_df.index.duplicated()]
     use_mtypes = {
         'Iso': {mcomb for mcomb in auc_df.index
-                if not (mcomb.all_mtype
-                        & dict(cna_mtypes)['Shal']).is_empty()},
+                if not (mcomb.all_mtype & shal_mtype).is_empty()},
         'IsoShal': {mcomb for mcomb in auc_df.index
-                    if (mcomb.all_mtype
-                        & dict(cna_mtypes)['Shal']).is_empty()}
+                    if (mcomb.all_mtype & shal_mtype).is_empty()}
         }
 
     assert not (use_mtypes['Iso'] & use_mtypes['IsoShal'])
