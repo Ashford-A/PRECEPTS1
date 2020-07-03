@@ -1,4 +1,7 @@
 
+from ..utilities.mutations import pnt_mtype, shal_mtype, ExMcomb
+from ..subvariant_isolate.merge_isolate import compare_muts, calculate_auc
+
 import os
 import argparse
 import bz2
@@ -9,10 +12,6 @@ import numpy as np
 import pandas as pd
 from joblib import Parallel, delayed
 import random
-
-from dryadic.features.mutations import MuType
-from ..utilities.mutations import pnt_mtype, shal_mtype, ExMcomb
-from ..subvariant_isolate.merge_isolate import compare_muts, calculate_auc
 
 from itertools import cycle
 from functools import reduce
@@ -51,7 +50,7 @@ def main():
                                   "cohort-data.p.gz"), 'r') as f:
         cdata = pickle.load(f)
 
-    # get the mutations present in this cohort sorted into the attribute
+    # load the mutations present in the cohort sorted into the attribute
     # hierarchy used in this experiment as well as the subgroupings tested
     use_mtree = tuple(cdata.mtrees.values())[0]
     with open(os.path.join(args.use_dir, 'setup', "muts-list.p"), 'rb') as f:
@@ -61,14 +60,19 @@ def main():
     file_list = tuple(Path(args.use_dir, 'output').glob("out__cv-*_task*.p"))
     file_dict = dict()
 
+    # filter output files according to whether they came from one of the
+    # parallelized tasks assigned to this gather task
     for out_fl in file_list:
         fl_info = out_fl.stem.split("out__")[1]
         out_task = int(fl_info.split("task-")[1])
 
+        # gets the parallelized task id and learning cross-validation fold
+        # each output file corresponds to
         if args.task_ids is None or out_task in args.task_ids:
             out_cv = int(fl_info.split("cv-")[1].split("_")[0])
             file_dict[out_fl] = out_task, out_cv
 
+    # find the number of parallelized tasks used in this run of the pipeline
     assert (len(file_dict) % 40) == 0, "Missing output files detected!"
     task_count = 1
     with open(os.path.join(args.use_dir, 'setup', "tasks.txt"), 'r') as f:
@@ -88,6 +92,8 @@ def main():
         out_tag = "_{}".format('-'.join([
             str(tsk) for tsk in sorted(use_tasks)]))
 
+    # organize output files according to their cross-validation fold for
+    # easier collation of output data across parallelized task ids
     file_sets = {
         cv_id: {out_fl for out_fl, (out_task, out_cv) in file_dict.items()
                 if out_task in use_tasks and out_cv == cv_id}
@@ -360,47 +366,6 @@ def main():
                                   "out-conf{}.p.gz".format(out_tag)),
                      'w') as fl:
         pickle.dump(conf_lists, fl, protocol=-1)
-
-    if 'Iso' in args.ex_lbls or 'IsoShal' in args.ex_lbls:
-        ex_mtypes = [('Iso', MuType({})), ('IsoShal', shal_mtype)]
-        use_exs = [(ex_lbl, ex_mtype) for ex_lbl, ex_mtype in ex_mtypes
-                   if ex_lbl in args.ex_lbls]
-
-        mcomb_lists = {
-            'Iso': {mut for mut in use_muts
-                    if (isinstance(mut, ExMcomb)
-                        and not (mut.all_mtype & shal_mtype).is_empty())},
-            'IsoShal': {mut for mut in use_muts
-                        if (isinstance(mut, ExMcomb)
-                            and (mut.all_mtype & shal_mtype).is_empty())}
-            }
-
-        for ex_lbl, ex_mtype in use_exs:
-            for mcomb in mcomb_lists[ex_lbl]:
-                all_mtype = MuType({('Gene', mut_genes[mcomb]): use_mtree[
-                    mut_genes[mcomb]].allkey()})
-
-                gene_ex = MuType({('Gene', mut_genes[mcomb]): ex_mtype})
-                pheno_dict[ex_lbl, mcomb] = np.array(cdata.train_pheno(
-                    all_mtype - gene_ex))
-
-        siml_dfs = {
-            ex_lbl: pd.DataFrame(dict(zip(mcomb_lists[ex_lbl], Parallel(
-                n_jobs=12, prefer='threads', pre_dispatch=120)(
-                    delayed(calculate_siml)(
-                        mcomb, pheno_dict, (ex_lbl, mcomb),
-                        pred_dfs[ex_lbl].loc[mcomb][train_samps]
-                        )
-                    for mcomb in mcomb_lists[ex_lbl]
-                    )
-                )))
-            for ex_lbl in set(args.ex_lbls) & {'Iso', 'IsoShal'}
-            }
-
-        with bz2.BZ2File(os.path.join(args.use_dir, 'merge',
-                                      "out-siml{}.p.gz".format(out_tag)),
-                         'w') as fl:
-            pickle.dump(siml_dfs, fl, protocol=-1)
 
 
 if __name__ == "__main__":
