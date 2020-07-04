@@ -11,15 +11,15 @@ count_only=false
 while getopts e:t:s:l:c:m:rn var
 do
 	case "$var" in
-		e)      expr_source=$OPTARG;;
-		t)	cohort=$OPTARG;;
-		s)	search=$OPTARG;;
-		l)	mut_lvls=$OPTARG;;
-		c)	classif=$OPTARG;;
-		m)	test_max=$OPTARG;;
-		r)      rewrite=true;;
-		n)      count_only=true;;
-		[?])    echo "Usage: $0 " \
+		e)  expr_source=$OPTARG;;
+		t)  cohort=$OPTARG;;
+		s)  search=$OPTARG;;
+		l)  mut_lvls=$OPTARG;;
+		c)  classif=$OPTARG;;
+		m)  test_max=$OPTARG;;
+		r)  rewrite=true;;
+		n)  count_only=true;;
+		[?])  echo "Usage: $0 " \
 				"[-e] cohort expression source" \
 				"[-t] tumour cohort" \
 				"[-s] mutation search parameters" \
@@ -36,7 +36,10 @@ done
 OUTDIR=$TEMPDIR/HetMan/dyad_isolate/$expr_source/$cohort/$search/$mut_lvls/$classif
 FINALDIR=$DATADIR/HetMan/dyad_isolate/${expr_source}__${cohort}
 export RUNDIR=$CODEDIR/HetMan/experiments/dyad_isolate
-source $RUNDIR/files.sh
+
+cd $CODEDIR || exit
+eval "$(python -m HetMan.experiments.subgrouping_isolate.data_dirs \
+	$expr_source $cohort)"
 
 # if we want to rewrite the experiment, remove the intermediate output directory
 if $rewrite
@@ -47,20 +50,18 @@ fi
 # move to working directory, clean up files from previous experiment runs, and
 # create the directories where intermediate and final output will be stored
 mkdir -p $FINALDIR $OUTDIR/setup $OUTDIR/output $OUTDIR/slurm $OUTDIR/merge
-cd $OUTDIR
-rm -rf .snakemake
+cd $OUTDIR || exit
 
-# initiate version control in this directory if it hasn't been already
-if [ ! -d .dvc ]
-then
-	dvc init --no-scm
-fi
+rm -rf .snakemake
+dvc init --no-scm -f
+export PYTHONPATH="$CODEDIR"
 
 # enumerate the mutation types that will be tested in this experiment
-dvc run -d $firehose_dir -d $mc3_file -d $gencode_file -d $subtype_file \
+dvc run -d $COH_DIR -d $GENCODE_DIR -d $ONCOGENE_LIST -d $SUBTYPE_LIST \
 	-d $RUNDIR/setup_isolate.py -d $CODEDIR/HetMan/environment.yml \
 	-o setup/muts-list.p -m setup/muts-count.txt \
-	-f setup.dvc --overwrite-dvcfile python $RUNDIR/setup_isolate.py \
+	-f setup.dvc --overwrite-dvcfile \
+	python -m HetMan.experiments.dyad_isolate.setup_isolate \
 	$expr_source $cohort $search $mut_lvls $OUTDIR
 
 # if we are only enumerating, we quit before classification jobs are launched

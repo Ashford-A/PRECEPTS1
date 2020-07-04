@@ -1,17 +1,13 @@
 
+from ..utilities.handle_input import safe_load
+from ..utilities.mutations import pnt_mtype, shal_mtype, ExMcomb
+from ..subvariant_isolate.classifiers import *
+
 import os
-import sys
-base_dir = os.path.dirname(__file__)
-sys.path.extend([os.path.join(base_dir, '..', '..', '..')])
-
-from HetMan.experiments.utilities.handle_input import safe_load
-from HetMan.experiments.subvariant_isolate import cna_mtypes
-from HetMan.experiments.subvariant_tour.utils import RandomType
-from HetMan.experiments.subvariant_isolate.classifiers import *
-
 import argparse
 import dill as pickle
 import random
+
 from functools import reduce
 from operator import or_
 
@@ -59,9 +55,6 @@ def main():
     random.shuffle(cdata_samps)
     cdata.update_split(use_seed, test_samps=cdata_samps[(args.cv_id % 4)::4])
 
-    mtype_genes = {mtype: mtype.get_labels() for mtype in mtype_list
-                   if not isinstance(mtype, RandomType)}
-
     out_pars = {mtype: {smps: {par: None for par, _ in mut_clf.tune_priors}
                         for smps in ['All', 'Iso', 'IsoShal']}
                 for mtype in mtype_list}
@@ -78,22 +71,14 @@ def main():
         if (i % args.task_count) == args.task_id:
             print("Isolating {} ...".format(mtype))
 
-            if not isinstance(mtype, RandomType):
-                cur_genes = mtype_genes[mtype]
-
-            elif mtype.base_mtype is not None:
-                cur_genes = mtype.base_mtype.get_labels()
-            else:
-                cur_genes = random.choice(list(mtype_genes.values()))
-
+            cur_genes = mtype.get_labels()
             ex_genes = cdata.get_cis_genes('Chrm', cur_genes=cur_genes)
-            mut_samps = reduce(or_,
-                               [use_mtree[gene].get_samples()
-                                for gene in cur_genes])
+            mut_samps = reduce(or_, [use_mtree[gene].get_samples()
+                                     for gene in cur_genes])
 
             shal_samps = reduce(
                 or_,
-                [dict(cna_mtypes)['Shal'].get_samples(use_mtree[gene])
+                [ExMcomb(pnt_mtype, shal_mtype).get_samples(use_mtree[gene])
                  for gene in cur_genes]
                 )
 
@@ -134,7 +119,7 @@ def main():
                         ), 7)
                     }
 
-                if (ex_samps & set(cdata.get_train_samples())):
+                if ex_samps & set(cdata.get_train_samples()):
                     out_pred[mtype][ex_lbl]['train'] = np.round(
                         mut_clf.parse_preds(mut_clf.predict_train(
                             cdata, lbl_type='raw',
