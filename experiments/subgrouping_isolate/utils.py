@@ -3,35 +3,43 @@ from ..subvariant_isolate.merge_isolate import calculate_siml
 from ..subvariant_tour.utils import RandomType
 from dryadic.features.mutations import MuTree
 from dryadic.features.cohorts.mut import BaseMutationCohort
+
 import numpy as np
+from scipy.stats import ks_2samp
 
 
 def search_siml_pair(siml_dicts, mut, other_mut):
-    return {mut_lvls: siml_df[mut][other_mut]
-            for mut_lvls, siml_dfs in siml_dicts.items()
-            for siml_df in siml_dfs
-            if other_mut in siml_df.index and mut in siml_df.columns}
+    simls = dict()
 
+    for mut_lvls, siml_dfs in siml_dicts.items():
+        for siml_df in siml_dfs:
+            if mut in siml_df.columns and other_mut in siml_df.index:
+                simls[mut_lvls] = siml_df.loc[other_mut, mut]
+                break
 
-def calculate_pair_siml(mcomb1, mcomb2, all_mtype, siml_dicts,
-                        pheno_dict, pred_df, cdata, test_list=None):
-    pair_simls = search_siml_pair(siml_dicts, mcomb1, mcomb2)
+    return simls
 
-    if len(pair_simls) == 0 or (len(pair_simls) == 1
-                                and test_list is not None):
-        pred_vals = pred_df.loc[mcomb1, cdata.get_train_samples()]
-        all_phn = np.array(cdata.train_pheno(all_mtype))
+# TODO: clean this up / find another use for it
+def calculate_pair_siml(mcomb1, mcomb2, siml_dicts, all_phn=None,
+                        pheno_dict=None, pred_vals=None, mean_dict=None):
 
-        none_mean = np.concatenate(pred_vals[~all_phn].values).mean()
-        base_mean = np.concatenate(
-            pred_vals[pheno_dict[mcomb1]].values).mean()
+    run_tests = False
+    pair_simls = []
+
+    if len(pair_simls) == 0 or (run_tests and len(pair_simls) == 1):
+        if mean_dict is None:
+            none_mean = np.concatenate(pred_vals[~all_phn].values).mean()
+            base_mean = np.concatenate(
+                pred_vals[pheno_dict[mcomb1]].values).mean()
+        else:
+            none_mean, base_mean = mean_dict['none'], mean_dict['base']
 
         pair_siml = np.concatenate(
             pred_vals[pheno_dict[mcomb2]].values).mean() - none_mean
         pair_siml /= (base_mean - none_mean)
 
-        if test_list is not None and len(pair_simls) == 1:
-            test_list += [(mcomb1, mcomb2)]
+        if run_tests and len(pair_simls) == 1:
+            test_list = mcomb1, mcomb2
 
             assert (
                 pair_siml == tuple(pair_simls.values())[0]), (
@@ -43,10 +51,45 @@ def calculate_pair_siml(mcomb1, mcomb2, all_mtype, siml_dicts,
     else:
         raise ValueError("Multiple similarity values found!")
 
-    if test_list is not None:
+    if run_tests:
         return pair_siml, test_list
     else:
         return pair_siml
+
+
+def calculate_mean_siml(wt_vals, mut_vals, other_vals,
+                        wt_mean=None, mut_mean=None, other_mean=None):
+    if wt_mean is None:
+        wt_mean = wt_vals.mean()
+
+    if mut_mean is None:
+        mut_mean = mut_vals.mean()
+
+    if other_mean is None:
+        other_mean = other_vals.mean()
+
+    return (other_mean - wt_mean) / (mut_mean - wt_mean)
+
+
+def calculate_ks_siml(wt_vals, mut_vals, other_vals,
+                      base_dist=None, wt_dist=None, mut_dist=None):
+    if base_dist is None:
+        base_dist = ks_2samp(wt_vals, mut_vals,
+                             alternative='greater').statistic
+        base_dist -= ks_2samp(wt_vals, mut_vals, alternative='less').statistic
+
+    if wt_dist is None:
+        wt_dist = ks_2samp(wt_vals, other_vals,
+                           alternative='greater').statistic
+        wt_dist -= ks_2samp(wt_vals, other_vals, alternative='less').statistic
+
+    if mut_dist is None:
+        mut_dist = ks_2samp(mut_vals, other_vals,
+                            alternative='greater').statistic
+        mut_dist -= ks_2samp(mut_vals, other_vals,
+                             alternative='less').statistic
+
+    return (base_dist + wt_dist + mut_dist) / (2 * base_dist)
 
 
 class IsoMutationCohort(BaseMutationCohort):
