@@ -5,7 +5,7 @@ from ..utilities.mutations import (
     )
 from dryadic.features.mutations import MuType
 
-from ..subgrouping_isolate.utils import calculate_pair_siml
+from ..subgrouping_isolate.utils import calculate_mean_siml, calculate_ks_siml
 from ..subvariant_test import variant_clrs
 from ..subvariant_isolate import mcomb_clrs
 from ..utilities.colour_maps import simil_cmap
@@ -23,6 +23,7 @@ import dill as pickle
 
 import numpy as np
 import pandas as pd
+from scipy.stats import ks_2samp
 
 from itertools import combinations as combn
 from itertools import permutations, product
@@ -417,8 +418,7 @@ def plot_dyad_comparisons(auc_vals, pheno_dict, conf_vals, use_coh, args):
     plt.close()
 
 
-def plot_score_symmetry(siml_dicts, pheno_dict, auc_dfs, pred_dfs,
-                        use_coh, cdata, args):
+def plot_score_symmetry(pred_dfs, pheno_dict, auc_dfs, use_coh, cdata, args):
     fig, (iso_ax, ish_ax) = plt.subplots(figsize=(15, 8), nrows=1, ncols=2)
 
     use_mtree = tuple(cdata.mtrees.values())[0][args.gene]
@@ -429,28 +429,31 @@ def plot_score_symmetry(siml_dicts, pheno_dict, auc_dfs, pred_dfs,
     all_mtypes['IsoShal'] = all_mtypes['Iso'] - MuType({
         ('Gene', args.gene): shal_mtype})
 
+    all_phns = {ex_lbl: np.array(cdata.train_pheno(all_mtype))
+                for ex_lbl, all_mtype in all_mtypes.items()}
+    train_samps = cdata.get_train_samples()
+
     iso_combs = {mut for mut, auc_val in auc_dfs['Iso'].iteritems()
-                 if (isinstance(mut, ExMcomb) and auc_val >= 0.7
+                 if (isinstance(mut, ExMcomb) and auc_val >= args.auc_cutoff
                      and not (mut.all_mtype & shal_mtype).is_empty())}
 
     ish_combs = {
         mut for mut, auc_val in auc_dfs['IsoShal'].iteritems()
-        if (isinstance(mut, ExMcomb) and auc_val >= 0.7
+        if (isinstance(mut, ExMcomb) and auc_val >= args.auc_cutoff
             and (mut.all_mtype & shal_mtype).is_empty()
             and all((mtp & shal_mtype).is_empty() for mtp in mut.mtypes))
         }
 
     for ax, ex_lbl, use_combs in zip([iso_ax, ish_ax], ['Iso', 'IsoShal'],
                                      [iso_combs, ish_combs]):
-        use_pairs = {
-            (mcomb1, mcomb2) for mcomb1, mcomb2 in combn(use_combs, 2)
-            if (not (pheno_dict[mcomb1] & pheno_dict[mcomb2]).any()
-                or all((mtp1 & mtp2).is_empty()
-                       for mtp1, mtp2 in product(
-                           mcomb1.mtypes, mcomb2.mtypes)))
-            }
+        use_pairs = [
+            {mcomb1, mcomb2} for mcomb1, mcomb2 in combn(use_combs, 2)
+            if (all((mtp1 & mtp2).is_empty()
+                    for mtp1, mtp2 in product(mcomb1.mtypes, mcomb2.mtypes))
+                or not (pheno_dict[mcomb1] & pheno_dict[mcomb2]).any())
+            ]
 
-        if args.verbose and use_pairs:
+        if args.verbose and use_combs:
             print('\n'.join([
                 '\n##########', "{}: {}({})  {} pairs from {} types".format(
                     use_coh, args.gene, ex_lbl,
@@ -462,38 +465,76 @@ def plot_score_symmetry(siml_dicts, pheno_dict, auc_dfs, pred_dfs,
                          ::(len(use_pairs) // (args.verbose * 7) + 1)]]
                 ))
 
-        for mcomb1, mcomb2 in use_pairs:
-            plt_clrs = [
-                choose_subtype_colour(
-                    reduce(or_, mcomb.mtypes).subtype_list()[0][1])
-                for mcomb in (mcomb1, mcomb2)
-                ]
+        if use_pairs:
+            pair_combs = reduce(or_, use_pairs)
+            use_preds = pred_dfs[ex_lbl].loc[
+                pair_combs, train_samps].applymap(np.mean)
 
-            copy_siml1 = calculate_pair_siml(
-                mcomb1, mcomb2, all_mtypes[ex_lbl], siml_dicts[ex_lbl],
-                pheno_dict, pred_dfs[ex_lbl], cdata
-                )
+            wt_vals = {mcomb: use_preds.loc[mcomb][~all_phns[ex_lbl]]
+                       for mcomb in pair_combs}
+            mut_vals = {mcomb: use_preds.loc[mcomb][pheno_dict[mcomb]]
+                        for mcomb in pair_combs}
 
-            copy_siml2 = calculate_pair_siml(
-                mcomb2, mcomb1, all_mtypes[ex_lbl], siml_dicts[ex_lbl],
-                pheno_dict, pred_dfs[ex_lbl], cdata
-                )
+            if args.siml_metric == 'mean':
+                wt_means = {mcomb: vals.mean()
+                            for mcomb, vals in wt_vals.items()}
+                mut_means = {mcomb: vals.mean()
+                             for mcomb, vals in mut_vals.items()}
 
-            plt_lims[0] = min(plt_lims[0],
-                              copy_siml1 - 0.19, copy_siml2 - 0.19)
-            plt_lims[1] = max(plt_lims[1],
-                              copy_siml1 + 0.19, copy_siml2 + 0.19)
+            elif args.siml_metric == 'ks':
+                base_dists = {
+                    mcomb: ks_2samp(wt_vals[mcomb], mut_vals[mcomb],
+                                    alternative='greater').statistic
+                    for mcomb in pair_combs
+                    }
 
-            #TODO: scale by plot ranges or leave as is and thus make sizes
-            # relative to "true" plotting area?
-            mcomb_sz = (np.mean(pheno_dict[mcomb1])
-                        * np.mean(pheno_dict[mcomb2])) ** 0.5
-            plt_sz = (mcomb_sz ** 0.5) / 19
+            for mcomb1, mcomb2 in use_pairs:
+                other_vals1 = use_preds.loc[mcomb1][pheno_dict[mcomb2]]
+                other_vals2 = use_preds.loc[mcomb2][pheno_dict[mcomb1]]
 
-            for ptch in create_twotone_circle((copy_siml1, copy_siml2),
-                                              plt_clrs, plt_sz, alpha=0.23,
-                                              edgecolor='none'):
-                ax.add_artist(ptch)
+                plt_clrs = [
+                    choose_subtype_colour(
+                        reduce(or_, mcomb.mtypes).subtype_list()[0][1])
+                    for mcomb in (mcomb1, mcomb2)
+                    ]
+
+                if args.siml_metric == 'mean':
+                    pair_siml1 = calculate_mean_siml(
+                        wt_vals[mcomb1], mut_vals[mcomb1], other_vals1,
+                        wt_mean=wt_means[mcomb1], mut_mean=mut_means[mcomb1]
+                        )
+
+                    pair_siml2 = calculate_mean_siml(
+                        wt_vals[mcomb2], mut_vals[mcomb2], other_vals2,
+                        wt_mean=wt_means[mcomb2], mut_mean=mut_means[mcomb2]
+                        )
+
+                elif args.siml_metric == 'ks':
+                    pair_siml1 = calculate_ks_siml(
+                        wt_vals[mcomb1], mut_vals[mcomb1], other_vals1,
+                        base_dist=base_dists[mcomb1]
+                        )
+
+                    pair_siml2 = calculate_ks_siml(
+                        wt_vals[mcomb2], mut_vals[mcomb2], other_vals2,
+                        base_dist=base_dists[mcomb2]
+                        )
+
+                plt_lims[0] = min(plt_lims[0],
+                                  pair_siml1 - 0.19, pair_siml2 - 0.19)
+                plt_lims[1] = max(plt_lims[1],
+                                  pair_siml1 + 0.19, pair_siml2 + 0.19)
+
+                #TODO: scale by plot ranges or leave as is and thus make sizes
+                # relative to "true" plotting area?
+                mcomb_sz = (np.mean(pheno_dict[mcomb1])
+                            * np.mean(pheno_dict[mcomb2])) ** 0.5
+                plt_sz = (mcomb_sz ** 0.5) / 19
+
+                for ptch in create_twotone_circle((pair_siml1, pair_siml2),
+                                                  plt_clrs, plt_sz, alpha=0.23,
+                                                  edgecolor='none'):
+                    ax.add_artist(ptch)
 
     clr_norm = colors.Normalize(vmin=-1, vmax=2)
     for ax in iso_ax, ish_ax:
@@ -531,12 +572,10 @@ def plot_score_symmetry(siml_dicts, pheno_dict, auc_dfs, pred_dfs,
         )
 
     plt.tight_layout(w_pad=3.7)
-    plt.savefig(
-        os.path.join(plot_dir, args.gene,
-                     "{}__score-symmetry_{}_{}.svg".format(
-                         use_coh, args.classif, args.expr_source)),
-        bbox_inches='tight', format='svg'
-        )
+    plt.savefig(os.path.join(
+        plot_dir, args.gene, "{}__{}-siml-symmetry_{}_{}.svg".format(
+            use_coh, args.siml_metric, args.classif, args.expr_source)
+        ), bbox_inches='tight', format='svg')
 
     plt.close()
 
@@ -552,14 +591,18 @@ def main():
     parser.add_argument('classif', help="a mutation classifier")
 
     parser.add_argument('--cohorts', nargs='+')
+    parser.add_argument('--auc_cutoff', '-a', type=float, default=0.7)
+    parser.add_argument('--siml_metric', '-s',
+                        default='ks', choices={'mean', 'ks'})
+
     parser.add_argument('--seed', type=int)
     parser.add_argument('--verbose', '-v', action='store_true',
                         help="print info about created plots")
-    args = parser.parse_args()
 
+    args = parser.parse_args()
     out_list = tuple(Path(base_dir).glob(
         os.path.join("{}__*".format(args.expr_source),
-                     "out-siml__*__*__{}.p.gz".format(args.classif))
+                     "out-aucs__*__*__{}.p.gz".format(args.classif))
         ))
 
     if len(out_list) == 0:
@@ -613,7 +656,6 @@ def main():
 
     out_aucs = {(coh, lvls): list() for coh, lvls in use_iter.groups}
     out_confs = {(coh, lvls): list() for coh, lvls in use_iter.groups}
-    out_simls = {(coh, lvls): list() for coh, lvls in use_iter.groups}
     out_preds = {(coh, lvls): list() for coh, lvls in use_iter.groups}
     cdata_dict = {coh: None for coh, _ in use_iter.groups}
 
@@ -622,12 +664,6 @@ def main():
                for ex_lbl in ['All', 'Iso', 'IsoShal']}
     conf_dfs = {ex_lbl: {coh: pd.DataFrame([]) for coh in use_cohs}
                 for ex_lbl in ['All', 'Iso', 'IsoShal']}
-
-    siml_dicts = {ex_lbl: {coh: {lvls: dict()
-                                 for out_coh, lvls in out_iter.groups
-                                 if out_coh == coh}
-                           for coh in use_cohs}
-                  for ex_lbl in ['Iso', 'IsoShal']}
     pred_dfs = {ex_lbl: {coh: pd.DataFrame([]) for coh in use_cohs}
                 for ex_lbl in ['All', 'Iso', 'IsoShal']}
 
@@ -658,18 +694,6 @@ def main():
                 ex_lbl: pd.DataFrame(conf_dict).loc[
                     out_aucs[coh, lvls][-1][ex_lbl].index]
                 for ex_lbl, conf_dict in conf_vals.items()
-                }]
-
-            with bz2.BZ2File(Path(out_dirs[coh],
-                                  '__'.join(["out-siml",
-                                             out_tags[out_file]])),
-                             'r') as f:
-                siml_vals = pickle.load(f)
-
-            out_simls[coh, lvls] += [{
-                ex_lbl: {mut: simls for mut, simls in siml_dict.items()
-                         if mut.get_labels()[0] == args.gene}
-                for ex_lbl, siml_dict in siml_vals.items()
                 }]
 
             with bz2.BZ2File(Path(out_dirs[coh],
@@ -720,10 +744,6 @@ def main():
                     out_preds[coh, lvls][super_indx][ex_lbl]
                     ], sort=False)
 
-            for ex_lbl in ['Iso', 'IsoShal']:
-                siml_dicts[ex_lbl][coh][lvls] = out_simls[
-                    coh, lvls][super_indx][ex_lbl]
-
     for coh, coh_lvls in out_use.groupby('Cohort')['Levels']:
         for ex_lbl in ['All', 'Iso', 'IsoShal']:
             auc_dfs[ex_lbl][coh] = auc_dfs[ex_lbl][coh].loc[
@@ -735,9 +755,6 @@ def main():
                     for ex_lbl, auc_df in auc_dfs.items()}
         coh_confs = {ex_lbl: conf_df[coh]['mean']
                      for ex_lbl, conf_df in conf_dfs.items()}
-
-        coh_simls = {ex_lbl: simls[coh]
-                     for ex_lbl, simls in siml_dicts.items()}
         coh_preds = {ex_lbl: pred_df[coh]
                      for ex_lbl, pred_df in pred_dfs.items()}
 
@@ -748,8 +765,8 @@ def main():
         plot_dyad_comparisons(coh_aucs['All'], phn_dicts[coh],
                               coh_confs['All'], coh, args)
 
-        plot_score_symmetry(coh_simls, phn_dicts[coh],
-                            coh_aucs, coh_preds, coh, cdata_dict[coh], args)
+        plot_score_symmetry(coh_preds, phn_dicts[coh], coh_aucs,
+                            coh, cdata_dict[coh], args)
 
         if 'Consequence__Exon' not in set(coh_lvls.tolist()):
             if args.verbose:
