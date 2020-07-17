@@ -5,11 +5,10 @@ from ..utilities.mutations import (
     )
 from dryadic.features.mutations import MuType
 
-from ..subgrouping_isolate.utils import calculate_mean_siml, calculate_ks_siml
+from .utils import calculate_mean_siml, calculate_ks_siml
 from ..subvariant_test import variant_clrs
 from ..subvariant_isolate import mcomb_clrs
 from ..utilities.colour_maps import simil_cmap
-from ..utilities.misc import create_twotone_circle
 
 from ..subvariant_isolate.utils import get_fancy_label
 from ..subvariant_test.utils import get_cohort_label
@@ -20,20 +19,23 @@ import argparse
 from pathlib import Path
 import bz2
 import dill as pickle
+import multiprocessing as mp
 
 import numpy as np
 import pandas as pd
 from scipy.stats import ks_2samp
 
 from itertools import combinations as combn
-from itertools import permutations, product
+from itertools import permutations as permt
+from itertools import product
 from functools import reduce
-from operator import or_
+from operator import or_, add
 
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib import colors
+from matplotlib.patches import Wedge
 
 plt.style.use('fivethirtyeight')
 plt.rcParams['axes.facecolor'] = 'white'
@@ -44,6 +46,9 @@ plt.rcParams['axes.edgecolor'] = 'white'
 base_dir = os.path.join(os.environ['DATADIR'], 'HetMan',
                         'subgrouping_isolate')
 plot_dir = os.path.join(base_dir, 'plots', 'gene')
+
+
+SIML_FXS = {'mean': calculate_mean_siml, 'ks': calculate_ks_siml}
 
 
 def choose_subtype_colour(mut):
@@ -267,7 +272,7 @@ def plot_iso_comparisons(auc_dfs, pheno_dict, use_coh, args):
             axarr[j, i].scatter(plt_x, plt_y, c=[plt_clr],
                                 s=mtype_sz, alpha=0.19, edgecolor='none')
 
-    for i, j in permutations(range(3), r=2):
+    for i, j in permt(range(3), r=2):
         axarr[i, j].grid(alpha=0.53, linewidth=0.7)
         axarr[j, i].grid(alpha=0.53, linewidth=0.7)
 
@@ -418,12 +423,11 @@ def plot_dyad_comparisons(auc_vals, pheno_dict, conf_vals, use_coh, args):
     plt.close()
 
 
-def plot_score_symmetry(pred_dfs, pheno_dict, auc_dfs, use_coh, cdata, args):
+def plot_score_symmetry(pred_dfs, pheno_dict, auc_dfs, cdata,
+                        args, use_coh, siml_metric):
     fig, (iso_ax, ish_ax) = plt.subplots(figsize=(15, 8), nrows=1, ncols=2)
 
     use_mtree = tuple(cdata.mtrees.values())[0][args.gene]
-    plt_lims = [0.1, 0.9]
-
     all_mtypes = {
         'Iso': MuType({('Gene', args.gene): use_mtree.allkey()})}
     all_mtypes['IsoShal'] = all_mtypes['Iso'] - MuType({
@@ -444,101 +448,96 @@ def plot_score_symmetry(pred_dfs, pheno_dict, auc_dfs, use_coh, cdata, args):
             and all((mtp & shal_mtype).is_empty() for mtp in mut.mtypes))
         }
 
-    for ax, ex_lbl, use_combs in zip([iso_ax, ish_ax], ['Iso', 'IsoShal'],
-                                     [iso_combs, ish_combs]):
-        use_pairs = [
-            {mcomb1, mcomb2} for mcomb1, mcomb2 in combn(use_combs, 2)
+    # TODO: eliminate phenotypically identical combinations
+    pairs_dict = {
+        ex_lbl: [
+            (mcomb1, mcomb2) for mcomb1, mcomb2 in combn(use_combs, 2)
             if (all((mtp1 & mtp2).is_empty()
                     for mtp1, mtp2 in product(mcomb1.mtypes, mcomb2.mtypes))
                 or not (pheno_dict[mcomb1] & pheno_dict[mcomb2]).any())
             ]
+        for ex_lbl, use_combs in [('Iso', iso_combs), ('IsoShal', ish_combs)]
+        }
 
-        if args.verbose and use_combs:
-            print('\n'.join([
-                '\n##########', "{}: {}({})  {} pairs from {} types".format(
+    if args.verbose:
+        for ex_lbl, use_combs in zip(['Iso', 'IsoShal'],
+                                     [iso_combs, ish_combs]):
+            pair_strs = [
+                "###########"
+                "{}: {}({})  {} pairs from {} types".format(
                     use_coh, args.gene, ex_lbl,
-                    len(use_pairs), len(use_combs)
-                    ),
-                '----------'
-                ] + ['\txxxxx\t'.join([str(mcomb) for mcomb in pair])
-                     for pair in tuple(use_pairs)[
-                         ::(len(use_pairs) // (args.verbose * 7) + 1)]]
-                ))
+                    len(pairs_dict[ex_lbl]), len(use_combs)
+                    )
+                ]
 
-        if use_pairs:
-            pair_combs = reduce(or_, use_pairs)
-            use_preds = pred_dfs[ex_lbl].loc[
-                pair_combs, train_samps].applymap(np.mean)
+            if pairs_dict[ex_lbl]:
+                pair_strs += ['----------']
 
-            wt_vals = {mcomb: use_preds.loc[mcomb][~all_phns[ex_lbl]]
-                       for mcomb in pair_combs}
-            mut_vals = {mcomb: use_preds.loc[mcomb][pheno_dict[mcomb]]
-                        for mcomb in pair_combs}
-
-            if args.siml_metric == 'mean':
-                wt_means = {mcomb: vals.mean()
-                            for mcomb, vals in wt_vals.items()}
-                mut_means = {mcomb: vals.mean()
-                             for mcomb, vals in mut_vals.items()}
-
-            elif args.siml_metric == 'ks':
-                base_dists = {
-                    mcomb: ks_2samp(wt_vals[mcomb], mut_vals[mcomb],
-                                    alternative='greater').statistic
-                    for mcomb in pair_combs
-                    }
-
-            for mcomb1, mcomb2 in use_pairs:
-                other_vals1 = use_preds.loc[mcomb1][pheno_dict[mcomb2]]
-                other_vals2 = use_preds.loc[mcomb2][pheno_dict[mcomb1]]
-
-                plt_clrs = [
-                    choose_subtype_colour(
-                        reduce(or_, mcomb.mtypes).subtype_list()[0][1])
-                    for mcomb in (mcomb1, mcomb2)
+                pair_strs += [
+                    '\txxxxx\t'.join([str(mcomb) for mcomb in pair])
+                    for pair in pairs_dict[ex_lbl][
+                        ::(len(pairs_dict[ex_lbl]) // (args.verbose * 7) + 1)]
                     ]
 
-                if args.siml_metric == 'mean':
-                    pair_siml1 = calculate_mean_siml(
-                        wt_vals[mcomb1], mut_vals[mcomb1], other_vals1,
-                        wt_mean=wt_means[mcomb1], mut_mean=mut_means[mcomb1]
-                        )
+            print('\n'.join(pair_strs))
 
-                    pair_siml2 = calculate_mean_siml(
-                        wt_vals[mcomb2], mut_vals[mcomb2], other_vals2,
-                        wt_mean=wt_means[mcomb2], mut_mean=mut_means[mcomb2]
-                        )
+    combs_dict = {ex_lbl: set(reduce(add, use_pairs))
+                  for ex_lbl, use_pairs in pairs_dict.items() if use_pairs}
+    map_args = []
+    ex_indx = []
 
-                elif args.siml_metric == 'ks':
-                    pair_siml1 = calculate_ks_siml(
-                        wt_vals[mcomb1], mut_vals[mcomb1], other_vals1,
-                        base_dist=base_dists[mcomb1]
-                        )
+    for ex_lbl, pair_combs in combs_dict.items():
+        ex_indx += [(ex_lbl, mcombs) for mcombs in pairs_dict[ex_lbl]]
+        use_preds = pred_dfs[ex_lbl].loc[pair_combs, train_samps].applymap(
+            np.mean)
 
-                    pair_siml2 = calculate_ks_siml(
-                        wt_vals[mcomb2], mut_vals[mcomb2], other_vals2,
-                        base_dist=base_dists[mcomb2]
-                        )
+        wt_vals = {mcomb: use_preds.loc[mcomb, ~all_phns[ex_lbl]]
+                   for mcomb in pair_combs}
+        mut_vals = {mcomb: use_preds.loc[mcomb, pheno_dict[mcomb]]
+                    for mcomb in pair_combs}
 
-                plt_lims[0] = min(plt_lims[0],
-                                  pair_siml1 - 0.19, pair_siml2 - 0.19)
-                plt_lims[1] = max(plt_lims[1],
-                                  pair_siml1 + 0.19, pair_siml2 + 0.19)
+        if siml_metric == 'mean':
+            wt_means = {mcomb: vals.mean() for mcomb, vals in wt_vals.items()}
+            mut_means = {mcomb: vals.mean()
+                         for mcomb, vals in mut_vals.items()}
 
-                #TODO: scale by plot ranges or leave as is and thus make sizes
-                # relative to "true" plotting area?
-                mcomb_sz = (np.mean(pheno_dict[mcomb1])
-                            * np.mean(pheno_dict[mcomb2])) ** 0.5
-                plt_sz = (mcomb_sz ** 0.5) / 19
+            map_args += [(wt_vals[mcomb1], mut_vals[mcomb1],
+                          use_preds.loc[mcomb1, pheno_dict[mcomb2]],
+                          wt_means[mcomb1], mut_means[mcomb1], None)
+                         for mcombs in pairs_dict[ex_lbl]
+                         for mcomb1, mcomb2 in permt(mcombs)]
 
-                for ptch in create_twotone_circle((pair_siml1, pair_siml2),
-                                                  plt_clrs, plt_sz, alpha=0.23,
-                                                  edgecolor='none'):
-                    ax.add_artist(ptch)
+        elif siml_metric == 'ks':
+            base_dists = {mcomb: ks_2samp(wt_vals[mcomb], mut_vals[mcomb],
+                                          alternative='greater').statistic
+                          for mcomb in pair_combs}
 
+            map_args += [(wt_vals[mcomb1], mut_vals[mcomb1],
+                          use_preds.loc[mcomb1, pheno_dict[mcomb2]],
+                          base_dists[mcomb1])
+                         for mcombs in pairs_dict[ex_lbl]
+                         for mcomb1, mcomb2 in permt(mcombs)]
+
+    if siml_metric == 'mean':
+        chunk_size = int(0.43 * len(map_args) / args.cores) + 1
+    elif siml_metric == 'ks':
+        chunk_size = int(0.07 * len(map_args) / args.cores) + 1
+
+    pool = mp.Pool(args.cores)
+    siml_list = pool.starmap(SIML_FXS[siml_metric], map_args, chunk_size)
+    pool.close()
+    siml_vals = dict(zip(ex_indx, zip(siml_list[::2], siml_list[1::2])))
+
+    #TODO: scale by plot ranges or leave as is and thus make sizes
+    # relative to "true" plotting area?
+    plt_lims = min(siml_list) - 0.19, max(siml_list) + 0.19
+    size_mult = (plt_lims[1] - plt_lims[0]) / (113 * len(map_args) ** 0.23)
+    gap_adj = (plt_lims[1] - plt_lims[0]) / 9173 * np.array([1, -1])
     clr_norm = colors.Normalize(vmin=-1, vmax=2)
-    for ax in iso_ax, ish_ax:
+
+    for ax, ex_lbl in zip([iso_ax, ish_ax], ['Iso', 'IsoShal']):
         ax.grid(alpha=0.47, linewidth=0.9)
+        plt_wdgs = []
 
         ax.plot(plt_lims, [0, 0],
                 color='black', linewidth=1.37, linestyle=':', alpha=0.53)
@@ -559,8 +558,34 @@ def plot_score_symmetry(pred_dfs, pheno_dict, auc_dfs, use_coh, cdata, args):
         plt_lctr = plt.MaxNLocator(7, steps=[1, 2, 5])
         ax.xaxis.set_major_locator(plt_lctr)
         ax.yaxis.set_major_locator(plt_lctr)
-        ax.set_xlim(*plt_lims)
-        ax.set_ylim(*plt_lims)
+
+        for mcomb1, mcomb2 in pairs_dict[ex_lbl]:
+            plt_sz = size_mult * (np.mean(pheno_dict[mcomb1])
+                                  * np.mean(pheno_dict[mcomb2])) ** 0.5
+
+            plt_clrs = [
+                choose_subtype_colour(
+                    reduce(or_, mcomb.mtypes).subtype_list()[0][1])
+                for mcomb in [mcomb1, mcomb2]
+                ]
+
+            if plt_clrs[0] == plt_clrs[1]:
+                ax.add_patch(Wedge(siml_vals[ex_lbl, (mcomb1, mcomb2)],
+                                   plt_sz ** 0.5, 0, 360,
+                                   facecolor=plt_clrs[0], alpha=0.19,
+                                   edgecolor='none', lw=0,
+                                   transform=ax.transData))
+
+            else:
+                for i, mcomb in enumerate([mcomb1, mcomb2]):
+                    plt_pos = np.array([gap_adj[i], 0])
+                    plt_pos += siml_vals[ex_lbl, (mcomb1, mcomb2)]
+
+                    ax.add_patch(Wedge(plt_pos, plt_sz ** 0.5,
+                                       90 + i * 180, 90 + (i + 1) * 180,
+                                       facecolor=plt_clrs[i], alpha=0.19,
+                                       edgecolor='none', lw=0,
+                                       transform=ax.transData))
 
     iso_ax.set_title(
         "Similarities Computed Treating\nShallow CNAs as Mutant\n",
@@ -571,10 +596,14 @@ def plot_score_symmetry(pred_dfs, pheno_dict, auc_dfs, use_coh, cdata, args):
         size=23, weight='semibold'
         )
 
-    plt.tight_layout(w_pad=3.7)
+    for ax in [iso_ax, ish_ax]:
+        ax.set_xlim(*plt_lims)
+        ax.set_ylim(*plt_lims)
+
+    plt.tight_layout(w_pad=3.1)
     plt.savefig(os.path.join(
         plot_dir, args.gene, "{}__{}-siml-symmetry_{}_{}.svg".format(
-            use_coh, args.siml_metric, args.classif, args.expr_source)
+            use_coh, siml_metric, args.classif, args.expr_source)
         ), bbox_inches='tight', format='svg')
 
     plt.close()
@@ -592,9 +621,10 @@ def main():
 
     parser.add_argument('--cohorts', nargs='+')
     parser.add_argument('--auc_cutoff', '-a', type=float, default=0.7)
-    parser.add_argument('--siml_metric', '-s',
-                        default='ks', choices={'mean', 'ks'})
+    parser.add_argument('--siml_metrics', '-s', nargs='+',
+                        default=['ks'], choices={'mean', 'ks'})
 
+    parser.add_argument('--cores', '-c', type=int, default=1)
     parser.add_argument('--seed', type=int)
     parser.add_argument('--verbose', '-v', action='store_true',
                         help="print info about created plots")
@@ -765,8 +795,9 @@ def main():
         plot_dyad_comparisons(coh_aucs['All'], phn_dicts[coh],
                               coh_confs['All'], coh, args)
 
-        plot_score_symmetry(coh_preds, phn_dicts[coh], coh_aucs,
-                            coh, cdata_dict[coh], args)
+        for siml_metric in args.siml_metrics:
+            plot_score_symmetry(coh_preds, phn_dicts[coh], coh_aucs,
+                                cdata_dict[coh], args, coh, siml_metric)
 
         if 'Consequence__Exon' not in set(coh_lvls.tolist()):
             if args.verbose:
