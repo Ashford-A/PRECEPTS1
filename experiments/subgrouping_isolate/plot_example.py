@@ -55,8 +55,7 @@ def plot_base_classification(plt_mtype, plt_mcomb, pred_df,
     ovlp_prop = np.mean(~plt_df.rStat[~plt_df.cStat]) * (1 - mut_prop)
     cur_gene = plt_mtype.get_labels()[0]
 
-    mtype_lbl = "{} point mutations {}".format(
-        cur_gene, get_fancy_label(plt_mtype.subtype_list()[0][1]))
+    mtype_lbl = get_fancy_label(plt_mtype.subtype_list()[0][1])
     mtype_tbox = '\n'.join([
         cur_gene,
         get_fancy_label(plt_mtype.subtype_list()[0][1], phrase_link='\n')
@@ -119,37 +118,35 @@ def plot_base_classification(plt_mtype, plt_mcomb, pred_df,
         diag_ax.set_aspect('equal')
 
         diag_ax.add_patch(ptchs.FancyArrow(
-            0.85, 0.57, dx=0.14, dy=0, width=0.03,
+            0.88, 0.57, dx=0.14, dy=0, width=0.03,
             length_includes_head=True, head_length=0.06,
-            linewidth=1.7, facecolor='white', edgecolor='black'
+            linewidth=1.7, facecolor='white', edgecolor='black', clip_on=False
             ))
 
-    diag_ax1.add_patch(ptchs.Circle((0.5, 0.85), radius=0.14,
+    diag_ax1.add_patch(ptchs.Circle((0.37, 0.95), radius=0.19,
                                     facecolor=variant_clrs['Point'],
-                                    alpha=0.41))
-    diag_ax1.text(0.5, 0.85,
-                  "mutant for:\n{}\n({} samples)".format(
-                      mtype_tbox, np.sum(plt_df.cStat)),
+                                    alpha=0.41, clip_on=False))
+    diag_ax1.text(0.37, 0.95,
+                  "mutant for:\n{}".format(mtype_tbox, np.sum(plt_df.cStat)),
                   size=8, ha='center', va='center')
 
-    diag_ax1.add_patch(ptchs.Circle(
-        (0.5, 0.32), radius=0.31, facecolor=variant_clrs['WT'], alpha=0.41))
-    diag_ax1.text(0.5, 0.32,
-                  "wild-type for:\n{}\n({} samples)".format(
-                      mtype_tbox, np.sum(~plt_df.cStat)),
+    diag_ax1.add_patch(ptchs.Circle((0.37, 0.33), radius=0.37,
+                                    facecolor=variant_clrs['WT'],
+                                    alpha=0.41, clip_on=False))
+    diag_ax1.text(0.37, 0.33,
+                  "wild-type for:\n{}".format(mtype_tbox,
+                                              np.sum(~plt_df.cStat)),
                   size=13, ha='center', va='center')
 
-    diag_ax1.text(0.2, 0.67, "predict\nmutated\nstatus", color='red',
-                  size=12, fontstyle='italic', ha='right', va='center')
-    diag_ax1.axhline(y=0.67, xmin=0.23, xmax=0.86, color='red',
-                     linestyle='--', linewidth=2.7, alpha=0.83)
+    diag_ax1.text(0.11, 0.75, "{} samples".format(np.sum(plt_df.cStat)),
+                  size=11, fontstyle='italic', ha='right', va='bottom')
+    diag_ax1.text(0.11, 0.71, "{} samples".format(np.sum(~plt_df.cStat)),
+                  size=11, fontstyle='italic', ha='right', va='top')
 
-    diag_ax1.text(0.82, 0.68, "{} (+)".format(np.sum(plt_df.cStat)),
-                  color='red', size=9, fontstyle='italic', 
-                  ha='right', va='bottom')
-    diag_ax1.text(0.82, 0.655, "{} (\u2212)".format(np.sum(~plt_df.cStat)),
-                  color='red', size=9, fontstyle='italic',
-                  ha='right', va='top')
+    diag_ax1.text(0.89, 0.89, "predict\nmutated\nstatus", color='red',
+                  size=12, fontstyle='italic', ha='center', va='center')
+    diag_ax1.axhline(y=0.73, xmin=0.05, xmax=0.74, color='red',
+                     linestyle='--', linewidth=2.7, alpha=0.83)
 
     sns.violinplot(data=plt_df[~plt_df.cStat], y='Value', ax=vio_ax1,
                    palette=[variant_clrs['WT']], linewidth=0, cut=0)
@@ -159,57 +156,58 @@ def plot_base_classification(plt_mtype, plt_mcomb, pred_df,
     vio_ax1.text(0.5, 113 / 111,
                  "AUC: {:.3f}".format(calc_auc(plt_df.Value.values,
                                                plt_df.cStat)),
-                 color='red', size=14, fontstyle='italic',
+                 color='red', size=15, fontstyle='italic',
                  ha='center', va='bottom', transform=vio_ax1.transAxes)
 
-    diag_ax2.add_patch(ptchs.Wedge((0.48, 0.89), 0.14, 90, 270,
+    diag_ax2.add_patch(ptchs.Wedge((0.35, 0.95), 0.19, 90, 270,
                                    facecolor=variant_clrs['Point'],
                                    alpha=0.41, hatch='/', linewidth=0.8,
                                    edgecolor='0.51', clip_on=False))
 
-    diag_ax2.add_patch(ptchs.Wedge((0.52, 0.89), 0.14, 270, 90,
+    diag_ax2.add_patch(ptchs.Wedge((0.39, 0.95), 0.19, 270, 90,
                                    facecolor=variant_clrs['Point'],
                                    alpha=0.41, hatch='/', linewidth=0.8,
                                    edgecolor='0.51', clip_on=False))
-    diag_ax2.add_patch(ptchs.Wedge((0.52, 0.89), 0.14, 270, 90,
+    diag_ax2.add_patch(ptchs.Wedge((0.39, 0.95), 0.19, 270, 90,
                                    facecolor='None', edgecolor='0.61',
                                    hatch='\\', linewidth=0.8, clip_on=False))
 
-    diag_ax2.text(0.22, 0.69, "same classifier\nresults", color='red',
+    diag_ax2.text(0.13, 0.7, "same classifier\nresults", color='red',
                   size=10, fontstyle='italic', ha='right', va='center')
-    diag_ax2.axhline(y=0.69, xmin=0.23, xmax=0.86, color='red',
+    diag_ax2.axhline(y=0.7, xmin=0.11, xmax=0.67, color='red',
                      linestyle='--', linewidth=1.3, alpha=0.67)
 
-    diag_ax2.add_patch(ptchs.Wedge((0.48, 0.32), 0.31, 90, 270,
+    diag_ax2.add_patch(ptchs.Wedge((0.35, 0.31), 0.33, 90, 270,
                                    facecolor=variant_clrs['WT'],
-                                   alpha=0.41, hatch='/', linewidth=0.8,
-                                   edgecolor='0.51'))
+                                   edgecolor='0.51', hatch='/', alpha=0.41,
+                                   linewidth=0.8, clip_on=False))
 
-    diag_ax2.add_patch(ptchs.Wedge((0.52, 0.32), 0.31, 270, 90,
+    diag_ax2.add_patch(ptchs.Wedge((0.39, 0.31), 0.33, 270, 90,
                                    facecolor=variant_clrs['WT'],
-                                   alpha=0.41, hatch='/', linewidth=0.8,
-                                   edgecolor='0.51'))
-    diag_ax2.add_patch(ptchs.Wedge((0.52, 0.32), 0.31, 270, 90,
+                                   edgecolor='0.51', hatch='/', alpha=0.41,
+                                   linewidth=0.8, clip_on=False))
+    diag_ax2.add_patch(ptchs.Wedge((0.39, 0.31), 0.33, 270, 90,
                                    facecolor='None', edgecolor='0.61',
-                                   linewidth=0.8, hatch='\\'))
+                                   hatch='\\', alpha=0.41, linewidth=0.8,
+                                   clip_on=False))
 
-    diag_ax2.text(0.33, 0.89,
-                  "mutant for:\n{}\nw/o overlap\n({} samps)".format(
+    diag_ax2.text(0.34, 0.95,
+                  "{}\nw/o overlap\n({} samps)".format(
                       mtype_tbox, np.sum(plt_df.cStat & ~plt_df.rStat)),
                   size=9, ha='right', va='center')
-    diag_ax2.text(0.67, 0.89,
-                  "mutant for:\n{}\nw/ overlap\n({} samps)".format(
+    diag_ax2.text(0.4, 0.95,
+                  "{}\nw/ overlap\n({} samps)".format(
                       mtype_tbox, np.sum(plt_df.cStat & plt_df.rStat)),
                   size=9, ha='left', va='center')
 
-    diag_ax2.text(0.47, 0.32,
-                  "wild-type for:\n{}\nw/o overlap\n({} samps)".format(
+    diag_ax2.text(0.34, 0.32,
+                  "{}\nw/o overlap\n({} samps)".format(
                       mtype_tbox, np.sum(~plt_df.cStat & ~plt_df.rStat)),
-                  size=10, ha='right', va='center')
-    diag_ax2.text(0.53, 0.32,
-                  "wild-type for:\n{}\nw/ overlap\n({} samps)".format(
+                  size=9, ha='right', va='center')
+    diag_ax2.text(0.4, 0.32,
+                  "{}\nw/ overlap\n({} samps)".format(
                       mtype_tbox, np.sum(~plt_df.cStat & plt_df.rStat)),
-                  size=10, ha='left', va='center')
+                  size=9, ha='left', va='center')
 
     sns.violinplot(data=plt_df[~plt_df.cStat], x='cStat', y='Value',
                    hue='rStat', palette=[variant_clrs['WT']],
@@ -221,14 +219,13 @@ def plot_base_classification(plt_mtype, plt_mcomb, pred_df,
                    cut=0, ax=vio_ax2)
 
     vio_ax2.get_legend().remove()
-    diag_ax2.axvline(x=0.5, ymin=-0.03, ymax=1.03, clip_on=False,
+    diag_ax2.axvline(x=0.37, ymin=-0.04, ymax=1.07, clip_on=False,
                      color=variant_clrs['Point'], linewidth=1.1, alpha=0.81,
                      linestyle=':')
 
-    diag_ax2.text(0.5, -0.05,
+    diag_ax2.text(0.37, -0.06,
                   "partition scored samples according to\noverlap with "
-                  "{} mutations\nthat are not {}".format(
-                      cur_gene, ' '.join(mtype_lbl.split(' ')[1:])),
+                  "{} mutations\nthat are not {}".format(cur_gene, mtype_lbl),
                   color=variant_clrs['Point'], size=10,
                   fontstyle='italic', ha='center', va='top')
 
@@ -254,26 +251,26 @@ def plot_base_classification(plt_mtype, plt_mcomb, pred_df,
         vio_ax2.get_children()[i].set_hatch('/\\')
         vio_ax2.get_children()[i].set_edgecolor('0.47')
 
-    vio_ax2.text(0.15, 1.1, "{}\nw/o overlap".format(mtype_tbox),
+    vio_ax2.text(0.15, 43 / 37, "{}\nw/o overlap".format(mtype_tbox),
                  color=variant_clrs['Point'], size=10,
                  fontstyle='italic', ha='center', va='bottom',
                  transform=vio_ax2.transAxes)
 
     vio_ax2.text(
-        0.15, 113 / 111,
+        0.14, 113 / 111,
         "AUC: {:.3f}".format(calc_auc(plt_df.Value[~plt_df.rStat].values,
                                       plt_df.cStat[~plt_df.rStat])),
         color='red', size=13, fontstyle='italic',
         ha='center', va='bottom', transform=vio_ax2.transAxes
         )
 
-    vio_ax2.text(0.85, 1.1, "{}\nw/ overlap".format(mtype_tbox),
+    vio_ax2.text(0.85, 43 / 37, "{}\nw/ overlap".format(mtype_tbox),
                  color=variant_clrs['Point'], size=10,
                  fontstyle='italic', ha='center', va='bottom',
                  transform=vio_ax2.transAxes)
 
     vio_ax2.text(
-        0.85, 113 / 111,
+        0.86, 113 / 111,
         "AUC: {:.3f}".format(calc_auc(plt_df.Value[plt_df.rStat].values,
                                       plt_df.cStat[plt_df.rStat])),
         color='red', size=13, fontstyle='italic',
@@ -283,7 +280,8 @@ def plot_base_classification(plt_mtype, plt_mcomb, pred_df,
     plt.tight_layout(pad=-1, h_pad=2.3)
     plt.savefig(
         os.path.join(plot_dir, args.expr_source,
-                     "{}__base-classification.svg".format(args.cohort)),
+                     "{}__base-classification_{}.svg".format(
+                         args.cohort, cur_gene)),
         bbox_inches='tight', format='svg'
         )
 
@@ -411,7 +409,8 @@ def plot_iso_classification(plt_mtype, plt_mcomb, pred_dfs,
     plt.tight_layout(pad=0, w_pad=2.1, h_pad=1.9)
     plt.savefig(
         os.path.join(plot_dir, args.expr_source,
-                     "{}__iso-classification.svg".format(args.cohort)),
+                     "{}__iso-classification_{}.svg".format(
+                         args.cohort, plt_mtype.get_labels()[0])),
         bbox_inches='tight', format='svg'
         )
 
@@ -625,7 +624,8 @@ def plot_iso_projection(plt_mtype, plt_mcomb, pred_df,
 
     plt.tight_layout(pad=0, w_pad=-3, h_pad=-1)
     plt.savefig(os.path.join(plot_dir, args.expr_source,
-                             "{}__iso-projection.svg".format(args.cohort)),
+                             "{}__iso-projection_{}.svg".format(
+                                 args.cohort, plt_mtype.get_labels()[0])),
                 bbox_inches='tight', format='svg')
 
     plt.close()
@@ -777,7 +777,8 @@ def plot_iso_similarities(plt_clf, plt_mtype, plt_mcomb,
         ax.axis('off')
 
     plt.savefig(os.path.join(plot_dir, args.expr_source,
-                             "{}__iso-similarities.svg".format(args.cohort)),
+                             "{}__iso-similarities_{}.svg".format(
+                                 args.cohort, plt_mtype.get_labels()[0])),
                 bbox_inches='tight', format='svg')
 
     plt.close()
@@ -796,7 +797,7 @@ def main():
 
     args = parser.parse_args()
     out_dir = Path(base_dir, '__'.join([args.expr_source, args.cohort]))
-    out_list = tuple(Path(out_dir).glob("out-siml__*__*__*.p.gz"))
+    out_list = tuple(out_dir.glob("out-aucs__*__*__*.p.gz"))
 
     if len(out_list) == 0:
         raise ValueError("No completed experiments found for cohort `{}` "
@@ -804,18 +805,18 @@ def main():
                              args.cohort, args.expr_source))
 
     os.makedirs(os.path.join(plot_dir, args.expr_source), exist_ok=True)
-    out_use = pd.DataFrame(
+    out_df = pd.DataFrame(
         [{'Levels': '__'.join(out_file.stem.split('__')[1:-2]),
           'Classif': out_file.stem.split('__')[-1].split('.p')[0],
           'File': out_file}
          for out_file in out_list]
         )
 
-    out_iter = out_use.groupby(['Levels', 'Classif'])['File']
+    out_iter = out_df.groupby(['Levels', 'Classif'])['File']
     phn_dict = dict()
     cdata = None
     out_aucs = list()
-    out_preds = {clf: list() for clf in set(out_use.Classif)}
+    out_preds = {clf: list() for clf in set(out_df.Classif)}
 
     for (lvls, clf), out_files in out_iter:
         auc_list = [None for _ in out_files]
@@ -874,13 +875,14 @@ def main():
     base_muts = {(clf, mtype) for clf, mtype in auc_df.index
                  if (not isinstance(mtype, (Mcomb, ExMcomb))
                      and 'Copy' not in mtype.get_levels()
-                     and not any('domain' in lvl
+                     and not any(lvl == 'Class' or 'domain' in lvl
                                  for lvl in mtype.get_levels())
                      and mtype.subtype_list()[0][1] != pnt_mtype
                      and len(mtype.subkeys()) == 1
                      and any(oth_clf == clf and isinstance(mcomb, ExMcomb)
                              and len(mcomb.mtypes) == 1
                              and tuple(mcomb.mtypes)[0] == mtype
+                             and not (mcomb.all_mtype & shal_mtype).is_empty()
                              for oth_clf, mcomb in auc_df.index))}
 
     if args.genes:
