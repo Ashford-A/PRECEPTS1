@@ -16,13 +16,11 @@ def main():
     """Runs the experiment."""
 
     parser = argparse.ArgumentParser(
-        "Isolate the expression signature of mutation subtypes from their "
-        "parent gene(s)' signature or that of a list of genes in a given "
-        "TCGA cohort."
+        "Trains classifiers to predict the presence of genes' mutation "
+        "subgroupings in a tumor cohort while isolating this presence from "
+        "that of other mutations on the same gene as well as a paired gene."
         )
 
-    # positional arguments for which cohort of samples and which mutation
-    # classifier to use for testing
     parser.add_argument('classif', type=str,
                         help="a classifier in HetMan.predict.classifiers")
     parser.add_argument('use_dir', type=str)
@@ -40,60 +38,59 @@ def main():
     args = parser.parse_args()
     setup_dir = os.path.join(args.use_dir, 'setup')
 
+    # load mutation subgroupings previously enumerated for testing
     with open(os.path.join(setup_dir, "muts-list.p"), 'rb') as muts_f:
-        mtype_list = pickle.load(muts_f)
+        muts_list = pickle.load(muts_f)
+
+    # load tumour cohort paired expression and mutation data
     cdata = safe_load(os.path.join(setup_dir, "cohort-data.p.gz"),
                       retry_pause=31)
 
-    use_mtree = tuple(cdata.mtrees.values())[0]
+    base_tree = tuple(cdata.mtrees.values())[0]
     clf = eval(args.classif)
     mut_clf = clf()
 
+    # split the tumour cohort into training and testing subsets
     use_seed = 13101 + 103 * args.cv_id
     cdata_samps = sorted(cdata.get_samples())
     random.seed((args.cv_id // 4) * 3901 + 23)
     random.shuffle(cdata_samps)
     cdata.update_split(use_seed, test_samps=cdata_samps[(args.cv_id % 4)::4])
 
-    out_pars = {mtype: {smps: {par: None for par, _ in mut_clf.tune_priors}
-                        for smps in ['All', 'Iso', 'IsoShal']}
-                for mtype in mtype_list}
+    out_pars = {mut: {smps: {par: None for par, _ in mut_clf.tune_priors}
+                      for smps in ['All', 'Iso', 'IsoShal']}
+                for mut in muts_list}
 
-    out_time = {mtype: {smps: dict() for smps in ['All', 'Iso', 'IsoShal']}
-                for mtype in mtype_list}
-    out_acc = {mtype: {smps: dict() for smps in ['All', 'Iso', 'IsoShal']}
-               for mtype in mtype_list}
-    out_pred = {mtype: {smps: None for smps in ['All', 'Iso', 'IsoShal']}
-                for mtype in mtype_list}
+    out_time = {mut: {smps: dict() for smps in ['All', 'Iso', 'IsoShal']}
+                for mut in muts_list}
+    out_acc = {mut: {smps: dict() for smps in ['All', 'Iso', 'IsoShal']}
+               for mut in muts_list}
+    out_pred = {mut: {smps: None for smps in ['All', 'Iso', 'IsoShal']}
+                for mut in muts_list}
 
-    # for each subtype, check if it has been assigned to this task
-    for i, mtype in enumerate(mtype_list):
+    # for each subgrouping, check if it has been assigned to this task
+    for i, mut in enumerate(muts_list):
         if (i % args.task_count) == args.task_id:
-            print("Isolating {} ...".format(mtype))
+            print("Isolating {} ...".format(mut))
 
-            cur_genes = mtype.get_labels()
+            cur_genes = mut.get_labels()
             ex_genes = cdata.get_cis_genes('Chrm', cur_genes=cur_genes)
-            mut_samps = reduce(or_, [use_mtree[gene].get_samples()
-                                     for gene in cur_genes])
+            gene_samps = reduce(or_, [base_tree[gene].get_samples()
+                                      for gene in cur_genes])
 
             shal_samps = reduce(
                 or_,
-                [ExMcomb(pnt_mtype, shal_mtype).get_samples(use_mtree[gene])
+                [ExMcomb(pnt_mtype, shal_mtype).get_samples(base_tree[gene])
                  for gene in cur_genes]
                 )
+            mut_samps = mut.get_samples(cdata.mtrees)
 
-            mtype_samps = {
-                samp for samp, phn in zip(cdata.get_train_samples(),
-                                          cdata.train_pheno(mtype))
-                if phn
-                }
-
-            ex_dict = {'All': set(), 'Iso': mut_samps - mtype_samps,
-                       'IsoShal': mut_samps - mtype_samps - shal_samps}
+            ex_dict = {'All': set(), 'Iso': gene_samps - mut_samps,
+                       'IsoShal': gene_samps - mut_samps - shal_samps}
 
             for ex_lbl, ex_samps in ex_dict.items():
                 mut_clf, cv_output = mut_clf.tune_coh(
-                    cdata, mtype, exclude_feats=ex_genes,
+                    cdata, mut, exclude_feats=ex_genes,
                     exclude_samps=ex_samps, tune_splits=4,
                     test_count=mut_clf.test_count, parallel_jobs=8
                     )
@@ -101,26 +98,29 @@ def main():
                 # save the tuned values of the hyper-parameters
                 clf_params = mut_clf.get_params()
                 for par, _ in mut_clf.tune_priors:
-                    out_pars[mtype][ex_lbl][par] = clf_params[par]
+                    out_pars[mut][ex_lbl][par] = clf_params[par]
 
-                out_time[mtype][ex_lbl]['avg'] = cv_output['mean_fit_time']
-                out_time[mtype][ex_lbl]['std'] = cv_output['std_fit_time']
-                out_acc[mtype][ex_lbl]['avg'] = cv_output['mean_test_score']
-                out_acc[mtype][ex_lbl]['std'] = cv_output['std_test_score']
-                out_acc[mtype][ex_lbl]['par'] = cv_output['params']
+                out_time[mut][ex_lbl]['avg'] = cv_output['mean_fit_time']
+                out_time[mut][ex_lbl]['std'] = cv_output['std_fit_time']
+                out_acc[mut][ex_lbl]['avg'] = cv_output['mean_test_score']
+                out_acc[mut][ex_lbl]['std'] = cv_output['std_test_score']
+                out_acc[mut][ex_lbl]['par'] = cv_output['params']
 
-                mut_clf.fit_coh(cdata, mtype, exclude_feats=ex_genes,
+                mut_clf.fit_coh(cdata, mut, exclude_feats=ex_genes,
                                 exclude_samps=ex_samps)
 
-                out_pred[mtype][ex_lbl] = {
+                # make predictions for samples in the testing cohort split
+                out_pred[mut][ex_lbl] = {
                     'test': np.round(mut_clf.parse_preds(
                         mut_clf.predict_test(cdata, lbl_type='raw',
                                              exclude_feats=ex_genes)
                         ), 7)
                     }
 
+                # make predictions for samples in the training cohort split
+                # that were held out when isolating the given subgrouping
                 if ex_samps & set(cdata.get_train_samples()):
-                    out_pred[mtype][ex_lbl]['train'] = np.round(
+                    out_pred[mut][ex_lbl]['train'] = np.round(
                         mut_clf.parse_preds(mut_clf.predict_train(
                             cdata, lbl_type='raw',
                             exclude_feats=ex_genes, include_samps=ex_samps
@@ -128,10 +128,10 @@ def main():
                         7)
 
         else:
-            del(out_pars[mtype])
-            del(out_time[mtype])
-            del(out_acc[mtype])
-            del(out_pred[mtype])
+            del(out_pars[mut])
+            del(out_time[mut])
+            del(out_acc[mut])
+            del(out_pred[mut])
 
     with open(os.path.join(args.use_dir, 'output',
                            "out__cv-{}_task-{}.p".format(
