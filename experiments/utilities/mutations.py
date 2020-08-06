@@ -1,3 +1,6 @@
+"""
+Novel mutation types introduced across various experiments.
+"""
 
 from dryadic.features.mutations import MuType, MutComb
 from functools import reduce
@@ -8,14 +11,17 @@ import random
 
 pnt_mtype = MuType({('Scale', 'Point'): None})
 copy_mtype = MuType({('Scale', 'Copy'): None})
+
 shal_mtype = MuType({('Scale', 'Copy'): {(
     'Copy', ('ShalGain', 'ShalDel')): None}})
+deep_mtype = MuType({('Scale', 'Copy'): {(
+    'Copy', ('DeepGain', 'DeepDel')): None}})
 
 dup_mtype = MuType({('Scale', 'Copy'): {('Copy', 'DeepGain'): None}})
+loss_mtype = MuType({('Scale', 'Copy'): {('Copy', 'DeepDel'): None}})
+
 gains_mtype = MuType({('Scale', 'Copy'): {(
     'Copy', ('ShalGain', 'DeepGain')): None}})
-
-loss_mtype = MuType({('Scale', 'Copy'): {('Copy', 'DeepDel'): None}})
 dels_mtype = MuType({('Scale', 'Copy'): {(
     'Copy', ('ShalDel', 'DeepDel')): None}})
 
@@ -76,11 +82,8 @@ class Mcomb(MutComb):
 
         return lt
 
-    def get_sorted_levels(self):
-        return self.all_mtype.get_sorted_levels()
-
-    def get_labels(self):
-        return list(reduce(or_, [set(mtype.get_labels())
+    def label_iter(self):
+        return iter(reduce(or_, [set(mtype.label_iter())
                                  for mtype in self.mtypes]))
 
 
@@ -144,7 +147,7 @@ class ExMcomb(MutComb):
 
         if self.not_mtype is not None:
             if self.cur_level == 'Gene':
-                for gn, sub_type in self.not_mtype.subtype_list():
+                for gn, sub_type in self.not_mtype.subtype_iter():
                     samps -= MuType({
                         ('Gene', gn): sub_type}).get_samples(*mtrees)
 
@@ -156,9 +159,9 @@ class ExMcomb(MutComb):
     def get_sorted_levels(self):
         return self.all_mtype.get_sorted_levels()
 
-    def get_labels(self):
-        return list(set(self.all_mtype.get_labels())
-                    | reduce(or_, [set(mtype.get_labels())
+    def label_iter(self):
+        return iter(set(self.all_mtype.label_iter())
+                    | reduce(or_, [set(mtype.label_iter())
                                    for mtype in self.mtypes]))
 
 
@@ -288,13 +291,18 @@ class RandomType(MuType):
         return set(random.sample(sorted(use_samps), k=use_size))
 
     def get_sorted_levels(self):
-        return None
+        if self.base_mtype is None:
+            lvls = None
+        else:
+            lvls = self.base_mtype.get_sorted_levels()
 
-    def get_labels(self):
+        return lvls
+
+    def label_iter(self):
         if self.base_mtype is None:
             mut_lbls = None
         else:
-            mut_lbls = self.base_mtype.get_labels()
+            mut_lbls = self.base_mtype.label_iter()
 
         return mut_lbls
 

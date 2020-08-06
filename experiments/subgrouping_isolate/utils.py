@@ -1,9 +1,6 @@
 
-from ..subvariant_isolate.merge_isolate import calculate_siml
-from ..subvariant_tour.utils import RandomType
-from dryadic.features.mutations import MuTree
 from dryadic.features.cohorts.mut import BaseMutationCohort
-
+from dryadic.features.mutations import MuTree
 import numpy as np
 from scipy.stats import ks_2samp
 
@@ -93,33 +90,7 @@ def calculate_ks_siml(wt_vals, mut_vals, other_vals,
 
 
 class IsoMutationCohort(BaseMutationCohort):
-
-    def mtrees_status(self, mtype, samps=None):
-        for lvls, mtree in self.mtrees.items():
-            if ((not isinstance(mtype, RandomType)
-                 and mtree.match_levels(mtype))
-                    or (isinstance(mtype, RandomType)
-                        and mtree.match_levels(mtype.base_mtype))):
-                phn = mtree.status(samps, mtype)
-                break
-
-        else:
-            if mtype.cur_level == 'Gene':
-                phns = []
-
-                for lbls, subtype in mtype.child_iter():
-                    for lvls, mtree in self.mtrees.items():
-                        if mtree.match_levels(subtype):
-                            phns += [mtree.status(samps, subtype)]
-                            break
-
-                phn = [any(phn_vals) for phn_vals in zip(*phns)]
-
-            else:
-                raise ValueError("Unable to retrieve phenotype data "
-                                 "for `{}`!".format(mtype))
-
-        return phn
+    """This class introduces new cohort features in isolation experiments."""
 
     def data_hash(self):
         return ({gene: round(expr_val, 2)

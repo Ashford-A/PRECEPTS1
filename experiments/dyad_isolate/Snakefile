@@ -30,7 +30,7 @@ localrules: target, merge
 
 rule target:
     input:
-        expand("{outdir}/out-siml_{search}_{mut_lvls}_{classif}.p.gz",
+        expand("{outdir}/out-conf_{search}_{mut_lvls}_{classif}.p.gz",
                outdir=OUTDIR, **config)
 
     threads: 1
@@ -66,7 +66,7 @@ def tasks_files(wildcards):
 rule gather:
     input: tasks_files
 
-    output: "{TMPDIR}/merge/out-siml_{tasks}.p.gz"
+    output: "{TMPDIR}/merge/out-conf_{tasks}.p.gz"
 
     threads: 16
 
@@ -83,29 +83,29 @@ rule gather:
 rule merge:
     input:
         [os.path.join(TMPDIR, 'merge',
-                      "out-siml_{}.p.gz".format('-'.join(task_list)))
+                      "out-conf_{}.p.gz".format('-'.join(task_list)))
          for task_list in task_arr]
 
     output:
-        expand("{outdir}/out-siml_{search}_{mut_lvls}_{classif}.p.gz",
+        expand("{outdir}/out-conf_{search}_{mut_lvls}_{classif}.p.gz",
                outdir=OUTDIR, **config)
 
     threads: 1
 
     shell: """
         set +u; source activate HetMan; set -u;
-        python -m HetMan.experiments.dyad_isolate.merge_isolate {TMPDIR}
-        out_tag={config[search]}_{config[mut_lvls]}_{config[classif]}
+        python -m HetMan.experiments.subgrouping_isolate.merge_isolate \
+                {TMPDIR}
 
+        out_tag={config[search]}_{config[mut_lvls]}_{config[classif]}
         cp {TMPDIR}/setup/cohort-data.p.gz \
                 {OUTDIR}/cohort-data_${{out_tag}}.p.gz
+
         cp {TMPDIR}/out-pred.p.gz {OUTDIR}/out-pred_${{out_tag}}.p.gz
         cp {TMPDIR}/out-tune.p.gz {OUTDIR}/out-tune_${{out_tag}}.p.gz
         cp {TMPDIR}/out-pheno.p.gz {OUTDIR}/out-pheno_${{out_tag}}.p.gz
-
         cp {TMPDIR}/out-aucs.p.gz {OUTDIR}/out-aucs_${{out_tag}}.p.gz
         cp {TMPDIR}/out-conf.p.gz {OUTDIR}/out-conf_${{out_tag}}.p.gz
-        cp {TMPDIR}/out-siml.p.gz {OUTDIR}/out-siml_${{out_tag}}.p.gz
 
         """
 

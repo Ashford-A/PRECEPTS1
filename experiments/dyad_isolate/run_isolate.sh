@@ -71,13 +71,13 @@ then
 fi
 
 # calculate how many parallel tasks the mutations will be tested over
-merge_max=2000
+merge_max=1200
 muts_count=$(cat setup/muts-count.txt)
 task_count=$(( $(( $muts_count - 1 )) / $test_max + 1 ))
 merge_count=$(( $(( $muts_count - 1)) / $merge_max + 1 ))
 xargs -n $merge_count <<< $(seq 0 $(( $task_count - 1 ))) > setup/tasks.txt
 
-dvc run -d setup/muts-list.p -d $RUNDIR/fit_isolate.py -O out-siml.p.gz \
+dvc run -d setup/muts-list.p -d $RUNDIR/fit_isolate.py -O out-conf.p.gz \
 	-f output.dvc --overwrite-dvcfile --ignore-build-cache \
 	'snakemake -s $RUNDIR/Snakefile \
 	-j 400 --latency-wait 120 --cluster-config $RUNDIR/cluster.json \
