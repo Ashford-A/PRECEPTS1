@@ -1,26 +1,19 @@
 
-import os
-import sys
-
-base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'dyad_isolate')
-sys.path.extend([os.path.join(os.path.dirname(__file__), '..', '..', '..')])
-plot_dir = os.path.join(base_dir, 'plots', 'interaction')
-
-from HetMan.experiments.subvariant_test import (
-    pnt_mtype, copy_mtype, gain_mtype, loss_mtype)
-from HetMan.experiments.subvariant_isolate import cna_mtypes
-from HetMan.experiments.utilities.mutations import ExMcomb
+from ..utilities.mutations import (
+    pnt_mtype, copy_mtype, shal_mtype,
+    dup_mtype, loss_mtype, gains_mtype, dels_mtype, Mcomb, ExMcomb
+    )
 from dryadic.features.mutations import MuType
 
-from HetMan.experiments.subgrouping_isolate.utils import calculate_pair_siml
-from HetMan.experiments.utilities.misc import create_twotone_circle
-from HetMan.experiments.subgrouping_isolate.plot_gene import (
-    choose_subtype_colour)
+from ..subgrouping_isolate.utils import calculate_mean_siml, calculate_ks_siml
+from ..subgrouping_isolate.plot_gene import choose_subtype_colour
 
+import os
 import argparse
 from pathlib import Path
 import bz2
 import dill as pickle
+import multiprocessing as mp
 
 import numpy as np
 import pandas as pd
@@ -28,62 +21,89 @@ import pandas as pd
 from itertools import combinations as combn
 from itertools import product
 from functools import reduce
-from operator import or_
+from operator import or_, add
 from scipy.stats import fisher_exact
 
 import matplotlib as mpl
-mpl.use('Agg')
 import matplotlib.pyplot as plt
+from matplotlib.markers import MarkerStyle
 
+mpl.use('Agg')
 plt.style.use('fivethirtyeight')
-plt.rcParams['axes.facecolor']='white'
-plt.rcParams['savefig.facecolor']='white'
-plt.rcParams['axes.edgecolor']='white'
+plt.rcParams['axes.facecolor'] = 'white'
+plt.rcParams['savefig.facecolor'] = 'white'
+plt.rcParams['axes.edgecolor'] = 'white'
 
 
-AUC_CUTOFF = 0.8
-SAMP_CUTOFF = 20
+base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'dyad_isolate')
+plot_dir = os.path.join(base_dir, 'plots', 'interaction')
+SIML_FXS = {'mean': calculate_mean_siml, 'ks': calculate_ks_siml}
 
 
-def plot_mutual_similarity(siml_dict, pheno_dict, auc_vals, pred_df,
-                           ex_lbl, cdata, args):
-    fig_size = (13, 8)
-    fig, ax = plt.subplots(figsize=fig_size)
+def remove_pair_dups(mut_pairs, pheno_dict):
+    pair_infos = set()
+    pair_list = set()
+
+    for mut1, mut2 in mut_pairs:
+        pair_info = tuple(sorted([tuple(pheno_dict[mut1]),
+                                  tuple(pheno_dict[mut2])]))
+        pair_info += tuple(sorted(set(mut1.get_labels())
+                                  | set(mut2.get_labels())))
+
+        if pair_info not in pair_infos:
+            pair_infos |= {pair_info}
+            pair_list |= {(mut1, mut2)}
+
+    return pair_list
+
+
+def plot_mutual_similarity(pred_df, pheno_dict, auc_vals,
+                           cdata, args, ex_lbl, siml_metric):
     use_mtree = tuple(cdata.mtrees.values())[0]
+    use_combs = {mcomb for mcomb in auc_vals.index.tolist()
+                 if len(mcomb.mtypes) == 1}
 
     if ex_lbl == 'Iso':
-        use_combs = {mcomb for mcomb in auc_vals.index
-                     if not (mcomb.all_mtype
-                             & dict(cna_mtypes)['Shal']).is_empty()}
+        use_combs = {mcomb for mcomb in use_combs
+                     if not (mcomb.all_mtype & shal_mtype).is_empty()}
 
     elif ex_lbl == 'IsoShal':
-        use_combs = {mcomb for mcomb in auc_vals.index
-                     if ((mcomb.all_mtype
-                          & dict(cna_mtypes)['Shal']).is_empty()
-                         and all((mtype & dict(cna_mtypes)['Shal']).is_empty()
+        use_combs = {mcomb for mcomb in use_combs
+                     if ((mcomb.all_mtype & shal_mtype).is_empty()
+                         and all((mtype & shal_mtype).is_empty()
                                  for mtype in mcomb.mtypes))}
 
-    use_pairs = {(mcomb1, mcomb2) for mcomb1, mcomb2 in combn(use_combs, 2)
+    base_phns = {mcomb: pheno_dict[Mcomb(*mcomb.mtypes)]
+                 for mcomb in use_combs}
+
+    use_pairs = [(mcomb1, mcomb2) for mcomb1, mcomb2 in combn(use_combs, 2)
                  if (set(mcomb1.get_labels()) == set(mcomb2.get_labels())
-                     and (np.sum(pheno_dict[mcomb1] & ~pheno_dict[mcomb2])
-                          >= SAMP_CUTOFF)
-                     and (np.sum(~pheno_dict[mcomb1] & pheno_dict[mcomb2])
-                          >= SAMP_CUTOFF)
                      and (all((mtype1 & mtype2).is_empty()
                               for mtype1, mtype2 in product(mcomb1.mtypes,
                                                             mcomb2.mtypes))
                           or not (pheno_dict[mcomb1]
-                                  & pheno_dict[mcomb2]).any()))}
+                                  & pheno_dict[mcomb2]).any()))]
+
+    use_pairs = remove_pair_dups(use_pairs, pheno_dict)
+    pair_combs = set(reduce(add, use_pairs))
+
+    if args.verbose:
+        print("{}:   {} pairs containing {} unique mutation types were "
+              "produced from {} possible types".format(
+                  ex_lbl, len(use_pairs), len(pair_combs), len(use_combs)))
 
     if not use_pairs:
         return None
 
+    fig, ax = plt.subplots(figsize=(13, 8))
+    train_samps = cdata.get_train_samples()
+    use_preds = pred_df.loc[pair_combs, train_samps].applymap(np.mean)
     mutex_dict = {mcombs: None for mcombs in use_pairs}
-    pair_simls = {mcombs: tuple() for mcombs in use_pairs}
+    map_args = list()
 
     for mcomb1, mcomb2 in use_pairs:
         ovlp_odds, ovlp_pval = fisher_exact(table=pd.crosstab(
-            pheno_dict[mcomb1], pheno_dict[mcomb2]))
+            base_phns[mcomb1], base_phns[mcomb2]))
 
         mutex_dict[mcomb1, mcomb2] = -np.log10(ovlp_pval)
         if ovlp_odds < 1:
@@ -95,51 +115,64 @@ def plot_mutual_similarity(siml_dict, pheno_dict, auc_vals, pred_df,
             )
 
         if ex_lbl == 'IsoShal':
-            all_mtype -= MuType({('Gene', tuple(mcomb1.get_labels())): dict(
-                cna_mtypes)['Shal']})
+            all_mtype -= MuType({
+                ('Gene', tuple(mcomb1.get_labels())): shal_mtype})
 
-        pair_simls[mcomb1, mcomb2] = [
-            calculate_pair_siml(mcomb1, mcomb2, all_mtype, siml_dict,
-                                pheno_dict, pred_df, cdata),
-            calculate_pair_siml(mcomb2, mcomb1, all_mtype, siml_dict,
-                                pheno_dict, pred_df, cdata)
-            ]
+        all_phn = np.array(cdata.train_pheno(all_mtype))
+        wt_vals = {mcomb: use_preds.loc[mcomb, ~all_phn]
+                   for mcomb in (mcomb1, mcomb2)}
+        mut_vals = {mcomb: use_preds.loc[mcomb, pheno_dict[mcomb]]
+                    for mcomb in (mcomb1, mcomb2)}
+
+        map_args += [(wt_vals[mcomb1], mut_vals[mcomb1],
+                      use_preds.loc[mcomb1, pheno_dict[mcomb2]]),
+                     (wt_vals[mcomb2], mut_vals[mcomb2],
+                      use_preds.loc[mcomb2, pheno_dict[mcomb1]])]
+
+    pool = mp.Pool(args.cores)
+    siml_list = pool.starmap(SIML_FXS[siml_metric], map_args, chunksize=1)
+    pool.close()
+    siml_vals = dict(zip(use_pairs, zip(siml_list[::2], siml_list[1::2])))
 
     plot_df = pd.DataFrame({'Occur': pd.Series(mutex_dict),
-                            'Simil': pd.Series(pair_simls).apply(np.mean)})
-    plot_df = plot_df.loc[~plot_df.isnull().any(axis=1)]
-    plot_df = plot_df.sort_index()
+                            'Simil': pd.Series(siml_vals).apply(np.mean)})
 
     plot_lims = plot_df.quantile(q=[0, 1])
     plot_diff = plot_lims.diff().iloc[1]
-    plot_lims.Occur += plot_diff.Occur * np.array([-7., 17.]) ** -1
-    plot_lims.Simil += plot_diff.Simil * np.array([-17., 7.]) ** -1
-
-    plot_rngs = plot_lims.diff().iloc[1]
-    plot_lims.Occur[0] = min(plot_lims.Occur[0], -plot_rngs.Occur / 3.41)
-    plot_lims.Occur[1] = max(plot_lims.Occur[1], plot_rngs.Occur / 3.41)
-    plot_lims.Simil[0] = min(plot_lims.Simil[0], -plot_rngs.Simil / 2.23)
-    plot_lims.Simil[1] = max(plot_lims.Simil[1], plot_rngs.Simil / 2.23)
+    plot_lims.Occur += plot_diff.Occur * np.array([-4.3, 17.]) ** -1
+    plot_lims.Simil += plot_diff.Simil * np.array([-17., 4.3]) ** -1
     plot_rngs = plot_lims.diff().iloc[1]
 
-    xy_scale = np.array([1, 2 ** np.log2(plot_rngs).diff()[-1]
-                         * 2 ** -np.diff(np.log2(fig_size))])
-    xy_scale /= (np.prod(plot_rngs) ** -0.76) * 11
+    plot_lims.Occur[0] = min(plot_lims.Occur[0], -plot_rngs.Occur / 3.41,
+                             -1.07)
+    plot_lims.Occur[1] = max(plot_lims.Occur[1], plot_rngs.Occur / 3.41,
+                             1.07)
+
+    plot_lims.Simil[0] = min(plot_lims.Simil[0], -plot_rngs.Simil / 2.23,
+                             -0.53)
+    plot_lims.Simil[1] = max(plot_lims.Simil[1], plot_rngs.Simil / 2.23,
+                             0.53)
+
+    plot_rngs = plot_lims.diff().iloc[1]
+    size_mult = 10701 * len(map_args) ** (-3 / 7)
 
     for (mcomb1, mcomb2), (occur_val, simil_val) in plot_df.iterrows():
-        plt_clrs = [
-            choose_subtype_colour(
-                reduce(or_, mcomb.mtypes).subtype_list()[0][1])
-            for mcomb in (mcomb1, mcomb2)
-            ]
+        plt_sz = size_mult * (pheno_dict[mcomb1].mean()
+                              * pheno_dict[mcomb2].mean()) ** 0.5
 
-        plt_size = (pheno_dict[mcomb1].mean() * pheno_dict[mcomb2].mean())
-        plt_size = (plt_size ** 0.25) * (plot_df.shape[0] ** -0.13)
- 
-        for ptch in create_twotone_circle((occur_val, simil_val),
-                                          plt_clrs, scale=xy_scale * plt_size,
-                                          alpha=0.23, edgecolor='none'):
-            ax.add_artist(ptch)
+        for i, (plt_half, mcomb) in enumerate(zip(['left', 'right'],
+                                                  [mcomb1, mcomb2])):
+            plt_clr = choose_subtype_colour(
+                reduce(or_, mcomb.mtypes).subtype_list()[0][1])
+
+            if (tuple(mcomb1.mtypes)[0].get_labels()
+                    == tuple(mcomb2.mtypes)[0].get_labels()):
+                mrk_style = MarkerStyle('D', fillstyle=plt_half)
+            else:
+                mrk_style = MarkerStyle('o', fillstyle=plt_half)
+
+            ax.scatter(occur_val, simil_val, s=plt_sz, facecolor=plt_clr,
+                       marker=mrk_style, alpha=0.17, edgecolor='none')
 
     ax.text(plot_rngs.Occur / -97, plot_lims.Simil[1] - plot_rngs.Simil / 41,
             '\u2190', size=23, ha='right', va='center', weight='bold')
@@ -154,16 +187,16 @@ def plot_mutual_similarity(siml_dict, pheno_dict, auc_vals, pred_df,
     ax.text(plot_lims.Occur[0] + plot_rngs.Occur / 25, plot_rngs.Simil / -71,
             '\u2190', size=23, rotation=90, ha='center', va='top',
             weight='bold')
-    ax.text(plot_lims.Occur[0] + plot_rngs.Occur / 25, plot_rngs.Simil / -13,
+    ax.text(plot_lims.Occur[0] + plot_rngs.Occur / 25, plot_rngs.Simil / -17,
             "opposite\ndownstream\neffects",
-            size=13, rotation=90, ha='center', va='top')
+            size=13, ha='center', va='top')
 
     ax.text(plot_lims.Occur[0] + plot_rngs.Occur / 25, plot_rngs.Simil / 71,
             '\u2192', size=23, rotation=90, ha='center', va='bottom',
             weight='bold')
-    ax.text(plot_lims.Occur[0] + plot_rngs.Occur / 25, plot_rngs.Simil / 13,
+    ax.text(plot_lims.Occur[0] + plot_rngs.Occur / 25, plot_rngs.Simil / 17,
             "similar\ndownstream\neffects",
-            size=13, rotation=90, ha='center', va='bottom')
+            size=13, ha='center', va='bottom')
 
     plt.xticks(size=11)
     plt.yticks(size=11)
@@ -178,7 +211,8 @@ def plot_mutual_similarity(siml_dict, pheno_dict, auc_vals, pred_df,
 
     plt.savefig(
         os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
-                     "{}_mutual-simil_{}.svg".format(ex_lbl, args.classif)),
+                     "{}_{}-mutual-simil_{}.svg".format(
+                         ex_lbl, siml_metric, args.classif)),
         bbox_inches='tight', format='svg'
         )
 
@@ -195,10 +229,16 @@ def main():
     parser.add_argument('cohort', help="a tumour cohort")
     parser.add_argument('classif', help="a mutation classifier")
 
+    parser.add_argument('--auc_cutoff', '-a', type=float, default=0.7)
+    parser.add_argument('--siml_metrics', '-s', nargs='+',
+                        default=['ks'], choices={'mean', 'ks'})
+    parser.add_argument('--cores', '-c', type=int, default=1)
+    parser.add_argument('--verbose', '-v', action='store_true')
+
     args = parser.parse_args()
     out_dir = Path(base_dir, '__'.join([args.expr_source, args.cohort]))
-    out_list = tuple(Path(out_dir).glob(
-        "out-siml_*_*_{}.p.gz".format(args.classif)))
+    out_list = tuple(out_dir.glob(
+        "out-aucs_*_*_{}.p.gz".format(args.classif)))
 
     if len(out_list) == 0:
         raise ValueError("No completed experiments found for this "
@@ -213,15 +253,12 @@ def main():
 
     out_iter = out_use.groupby('Levels')['File']
     out_aucs = {lvls: list() for lvls in out_iter.groups}
-    out_simls = {lvls: list() for lvls in out_iter.groups}
     out_preds = {lvls: list() for lvls in out_iter.groups}
 
     phn_dict = dict()
     cdata = None
 
     auc_lists = {ex_lbl: pd.Series([]) for ex_lbl in ['Iso', 'IsoShal']}
-    siml_dicts = {ex_lbl: {lvls: None for lvls, _ in out_iter}
-                  for ex_lbl in ['Iso', 'IsoShal']}
     pred_dfs = {ex_lbl: pd.DataFrame([]) for ex_lbl in ['Iso', 'IsoShal']}
 
     for lvls, out_files in out_iter:
@@ -230,38 +267,32 @@ def main():
 
             with bz2.BZ2File(Path(out_dir, '_'.join(["out-pheno", out_tag])),
                              'r') as f:
-                phn_vals = pickle.load(f)
-
-                phn_dict.update({mut: phns for mut, phns in phn_vals.items()
-                                 if isinstance(mut, ExMcomb)})
+                phn_dict.update(pickle.load(f))
 
             with bz2.BZ2File(Path(out_dir, '_'.join(["out-aucs", out_tag])),
                              'r') as f:
                 auc_vals = pickle.load(f)
 
-                out_aucs[lvls] += [
-                    {ex_lbl: auc_dict['mean'][
-                        [mut for mut in auc_dict['mean'].index
-                         if isinstance(mut, ExMcomb)]
-                        ]
-                     for ex_lbl, auc_dict in auc_vals.items()}
+            out_aucs[lvls] += [{
+                ex_lbl: auc_dict['mean'][
+                    [mut for mut in auc_dict['mean'].index
+                     if isinstance(mut, ExMcomb)]
                     ]
+                for ex_lbl, auc_dict in auc_vals.items()
+                if ex_lbl in ['Iso', 'IsoShal']
+                }]
 
-            with bz2.BZ2File(Path(out_dir, '_'.join(["out-siml", out_tag])),
-                             'r') as f:
-                out_simls[lvls] += [pickle.load(f)]
-
+            # TODO: this is responsible for more than half of the time needed
+            # to load output data, can we make it more efficient?
             with bz2.BZ2File(Path(out_dir, '_'.join(["out-pred", out_tag])),
                              'r') as f:
                 pred_vals = pickle.load(f)
 
-                out_preds[lvls] += [
-                    {ex_lbl: pred_vals[ex_lbl].loc[
-                        [mut for mut in pred_vals[ex_lbl].index
-                         if isinstance(mut, ExMcomb)]
-                        ]
-                     for ex_lbl in ['Iso', 'IsoShal']}
-                    ]
+            out_preds[lvls] += [{
+                ex_lbl: pred_vals[ex_lbl].loc[
+                    out_aucs[lvls][-1][ex_lbl].index]
+                for ex_lbl in ['Iso', 'IsoShal']
+                }]
 
             with bz2.BZ2File(Path(out_dir,
                                   '_'.join(["cohort-data", out_tag])),
@@ -290,17 +321,19 @@ def main():
                 pred_dfs[ex_lbl] = pd.concat([
                     pred_dfs[ex_lbl], out_preds[lvls][super_indx][ex_lbl]
                     ], sort=False)
-                siml_dicts[ex_lbl][lvls] = out_simls[lvls][super_indx][ex_lbl]
 
-    auc_lists = {ex_lbl: auc_list[(auc_list >= AUC_CUTOFF)
+    auc_lists = {ex_lbl: auc_list[(auc_list >= args.auc_cutoff)
                                   & ~auc_list.index.duplicated()]
                  for ex_lbl, auc_list in auc_lists.items()}
 
     for ex_lbl in ['Iso', 'IsoShal']:
-        plot_mutual_similarity(siml_dicts[ex_lbl], phn_dict,
-                               auc_lists[ex_lbl], pred_dfs[ex_lbl],
-                               ex_lbl, cdata, args)
-        #TODO: plots in the same vein for synergy x occurence,
+        for siml_metric in args.siml_metrics:
+            plot_mutual_similarity(
+                pred_dfs[ex_lbl], phn_dict, auc_lists[ex_lbl],
+                cdata, args, ex_lbl, siml_metric
+                )
+
+        # TODO: plots in the same vein for synergy x occurence,
         # synergy x simil, simil1+simil2
 
 
