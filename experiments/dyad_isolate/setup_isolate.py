@@ -23,10 +23,10 @@ from itertools import product
 
 
 def get_all_mtype(mtype, gene, use_mtrees, lvls_dict=None, base_lvls=None):
-    sub_type = mtype.subtype_list()[0][1]
+    _, sub_type = tuple(mtype.subtype_iter())[0]
 
     if sub_type in lvls_dict:
-        use_lvls = lvls_dict[mtype.subtype_list()[0][1]]
+        use_lvls = lvls_dict[sub_type]
     elif base_lvls is not None:
         use_lvls = tuple(base_lvls)
 
@@ -52,23 +52,19 @@ def main():
     args = parser.parse_args()
     out_path = os.path.join(args.out_dir, 'setup')
 
-    expr_data, mut_data, annot_dict, use_genes, use_asmb = get_input_datasets(
-        args.cohort, args.expr_source, min_sources=3,
+    data_dict = get_input_datasets(
+        args.cohort, args.expr_source, min_sources=4,
         mut_fields=['Sample', 'Gene', 'Chr', 'Start', 'End',
                     'Strand', 'RefAllele', 'TumorAllele']
         )
 
-    var_data = mut_data.loc[mut_data.Scale == 'Point']
-    copy_data = mut_data.loc[mut_data.Scale == 'Copy',
-                             ['Sample', 'Gene', 'Scale', 'Copy']]
-
-    var_df = pd.DataFrame({'Chr': var_data.Chr.astype('int'),
-                           'Start': var_data.Start.astype('int'),
-                           'End': var_data.End.astype('int'),
-                           'RefAllele': var_data.RefAllele,
-                           'VarAllele': var_data.TumorAllele,
-                           'Strand': var_data.Strand,
-                           'Sample': var_data.Sample})
+    var_df = pd.DataFrame({'Chr': data_dict['vars'].Chr.astype('int'),
+                           'Start': data_dict['vars'].Start.astype('int'),
+                           'End': data_dict['vars'].End.astype('int'),
+                           'RefAllele': data_dict['vars'].RefAllele,
+                           'VarAllele': data_dict['vars'].TumorAllele,
+                           'Strand': data_dict['vars'].Strand,
+                           'Sample': data_dict['vars'].Sample})
 
     lvl_lists = [('Gene', 'Scale', 'Copy') + lvl_list
                  for lvl_list in mut_lvls[args.mut_lvls]]
@@ -82,26 +78,24 @@ def main():
             else:
                 var_fields |= {lvl}
 
-    variants = process_variants(var_df, out_fields=var_fields,
-                                cache_dir=vep_cache_dir,
-                                temp_dir=out_path, assembly=use_asmb,
-                                distance=0, consequence_choose='pick',
-                                forks=4, update_cache=False)
-
-    variants = variants.loc[variants.CANONICAL == 'YES']
-    variants['Scale'] = 'Point'
-    variants['Copy'] = np.nan
-
-    use_muts = pd.concat([variants, copy_data], sort=True)
-    use_muts = use_muts.loc[use_muts.Gene.isin(use_genes)]
-
-    assert not use_muts.duplicated().any(), (
-        "Variant data contains {} duplicate entries!".format(
-            use_muts.duplicated().sum())
+    variants = process_variants(
+        var_df, out_fields=var_fields, cache_dir=vep_cache_dir,
+        temp_dir=out_path, assembly=data_dict['assembly'],
+        distance=0, consequence_choose='pick', forks=4, update_cache=False
         )
 
-    cdata = IsoMutationCohort(expr_data, use_muts, lvl_lists,
-                              annot_dict, leaf_annot=None)
+    variants = variants.loc[(variants.CANONICAL == 'YES')
+                            & variants.Gene.isin(data_dict['use_genes'])]
+    copies = data_dict['copy'].loc[
+        data_dict['copy'].Gene.isin(data_dict['use_genes'])]
+
+    assert not variants.duplicated().any(), (
+        "Variant data contains {} duplicate entries!".format(
+            variants.duplicated().sum())
+        )
+
+    cdata = IsoMutationCohort(data_dict['expr'], variants, lvl_lists, copies,
+                              data_dict['annot'], leaf_annot=None)
     with bz2.BZ2File(os.path.join(out_path, "cohort-data.p.gz"), 'w') as f:
         pickle.dump(cdata, f, protocol=-1)
 
@@ -121,30 +115,33 @@ def main():
     test_muts = set()
     lvls_dict = dict()
 
-    for gene, mtree in cdata.mtrees[lvl_lists[0]]:
+    for gene in mut_genes:
+        gene_mtrees = {lvls: mtree[gene]
+                       for lvls, mtree in cdata.mtrees.items()}
+
         root_types = {
             root_type for root_type in {pnt_mtype, dup_mtype, loss_mtype,
                                         pnt_mtype | dup_mtype,
                                         pnt_mtype | loss_mtype}
-            if (len(root_type.get_samples(mtree))
+            if (len(root_type.get_samples(*gene_mtrees.values()))
                 >= search_dict['samp_cutoff'])
             }
 
-        samp_dict = {mtype: mtype.get_samples(mtree)
+        samp_dict = {mtype: mtype.get_samples(*gene_mtrees.values())
                      for mtype in root_types | {pnt_mtype}}
         pnt_types = set()
 
         if pnt_mtype in root_types:
-            for lvls, lvl_tree in cdata.mtrees.items():
-                lvl_types = lvl_tree[gene].combtypes(
+            for lvls, lvl_tree in gene_mtrees.items():
+                lvl_types = lvl_tree.combtypes(
                     mtype=pnt_mtype,
                     comb_sizes=tuple(
                         range(1, search_dict['branch_combs'] + 1)),
                     min_type_size=search_dict['samp_cutoff'],
                     min_branch_size=search_dict['min_branch']
-                    )
+                    ) - {pnt_mtype}
 
-                samp_dict.update({mtype: mtype.get_samples(lvl_tree[gene])
+                samp_dict.update({mtype: mtype.get_samples(lvl_tree)
                                   for mtype in lvl_types})
                 lvls_dict.update({mtype: lvls for mtype in lvl_types})
                 pnt_types |= lvl_types
@@ -204,7 +201,8 @@ def main():
 
         test_muts |= {mcomb for mcomb in pair_combs
                       if (search_dict['samp_cutoff']
-                          <= np.sum(cdata.train_pheno(mcomb)) <= max_samps)}
+                          <= len(mcomb.get_samples(*cdata.mtrees.values()))
+                          <= max_samps)}
 
     with open(os.path.join(out_path, "muts-list.p"), 'wb') as f:
         pickle.dump(sorted(test_muts), f, protocol=-1)

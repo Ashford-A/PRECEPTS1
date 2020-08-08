@@ -1,5 +1,5 @@
 
-from ..utilities.mutations import pnt_mtype, shal_mtype, ExMcomb
+from ..utilities.mutations import pnt_mtype, shal_mtype, deep_mtype, ExMcomb
 from ..subvariant_isolate.merge_isolate import compare_muts, calculate_auc
 from dryadic.features.mutations import MuType
 
@@ -67,7 +67,7 @@ def main():
             out_cv = int(fl_info.split("cv-")[1].split("_")[0])
             file_dict[out_fl] = out_task, out_cv
 
-    assert (len(file_list) % 40) == 0, "Missing output files detected!"
+    assert (len(file_dict) % 40) == 0, "Missing output files detected!"
     task_count = 1
     with open(os.path.join(args.use_dir, 'setup', "tasks.txt"), 'r') as f:
         task_list = f.readline().strip()
@@ -113,15 +113,18 @@ def main():
         for ex_lbl in ['All', 'Iso', 'IsoShal']
         }
 
-    mut_samps = {mut: {samp for samp, phn in zip(cdata.get_train_samples(),
-                                                 cdata.train_pheno(mut))
-                       if phn}
+    mut_samps = {mut: mut.get_samples(*cdata.mtrees.values())
                  for mut in use_muts}
-
-    mut_genes = {mut: mut.get_labels() for mut in use_muts}
+    mut_genes = {mut: tuple(mut.label_iter()) for mut in use_muts}
     gene_samps = {gene: mtree.get_samples() for gene, mtree in use_mtree}
-    shal_samps = {gene: ExMcomb(pnt_mtype, shal_mtype).get_samples(mtree)
-                  for gene, mtree in use_mtree}
+
+    shal_samps = {
+        gns: ExMcomb(
+            MuType({('Gene', gns): pnt_mtype | deep_mtype}),
+            MuType({('Gene', gns): shal_mtype})
+            ).get_samples(*cdata.mtrees.values())
+        for gns in set(tuple(sorted(gns)) for gns in mut_genes.values())
+        }
 
     for cv_id, out_fls in file_sets.items():
         out_list = []
@@ -182,8 +185,7 @@ def main():
                     use_samps -= mut_samps[mut]
 
                     if ex_lbl == 'IsoShal':
-                        use_samps -= reduce(or_, [shal_samps[gn]
-                                                  for gn in mut_genes[mut]])
+                        use_samps -= shal_samps[tuple(sorted(mut_genes[mut]))]
 
                     out_samps = sorted(use_samps & set(samps_dict['train']))
                     pred_lists[ex_lbl][cv_id].loc[mut][out_samps] = [
@@ -214,7 +216,7 @@ def main():
         assert (pred_dfs['Iso'].loc[mut, hld_samps].apply(len) == 40).all(), (
             "Incorrect number of testing CV scores!")
 
-        hld_samps -= reduce(or_, [shal_samps[gn] for gn in mut_genes[mut]])
+        hld_samps -= shal_samps[tuple(sorted(mut_genes[mut]))]
         assert (pred_dfs['IsoShal'].loc[
                     mut, set(cdata.get_samples()) - hld_samps].apply(len)
                 == 10).all(), ("Incorrect number of testing CV scores!")

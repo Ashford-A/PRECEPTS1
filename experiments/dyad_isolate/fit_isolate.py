@@ -1,7 +1,8 @@
 
 from ..utilities.handle_input import safe_load
-from ..utilities.mutations import pnt_mtype, shal_mtype, ExMcomb
+from ..utilities.mutations import pnt_mtype, shal_mtype, deep_mtype, ExMcomb
 from ..subvariant_isolate.classifiers import *
+from dryadic.features.mutations import MuType
 
 import os
 import argparse
@@ -73,20 +74,19 @@ def main():
         if (i % args.task_count) == args.task_id:
             print("Isolating {} ...".format(mut))
 
-            cur_genes = mut.get_labels()
+            cur_genes = tuple(mut.label_iter())
             ex_genes = cdata.get_cis_genes('Chrm', cur_genes=cur_genes)
             gene_samps = reduce(or_, [base_tree[gene].get_samples()
                                       for gene in cur_genes])
 
-            shal_samps = reduce(
-                or_,
-                [ExMcomb(pnt_mtype, shal_mtype).get_samples(base_tree[gene])
-                 for gene in cur_genes]
-                )
-            mut_samps = mut.get_samples(cdata.mtrees)
+            shal_samps = ExMcomb(
+                MuType({('Gene', tuple(cur_genes)): pnt_mtype | deep_mtype}),
+                MuType({('Gene', tuple(cur_genes)): shal_mtype})
+                ).get_samples(base_tree)
+            mut_samps = mut.get_samples(*cdata.mtrees.values())
 
             ex_dict = {'All': set(), 'Iso': gene_samps - mut_samps,
-                       'IsoShal': gene_samps - mut_samps - shal_samps}
+                       'IsoShal': gene_samps - (mut_samps | shal_samps)}
 
             for ex_lbl, ex_samps in ex_dict.items():
                 mut_clf, cv_output = mut_clf.tune_coh(

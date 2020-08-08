@@ -47,8 +47,8 @@ def remove_pair_dups(mut_pairs, pheno_dict):
     for mut1, mut2 in mut_pairs:
         pair_info = tuple(sorted([tuple(pheno_dict[mut1]),
                                   tuple(pheno_dict[mut2])]))
-        pair_info += tuple(sorted(set(mut1.get_labels())
-                                  | set(mut2.get_labels())))
+        pair_info += tuple(sorted(set(mut1.label_iter())
+                                  | set(mut2.label_iter())))
 
         if pair_info not in pair_infos:
             pair_infos |= {pair_info}
@@ -77,7 +77,7 @@ def plot_mutual_similarity(pred_df, pheno_dict, auc_vals,
                  for mcomb in use_combs}
 
     use_pairs = [(mcomb1, mcomb2) for mcomb1, mcomb2 in combn(use_combs, 2)
-                 if (set(mcomb1.get_labels()) == set(mcomb2.get_labels())
+                 if (set(mcomb1.label_iter()) == set(mcomb2.label_iter())
                      and (all((mtype1 & mtype2).is_empty()
                               for mtype1, mtype2 in product(mcomb1.mtypes,
                                                             mcomb2.mtypes))
@@ -111,12 +111,12 @@ def plot_mutual_similarity(pred_df, pheno_dict, auc_vals,
 
         all_mtype = reduce(
             or_, [MuType({('Gene', gene): use_mtree[gene].allkey()})
-                  for gene in mcomb1.get_labels()]
+                  for gene in mcomb1.label_iter()]
             )
 
         if ex_lbl == 'IsoShal':
             all_mtype -= MuType({
-                ('Gene', tuple(mcomb1.get_labels())): shal_mtype})
+                ('Gene', tuple(mcomb1.label_iter())): shal_mtype})
 
         all_phn = np.array(cdata.train_pheno(all_mtype))
         wt_vals = {mcomb: use_preds.loc[mcomb, ~all_phn]
@@ -154,7 +154,7 @@ def plot_mutual_similarity(pred_df, pheno_dict, auc_vals,
                              0.53)
 
     plot_rngs = plot_lims.diff().iloc[1]
-    size_mult = 10701 * len(map_args) ** (-3 / 7)
+    size_mult = 20103 * len(map_args) ** (-3 / 7)
 
     for (mcomb1, mcomb2), (occur_val, simil_val) in plot_df.iterrows():
         plt_sz = size_mult * (pheno_dict[mcomb1].mean()
@@ -163,16 +163,16 @@ def plot_mutual_similarity(pred_df, pheno_dict, auc_vals,
         for i, (plt_half, mcomb) in enumerate(zip(['left', 'right'],
                                                   [mcomb1, mcomb2])):
             plt_clr = choose_subtype_colour(
-                reduce(or_, mcomb.mtypes).subtype_list()[0][1])
+                tuple(reduce(or_, mcomb.mtypes).subtype_iter())[0][1])
 
-            if (tuple(mcomb1.mtypes)[0].get_labels()
-                    == tuple(mcomb2.mtypes)[0].get_labels()):
+            if (set(tuple(mcomb1.mtypes)[0].label_iter())
+                    == set(tuple(mcomb2.mtypes)[0].label_iter())):
                 mrk_style = MarkerStyle('D', fillstyle=plt_half)
             else:
                 mrk_style = MarkerStyle('o', fillstyle=plt_half)
 
             ax.scatter(occur_val, simil_val, s=plt_sz, facecolor=plt_clr,
-                       marker=mrk_style, alpha=0.17, edgecolor='none')
+                       marker=mrk_style, alpha=11 / 79, edgecolor='none')
 
     ax.text(plot_rngs.Occur / -97, plot_lims.Simil[1] - plot_rngs.Simil / 41,
             '\u2190', size=23, ha='right', va='center', weight='bold')
