@@ -1,6 +1,8 @@
 
-from ..subgrouping_isolate import *
 from ..subgrouping_isolate.param_list import params
+from .data_dirs import (firehose_dir, syn_root, metabric_dir, baml_dir,
+                        gencode_dir, oncogene_list, subtype_file,
+                        vep_cache_dir, expr_sources)
 
 from dryadic.features.data.vep import process_variants
 from ...features.cohorts.beatAML import (
@@ -13,8 +15,8 @@ from ...features.cohorts.tcga import (
 from ..utilities.mutations import (pnt_mtype, copy_mtype, shal_mtype,
                                    dup_mtype, gains_mtype, loss_mtype,
                                    dels_mtype, Mcomb, ExMcomb)
-from ..subgrouping_isolate.utils import IsoMutationCohort
 from dryadic.features.mutations import MuType
+from ..subgrouping_isolate.utils import IsoMutationCohort
 
 import os
 import argparse
@@ -22,18 +24,21 @@ import synapseclient
 import bz2
 import dill as pickle
 
-import numpy as np
 import pandas as pd
 from itertools import combinations as combn
 
 
 def get_input_datasets(cohort, expr_source,
                        use_genes=None, min_sources=2, mut_fields=None):
+    data_dict = {data_k: None
+                 for data_k in ('expr', 'vars', 'copy',
+                                'annot', 'use_genes', 'assembly')}
+
     if use_genes is None:
         gene_df = pd.read_csv(oncogene_list,
                               sep='\t', skiprows=1, index_col=0)
 
-        use_genes = gene_df.index[
+        data_dict['use_genes'] = gene_df.index[
             (gene_df.loc[
                 :, ['Vogelstein', 'SANGER CGC(05/30/2017)',
                     'FOUNDATION ONE', 'MSK-IMPACT']]
@@ -41,7 +46,7 @@ def get_input_datasets(cohort, expr_source,
             ].tolist()
 
     else:
-        use_genes = list(use_genes)
+        data_dict['use_genes'] = list(use_genes)
 
     syn = synapseclient.Synapse()
     syn.cache.cache_root_dir = syn_root
@@ -52,82 +57,97 @@ def get_input_datasets(cohort, expr_source,
             raise ValueError("Only gene-level Kallisto calls are available "
                              "for the beatAML cohort!")
 
-        use_asmb = 'GRCh37'
+        data_dict['assembly'] = 'GRCh37'
 
-        expr_data, mut_data, annot_dict = process_baml_datasets(
-            baml_dir, gencode_dir, syn,
-            annot_fields=['transcript'], mut_fields=mut_fields
-            )
+        data_dict.update({
+            data_k: baml_data
+            for data_k, baml_data in zip(
+                ('expr', 'vars', 'copy', 'annot'),
+                process_baml_datasets(baml_dir, gencode_dir, syn,
+                                      annot_fields=['transcript'],
+                                      mut_fields=mut_fields)
+                )
+            })
 
     elif cohort.split('_')[0] == 'METABRIC':
         if expr_source != 'microarray':
             raise ValueError("Only Illumina microarray mRNA calls are "
                              "available for the METABRIC cohort!")
 
-        use_asmb = 'GRCh37'
+        data_dict['assembly'] = 'GRCh37'
 
         if '_' in cohort:
             use_types = cohort.split('_')[1]
         else:
             use_types = None
 
-        expr_data, mut_data, annot_dict = process_metabric_datasets(
-            metabric_dir, gencode_dir, use_types,
-            annot_fields=['transcript'], mut_fields=mut_fields
-            )
+        data_dict.update({
+            data_k: mtbc_data
+            for data_k, mtbc_data in zip(
+                ('expr', 'vars', 'copy', 'annot'),
+                process_metabric_datasets(
+                    metabric_dir, gencode_dir, use_types,
+                    annot_fields=['transcript'], mut_fields=mut_fields
+                    )
+                )
+            })
 
     else:
-        use_asmb = 'GRCh37'
+        data_dict['assembly'] = 'GRCh37'
+
         source_info = expr_source.split('__')
         source_base = source_info[0]
         collapse_txs = not (len(source_info) > 1 and source_info[1] == 'txs')
 
-        expr_data, mut_data, annot_dict = process_tcga_datasets(
-            cohort, expr_source=source_base, var_source='mc3',
-            copy_source='Firehose', expr_dir=expr_sources[source_base],
-            annot_dir=gencode_dir, type_file=subtype_file,
-            collapse_txs=collapse_txs, annot_fields=['transcript'],
-            syn=syn, mut_fields=mut_fields
-            )
+        data_dict.update({
+            data_k: tcga_data
+            for data_k, tcga_data in zip(
+                ('expr', 'vars', 'copy', 'annot'),
+                process_tcga_datasets(
+                    cohort, expr_source=source_base,
+                    var_source='mc3', copy_source='Firehose',
+                    expr_dir=expr_sources[source_base], annot_dir=gencode_dir,
+                    type_file=subtype_file, collapse_txs=collapse_txs,
+                    annot_fields=['transcript'], syn=syn,
+                    mut_fields=mut_fields
+                    )
+                )
+            })
 
-    return expr_data, mut_data, annot_dict, use_genes, use_asmb
+    return data_dict
 
 
 def main():
     parser = argparse.ArgumentParser(
-        "Set up the gene subtype expression effect isolation experiment by "
-        "enumerating the subtypes to be tested."
+        'setup_isolate',
+        description="Load datasets and enumerate subgroupings to be tested."
         )
 
     parser.add_argument('expr_source', type=str,
                         help="a source of expression data")
-    parser.add_argument('cohort', type=str, help="which TCGA cohort to use")
-    parser.add_argument('mut_levels', type=str, help="a mutated gene")
-    parser.add_argument('search_params', type=str,)
-    parser.add_argument('out_dir', type=str)
+    parser.add_argument('cohort', type=str, help="a tumour cohort")
+    parser.add_argument('mut_levels', type=str,
+                        help="a combination of mutation attribute levels")
+    parser.add_argument('search_params', type=str, choices=set(params))
+    parser.add_argument('out_dir', type=str,
+                        help="the working directory for this experiment")
 
     args = parser.parse_args()
     out_path = os.path.join(args.out_dir, 'setup')
 
-    expr_data, mut_data, annot_dict, use_genes, use_asmb = get_input_datasets(
+    data_dict = get_input_datasets(
         args.cohort, args.expr_source,
         mut_fields=['Sample', 'Gene', 'Chr', 'Start', 'End',
                     'Strand', 'RefAllele', 'TumorAllele']
         )
 
-    # segregate mutations into point mutations and CNAs
-    var_data = mut_data.loc[mut_data.Scale == 'Point']
-    copy_data = mut_data.loc[mut_data.Scale == 'Copy',
-                             ['Sample', 'Gene', 'Scale', 'Copy']]
-
-    # create the table used as input for the VEP command line tool
-    var_df = pd.DataFrame({'Chr': var_data.Chr.astype('int'),
-                           'Start': var_data.Start.astype('int'),
-                           'End': var_data.End.astype('int'),
-                           'RefAllele': var_data.RefAllele,
-                           'VarAllele': var_data.TumorAllele,
-                           'Strand': var_data.Strand,
-                           'Sample': var_data.Sample})
+    var_df = pd.DataFrame({'Chr': data_dict['vars'].Chr.astype('int'),
+                           'Start': data_dict['vars'].Start.astype('int'),
+                           'End': data_dict['vars'].End.astype('int'),
+                           'RefAllele': data_dict['vars'].RefAllele,
+                           'VarAllele': data_dict['vars'].TumorAllele,
+                           'Strand': data_dict['vars'].Strand,
+                           'Sample': data_dict['vars'].Sample})
 
     # get the combination of mutation attributes and search constraints
     # that will govern the enumeration of subgroupings
@@ -145,30 +165,26 @@ def main():
 
     # run the VEP command line wrapper to obtain a standardized
     # set of point mutation calls
-    variants = process_variants(var_df, out_fields=var_fields,
-                                cache_dir=vep_cache_dir,
-                                temp_dir=out_path, assembly=use_asmb,
-                                distance=0, consequence_choose='pick',
-                                forks=4, update_cache=False)
-
-    # remove VEP calls from non-canonical transcripts, add fields that
-    # distinguish these calls from CNA calls
-    variants = variants.loc[variants.CANONICAL == 'YES']
-    variants['Scale'] = 'Point'
-    variants['Copy'] = np.nan
-
-    # reunify CNA calls with VEP point mutation calls, filter out calls from
-    # non-cancer genes and double-check all calls are unique
-    use_muts = pd.concat([variants, copy_data], sort=True)
-    use_muts = use_muts.loc[use_muts.Gene.isin(use_genes)]
-
-    assert not use_muts.duplicated().any(), (
-        "Variant data contains {} duplicate entries!".format(
-            use_muts.duplicated().sum())
+    variants = process_variants(
+        var_df, out_fields=var_fields, cache_dir=vep_cache_dir,
+        temp_dir=out_path, assembly=data_dict['assembly'],
+        distance=0, consequence_choose='pick', forks=4, update_cache=False
         )
 
-    cdata = IsoMutationCohort(expr_data, use_muts, [lvl_list],
-                              annot_dict, leaf_annot=None)
+    # remove mutation calls not assigned to a canonical transcript by VEP as
+    # well as those not associated with genes linked to cancer processes
+    variants = variants.loc[(variants.CANONICAL == 'YES')
+                            & variants.Gene.isin(data_dict['use_genes'])]
+    copies = data_dict['copy'].loc[
+        data_dict['copy'].Gene.isin(data_dict['use_genes'])]
+
+    assert not variants.duplicated().any(), (
+        "Variant data contains {} duplicate entries!".format(
+            variants.duplicated().sum())
+        )
+
+    cdata = IsoMutationCohort(data_dict['expr'], variants, [lvl_list], copies,
+                              data_dict['annot'], leaf_annot=None)
     with bz2.BZ2File(os.path.join(out_path, "cohort-data.p.gz"), 'w') as f:
         pickle.dump(cdata, f, protocol=-1)
 
@@ -184,15 +200,15 @@ def main():
                 comb_sizes=tuple(range(1, search_dict['branch_combs'] + 1)),
                 min_type_size=search_dict['samp_cutoff'],
                 min_branch_size=search_dict['min_branch']
-                )
+                ) - {pnt_mtype}
 
             # get the samples mutated for each subtype combination in this
             # cohort; remove subtypes that span all of the gene's mutations
             samp_dict = {mtype: mtype.get_samples(mtree)
                          for mtype in comb_types}
-            pnt_samps = mtree['Point'].get_samples()
+            samp_dict[pnt_mtype] = mtree['Point'].get_samples()
             pnt_types = {mtype for mtype in comb_types
-                         if samp_dict[mtype] != pnt_samps}
+                         if samp_dict[mtype] != samp_dict[pnt_mtype]}
 
             # remove subtypes that are mutated in the same set of samples as
             # another subtype and are less granular in their definition
