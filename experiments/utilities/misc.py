@@ -4,12 +4,17 @@ from colorsys import hls_to_rgb
 from importlib import import_module
 
 
-def detect_log_distr(tune_distr):
+def get_distr_transform(tune_distr):
     distr_diff = np.array(tune_distr[1:]) - np.array(tune_distr[:-1])
     diff_min = np.log10(np.min(distr_diff))
     diff_max = np.log10(np.max(distr_diff))
 
-    return (diff_max - diff_min) > 4./3
+    if (diff_max - diff_min) > 4./3:
+        trans_fx = np.log10
+    else:
+        trans_fx = lambda x: x
+
+    return trans_fx
 
 
 def warning_on_one_line(message, category, filename, lineno,

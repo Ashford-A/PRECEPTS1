@@ -1,5 +1,5 @@
 
-from ..utilities.misc import detect_log_distr, choose_label_colour
+from ..utilities.misc import get_distr_transform, choose_label_colour
 
 import os
 import argparse
@@ -11,9 +11,9 @@ import numpy as np
 import pandas as pd
 
 import matplotlib as mpl
-mpl.use('Agg')
 import matplotlib.pyplot as plt
 
+mpl.use('Agg')
 plt.style.use('fivethirtyeight')
 plt.rcParams['axes.facecolor'] = 'white'
 plt.rcParams['savefig.facecolor'] = 'white'
@@ -30,34 +30,26 @@ def plot_chosen_parameters(pars_dfs, pheno_dict, auc_dfs, use_clf, args):
                               nrows=3, ncols=len(use_clf.tune_priors),
                               squeeze=False)
 
+    par_fxs = {par_name: get_distr_transform(tune_distr)
+               for par_name, tune_distr in use_clf.tune_priors}
+    clr_dict = dict()
     plt_ymin = 0.48
+
     for j, (par_name, tune_distr) in enumerate(use_clf.tune_priors):
-        if detect_log_distr(tune_distr):
-            par_fnc = np.log10
-            plt_xmin = 2 * np.log10(tune_distr[0]) - np.log10(tune_distr[1])
-            plt_xmax = 2 * np.log10(tune_distr[-1]) - np.log10(tune_distr[-2])
-
-        else:
-            par_fnc = lambda x: x
-            plt_xmin = 2 * tune_distr[0] - tune_distr[1]
-            plt_xmax = 2 * tune_distr[-1] - tune_distr[-2]
-
         for i, ex_lbl in enumerate(['All', 'Iso', 'IsoShal']):
             for mtype, par_vals in pars_dfs[ex_lbl][par_name].iterrows():
-                cur_gene = mtype.get_labels()[0]
+                cur_gene = tuple(mtype.label_iter())[0]
 
-                if cur_gene is None:
-                    gene_clr = '0.89'
-                else:
-                    gene_clr = choose_label_colour(cur_gene)
-
+                par_val = par_fxs[par_name](par_vals).mean()
                 auc_val = np.mean(auc_dfs[ex_lbl].CV.loc[mtype])
+
                 plt_ymin = min(plt_ymin, auc_val - 0.02)
                 plt_sz = 91 * np.mean(pheno_dict[mtype])
+                if cur_gene not in clr_dict:
+                    clr_dict[cur_gene] = choose_label_colour(cur_gene)
 
-                axarr[i, j].scatter(par_fnc(par_vals).mean(), auc_val,
-                                    c=[gene_clr], s=plt_sz,
-                                    alpha=0.23, edgecolor='none')
+                axarr[i, j].scatter(par_val, auc_val, c=[clr_dict[cur_gene]],
+                                    s=plt_sz, alpha=0.19, edgecolor='none')
 
         for i in range(3):
             axarr[i, j].tick_params(labelsize=15)
@@ -67,21 +59,32 @@ def plot_chosen_parameters(pars_dfs, pheno_dict, auc_dfs, use_clf, args):
                                 linewidth=2.3, linestyle='--', alpha=0.29)
 
             for par_val in tune_distr:
-                axarr[i, j].axvline(x=par_fnc(par_val), color='#116611',
-                                    ls=':', linewidth=2.1, alpha=0.31)
+                axarr[i, j].axvline(x=par_fxs[par_name](par_val),
+                                    color='#116611', ls=':',
+                                    linewidth=2.1, alpha=0.31)
 
             if i == 2:
-                axarr[i, j].set_xlabel("Tested {} Value".format(par_name),
-                                       fontsize=23, weight='semibold')
+                axarr[i, j].set_xlabel(
+                    "Mean Chosen {} Value".format(par_name),
+                    fontsize=21, weight='semibold'
+                    )
             else:
                 axarr[i, j].set_xticklabels([])
 
     for i, ex_lbl in enumerate(['All', 'Iso', 'IsoShal']):
-        axarr[i, 0].set_ylabel("Inferred {} AUC".format(ex_lbl),
-                               fontsize=17, weight='semibold')
+        y_lbl = "Mean <{}> AUC\nAcross CV Folds".format(ex_lbl)
+        axarr[i, 0].set_ylabel(y_lbl, fontsize=17, weight='semibold')
+
+    for j, (par_name, tune_distr) in enumerate(use_clf.tune_priors):
+        plt_xmin = (2 * par_fxs[par_name](tune_distr[0])
+                    - par_fxs[par_name](tune_distr[1]))
+        plt_xmax = (2 * par_fxs[par_name](tune_distr[-1])
+                    - par_fxs[par_name](tune_distr[-2]))
+
+        for i in range(3):
+            axarr[i, j].set_xlim(plt_xmin, plt_xmax)
 
     for ax in axarr.flatten():
-        ax.set_ylim(plt_xmin, plt_xmax)
         ax.set_ylim(plt_ymin, 1 + (1 - plt_ymin) / 53)
         ax.grid(axis='x', linewidth=0)
         ax.grid(axis='y', alpha=0.53, linewidth=1.3)
@@ -100,29 +103,18 @@ def plot_parameter_profile(acc_dfs, use_clf, args):
                               nrows=3, ncols=len(use_clf.tune_priors),
                               squeeze=False)
 
+    par_fxs = {par_name: get_distr_transform(tune_distr)
+               for par_name, tune_distr in use_clf.tune_priors}
+    clr_dict = dict()
     plt_ymin = 0.48
+
     for j, (par_name, tune_distr) in enumerate(use_clf.tune_priors):
-        if detect_log_distr(tune_distr):
-            par_fnc = np.log10
-            plt_xmin = 2 * np.log10(tune_distr[0]) - np.log10(tune_distr[1])
-            plt_xmax = 2 * np.log10(tune_distr[-1]) - np.log10(tune_distr[-2])
-
-        else:
-            par_fnc = lambda x: x
-            plt_xmin = 2 * tune_distr[0] - tune_distr[1]
-            plt_xmax = 2 * tune_distr[-1] - tune_distr[-2]
-
         for i, ex_lbl in enumerate(['All', 'Iso', 'IsoShal']):
             for mtype, acc_vals in acc_dfs[ex_lbl].iterrows():
-                cur_gene = mtype.get_labels()[0]
-
-                if cur_gene is None:
-                    gene_clr = '0.89'
-                else:
-                    gene_clr = choose_label_colour(cur_gene)
+                cur_gene = tuple(mtype.label_iter())[0]
 
                 plt_pars = pd.concat([
-                    pd.Series({par_fnc(pars[par_name]): avg_val
+                    pd.Series({par_fxs[par_name](pars[par_name]): avg_val
                                for pars, avg_val in zip(par_ols,
                                                         avg_ols)})
                     for par_ols, avg_ols in zip(acc_vals['par'],
@@ -130,8 +122,12 @@ def plot_parameter_profile(acc_dfs, use_clf, args):
                     ], axis=1).quantile(q=0.25, axis=1)
 
                 plt_ymin = min(plt_ymin, plt_pars.min() - 0.01)
+                if cur_gene not in clr_dict:
+                    clr_dict[cur_gene] = choose_label_colour(cur_gene)
+
                 axarr[i, j].plot(plt_pars.index, plt_pars.values,
-                                 linewidth=5/13, alpha=0.17, c=gene_clr)
+                                 c=clr_dict[cur_gene], linewidth=5/13,
+                                 alpha=0.17)
 
         for i in range(3):
             axarr[i, j].tick_params(labelsize=15)
@@ -141,21 +137,30 @@ def plot_parameter_profile(acc_dfs, use_clf, args):
                                 linewidth=2.3, linestyle='--', alpha=0.29)
 
             for par_val in tune_distr:
-                axarr[i, j].axvline(x=par_fnc(par_val), color='#116611',
-                                    ls=':', linewidth=2.1, alpha=0.31)
+                axarr[i, j].axvline(x=par_fxs[par_name](par_val),
+                                    color='#116611', ls=':',
+                                    linewidth=2.1, alpha=0.31)
 
             if i == 2:
                 axarr[i, j].set_xlabel("Tested {} Value".format(par_name),
-                                       fontsize=23, weight='semibold')
+                                       fontsize=21, weight='semibold')
             else:
                 axarr[i, j].set_xticklabels([])
 
     for i, ex_lbl in enumerate(['All', 'Iso', 'IsoShal']):
-        axarr[i, 0].set_ylabel("Tuned {} AUC".format(ex_lbl),
-                               fontsize=21, weight='semibold')
+        axarr[i, 0].set_ylabel("Tuning <{}> AUC".format(ex_lbl),
+                               fontsize=17, weight='semibold')
+
+    for j, (par_name, tune_distr) in enumerate(use_clf.tune_priors):
+        plt_xmin = (2 * par_fxs[par_name](tune_distr[0])
+                    - par_fxs[par_name](tune_distr[1]))
+        plt_xmax = (2 * par_fxs[par_name](tune_distr[-1])
+                    - par_fxs[par_name](tune_distr[-2]))
+
+        for i in range(3):
+            axarr[i, j].set_xlim(plt_xmin, plt_xmax)
 
     for ax in axarr.flatten():
-        ax.set_ylim(plt_xmin, plt_xmax)
         ax.set_ylim(plt_ymin, 1 + (1 - plt_ymin) / 53)
         ax.grid(axis='x', linewidth=0)
         ax.grid(axis='y', alpha=0.47, linewidth=1.3)
@@ -171,8 +176,8 @@ def plot_parameter_profile(acc_dfs, use_clf, args):
 
 def main():
     parser = argparse.ArgumentParser(
-        "Plots the tuning characteristics of a model in predicting "
-        "the mutation status of the subgroupings in a given cohort."
+        'plot_tuning',
+        description="Plots a classifier's tuning characteristics in a cohort."
         )
 
     parser.add_argument('expr_source', help="a source of expression datasets")
@@ -182,7 +187,7 @@ def main():
     args = parser.parse_args()
     out_dir = Path(base_dir, '__'.join([args.expr_source, args.cohort]))
     out_list = tuple(Path(out_dir).glob(
-        "out-siml__*__*__{}.p.gz".format(args.classif)))
+        "out-conf__*__*__{}.p.gz".format(args.classif)))
 
     if len(out_list) == 0:
         raise ValueError("No completed experiments found for this "
@@ -244,9 +249,7 @@ def main():
 
             for ex_lbl in ['All', 'Iso', 'IsoShal']:
                 auc_dfs[ex_lbl] = pd.concat([
-                    auc_dfs[ex_lbl],
-                    pd.DataFrame(out_aucs[lvls][super_indx][ex_lbl])
-                    ])
+                    auc_dfs[ex_lbl], out_aucs[lvls][super_indx][ex_lbl]])
 
                 for i in range(3):
                     tune_list[i][ex_lbl] = pd.concat([
