@@ -19,7 +19,7 @@ from operator import add
 
 
 def calculate_siml(base_mtype, phn_dict, ex_k, pred_vals):
-    cur_genes = set(base_mtype.get_labels())
+    cur_genes = set(base_mtype.label_iter())
 
     none_mean = np.concatenate(pred_vals[~phn_dict[ex_k]].values).mean()
     base_mean = np.concatenate(pred_vals[phn_dict[base_mtype]].values).mean()
@@ -122,7 +122,7 @@ def main():
 
     if 'Iso' in args.ex_lbls or 'IsoShal' in args.ex_lbls:
         mut_samps = {mut: mut.get_samples(use_mtree) for mut in use_muts}
-        mut_genes = {mut: mut.get_labels()[0] for mut in use_muts}
+        mut_genes = {mut: tuple(mut.label_iter())[0] for mut in use_muts}
         gene_samps = {gene: mtree.get_samples() for gene, mtree in use_mtree}
 
     if 'IsoShal' in args.ex_lbls:
@@ -133,8 +133,8 @@ def main():
         out_list = []
 
         for out_fl in out_fls:
-             with open(out_fl, 'rb') as f:
-                 out_list += [pickle.load(f)]
+            with open(out_fl, 'rb') as f:
+                out_list += [pickle.load(f)]
 
         for out_dicts in out_list:
             if out_clf is None:
@@ -289,10 +289,10 @@ def main():
             'all': pd.Series(dict(zip(use_muts, Parallel(
                 n_jobs=12, prefer='threads', pre_dispatch=120)(
                     delayed(calculate_auc)(
-                        pheno_dict[mtype],
-                        pred_dfs[ex_lbl].loc[mtype][train_samps],
+                        pheno_dict[mut],
+                        pred_dfs[ex_lbl].loc[mut][train_samps],
                         )
-                    for mtype in use_muts
+                    for mut in use_muts
                     )
                 ))),
 
@@ -301,11 +301,11 @@ def main():
                 tuple(zip(cycle(use_muts), Parallel(
                     n_jobs=12, prefer='threads', pre_dispatch=120)(
                         delayed(calculate_auc)(
-                            pheno_dict[mtype],
-                            pred_dfs[ex_lbl].loc[mtype][train_samps],
+                            pheno_dict[mut],
+                            pred_dfs[ex_lbl].loc[mut][train_samps],
                             cv_indx=cv_id
                             )
-                        for cv_id in range(10) for mtype in use_muts
+                        for cv_id in range(10) for mut in use_muts
                         )
                     ))
                 ).pivot_table(index=0, values=1, aggfunc=list).iloc[:, 0],
@@ -315,11 +315,11 @@ def main():
             'mean': pd.Series(dict(zip(use_muts, Parallel(
                 n_jobs=12, prefer='threads', pre_dispatch=120)(
                     delayed(calculate_auc)(
-                        pheno_dict[mtype],
-                        pred_dfs[ex_lbl].loc[mtype][train_samps],
+                        pheno_dict[mut],
+                        pred_dfs[ex_lbl].loc[mut][train_samps],
                         use_mean=True
                         )
-                    for mtype in use_muts
+                    for mut in use_muts
                     )
                 )))
             }
@@ -345,12 +345,11 @@ def main():
                 tuple(zip(cycle(use_muts), Parallel(
                     n_jobs=12, prefer='threads', pre_dispatch=120)(
                         delayed(calculate_auc)(
-                            pheno_dict[mtype][sub_indx],
-                            pred_dfs[ex_lbl].loc[
-                                mtype][train_samps[sub_indx]],
+                            pheno_dict[mut][sub_indx],
+                            pred_dfs[ex_lbl].loc[mut][train_samps[sub_indx]],
                             use_mean=True
                             )
-                        for sub_indx in sub_inds for mtype in use_muts
+                        for sub_indx in sub_inds for mut in use_muts
                         )
                     ))
                 ).pivot_table(index=0, values=1, aggfunc=list).iloc[:, 0]
