@@ -14,12 +14,9 @@ from operator import or_
 
 
 def main():
-    """Runs the experiment."""
-
     parser = argparse.ArgumentParser(
-        "Trains classifiers to predict the presence of genes' mutation "
-        "subgroupings in a tumor cohort while isolating this presence from "
-        "that of other mutations on the same gene as well as a paired gene."
+        'fit_isolate',
+        description="Runs a portion of an experiment's classification tasks."
         )
 
     parser.add_argument('classif', type=str,
@@ -68,6 +65,9 @@ def main():
                for mut in muts_list}
     out_pred = {mut: {smps: None for smps in ['All', 'Iso', 'IsoShal']}
                 for mut in muts_list}
+
+    random.seed(10301)
+    random.shuffle(muts_list)
 
     # for each subgrouping, check if it has been assigned to this task
     for i, mut in enumerate(muts_list):

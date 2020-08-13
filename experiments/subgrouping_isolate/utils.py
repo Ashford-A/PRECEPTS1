@@ -107,7 +107,7 @@ class IsoMutationCohort(BaseMutationCohort):
             raise ValueError("Cohorts have mismatching expression datasets!")
         if other.gene_annot != self.gene_annot:
             raise ValueError("Cohorts have mismatching genomic annotations!")
-        if other.leaf_annot != self.leaf_annot:
+        if other._leaf_annot != self._leaf_annot:
             raise ValueError("Cohorts have mismatching variant annotations!")
 
         # for each mutation tree in the cohort to be merged, check if there is
@@ -143,7 +143,7 @@ class IsoMutationCohort(BaseMutationCohort):
         # cohort from scratch using the merged mutation data in this cohort
         for mut_lvls, mtree in other.mtrees.items():
             test_tree = MuTree(self.muts, mut_lvls,
-                               leaf_annot=other.leaf_annot)
+                               leaf_annot=other._leaf_annot)
 
             for gene, gene_tree in mtree:
                 if not use_genes or gene in set(use_genes):

@@ -226,6 +226,8 @@ def main():
                         rmv_mtypes |= {rmv_mtype}
                         break
 
+            # only add the gene-wide point mutation subtype if we are using
+            # the "base" combination of mutation attributes
             pnt_types -= rmv_mtypes
             if args.mut_levels == 'Consequence__Exon':
                 pnt_types |= {pnt_mtype}

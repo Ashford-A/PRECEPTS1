@@ -1,3 +1,7 @@
+"""
+Processes and consolidates the distributed output of an iteration of the dyad
+isolation experiment to facilitate further analyses.
+"""
 
 from ..utilities.mutations import pnt_mtype, shal_mtype, deep_mtype, ExMcomb
 from ..subvariant_isolate.merge_isolate import compare_muts, calculate_auc
@@ -21,8 +25,8 @@ from operator import or_, add
 
 def main():
     parser = argparse.ArgumentParser(
-        "Processes and consolidates the distributed output of an iteration "
-        "of the dyad isolation experiment for use in further analyses."
+        'gather_isolate',
+        description="Processes and consolidates the output of the experiment."
         )
 
     parser.add_argument(
@@ -47,7 +51,8 @@ def main():
                                   "cohort-data.p.gz"), 'r') as f:
         cdata = pickle.load(f)
 
-    use_mtree = tuple(cdata.mtrees.values())[0]
+    # get the samples in the cohort as well as the list of tested mutations
+    cdata_samps = cdata.get_samples()
     with open(os.path.join(args.use_dir, 'setup', "muts-list.p"), 'rb') as f:
         muts_list = pickle.load(f)
 
@@ -61,7 +66,7 @@ def main():
         fl_info = out_fl.stem.split("out__")[1]
         out_task = int(fl_info.split("task-")[1])
 
-        # gets the parallelized task id and learning cross-validation fold
+        # get the parallelized task id and learning cross-validation fold
         # each output file corresponds to
         if args.task_ids is None or out_task in args.task_ids:
             out_cv = int(fl_info.split("cv-")[1].split("_")[0])
@@ -101,23 +106,32 @@ def main():
     out_clf = None
     out_tune = None
 
+    # figure out which of the experiment's tested mutations were assigned to
+    # one of the tasks that will be consolidated here
+    random.seed(10301)
+    random.shuffle(muts_list)
     use_muts = [mut for i, mut in enumerate(muts_list)
                 if i % task_count in use_tasks]
 
     pred_lists = {
         ex_lbl: [
-            pd.DataFrame(index=use_muts,
-                         columns=cdata.get_samples()).applymap(lambda x: [])
+            pd.DataFrame(
+                index=use_muts, columns=cdata_samps).applymap(lambda x: [])
             for cv_id in range(40)
             ]
         for ex_lbl in ['All', 'Iso', 'IsoShal']
         }
 
+    # get the mutated cohort samples for each mutation, the genes considered
+    # in each mutation, and the samples carrying any mutation for each gene
     mut_samps = {mut: mut.get_samples(*cdata.mtrees.values())
                  for mut in use_muts}
     mut_genes = {mut: tuple(mut.label_iter()) for mut in use_muts}
-    gene_samps = {gene: mtree.get_samples() for gene, mtree in use_mtree}
+    gene_samps = {gene: mtree.get_samples()
+                  for gene, mtree in tuple(cdata.mtrees.values())[0]}
 
+    # for each gene, get the samples that have a shallow copy number
+    # alteration and no other mutation of that gene
     shal_samps = {
         gns: ExMcomb(
             MuType({('Gene', gns): pnt_mtype | deep_mtype}),
@@ -126,6 +140,7 @@ def main():
         for gns in set(tuple(sorted(gns)) for gns in mut_genes.values())
         }
 
+    # load the experiment output for each cross-validation fold
     for cv_id, out_fls in file_sets.items():
         out_list = []
 
@@ -133,6 +148,7 @@ def main():
             with open(out_fl, 'rb') as f:
                 out_list += [pickle.load(f)]
 
+        # checks if mutation classifiers are consistent across output files
         for out_dicts in out_list:
             if out_clf is None:
                 out_clf = out_dicts['Clf']
@@ -150,13 +166,14 @@ def main():
                     "one set of tuning priors!"
                     )
 
-        cdata_samps = sorted(cdata.get_samples())
+        # gets the training-testing cohort sample split that this
+        # cross-validation fold used for tuning and training
+        cdata_samps = sorted(cdata_samps)
         random.seed((cv_id // 4) * 3901 + 23)
         random.shuffle(cdata_samps)
 
         cdata.update_split(13101 + 103 * cv_id,
                            test_samps=cdata_samps[(cv_id % 4)::4])
-
         samps_dict = {'train': cdata.get_train_samples(),
                       'test': cdata.get_test_samples()}
 
@@ -210,16 +227,16 @@ def main():
 
         hld_samps -= mut_samps[mut]
         assert (pred_dfs['Iso'].loc[
-                    mut, set(cdata.get_samples()) - hld_samps].apply(len)
-                == 10).all(), ("Incorrect number of testing CV scores!")
+            mut, set(cdata_samps) - hld_samps].apply(len) == 10).all(), (
+                "Incorrect number of testing CV scores!")
 
         assert (pred_dfs['Iso'].loc[mut, hld_samps].apply(len) == 40).all(), (
             "Incorrect number of testing CV scores!")
 
         hld_samps -= shal_samps[tuple(sorted(mut_genes[mut]))]
         assert (pred_dfs['IsoShal'].loc[
-                    mut, set(cdata.get_samples()) - hld_samps].apply(len)
-                == 10).all(), ("Incorrect number of testing CV scores!")
+            mut, set(cdata_samps) - hld_samps].apply(len) == 10).all(), (
+                "Incorrect number of testing CV scores!")
 
         assert (pred_dfs['IsoShal'].loc[
             mut, hld_samps].apply(len) == 40).all(), (
@@ -316,7 +333,7 @@ def main():
             pickle.dump(auc_dicts, fl, protocol=-1)
 
     random.seed(9903)
-    sub_inds = [random.choices([False, True], k=len(cdata.get_samples()))
+    sub_inds = [random.choices([False, True], k=len(cdata_samps))
                 for _ in range(50)]
 
     conf_lists = {

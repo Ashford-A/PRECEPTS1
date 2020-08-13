@@ -14,8 +14,6 @@ import os
 import argparse
 import bz2
 import dill as pickle
-
-import numpy as np
 import pandas as pd
 
 from itertools import combinations as combn
@@ -38,16 +36,17 @@ def get_all_mtype(mtype, gene, use_mtrees, lvls_dict=None, base_lvls=None):
 
 def main():
     parser = argparse.ArgumentParser(
-        "Set up the paired-gene subtype expression effect isolation "
-        "experiment by enumerating the subtypes to be tested."
+        'setup_isolate',
+        description="Load datasets and enumerate subgroupings to be tested."
         )
 
     parser.add_argument('expr_source', type=str,
                         help="a source of expression data")
-    parser.add_argument('cohort', type=str, help="which TCGA cohort to use")
+    parser.add_argument('cohort', type=str, help="a tumour cohort")
     parser.add_argument('search_params', type=str, choices=set(search_params))
     parser.add_argument('mut_lvls', type=str, choices=set(mut_lvls))
-    parser.add_argument('out_dir', type=str)
+    parser.add_argument('out_dir', type=str,
+                        help="the working directory for this experiment")
 
     args = parser.parse_args()
     out_path = os.path.join(args.out_dir, 'setup')
