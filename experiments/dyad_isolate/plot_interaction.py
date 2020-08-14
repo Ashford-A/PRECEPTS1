@@ -5,6 +5,7 @@ from ..utilities.mutations import (
     )
 from dryadic.features.mutations import MuType
 
+from .utils import remove_pair_dups
 from ..subgrouping_isolate.utils import calculate_mean_siml, calculate_ks_siml
 from ..subgrouping_isolate.plot_gene import choose_subtype_colour
 
@@ -17,12 +18,12 @@ import multiprocessing as mp
 
 import numpy as np
 import pandas as pd
+from scipy.stats import fisher_exact
 
 from itertools import combinations as combn
 from itertools import product
 from functools import reduce
 from operator import or_, add
-from scipy.stats import fisher_exact
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -40,26 +41,8 @@ plot_dir = os.path.join(base_dir, 'plots', 'interaction')
 SIML_FXS = {'mean': calculate_mean_siml, 'ks': calculate_ks_siml}
 
 
-def remove_pair_dups(mut_pairs, pheno_dict):
-    pair_infos = set()
-    pair_list = set()
-
-    for mut1, mut2 in mut_pairs:
-        pair_info = tuple(sorted([tuple(pheno_dict[mut1]),
-                                  tuple(pheno_dict[mut2])]))
-        pair_info += tuple(sorted(set(mut1.label_iter())
-                                  | set(mut2.label_iter())))
-
-        if pair_info not in pair_infos:
-            pair_infos |= {pair_info}
-            pair_list |= {(mut1, mut2)}
-
-    return pair_list
-
-
 def plot_mutual_similarity(pred_df, pheno_dict, auc_vals,
                            cdata, args, ex_lbl, siml_metric):
-    use_mtree = tuple(cdata.mtrees.values())[0]
     use_combs = {mcomb for mcomb in auc_vals.index.tolist()
                  if len(mcomb.mtypes) == 1}
 
@@ -96,6 +79,9 @@ def plot_mutual_similarity(pred_df, pheno_dict, auc_vals,
         return None
 
     fig, ax = plt.subplots(figsize=(13, 8))
+    ax.grid(alpha=0.53, linewidth=0.53)
+
+    base_mtree = tuple(cdata.mtrees.values())[0]
     train_samps = cdata.get_train_samples()
     use_preds = pred_df.loc[pair_combs, train_samps].applymap(np.mean)
     mutex_dict = {mcombs: None for mcombs in use_pairs}
@@ -110,7 +96,7 @@ def plot_mutual_similarity(pred_df, pheno_dict, auc_vals,
             mutex_dict[mcomb1, mcomb2] *= -1
 
         all_mtype = reduce(
-            or_, [MuType({('Gene', gene): use_mtree[gene].allkey()})
+            or_, [MuType({('Gene', gene): base_mtree[gene].allkey()})
                   for gene in mcomb1.label_iter()]
             )
 
@@ -139,69 +125,67 @@ def plot_mutual_similarity(pred_df, pheno_dict, auc_vals,
 
     plot_lims = plot_df.quantile(q=[0, 1])
     plot_diff = plot_lims.diff().iloc[1]
-    plot_lims.Occur += plot_diff.Occur * np.array([-4.3, 17.]) ** -1
-    plot_lims.Simil += plot_diff.Simil * np.array([-17., 4.3]) ** -1
+    plot_lims.Occur += plot_diff.Occur * np.array([-13., 4.3]) ** -1
+    plot_lims.Simil += plot_diff.Simil * np.array([-6.1, 6.1]) ** -1
+    plot_gaps = plot_lims.diff().iloc[1] / 4.73
+
+    plot_lims.Occur[0] = min(plot_lims.Occur[0], -1.07)
+    plot_lims.Occur[1] = max(plot_lims.Occur[1], plot_gaps.Occur, 1.07)
+    plot_lims.Simil[0] = min(plot_lims.Simil[0], -0.53)
+    plot_lims.Simil[1] = max(plot_lims.Simil[1], plot_gaps.Simil, 0.53)
     plot_rngs = plot_lims.diff().iloc[1]
 
-    plot_lims.Occur[0] = min(plot_lims.Occur[0], -plot_rngs.Occur / 3.41,
-                             -1.07)
-    plot_lims.Occur[1] = max(plot_lims.Occur[1], plot_rngs.Occur / 3.41,
-                             1.07)
-
-    plot_lims.Simil[0] = min(plot_lims.Simil[0], -plot_rngs.Simil / 2.23,
-                             -0.53)
-    plot_lims.Simil[1] = max(plot_lims.Simil[1], plot_rngs.Simil / 2.23,
-                             0.53)
-
-    plot_rngs = plot_lims.diff().iloc[1]
     size_mult = 20103 * len(map_args) ** (-3 / 7)
-
     for (mcomb1, mcomb2), (occur_val, simil_val) in plot_df.iterrows():
         plt_sz = size_mult * (pheno_dict[mcomb1].mean()
                               * pheno_dict[mcomb2].mean()) ** 0.5
 
+        if (set(tuple(mcomb1.mtypes)[0].label_iter())
+                == set(tuple(mcomb2.mtypes)[0].label_iter())):
+            use_mrk = 'D'
+        else:
+            use_mrk = 'o'
+
         for i, (plt_half, mcomb) in enumerate(zip(['left', 'right'],
                                                   [mcomb1, mcomb2])):
+            mrk_style = MarkerStyle(use_mrk, fillstyle=plt_half)
+
             plt_clr = choose_subtype_colour(
                 tuple(reduce(or_, mcomb.mtypes).subtype_iter())[0][1])
-
-            if (set(tuple(mcomb1.mtypes)[0].label_iter())
-                    == set(tuple(mcomb2.mtypes)[0].label_iter())):
-                mrk_style = MarkerStyle('D', fillstyle=plt_half)
-            else:
-                mrk_style = MarkerStyle('o', fillstyle=plt_half)
 
             ax.scatter(occur_val, simil_val, s=plt_sz, facecolor=plt_clr,
                        marker=mrk_style, alpha=11 / 79, edgecolor='none')
 
-    ax.text(plot_rngs.Occur / -97, plot_lims.Simil[1] - plot_rngs.Simil / 41,
-            '\u2190', size=23, ha='right', va='center', weight='bold')
-    ax.text(plot_rngs.Occur / -23, plot_lims.Simil[1] - plot_rngs.Simil / 41,
-            "significant exclusivity", size=13, ha='right', va='center')
+    x_plcs = plot_rngs.Occur / 97, plot_rngs.Occur / 23
+    y_plc = plot_lims.Simil[1] - plot_rngs.Simil / 41
 
-    ax.text(plot_rngs.Occur / 97, plot_lims.Simil[1] - plot_rngs.Simil / 41,
-            '\u2192', size=23, ha='left', va='center', weight='bold')
-    ax.text(plot_rngs.Occur / 23, plot_lims.Simil[1] - plot_rngs.Simil / 41,
-            "significant overlap", size=13, ha='left', va='center')
+    ax.text(-x_plcs[0], y_plc, '\u2190',
+            size=23, ha='right', va='center', weight='bold')
+    ax.text(-x_plcs[1], y_plc, "significant exclusivity",
+            size=13, ha='right', va='center')
 
-    ax.text(plot_lims.Occur[0] + plot_rngs.Occur / 25, plot_rngs.Simil / -71,
-            '\u2190', size=23, rotation=90, ha='center', va='top',
-            weight='bold')
-    ax.text(plot_lims.Occur[0] + plot_rngs.Occur / 25, plot_rngs.Simil / -17,
-            "opposite\ndownstream\neffects",
+    ax.text(x_plcs[0], y_plc, '\u2192',
+            size=23, ha='left', va='center', weight='bold')
+    ax.text(x_plcs[1], y_plc, "significant overlap",
+            size=13, ha='left', va='center')
+
+    x_plc = plot_lims.Occur[1] - plot_rngs.Occur / 19
+    y_plcs = plot_rngs.Simil / 71, plot_rngs.Simil / 17
+
+    ax.text(x_plc, -y_plcs[0], '\u2190',
+            size=23, rotation=90, ha='center', va='top', weight='bold')
+    ax.text(x_plc, -y_plcs[1], "opposite\ndownstream\neffects",
             size=13, ha='center', va='top')
 
-    ax.text(plot_lims.Occur[0] + plot_rngs.Occur / 25, plot_rngs.Simil / 71,
-            '\u2192', size=23, rotation=90, ha='center', va='bottom',
-            weight='bold')
-    ax.text(plot_lims.Occur[0] + plot_rngs.Occur / 25, plot_rngs.Simil / 17,
-            "similar\ndownstream\neffects",
+    ax.text(x_plc, y_plcs[0], '\u2192',
+            size=23, rotation=90, ha='center', va='bottom', weight='bold')
+    ax.text(x_plc, y_plcs[1], "similar\ndownstream\neffects",
             size=13, ha='center', va='bottom')
 
     plt.xticks(size=11)
     plt.yticks(size=11)
-    ax.axhline(0, color='black', linewidth=1.7, linestyle='--', alpha=0.41)
-    ax.axvline(0, color='black', linewidth=1.7, linestyle='--', alpha=0.41)
+    ax.axhline(0, color='black', linewidth=0.83, linestyle='--', alpha=0.83)
+    ax.axvline(0, color='black', linewidth=0.83, linestyle='--', alpha=0.83)
 
     plt.xlabel("Genomic Co-occurence", size=23, weight='semibold')
     plt.ylabel("Transcriptomic Similarity", size=23, weight='semibold')
@@ -221,8 +205,8 @@ def plot_mutual_similarity(pred_df, pheno_dict, auc_vals,
 
 def main():
     parser = argparse.ArgumentParser(
-        "Plots the relationships between pairs of mutations as inferred "
-        "from when they are isolated against one another in a given cohort."
+        'plot_interaction',
+        description="Plots relationships between mutation pairs in a cohort."
         )
 
     parser.add_argument('expr_source', help="a source of expression datasets")
@@ -283,7 +267,7 @@ def main():
                 }]
 
             # TODO: this is responsible for more than half of the time needed
-            # to load output data, can we make it more efficient?
+            #  to load output data, can we make it more efficient?
             with bz2.BZ2File(Path(out_dir, '_'.join(["out-pred", out_tag])),
                              'r') as f:
                 pred_vals = pickle.load(f)
