@@ -89,6 +89,20 @@ def calculate_ks_siml(wt_vals, mut_vals, other_vals,
     return (base_dist + wt_dist + mut_dist) / (2 * base_dist)
 
 
+def remove_pheno_dups(muts, pheno_dict):
+    mut_phns = set()
+    mut_list = set()
+
+    for mut in muts:
+        mut_phn = tuple(pheno_dict[mut].tolist())
+
+        if mut_phn not in mut_phns:
+            mut_phns |= {mut_phn}
+            mut_list |= {mut}
+
+    return mut_list
+
+
 class IsoMutationCohort(BaseMutationCohort):
     """This class introduces new cohort features in isolation experiments."""
 
@@ -128,21 +142,24 @@ class IsoMutationCohort(BaseMutationCohort):
 
         # removes the columns in the mutation data to be merged that are
         # neither in the merge key nor novel to the mutations to be merged
-        other_cols = set(other.muts.columns)
-        other_cols -= set(self.muts.columns & other.muts.columns) - merge_cols
+        other_cols = set(other._muts.columns)
+        other_cols -= set(self._muts.columns
+                          & other._muts.columns) - merge_cols
 
         if use_genes:
-            self.muts = self.muts.loc[self.muts.Gene.isin(set(use_genes))]
-            other.muts = other.muts.loc[other.muts.Gene.isin(set(use_genes))]
+            self._muts = self._muts.loc[
+                self._muts.Gene.isin(set(use_genes))]
+            other._muts = other._muts.loc[
+                other._muts.Gene.isin(set(use_genes))]
 
-        self.muts = self.muts.merge(other.muts[other_cols],
-                                    how='outer', on=tuple(merge_cols),
-                                    validate='one_to_one')
+        self._muts = self._muts.merge(other._muts[other_cols],
+                                      how='outer', on=tuple(merge_cols),
+                                      validate='one_to_one')
 
         # check if we can recreate the mutation trees in the assimilated
         # cohort from scratch using the merged mutation data in this cohort
         for mut_lvls, mtree in other.mtrees.items():
-            test_tree = MuTree(self.muts, mut_lvls,
+            test_tree = MuTree(self._muts, mut_lvls,
                                leaf_annot=other._leaf_annot)
 
             for gene, gene_tree in mtree:

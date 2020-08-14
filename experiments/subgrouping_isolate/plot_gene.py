@@ -1,3 +1,7 @@
+"""
+Creates assorted plots for the output related to one particular
+mutated gene across all tested cohorts.
+"""
 
 from ..utilities.mutations import (
     pnt_mtype, copy_mtype, shal_mtype,
@@ -5,7 +9,7 @@ from ..utilities.mutations import (
     )
 from dryadic.features.mutations import MuType
 
-from .utils import calculate_mean_siml, calculate_ks_siml
+from .utils import remove_pheno_dups, calculate_mean_siml, calculate_ks_siml
 from ..subvariant_test import variant_clrs
 from ..subvariant_isolate import mcomb_clrs
 from ..utilities.colour_maps import simil_cmap
@@ -32,11 +36,11 @@ from functools import reduce
 from operator import or_, add
 
 import matplotlib as mpl
-mpl.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib import colors
 from matplotlib.patches import Wedge
 
+mpl.use('Agg')
 plt.style.use('fivethirtyeight')
 plt.rcParams['axes.facecolor'] = 'white'
 plt.rcParams['savefig.facecolor'] = 'white'
@@ -83,7 +87,7 @@ def plot_size_comparisons(auc_vals, pheno_dict, conf_vals,
     #TODO: differentiate between deep- and shal-exclusive mutations?
     for mut, (size_val, auc_val) in plt_df.iterrows():
         if isinstance(mut, MuType):
-            sub_mut = mut.subtype_list()[0][1]
+            sub_mut = tuple(mut.subtype_iter())[0][1]
             plt_mrk = 'o'
             plt_clr = choose_subtype_colour(sub_mut)
 
@@ -110,7 +114,7 @@ def plot_size_comparisons(auc_vals, pheno_dict, conf_vals,
                 lbl_gap = 0.13
 
         elif len(mut.mtypes) == 1:
-            iso_mtype = tuple(mut.mtypes)[0].subtype_list()[0][1]
+            iso_mtype = tuple(tuple(mut.mtypes)[0].subtype_iter())[0][1]
             plt_mrk = 'D'
             plt_clr = choose_subtype_colour(iso_mtype)
 
@@ -255,7 +259,7 @@ def plot_iso_comparisons(auc_dfs, pheno_dict, use_coh, args):
                           base_aucs[ex_lbl2][mtype] - 0.013)
 
             mtype_sz = 503 * np.mean(pheno_dict[mtype])
-            plt_clr = choose_subtype_colour(mtype.subtype_list()[0][1])
+            plt_clr = choose_subtype_colour(tuple(mtype.subtype_iter())[0][1])
 
             axarr[i, j].scatter(base_aucs[ex_lbl2][mtype], auc_val1,
                                 c=[plt_clr], s=mtype_sz,
@@ -267,7 +271,7 @@ def plot_iso_comparisons(auc_dfs, pheno_dict, use_coh, args):
 
             plt_min = min(plt_min, plt_x - 0.013, plt_y - 0.013)
             mtype_sz = 503 * np.mean(pheno_dict[mtype])
-            plt_clr = choose_subtype_colour(mtype.subtype_list()[0][1])
+            plt_clr = choose_subtype_colour(tuple(mtype.subtype_iter())[0][1])
 
             axarr[j, i].scatter(plt_x, plt_y, c=[plt_clr],
                                 s=mtype_sz, alpha=0.19, edgecolor='none')
@@ -325,7 +329,7 @@ def plot_dyad_comparisons(auc_vals, pheno_dict, conf_vals, use_coh, args):
 
     pnt_aucs = auc_vals[[
         not isinstance(mtype, (Mcomb, ExMcomb))
-        and (mtype.subtype_list()[0][1] & copy_mtype).is_empty()
+        and (tuple(mtype.subtype_iter())[0][1] & copy_mtype).is_empty()
         for mtype in auc_vals.index
         ]]
 
@@ -357,7 +361,8 @@ def plot_dyad_comparisons(auc_vals, pheno_dict, conf_vals, use_coh, args):
                               pnt_aucs[pnt_type] - 0.03, copy_auc - 0.03)
 
                 mtype_sz = 1003 * np.mean(pheno_dict[pnt_type])
-                plt_clr = choose_subtype_colour(pnt_type.subtype_list()[0][1])
+                plt_clr = choose_subtype_colour(
+                    tuple(pnt_type.subtype_iter())[0][1])
 
                 if dpth_lbl == 'all':
                     dpth_clr = plt_clr
@@ -437,18 +442,19 @@ def plot_score_symmetry(pred_dfs, pheno_dict, auc_dfs, cdata,
                 for ex_lbl, all_mtype in all_mtypes.items()}
     train_samps = cdata.get_train_samples()
 
-    iso_combs = {mut for mut, auc_val in auc_dfs['Iso'].iteritems()
-                 if (isinstance(mut, ExMcomb) and auc_val >= args.auc_cutoff
-                     and not (mut.all_mtype & shal_mtype).is_empty())}
+    iso_combs = remove_pheno_dups({
+        mut for mut, auc_val in auc_dfs['Iso'].iteritems()
+        if (isinstance(mut, ExMcomb) and auc_val >= args.auc_cutoff
+            and not (mut.all_mtype & shal_mtype).is_empty())
+        }, pheno_dict)
 
-    ish_combs = {
+    ish_combs = remove_pheno_dups({
         mut for mut, auc_val in auc_dfs['IsoShal'].iteritems()
         if (isinstance(mut, ExMcomb) and auc_val >= args.auc_cutoff
             and (mut.all_mtype & shal_mtype).is_empty()
             and all((mtp & shal_mtype).is_empty() for mtp in mut.mtypes))
-        }
+        }, pheno_dict)
 
-    # TODO: eliminate phenotypically identical combinations
     pairs_dict = {
         ex_lbl: [
             (mcomb1, mcomb2) for mcomb1, mcomb2 in combn(use_combs, 2)
@@ -483,6 +489,10 @@ def plot_score_symmetry(pred_dfs, pheno_dict, auc_dfs, cdata,
 
     combs_dict = {ex_lbl: set(reduce(add, use_pairs))
                   for ex_lbl, use_pairs in pairs_dict.items() if use_pairs}
+
+    if not combs_dict:
+        return None
+
     map_args = []
     ex_indx = []
 
@@ -565,7 +575,7 @@ def plot_score_symmetry(pred_dfs, pheno_dict, auc_dfs, cdata,
 
             plt_clrs = [
                 choose_subtype_colour(
-                    reduce(or_, mcomb.mtypes).subtype_list()[0][1])
+                    tuple(reduce(or_, mcomb.mtypes).subtype_iter())[0][1])
                 for mcomb in [mcomb1, mcomb2]
                 ]
 
@@ -611,8 +621,8 @@ def plot_score_symmetry(pred_dfs, pheno_dict, auc_dfs, cdata,
 
 def main():
     parser = argparse.ArgumentParser(
-        "Creates assorted plots for the output related to one particular "
-        "mutated gene across all tested cohorts."
+        'plot_gene',
+        description="Plots gene-specific experiment output across cohorts."
         )
 
     parser.add_argument('expr_source', help="a source of expression datasets")
@@ -632,7 +642,7 @@ def main():
     args = parser.parse_args()
     out_list = tuple(Path(base_dir).glob(
         os.path.join("{}__*".format(args.expr_source),
-                     "out-aucs__*__*__{}.p.gz".format(args.classif))
+                     "out-conf__*__*__{}.p.gz".format(args.classif))
         ))
 
     if len(out_list) == 0:
@@ -672,7 +682,7 @@ def main():
 
             phn_dicts[coh].update({
                 mut: phns for mut, phns in phn_vals.items()
-                if mut.get_labels()[0] == args.gene
+                if tuple(mut.label_iter())[0] == args.gene
                 })
 
     use_cohs = {coh for coh, phn_dict in phn_dicts.items() if phn_dict}
@@ -689,13 +699,15 @@ def main():
     out_preds = {(coh, lvls): list() for coh, lvls in use_iter.groups}
     cdata_dict = {coh: None for coh, _ in use_iter.groups}
 
-    #TODO: why not cohorts as the outer index?
-    auc_dfs = {ex_lbl: {coh: pd.DataFrame([]) for coh in use_cohs}
-               for ex_lbl in ['All', 'Iso', 'IsoShal']}
-    conf_dfs = {ex_lbl: {coh: pd.DataFrame([]) for coh in use_cohs}
-                for ex_lbl in ['All', 'Iso', 'IsoShal']}
-    pred_dfs = {ex_lbl: {coh: pd.DataFrame([]) for coh in use_cohs}
-                for ex_lbl in ['All', 'Iso', 'IsoShal']}
+    auc_dfs = {coh: {ex_lbl: pd.DataFrame([])
+                     for ex_lbl in ['All', 'Iso', 'IsoShal']}
+               for coh in use_cohs}
+    conf_dfs = {coh: {ex_lbl: pd.DataFrame([])
+                      for ex_lbl in ['All', 'Iso', 'IsoShal']}
+                for coh in use_cohs}
+    pred_dfs = {coh: {ex_lbl: pd.DataFrame([])
+                      for ex_lbl in ['All', 'Iso', 'IsoShal']}
+                for coh in use_cohs}
 
     for (coh, lvls), out_files in use_iter:
         for out_file in out_files:
@@ -705,12 +717,9 @@ def main():
                              'r') as f:
                 auc_vals = pickle.load(f)
 
-            auc_vals = {ex_lbl: pd.DataFrame(auc_dict)
-                        for ex_lbl, auc_dict in auc_vals.items()}
-
             out_aucs[coh, lvls] += [
                 {ex_lbl: auc_df.loc[[mut for mut in auc_df.index
-                                     if mut.get_labels()[0] == args.gene]]
+                                     if args.gene in mut.label_iter()]]
                  for ex_lbl, auc_df in auc_vals.items()}
                 ]
 
@@ -759,44 +768,37 @@ def main():
             super_indx = super_list.argmax()
 
             for ex_lbl in ['All', 'Iso', 'IsoShal']:
-                auc_dfs[ex_lbl][coh] = pd.concat([
-                    auc_dfs[ex_lbl][coh],
+                auc_dfs[coh][ex_lbl] = pd.concat([
+                    auc_dfs[coh][ex_lbl],
                     out_aucs[coh, lvls][super_indx][ex_lbl]
                     ], sort=False)
 
-                conf_dfs[ex_lbl][coh] = pd.concat([
-                    conf_dfs[ex_lbl][coh],
+                conf_dfs[coh][ex_lbl] = pd.concat([
+                    conf_dfs[coh][ex_lbl],
                     out_confs[coh, lvls][super_indx][ex_lbl]
                     ], sort=False)
 
-                pred_dfs[ex_lbl][coh] = pd.concat([
-                    pred_dfs[ex_lbl][coh],
+                pred_dfs[coh][ex_lbl] = pd.concat([
+                    pred_dfs[coh][ex_lbl],
                     out_preds[coh, lvls][super_indx][ex_lbl]
                     ], sort=False)
 
     for coh, coh_lvls in out_use.groupby('Cohort')['Levels']:
         for ex_lbl in ['All', 'Iso', 'IsoShal']:
-            auc_dfs[ex_lbl][coh] = auc_dfs[ex_lbl][coh].loc[
-                ~auc_dfs[ex_lbl][coh].index.duplicated()]
-            conf_dfs[ex_lbl][coh] = conf_dfs[ex_lbl][coh].loc[
-                ~conf_dfs[ex_lbl][coh].index.duplicated()]
+            auc_dfs[coh][ex_lbl] = auc_dfs[coh][ex_lbl]['mean'].loc[
+                ~auc_dfs[coh][ex_lbl].index.duplicated()]
+            conf_dfs[coh][ex_lbl] = conf_dfs[coh][ex_lbl]['mean'].loc[
+                ~conf_dfs[coh][ex_lbl].index.duplicated()]
 
-        coh_aucs = {ex_lbl: auc_df[coh]['mean']
-                    for ex_lbl, auc_df in auc_dfs.items()}
-        coh_confs = {ex_lbl: conf_df[coh]['mean']
-                     for ex_lbl, conf_df in conf_dfs.items()}
-        coh_preds = {ex_lbl: pred_df[coh]
-                     for ex_lbl, pred_df in pred_dfs.items()}
+        plot_size_comparisons(auc_dfs[coh]['All'], phn_dicts[coh],
+                              conf_dfs[coh]['All'], coh, args)
 
-        plot_size_comparisons(coh_aucs['All'], phn_dicts[coh],
-                              coh_confs['All'], coh, args)
-
-        plot_iso_comparisons(coh_aucs, phn_dicts[coh], coh, args)
-        plot_dyad_comparisons(coh_aucs['All'], phn_dicts[coh],
-                              coh_confs['All'], coh, args)
+        plot_iso_comparisons(auc_dfs[coh], phn_dicts[coh], coh, args)
+        plot_dyad_comparisons(auc_dfs[coh]['All'], phn_dicts[coh],
+                              conf_dfs[coh]['All'], coh, args)
 
         for siml_metric in args.siml_metrics:
-            plot_score_symmetry(coh_preds, phn_dicts[coh], coh_aucs,
+            plot_score_symmetry(pred_dfs[coh], phn_dicts[coh], auc_dfs[coh],
                                 cdata_dict[coh], args, coh, siml_metric)
 
         if 'Consequence__Exon' not in set(coh_lvls.tolist()):
