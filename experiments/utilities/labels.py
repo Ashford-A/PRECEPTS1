@@ -1,10 +1,7 @@
 
-from HetMan.experiments.utilities.misc import ordinal_label
+from ..utilities.misc import ordinal_label
 from dryadic.features.mutations import MuType
-
-import numpy as np
-import pandas as pd
-import re
+from Bio.SeqUtils import seq1
 
 
 def nest_label(mtype, sub_link=' or ', phrase_link=' '):
@@ -13,13 +10,13 @@ def nest_label(mtype, sub_link=' or ', phrase_link=' '):
     for lbls, tp in mtype.child_iter():
         if (tp is not None and len(lbls) == 1
                 and tp.get_sorted_levels()[-1][:4] == 'HGVS'):
-            hgvs_lbl = re.sub('[a-z]', '',
-                              str(tp).split(':')[-1].split('.')[-1])
+            hgvs_lbl = str(tp).split(':')[-1].split('.')[-1]
 
             if hgvs_lbl == '-':
                 sub_lbls += ["(no location)"]
             else:
-                sub_lbls += [hgvs_lbl]
+                sub_lbls += [''.join([
+                    seq1(hgvs_lbl[:3]), hgvs_lbl[3:-3], seq1(hgvs_lbl[-3:])])]
 
         else:
             if mtype.cur_level == 'Exon':
@@ -62,7 +59,7 @@ def nest_label(mtype, sub_link=' or ', phrase_link=' '):
 
             elif mtype.cur_level == 'Consequence':
                 sub_lbls += [' or '.join([
-                    lbl.replace("_variant", "").replace(',', '/')
+                    lbl.replace("_variant", "").replace('_', ' ')
                     for lbl in sorted(lbls)
                     ])]
 
@@ -86,6 +83,30 @@ def nest_label(mtype, sub_link=' or ', phrase_link=' '):
 
                     sub_lbls += ["on domains {}".format(
                         dmn_link.join(dmn_lbls))]
+
+            elif mtype.cur_level == 'Impact':
+                lbl_list = [lbl.lower() for lbl in lbls]
+
+                if len(lbls) == 1:
+                    sub_lbls += ["{} impact".format(lbl_list[0])]
+                else:
+                    sub_lbls += ["{} or {} impact".format(
+                        ', '.join(lbl_list[:-1]), lbl_list[1])]
+
+                    if len(lbls) == 2:
+                        sub_lbls[-1] = sub_lbls[-1].replace(',', '')
+
+            elif mtype.cur_level == 'Class':
+                lbl_list = [lbl.lower() for lbl in lbls]
+
+                if len(lbls) == 1:
+                    sub_lbls += [lbl_list[0]]
+                else:
+                    sub_lbls += ["{} or {}".format(
+                        ', '.join(lbl_list[:-1]), lbl_list[1])]
+
+                    if len(lbls) == 2:
+                        sub_lbls[-1] = sub_lbls[-1].replace(',', '')
 
             else:
                 raise ValueError("Unrecognized type of mutation "
@@ -112,7 +133,7 @@ def get_fancy_label(mtype, scale_link=None, pnt_link=None, phrase_link=None):
     if phrase_link is None:
         phrase_link = scale_link
 
-    sub_dict = dict(mtype.subtype_list())
+    sub_dict = dict(mtype.subtype_iter())
 
     if 'Copy' in sub_dict:
         if sub_dict['Copy'] == MuType({
@@ -156,63 +177,4 @@ def get_fancy_label(mtype, scale_link=None, pnt_link=None, phrase_link=None):
             use_lbls += [nest_label(sub_dict['Point'], pnt_link, phrase_link)]
 
     return scale_link.join(use_lbls)
-
-
-def compare_scores(iso_df, samps, muts_dict,
-                   get_similarities=True, all_mtype=None):
-    base_muts = tuple(muts_dict.values())[0]
-
-    if all_mtype is None:
-        all_mtype = MuType(base_muts.allkey())
-
-    pheno_dict = {mtype: np.array(muts_dict[lvls].status(samps, mtype))
-                  if lvls in muts_dict
-                  else np.array(base_muts.status(samps, mtype))
-                  for lvls, mtype in iso_df.index}
-
-    simil_df = pd.DataFrame(0.0, index=pheno_dict.keys(),
-                            columns=pheno_dict.keys(), dtype=np.float)
-    auc_df = pd.DataFrame(index=pheno_dict.keys(), columns=['All', 'Iso'],
-                          dtype=np.float)
-
-    all_pheno = np.array(base_muts.status(samps, all_mtype))
-    pheno_dict['Wild-Type'] = ~all_pheno
-
-    for (_, cur_mtype), iso_vals in iso_df.iterrows():
-        simil_df.loc[cur_mtype, cur_mtype] = 1.0
-
-        none_vals = np.concatenate(iso_vals[~all_pheno].values)
-        wt_vals = np.concatenate(iso_vals[~pheno_dict[cur_mtype]].values)
-        cur_vals = np.concatenate(iso_vals[pheno_dict[cur_mtype]].values)
-
-        auc_df.loc[cur_mtype, 'All'] = np.greater.outer(
-            cur_vals, wt_vals).mean()
-        auc_df.loc[cur_mtype, 'All'] += np.equal.outer(
-            cur_vals, wt_vals).mean() / 2
-
-        auc_df.loc[cur_mtype, 'Iso'] = np.greater.outer(
-            cur_vals, none_vals).mean()
-        auc_df.loc[cur_mtype, 'Iso'] += np.equal.outer(
-            cur_vals, none_vals).mean() / 2
-
-        if get_similarities:
-            cur_diff = np.subtract.outer(cur_vals, none_vals).mean()
-
-            if cur_diff != 0:
-                for other_mtype in set(simil_df.index) - {cur_mtype}:
-
-                    other_vals = np.concatenate(
-                        iso_vals[pheno_dict[other_mtype]].values)
-                    other_diff = np.subtract.outer(
-                        other_vals, none_vals).mean()
-
-                    simil_df.loc[cur_mtype, other_mtype] = other_diff
-                    simil_df.loc[cur_mtype, other_mtype] /= cur_diff
-
-    return pheno_dict, auc_df, simil_df
-
-
-def calc_auc(vals, stat):
-    return (np.greater.outer(vals[stat], vals[~stat]).mean()
-            + 0.5 * np.equal.outer(vals[stat], vals[~stat]).mean())
 

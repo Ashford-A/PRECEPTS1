@@ -9,12 +9,13 @@ from ..utilities.mutations import (
     )
 from dryadic.features.mutations import MuType
 
-from .utils import remove_pheno_dups, calculate_mean_siml, calculate_ks_siml
+from .utils import remove_pheno_dups
+from ..utilities.metrics import calculate_mean_siml, calculate_ks_siml
 from ..subvariant_test import variant_clrs
 from ..subvariant_isolate import mcomb_clrs
 from ..utilities.colour_maps import simil_cmap
 
-from ..subvariant_isolate.utils import get_fancy_label
+from ..utilities.labels import get_fancy_label
 from ..subvariant_test.utils import get_cohort_label
 from ..utilities.label_placement import place_scatterpie_labels
 

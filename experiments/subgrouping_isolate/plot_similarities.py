@@ -4,7 +4,7 @@ from ..utilities.mutations import (pnt_mtype, copy_mtype, shal_mtype,
                                    dels_mtype, ExMcomb)
 from dryadic.features.mutations import MuType
 
-from .utils import calculate_mean_siml, calculate_ks_siml
+from ..utilities.metrics import calculate_mean_siml, calculate_ks_siml
 from ..utilities.misc import choose_label_colour
 from ..subvariant_test.utils import get_cohort_label
 from ..utilities.colour_maps import simil_cmap
@@ -31,10 +31,10 @@ from math import ceil
 from scipy.stats import ks_2samp
 
 import matplotlib as mpl
-mpl.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib import colors
 
+mpl.use('Agg')
 plt.style.use('fivethirtyeight')
 plt.rcParams['axes.facecolor'] = 'white'
 plt.rcParams['savefig.facecolor'] = 'white'
@@ -58,11 +58,11 @@ def plot_copy_adjacencies(pred_df, pheno_dict, auc_vals,
         mcomb for mcomb in use_combs
         if (auc_vals[mcomb] > 0.6
             and pnt_mtype.is_supertype(
-                tuple(mcomb.mtypes)[0].subtype_list()[0][1]))
+                tuple(tuple(mcomb.mtypes)[0].subtype_iter())[0][1]))
         ]]
 
     cna_mtypes = {'Gain': gains_mtype, 'Loss': dels_mtype}
-    plt_gby = pnt_aucs.groupby(lambda mtype: mtype.get_labels()[0])
+    plt_gby = pnt_aucs.groupby(lambda mtype: tuple(mtype.label_iter())[0])
 
     clr_dict = {gene: None for gene in plt_gby.groups.keys()}
     plt_lims = [0.1, 0.9]
@@ -218,7 +218,8 @@ def plot_score_symmetry(pred_dfs, pheno_dict, auc_dfs, cdata, args):
     for ax, ex_lbl, use_combs in zip([iso_ax, ish_ax], ['Iso', 'IsoShal'],
                                      [tuple(iso_combs), tuple(ish_combs)]):
         for cur_gene, gene_combs in pd.Series(use_combs).reindex(
-                use_combs).groupby(lambda mcomb: mcomb.get_labels()[0]):
+                use_combs).groupby(
+                    lambda mcomb: tuple(mcomb.label_iter())[0]):
 
             use_pairs = [
                 {mcomb1, mcomb2}
@@ -357,8 +358,8 @@ def plot_score_symmetry(pred_dfs, pheno_dict, auc_dfs, cdata, args):
 
 def main():
     parser = argparse.ArgumentParser(
-        "Plots the similarities between various pairs of genes' "
-        "subgroupings with a cohort."
+        'plot_similarities',
+        description="Compares pairs of genes' subgroupings with a cohort."
         )
 
     parser.add_argument('expr_source', help="a source of expression datasets")

@@ -2,7 +2,6 @@
 from dryadic.features.cohorts.mut import BaseMutationCohort
 from dryadic.features.mutations import MuTree
 import numpy as np
-from scipy.stats import ks_2samp
 
 
 def search_siml_pair(siml_dicts, mut, other_mut):
@@ -52,41 +51,6 @@ def calculate_pair_siml(mcomb1, mcomb2, siml_dicts, all_phn=None,
         return pair_siml, test_list
     else:
         return pair_siml
-
-
-def calculate_mean_siml(wt_vals, mut_vals, other_vals,
-                        wt_mean=None, mut_mean=None, other_mean=None):
-    if wt_mean is None:
-        wt_mean = wt_vals.mean()
-
-    if mut_mean is None:
-        mut_mean = mut_vals.mean()
-
-    if other_mean is None:
-        other_mean = other_vals.mean()
-
-    return (other_mean - wt_mean) / (mut_mean - wt_mean)
-
-
-def calculate_ks_siml(wt_vals, mut_vals, other_vals,
-                      base_dist=None, wt_dist=None, mut_dist=None):
-    if base_dist is None:
-        base_dist = ks_2samp(wt_vals, mut_vals,
-                             alternative='greater').statistic
-        base_dist -= ks_2samp(wt_vals, mut_vals, alternative='less').statistic
-
-    if wt_dist is None:
-        wt_dist = ks_2samp(wt_vals, other_vals,
-                           alternative='greater').statistic
-        wt_dist -= ks_2samp(wt_vals, other_vals, alternative='less').statistic
-
-    if mut_dist is None:
-        mut_dist = ks_2samp(mut_vals, other_vals,
-                            alternative='greater').statistic
-        mut_dist -= ks_2samp(mut_vals, other_vals,
-                             alternative='less').statistic
-
-    return (base_dist + wt_dist + mut_dist) / (2 * base_dist)
 
 
 def remove_pheno_dups(muts, pheno_dict):
