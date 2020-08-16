@@ -7,7 +7,8 @@ from ..utilities.mutations import (pnt_mtype, copy_mtype, shal_mtype,
                                    dels_mtype, gains_mtype, Mcomb, ExMcomb)
 from dryadic.features.mutations import MuType
 
-from ..subvariant_isolate.utils import calc_auc, get_fancy_label
+from ..utilities.labels import get_fancy_label
+from ..utilities.metrics import calc_auc
 from ..utilities.colour_maps import simil_cmap
 from ..subvariant_test import variant_clrs
 from ..subvariant_test.utils import get_cohort_label
@@ -94,10 +95,10 @@ def plot_base_classification(plt_mtype, plt_mcomb, pred_df,
                                      alpha=0.41, hatch='/', linewidth=1.3,
                                      edgecolor='0.51'))
 
-    coh_ax.text(0.29, 0.43, "mutated status for:",
-                size=11, ha='right', va='center')
-    coh_ax.text(0.29, 0.08, mtype_tbox,
-                fontweight='bold', size=11, ha='right', va='center')
+    coh_ax.text(0.29, 0.36, "mutated status for:",
+                size=11, ha='right', va='bottom')
+    coh_ax.text(0.29, 0.27, mtype_tbox,
+                fontweight='bold', size=11, ha='right', va='top')
 
     coh_ax.add_patch(ptchs.Rectangle((0.33 + ovlp_prop * 0.66, 0.15),
                                      np.mean(plt_df.rStat) * 0.66, 0.22,
@@ -310,40 +311,102 @@ def plot_iso_classification(plt_mtype, plt_mcomb, pred_dfs,
                             pheno_dict, cdata, args):
     fig, axarr = plt.subplots(figsize=(10, 8), nrows=2, ncols=2)
 
-    mtype_tbox = '\n'.join([
-        tuple(plt_mtype.label_iter())[0],
-        get_fancy_label(tuple(plt_mtype.subtype_iter())[0][1],
-                        phrase_link='\n')
-        ])
-
     rest_stat = np.array(cdata.train_pheno(plt_mcomb.not_mtype))
     plt_muts = {'All': plt_mtype, 'Ex': plt_mcomb}
+    cur_gene = tuple(plt_mtype.label_iter())[0]
 
     mcomb_masks = [('All', {lbl: np.array([True] * len(cdata.get_samples()))
                             for lbl in plt_muts}),
                    ('Iso', {lbl: ~(rest_stat & ~pheno_dict[mut])
                             for lbl, mut in plt_muts.items()})]
 
+    mtype_lbl = get_fancy_label(tuple(plt_mtype.subtype_iter())[0][1],
+                                phrase_link='\n')
+    mtype_tbox = '\n'.join([
+        cur_gene,
+        get_fancy_label(tuple(plt_mtype.subtype_iter())[0][1],
+                        phrase_link='\n')
+        ])
+
+    lbl_dict = {(0, 0): 'base', (0, 1): 'excl',
+                (1, 0): 'isol', (1, 1): 'eiso'}
+    title_dict = {'base': "Default Scenario", 'excl': "Exclusion Scenario",
+                  'isol': "Isolation Scenario", 'eiso': "Exclusive Isolation"}
+
+    wdg_props = {'mut-ovlp': {diag_lbl: {'pos': (0.52, 0.87),
+                                         'clr': variant_clrs['Point']}
+                              for diag_lbl in ['base', 'isol']},
+
+                 'wt-nvlp': {diag_lbl: {'pos': (0.48, 0.29),
+                                         'clr': variant_clrs['WT']}
+                             for diag_lbl in ['base', 'isol', 'eiso']},
+
+                 'wt-ovlp': {'base': {'pos': (0.52, 0.29),
+                                      'clr': variant_clrs['WT']}}}
+
+    wdg_props['mut-ovlp']['excl'] = {'pos': (0.78, 0.29),
+                                     'clr': variant_clrs['WT']}
+    wdg_props['wt-nvlp']['excl'] = {'pos': (0.32, 0.29),
+                                    'clr': variant_clrs['WT']}
+    wdg_props['wt-ovlp']['excl'] = {'pos': (0.38, 0.29),
+                                    'clr': variant_clrs['WT']}
+
     for i, (smp_lbl, msk) in enumerate(mcomb_masks):
         for j, (mut_lbl, mut) in enumerate(plt_muts.items()):
+            diag_ax = axarr[i, j].inset_axes(bounds=(0, 0, 0.79, 1))
+            vio_ax = axarr[i, j].inset_axes(bounds=(0.79, 0.09, 0.21, 0.82))
+
+            axarr[i, j].axis('off')
+            diag_ax.axis('off')
+            diag_ax.set_aspect('equal')
+
+            diag_lbl = lbl_dict[i, j]
+            diag_ax.text(0.5, 1.09, title_dict[diag_lbl],
+                         size=21, fontweight='semibold',
+                         ha='center', va='bottom')
+
             plt_df = pd.DataFrame({
                 'Value': pred_dfs[smp_lbl].loc[
                     mut, cdata.get_train_samples()].apply(np.mean),
                 'cStat': pheno_dict[mut], 'uStat': msk[mut_lbl]
                 })
 
-            diag_ax = axarr[i, j].inset_axes(bounds=(0, 0, 0.67, 1))
-            vio_ax = axarr[i, j].inset_axes(bounds=(0.67, 0, 0.33, 0.93))
-            axarr[i, j].axis('off')
-            diag_ax.axis('off')
-            diag_ax.set_aspect('equal')
+            if diag_lbl == 'base':
+                txt_dict = {
+                    'mut-nvlp': "{}\nmutant\nw/o overlap\n({} samps)".format(
+                        mtype_tbox, np.sum(plt_df.cStat & ~rest_stat)),
+
+                    'mut-ovlp': "{}\nmutant\nw/ overlap\n({} samps)".format(
+                        mtype_tbox, np.sum(plt_df.cStat & rest_stat)),
+
+                    'wt-nvlp': ("{}\nwild-type\nw/o overlap"
+                                "\n({} samps)").format(
+                                    mtype_tbox,
+                                    np.sum(~plt_df.cStat & ~rest_stat)
+                                    ),
+
+                    'wt-ovlp': "{}\nwild-type\nw/ overlap\n({} samps)".format(
+                            mtype_tbox, np.sum(~plt_df.cStat & rest_stat))
+                    }
+
+            else:
+                txt_dict = {
+                    mut_lbl: mut_str.format(str(mtype_lbl), cur_gene)
+                    for mut_lbl, mut_str in zip(
+                        ['mut-nvlp', 'mut-ovlp', 'wt-nvlp', 'wt-ovlp'],
+                        ["{}\nmut\n&\nother\n{}\nwt",
+                         "{}\nmut\n&\nother\n{}\nmut",
+                         "{}\nwt\n&\nother\n{}\nwt",
+                         "{}\nwt\n&\nother\n{}\nmut"]
+                        )
+                    }
 
             diag_ax.text(0.2, 0.65, "predict\nmutated\nstatus",
                          color='red', size=12, fontstyle='italic',
                          ha='right', va='center')
             diag_ax.axhline(y=0.65, xmin=0.22, xmax=0.83, color='red',
                             linestyle='--', linewidth=1.9, alpha=0.83)
- 
+
             diag_ax.text(0.82, 0.66,
                          "{} (+)".format(np.sum(plt_df.cStat[plt_df.uStat])),
                          color='red', size=10, fontstyle='italic',
@@ -354,6 +417,56 @@ def plot_iso_classification(plt_mtype, plt_mcomb, pred_dfs,
                 "{} (\u2212)".format(np.sum(~plt_df.cStat[plt_df.uStat])),
                 color='red', size=10, fontstyle='italic', ha='right', va='top'
                 )
+
+            diag_ax.add_patch(ptchs.Wedge((0.48, 0.87), 0.17, 90, 270,
+                                          facecolor=variant_clrs['Point'],
+                                          alpha=0.41, clip_on=False))
+            diag_ax.text(0.47, 0.87, txt_dict['mut-nvlp'],
+                         size=8, ha='right', va='center')
+
+            if diag_lbl in wdg_props['mut-ovlp']:
+                wdg_pos = wdg_props['mut-ovlp'][diag_lbl]['pos']
+                wdg_clr = wdg_props['mut-ovlp'][diag_lbl]['clr']
+
+                diag_ax.add_patch(ptchs.Wedge(wdg_pos, 0.17, 270, 90,
+                                              facecolor=wdg_clr,
+                                              alpha=0.41, clip_on=False))
+                diag_ax.text(wdg_pos[0] + 0.01, wdg_pos[1],
+                             txt_dict['mut-ovlp'],
+                             size=8, ha='left', va='center')
+
+            if diag_lbl in wdg_props['wt-nvlp']:
+                wdg_pos = wdg_props['wt-nvlp'][diag_lbl]['pos']
+                wdg_clr = wdg_props['wt-nvlp'][diag_lbl]['clr']
+
+                diag_ax.add_patch(ptchs.Wedge(wdg_pos, 0.31, 90, 270,
+                                              facecolor=wdg_clr,
+                                              alpha=0.41, clip_on=False))
+                diag_ax.text(wdg_pos[0] - 0.01, wdg_pos[1],
+                             txt_dict['wt-nvlp'],
+                             size=11, ha='right', va='center')
+
+            if diag_lbl in wdg_props['wt-ovlp']:
+                wdg_pos = wdg_props['wt-ovlp'][diag_lbl]['pos']
+                wdg_clr = wdg_props['wt-ovlp'][diag_lbl]['clr']
+
+                diag_ax.add_patch(ptchs.Wedge(wdg_pos, 0.31, 270, 90,
+                                              facecolor=wdg_clr,
+                                              alpha=0.41, clip_on=False))
+                diag_ax.text(wdg_pos[0] + 0.01, 0.29,
+                             txt_dict['wt-ovlp'],
+                             size=11, ha='left', va='center')
+
+            diag_ax.add_patch(ptchs.FancyArrow(
+                0.83, 0.51, dx=0.11, dy=0, width=0.03,
+                length_includes_head=True, head_length=0.047, linewidth=1.7,
+                facecolor='white', edgecolor='black', clip_on=False
+                ))
+
+            vio_ax.set_xticks([])
+            vio_ax.set_xticklabels([])
+            vio_ax.set_yticklabels([])
+            vio_ax.yaxis.label.set_visible(False)
 
             sns.violinplot(data=plt_df.loc[~plt_df.cStat].loc[plt_df.uStat],
                            y='Value', ax=vio_ax, palette=[variant_clrs['WT']],
@@ -368,68 +481,17 @@ def plot_iso_classification(plt_mtype, plt_mcomb, pred_dfs,
                             calc_auc(plt_df.Value[plt_df.uStat].values,
                                      plt_df.cStat[plt_df.uStat])
                             ),
-                        color='red', size=15, fontstyle='italic',
+                        color='red', size=13, fontstyle='italic',
                         ha='center', va='bottom', transform=vio_ax.transAxes)
 
             vio_ax.get_children()[0].set_alpha(0.41)
             vio_ax.get_children()[2].set_alpha(0.41)
 
-            diag_ax.add_patch(ptchs.Wedge((0.48, 0.87), 0.17, 90, 270,
-                                          facecolor=variant_clrs['Point'],
-                                          alpha=0.41, clip_on=False))
-            diag_ax.text(0.47, 0.87,
-                         "mutant for:\n{}\nw/o overlap\n({} samps)".format(
-                             mtype_tbox, np.sum(plt_df.cStat & ~rest_stat)),
-                         size=7, ha='right', va='center')
-
-            if np.sum(plt_df.cStat & rest_stat):
-                diag_ax.add_patch(ptchs.Wedge((0.52, 0.87), 0.17, 270, 90,
-                                              facecolor=variant_clrs['Point'],
-                                              alpha=0.41, clip_on=False))
-
-                diag_ax.text(
-                    0.53, 0.87,
-                    "mutant for:\n{}\nw/ overlap\n({} samps)".format(
-                        mtype_tbox, np.sum(plt_df.cStat & rest_stat)),
-                    size=7, ha='left', va='center'
-                    )
-
-            diag_ax.add_patch(ptchs.Wedge((0.48, 0.29), 0.31, 90, 270,
-                                          facecolor=variant_clrs['WT'],
-                                          alpha=0.41, clip_on=False))
-            diag_ax.text(0.47, 0.29,
-                         "wild-type for:\n{}\nw/o overlap\n({} samps)".format(
-                             mtype_tbox, np.sum(~plt_df.cStat & ~rest_stat)),
-                         size=10, ha='right', va='center')
-
-            if np.sum(~plt_df.cStat & rest_stat & plt_df.uStat):
-                diag_ax.add_patch(ptchs.Wedge((0.52, 0.29), 0.31, 270, 90,
-                                              facecolor=variant_clrs['WT'],
-                                              alpha=0.41, clip_on=False))
-
-                diag_ax.text(
-                    0.53, 0.29,
-                    "wild-type for:\n{}\nw/ overlap\n({} samps)".format(
-                        mtype_tbox, np.sum(~plt_df.cStat & rest_stat)),
-                    size=10, ha='left', va='center'
-                    )
-
-            diag_ax.add_patch(ptchs.FancyArrow(
-                0.83, 0.51, dx=0.13, dy=0, width=0.03, clip_on=False,
-                length_includes_head=True, head_length=0.05, alpha=0.93,
-                linewidth=1.5, facecolor='None', edgecolor='black'
-                ))
-
-            vio_ax.set_xticks([])
-            vio_ax.set_xticklabels([])
-            vio_ax.set_yticklabels([])
-            vio_ax.yaxis.label.set_visible(False)
-
-    plt.tight_layout(pad=0, w_pad=2.1, h_pad=1.9)
+    plt.tight_layout(pad=0, w_pad=1.1, h_pad=2.9)
     plt.savefig(
         os.path.join(plot_dir, args.expr_source,
                      "{}__iso-classification_{}.svg".format(
-                         args.cohort, tuple(plt_mtype.label_iter())[0])),
+                         args.cohort, cur_gene)),
         bbox_inches='tight', format='svg'
         )
 
