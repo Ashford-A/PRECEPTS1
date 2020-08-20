@@ -1,8 +1,26 @@
 
-from ..utilities.misc import ordinal_label
+from .mutations import (shal_mtype, deep_mtype,
+                        dup_mtype, loss_mtype, gains_mtype, dels_mtype)
 from dryadic.features.mutations import MuType
 from Bio.SeqUtils import seq1
+import re
 
+
+copy_lbls = {shal_mtype: 'any shallow loss/gain',
+             deep_mtype: 'any deep loss/gain',
+             dup_mtype: 'deep gains', loss_mtype: 'deep losses',
+             gains_mtype: 'any gain', dels_mtype: 'any loss'}
+
+
+def ordinal_label(n):
+    return "%d%s" % (n, {1: "st", 2: "nd", 3: "rd"}.get(n if n < 20
+                                                        else n % 10, "th"))
+
+
+def parse_hgvs(hgvs_lbl):
+    return re.sub('[A-Z][a-z][a-z]', lambda mtch: seq1(mtch.group()),
+                  hgvs_lbl)
+ 
 
 def nest_label(mtype, sub_link=' or ', phrase_link=' '):
     sub_lbls = []
@@ -15,11 +33,18 @@ def nest_label(mtype, sub_link=' or ', phrase_link=' '):
             if hgvs_lbl == '-':
                 sub_lbls += ["(no location)"]
             else:
-                sub_lbls += [''.join([
-                    seq1(hgvs_lbl[:3]), hgvs_lbl[3:-3], seq1(hgvs_lbl[-3:])])]
+                sub_lbls += [parse_hgvs(hgvs_lbl)]
 
         else:
-            if mtype.cur_level == 'Exon':
+            if mtype.cur_level[:4] == 'HGVS':
+                hgvs_lbls = [str(lbl).split(':')[-1].split('.')[-1]
+                             for lbl in lbls]
+
+                sub_lbls += [' or '.join(["(no location)" if hgvs_lbl == '-'
+                                          else parse_hgvs(hgvs_lbl)
+                                          for hgvs_lbl in hgvs_lbls])]
+
+            elif mtype.cur_level == 'Exon':
                 if len(lbls) == 1:
                     if tuple(lbls)[0] != '-':
                         sub_lbls += ["on {} exon".format(
@@ -97,11 +122,20 @@ def nest_label(mtype, sub_link=' or ', phrase_link=' '):
                         sub_lbls[-1] = sub_lbls[-1].replace(',', '')
 
             elif mtype.cur_level == 'Class':
-                lbl_list = [lbl.lower() for lbl in lbls]
+                if lbls - {'SNV', 'insertion', 'deletion'}:
+                    raise ValueError(
+                        "Unrecognized `Class` attribute labels {} !".format(
+                            lbls - {'SNV', 'insertion', 'deletion'})
+                        )
 
-                if len(lbls) == 1:
+                lbl_list = ["{}s".format(lbl) for lbl in lbls]
+                if lbl_list == ["SNVs"] and tp is None:
+                    sub_lbls += ["any SNV"]
+
+                elif lbl_list != ["SNVs"] and len(lbl_list) == 1:
                     sub_lbls += [lbl_list[0]]
-                else:
+
+                elif len(lbl_list) > 1:
                     sub_lbls += ["{} or {}".format(
                         ', '.join(lbl_list[:-1]), lbl_list[1])]
 
@@ -113,7 +147,31 @@ def nest_label(mtype, sub_link=' or ', phrase_link=' '):
                                  "level `{}`!".format(mtype.cur_level))
 
             if tp is not None:
-                if tp.cur_level == 'Consequence':
+                if mtype.cur_level == 'Class' and lbl_list == ["SNVs"]:
+                    sub_lbls += [nest_label(tp)]
+
+                elif mtype.cur_level == 'Class' and lbl_list != ["SNVs"]:
+                    sub_words = nest_label(tp).split(' ')
+
+                    if len(sub_words) > 1:
+                        if sub_words[1][:3] in {'ins', 'del'}:
+                            sub_words = [sub_words[0]] + sub_words[2:]
+
+                        if len(sub_words) > 1:
+                            sub_lbls[-1] = phrase_link.join([
+                                ' '.join([sub_words[0], sub_lbls[-1]]),
+                                ' '.join(sub_words[1:])
+                                ])
+
+                        else:
+                            sub_lbls[-1] = ' '.join([sub_words[0],
+                                                     sub_lbls[-1]])
+
+                    else:
+                        sub_lbls[-1] = phrase_link.join([sub_words[0],
+                                                         sub_lbls[-1]])
+
+                elif tp.cur_level == 'Consequence':
                     sub_lbls[-1] = phrase_link.join([
                         nest_label(tp), sub_lbls[-1]])
 
@@ -133,48 +191,24 @@ def get_fancy_label(mtype, scale_link=None, pnt_link=None, phrase_link=None):
     if phrase_link is None:
         phrase_link = scale_link
 
-    sub_dict = dict(mtype.subtype_iter())
-
-    if 'Copy' in sub_dict:
-        if sub_dict['Copy'] == MuType({
-                ('Copy', ('ShalDel', 'DeepDel')): None}):
-            use_lbls = ["any loss"]
-
-        elif sub_dict['Copy'] == MuType({
-                ('Copy', ('ShalGain', 'DeepGain')): None}):
-            use_lbls = ["any gain"]
-
-        elif sub_dict['Copy'] == MuType({
-                ('Copy', ('DeepDel', 'DeepGain')): None}):
-            use_lbls = ["any deep loss/gain"]
-
-        elif sub_dict['Copy'] == MuType({
-                ('Copy', ('ShalDel', 'ShalGain')): None}):
-            use_lbls = ["any shallow loss/gain"]
-
-        elif sub_dict['Copy'] == MuType({('Copy', 'DeepDel'): None}):
-            use_lbls = ["deep loss"]
-        elif sub_dict['Copy'] == MuType({('Copy', 'DeepGain'): None}):
-            use_lbls = ["deep gain"]
-
-        elif sub_dict['Copy'] == MuType({('Copy', 'ShalDel'): None}):
-            use_lbls = ["shallow loss"]
-        elif sub_dict['Copy'] == MuType({('Copy', 'ShalGain'): None}):
-            use_lbls = ["shallow gain"]
-
-        else:
-            raise ValueError("Unrecognized alteration `{}`!".format(
-                repr(sub_dict['Copy'])))
-
-    else:
+    if mtype.cur_level == 'Scale':
+        sub_dict = dict(mtype.subtype_iter())
         use_lbls = []
 
-    if 'Point' in sub_dict:
-        if sub_dict['Point'] is None:
-            use_lbls += ["any point mutation"]
+        if 'Copy' in sub_dict:
+            use_lbls += [copy_lbls[
+                MuType({('Scale', 'Copy'): sub_dict['Copy']})]]
 
-        else:
-            use_lbls += [nest_label(sub_dict['Point'], pnt_link, phrase_link)]
+        if 'Point' in sub_dict:
+            if sub_dict['Point'] is None:
+                use_lbls += ["any point mutation"]
+
+            else:
+                use_lbls += [nest_label(sub_dict['Point'],
+                                        pnt_link, phrase_link)]
+
+    else:
+        use_lbls = [nest_label(mtype, pnt_link, phrase_link)]
 
     return scale_link.join(use_lbls)
 
