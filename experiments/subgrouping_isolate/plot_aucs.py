@@ -5,7 +5,7 @@ from ..utilities.mutations import (
     )
 from dryadic.features.mutations import MuType
 
-from ..subvariant_isolate.utils import get_fancy_label
+from ..utilities.labels import get_fancy_label
 from ..utilities.label_placement import place_scatterpie_labels
 from ..subvariant_test.utils import get_cohort_label
 from ..utilities.misc import choose_label_colour
@@ -23,11 +23,11 @@ from itertools import combinations as combn
 from itertools import permutations, product
 
 import matplotlib as mpl
-mpl.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
+mpl.use('Agg')
 plt.style.use('fivethirtyeight')
 plt.rcParams['axes.facecolor'] = 'white'
 plt.rcParams['savefig.facecolor'] = 'white'
@@ -43,67 +43,64 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals,
                          args, add_lgnd=False):
     fig, ax = plt.subplots(figsize=(11, 11))
 
-    pnt_dict = dict()
+    plot_dict = dict()
     clr_dict = dict()
     plt_min = 0.57
 
     use_aucs = auc_vals[[
         not isinstance(mtype, (Mcomb, ExMcomb))
-        and (mtype.subtype_list()[0][1] & copy_mtype).is_empty()
+        and (tuple(mtype.subtype_iter())[0][1] & copy_mtype).is_empty()
         for mtype in auc_vals.index
         ]]
 
     for gene, auc_vec in use_aucs.groupby(
-            lambda mtype: mtype.get_labels()[0]):
+            lambda mtype: tuple(mtype.label_iter())[0]):
         if len(auc_vec) > 1:
             base_mtype = MuType({('Gene', gene): pnt_mtype})
-            base_indx = auc_vec.index.get_loc(base_mtype)
 
+            base_indx = auc_vec.index.get_loc(base_mtype)
             best_subtype = auc_vec[:base_indx].append(
                 auc_vec[(base_indx + 1):]).idxmax()
-            best_indx = auc_vec.index.get_loc(best_subtype)
 
-            if auc_vec[best_indx] > 0.6:
-                plt_min = min(plt_min, auc_vec[base_indx] - 0.053,
-                              auc_vec[best_indx] - 0.029)
+            if auc_vec[best_subtype] > 0.6:
                 clr_dict[gene] = choose_label_colour(gene)
 
+                auc_tupl = auc_vec[base_mtype], auc_vec[best_subtype]
+                plt_min = min(plt_min, auc_vec[base_indx] - 0.053,
+                              auc_vec[best_subtype] - 0.029)
+
                 base_size = np.mean(pheno_dict[base_mtype])
+                plt_size = 0.97 * base_size ** 0.5
                 best_prop = np.mean(pheno_dict[best_subtype]) / base_size
                 conf_sc = np.greater.outer(conf_vals[best_subtype],
                                            conf_vals[base_mtype]).mean()
 
                 if conf_sc > 0.8:
                     mtype_lbl = get_fancy_label(
-                        best_subtype.subtype_list()[0][1],
+                        tuple(best_subtype.subtype_iter())[0][1],
                         pnt_link='\n', phrase_link=' '
                         )
 
-                    pnt_dict[auc_vec[base_indx], auc_vec[best_indx]] = (
-                        base_size ** 0.53, (gene, mtype_lbl))
+                    plot_dict[auc_tupl] = plt_size ** 1.03, (gene, mtype_lbl)
 
-                elif auc_vec[base_indx] > 0.7 or auc_vec[best_indx] > 0.7:
-                    pnt_dict[auc_vec[base_indx], auc_vec[best_indx]] = (
-                        base_size ** 0.53, (gene, ''))
-
+                elif auc_tupl[0] > 0.7 or auc_tupl[1] > 0.7:
+                    plot_dict[auc_tupl] = plt_size ** 1.03, (gene, '')
                 else:
-                    pnt_dict[auc_vec[base_indx], auc_vec[best_indx]] = (
-                        base_size ** 0.53, ('', ''))
+                    plot_dict[auc_tupl] = plt_size, ('', '')
 
                 pie_ax = inset_axes(
-                    ax, width=base_size ** 0.5, height=base_size ** 0.5,
-                    bbox_to_anchor=(auc_vec[base_indx], auc_vec[best_indx]),
-                    bbox_transform=ax.transData, loc=10,
-                    axes_kwargs=dict(aspect='equal'), borderpad=0
+                    ax, width=plt_size, height=plt_size,
+                    bbox_to_anchor=auc_tupl, bbox_transform=ax.transData,
+                    loc=10, axes_kwargs=dict(aspect='equal'), borderpad=0
                     )
 
-                pie_ax.pie(x=[best_prop, 1 - best_prop], explode=[0.29, 0],
+                pie_ax.pie(x=[best_prop, 1 - best_prop],
                            colors=[clr_dict[gene] + (0.77, ),
                                    clr_dict[gene] + (0.29, )],
-                           startangle=90)
+                           explode=[0.29, 0], startangle=90)
 
     if add_lgnd:
-        pnt_dict[0.89, plt_min + 0.05] = 1, ('', '')
+        plot_dict[0.89, plt_min + 0.05] = 1, ('', '')
         lgnd_clr = choose_label_colour('GENE')
 
         pie_ax = inset_axes(ax, width=1, height=1,
@@ -141,21 +138,21 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals,
     ax.plot(plt_lims, plt_lims,
             color='#550000', linewidth=2.1, linestyle='--', alpha=0.41)
 
-    ax.set_xlim(plt_lims)
-    ax.set_ylim(plt_lims)
-
     ax.set_xlabel("Accuracy of Gene-Wide Classifier",
                   size=23, weight='semibold')
     ax.set_ylabel("Accuracy of Best Subgrouping Classifier",
                   size=23, weight='semibold')
 
-    lbl_pos = place_scatterpie_labels(pnt_dict, fig, ax)
+    ax.set_xlim(plt_lims)
+    ax.set_ylim(plt_lims)
+
+    lbl_pos = place_scatterpie_labels(plot_dict, fig, ax, lbl_dens=1.31)
     for (pnt_x, pnt_y), pos in lbl_pos.items():
         ax.text(pos[0][0], pos[0][1] + 700 ** -1,
-                pnt_dict[pnt_x, pnt_y][1][0],
+                plot_dict[pnt_x, pnt_y][1][0],
                 size=13, ha=pos[1], va='bottom')
         ax.text(pos[0][0], pos[0][1] - 700 ** -1,
-                pnt_dict[pnt_x, pnt_y][1][1],
+                plot_dict[pnt_x, pnt_y][1][1],
                 size=9, ha=pos[1], va='top')
 
         x_delta = pnt_x - pos[0][0]
@@ -163,9 +160,9 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals,
         ln_lngth = np.sqrt((x_delta ** 2) + (y_delta ** 2))
 
         # if the label is sufficiently far away from its point...
-        if ln_lngth > (0.019 + pnt_dict[pnt_x, pnt_y][0] / 23):
-            use_clr = clr_dict[pnt_dict[pnt_x, pnt_y][1][0]]
-            pnt_gap = pnt_dict[pnt_x, pnt_y][0] / (29 * ln_lngth)
+        if ln_lngth > (0.019 + plot_dict[pnt_x, pnt_y][0] / 23):
+            use_clr = clr_dict[plot_dict[pnt_x, pnt_y][1][0]]
+            pnt_gap = plot_dict[pnt_x, pnt_y][0] / (29 * ln_lngth)
             lbl_gap = 0.006 / ln_lngth
 
             ax.plot([pnt_x - pnt_gap * x_delta,
@@ -184,13 +181,150 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals,
     plt.close()
 
 
+def plot_copy_comparisons(auc_vals, pheno_dict, conf_vals,
+                          args, add_lgnd=False):
+    fig, (gain_ax, loss_ax) = plt.subplots(figsize=(15, 7), nrows=1, ncols=2)
+
+    use_aucs = auc_vals[[not isinstance(mtype, (Mcomb, ExMcomb))
+                         for mtype in auc_vals.index]]
+    subt_dict = {mtype: tuple(mtype.subtype_iter())[0][1]
+                 for mtype in use_aucs.index}
+
+    plot_dict = {gains_mtype: dict(), dels_mtype: dict()}
+    clr_dict = dict()
+    plt_min = 0.57
+
+    for ax, copy_type in zip([gain_ax, loss_ax], [gains_mtype, dels_mtype]):
+        copy_aucs = use_aucs[[
+            not (subt_dict[mtype] & pnt_mtype).is_empty()
+            and not (subt_dict[mtype] & copy_type).is_empty()
+            for mtype in use_aucs.index
+            ]]
+
+        for gene, auc_vec in copy_aucs.groupby(
+                lambda mtype: tuple(mtype.label_iter())[0]):
+            if len(auc_vec) > 1:
+                base_mtype = MuType({('Gene', gene): copy_type | pnt_mtype})
+
+                base_indx = auc_vec.index.get_loc(base_mtype)
+                best_subtype = auc_vec[:base_indx].append(
+                    auc_vec[(base_indx + 1):]).idxmax()
+
+                if auc_vec[best_subtype] > 0.6:
+                    if gene not in clr_dict:
+                        clr_dict[gene] = choose_label_colour(gene)
+
+                    auc_tupl = auc_vec[base_mtype], auc_vec[best_subtype]
+                    plt_min = min(plt_min,
+                                  auc_tupl[0] - 0.053, auc_tupl[1] - 0.029)
+
+                    base_size = np.mean(pheno_dict[base_mtype])
+                    plt_size = 0.41 * base_size ** 0.5
+                    best_prop = np.mean(pheno_dict[best_subtype]) / base_size
+                    conf_sc = np.greater.outer(conf_vals[best_subtype],
+                                               conf_vals[base_mtype]).mean()
+
+                    if conf_sc > 0.8:
+                        mtype_lbl = get_fancy_label(
+                            subt_dict[best_subtype],
+                            scale_link=", as well as:\n",
+                            pnt_link=',\n', phrase_link=' '
+                            )
+
+                        plot_dict[copy_type][auc_tupl] = (plt_size ** 1.03,
+                                                          (gene, mtype_lbl))
+
+                    elif auc_tupl[0] > 0.7 or auc_tupl[1] > 0.7:
+                        plot_dict[copy_type][auc_tupl] = (plt_size ** 1.03,
+                                                          (gene, ''))
+
+                    else:
+                        plot_dict[copy_type][auc_tupl] = (plt_size ** 1.03,
+                                                          ('', ''))
+
+                    pie_ax = inset_axes(
+                        ax, width=plt_size, height=plt_size,
+                        bbox_to_anchor=auc_tupl, bbox_transform=ax.transData,
+                        loc=10, axes_kwargs=dict(aspect='equal'), borderpad=0
+                        )
+
+                    pie_ax.pie(x=[best_prop, 1 - best_prop],
+                               colors=[clr_dict[gene] + (0.77, ),
+                                       clr_dict[gene] + (0.29, )],
+                               explode=[0.37, 0], startangle=90)
+
+    gain_ax.set_xlabel("Accuracy of\n(All Gains + Gene-Wide) Classifier",
+                       size=21, weight='semibold')
+    gain_ax.set_ylabel("Accuracy of Best\n(Gains + Subgrouping) Classifier",
+                       size=21, weight='semibold')
+
+    loss_ax.set_xlabel("Accuracy of\n(All Losses + Gene-Wide) Classifier",
+                       size=21, weight='semibold')
+    loss_ax.set_ylabel(
+        "\n\nAccuracy of Best\n(Losses + Subgrouping) Classifier",
+        size=21, weight='semibold'
+        )
+
+    plt_lims = plt_min, 1 + (1 - plt_min) / 103
+    for ax, copy_type in zip([gain_ax, loss_ax], [gains_mtype, dels_mtype]):
+        ax.plot(plt_lims, [0.5, 0.5],
+                color='black', linewidth=1.3, linestyle=':', alpha=0.71)
+        ax.plot([0.5, 0.5], plt_lims,
+                color='black', linewidth=1.3, linestyle=':', alpha=0.71)
+
+        ax.plot(plt_lims, [1, 1], color='black', linewidth=1.9, alpha=0.89)
+        ax.plot([1, 1], plt_lims, color='black', linewidth=1.9, alpha=0.89)
+        ax.plot(plt_lims, plt_lims,
+                color='#550000', linewidth=2.1, linestyle='--', alpha=0.41)
+
+        ax.set_xlim(plt_lims)
+        ax.set_ylim(plt_lims)
+
+        lbl_pos = place_scatterpie_labels(plot_dict[copy_type], fig, ax,
+                                          font_adj=5 / 6)
+
+        for (pnt_x, pnt_y), pos in lbl_pos.items():
+            ax.text(pos[0][0], pos[0][1] + 700 ** -1,
+                    plot_dict[copy_type][pnt_x, pnt_y][1][0],
+                    size=12, ha=pos[1], va='bottom')
+            ax.text(pos[0][0], pos[0][1] - 700 ** -1,
+                    plot_dict[copy_type][pnt_x, pnt_y][1][1],
+                    size=8, ha=pos[1], va='top')
+
+            x_delta = pnt_x - pos[0][0]
+            y_delta = pnt_y - pos[0][1]
+            ln_lngth = np.sqrt((x_delta ** 2) + (y_delta ** 2))
+
+            # if the label is sufficiently far away from its point...
+            if ln_lngth > (0.019 + plot_dict[copy_type][pnt_x, pnt_y][0] / 23):
+                use_clr = clr_dict[plot_dict[copy_type][pnt_x, pnt_y][1][0]]
+                pnt_gap = plot_dict[copy_type][pnt_x, pnt_y][0]
+                pnt_gap /= (29 * ln_lngth)
+                lbl_gap = 0.006 / ln_lngth
+
+                ax.plot([pnt_x - pnt_gap * x_delta,
+                         pos[0][0] + lbl_gap * x_delta],
+                        [pnt_y - pnt_gap * y_delta,
+                         pos[0][1] + lbl_gap * y_delta
+                         + 0.008 + 0.004 * np.sign(y_delta)],
+                        c=use_clr, linewidth=1.7, alpha=0.27)
+
+    plt.savefig(
+        os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
+                     "copy-comparisons_{}.svg".format(args.classif)),
+        bbox_inches='tight', format='svg'
+        )
+
+    plt.close()
+
+
 def plot_iso_comparisons(auc_dfs, pheno_dict, args):
     fig, axarr = plt.subplots(figsize=(15, 15), nrows=3, ncols=3)
 
     base_aucs = {
         ex_lbl: auc_df.loc[[
             not isinstance(mtype, (Mcomb, ExMcomb))
-            and (mtype.subtype_list()[0][1] & copy_mtype).is_empty()
+            and (tuple(mtype.subtype_iter())[0][1] & copy_mtype).is_empty()
             for mtype in auc_df.index
             ], 'mean']
         for ex_lbl, auc_df in auc_dfs.items()
@@ -232,7 +366,7 @@ def plot_iso_comparisons(auc_dfs, pheno_dict, args):
                           base_aucs[ex_lbl2][mtype] - 0.013)
             mtype_sz = 301 * np.mean(pheno_dict[mtype])
 
-            cur_gene = mtype.get_labels()[0]
+            cur_gene = tuple(mtype.label_iter())[0]
             if cur_gene not in clr_dict:
                 clr_dict[cur_gene] = choose_label_colour(cur_gene)
 
@@ -247,7 +381,7 @@ def plot_iso_comparisons(auc_dfs, pheno_dict, args):
             plt_min = min(plt_min, plt_x - 0.013, plt_y - 0.013)
             mtype_sz = 301 * np.mean(pheno_dict[mtype])
 
-            cur_gene = mtype.get_labels()[0]
+            cur_gene = tuple(mtype.label_iter())[0]
             if cur_gene not in clr_dict:
                 clr_dict[cur_gene] = choose_label_colour(cur_gene)
 
@@ -306,7 +440,7 @@ def plot_dyad_comparisons(auc_vals, pheno_dict, conf_vals, args):
 
     pnt_aucs = auc_vals[[
         not isinstance(mtype, (Mcomb, ExMcomb))
-        and (mtype.subtype_list()[0][1] & copy_mtype).is_empty()
+        and (tuple(mtype.subtype_iter())[0][1] & copy_mtype).is_empty()
         for mtype in auc_vals.index
         ]]
 
@@ -322,7 +456,8 @@ def plot_dyad_comparisons(auc_vals, pheno_dict, conf_vals, args):
             zip(plot_df.columns, [gains_mtype, dup_mtype,
                                   dels_mtype, loss_mtype])
             ):
-        dyad_type = MuType({('Gene', pnt_type.get_labels()[0]): copy_type})
+        dyad_type = MuType({
+            ('Gene', tuple(pnt_type.label_iter())[0]): copy_type})
         dyad_type |= pnt_type
 
         if dyad_type in auc_vals.index:
@@ -341,7 +476,7 @@ def plot_dyad_comparisons(auc_vals, pheno_dict, conf_vals, args):
                               pnt_aucs[pnt_type] - 0.03, copy_auc - 0.03)
                 mtype_sz = 581 * np.mean(pheno_dict[pnt_type])
 
-                cur_gene = pnt_type.get_labels()[0]
+                cur_gene = tuple(pnt_type.label_iter())[0]
                 if cur_gene not in clr_dict:
                     clr_dict[cur_gene] = choose_label_colour(cur_gene)
 
@@ -391,8 +526,8 @@ def plot_dyad_comparisons(auc_vals, pheno_dict, conf_vals, args):
 
 def main():
     parser = argparse.ArgumentParser(
-        "Plots comparisons between the performances of subgrouping "
-        "classifiers for a given cohort."
+        'plot_aucs',
+        description="Plots comparisons of performances of classifier tasks."
         )
 
     parser.add_argument('expr_source', help="a source of expression datasets")
@@ -401,8 +536,8 @@ def main():
 
     args = parser.parse_args()
     out_dir = Path(base_dir, '__'.join([args.expr_source, args.cohort]))
-    out_list = tuple(Path(out_dir).glob(
-        "out-siml__*__*__{}.p.gz".format(args.classif)))
+    out_list = tuple(out_dir.glob(
+        "out-conf__*__*__{}.p.gz".format(args.classif)))
 
     if len(out_list) == 0:
         raise ValueError("No completed experiments found for this "
@@ -458,17 +593,10 @@ def main():
             super_indx = super_list.argmax()
 
             for ex_lbl in ['All', 'Iso', 'IsoShal']:
-                #TODO: remove casting to dataframes once all experiments run
-                # before June are redone
                 auc_dfs[ex_lbl] = pd.concat([
-                    auc_dfs[ex_lbl],
-                    pd.DataFrame(out_aucs[lvls][super_indx][ex_lbl])
-                    ])
-
+                    auc_dfs[ex_lbl], out_aucs[lvls][super_indx][ex_lbl]])
                 conf_dfs[ex_lbl] = pd.concat([
-                    conf_dfs[ex_lbl],
-                    pd.DataFrame(out_confs[lvls][super_indx][ex_lbl])
-                    ])
+                    conf_dfs[ex_lbl], out_confs[lvls][super_indx][ex_lbl]])
 
     auc_dfs = {ex_lbl: auc_df.loc[~auc_df.index.duplicated()]
                for ex_lbl, auc_df in auc_dfs.items()}
@@ -477,8 +605,10 @@ def main():
 
     plot_sub_comparisons(auc_dfs['All']['mean'], phn_dict,
                          conf_dfs['All']['mean'], args)
-    plot_iso_comparisons(auc_dfs, phn_dict, args)
+    plot_copy_comparisons(auc_dfs['All']['mean'], phn_dict,
+                          conf_dfs['All']['mean'], args)
 
+    plot_iso_comparisons(auc_dfs, phn_dict, args)
     plot_dyad_comparisons(auc_dfs['All']['mean'], phn_dict,
                           conf_dfs['All']['mean'], args)
 
