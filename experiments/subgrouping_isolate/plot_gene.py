@@ -38,8 +38,8 @@ from operator import or_, add
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+from matplotlib.markers import MarkerStyle
 from matplotlib import colors
-from matplotlib.patches import Wedge
 
 mpl.use('Agg')
 plt.style.use('fivethirtyeight')
@@ -52,8 +52,8 @@ base_dir = os.path.join(os.environ['DATADIR'], 'HetMan',
                         'subgrouping_isolate')
 plot_dir = os.path.join(base_dir, 'plots', 'gene')
 
-
 SIML_FXS = {'mean': calculate_mean_siml, 'ks': calculate_ks_siml}
+cna_mtypes = {'Gain': gains_mtype, 'Loss': dels_mtype}
 
 
 def choose_subtype_colour(mut):
@@ -77,94 +77,47 @@ def plot_size_comparisons(auc_vals, pheno_dict, conf_vals,
                           use_coh, args, add_lgnd=False):
     fig, ax = plt.subplots(figsize=(13, 8))
 
-    pnt_dict = dict()
+    plot_dict = dict()
     clr_dict = dict()
 
     plt_df = pd.DataFrame({
         mut: {'Size': np.sum(pheno_dict[mut]), 'AUC': auc_val}
-        for mut, auc_val in auc_vals.iteritems()
+        for mut, auc_val in auc_vals.iteritems() if isinstance(mut, MuType)
         }).transpose().astype({'Size': int})
+    plt_df = plt_df.loc[remove_pheno_dups(plt_df.index, pheno_dict)]
 
-    #TODO: differentiate between deep- and shal-exclusive mutations?
-    for mut, (size_val, auc_val) in plt_df.iterrows():
-        if isinstance(mut, MuType):
-            sub_mut = tuple(mut.subtype_iter())[0][1]
-            plt_mrk = 'o'
-            plt_clr = choose_subtype_colour(sub_mut)
+    for mtype, (size_val, auc_val) in plt_df.iterrows():
+        sub_mut = tuple(mtype.subtype_iter())[0][1]
+        plt_mrk = 'o'
+        plt_clr = choose_subtype_colour(sub_mut)
 
-            if sub_mut.is_supertype(pnt_mtype):
-                plt_sz = 413
-                lbl_gap = 0.31
+        if (sub_mut.is_supertype(pnt_mtype)
+                or sub_mut in {dels_mtype, gains_mtype,
+                               dup_mtype, loss_mtype}):
+            plt_lbl = get_fancy_label(sub_mut)
 
-                if sub_mut == pnt_mtype:
-                    plt_lbl = "Any Point"
-
-                elif sub_mut.is_supertype(dup_mtype):
-                    plt_lbl = "Any Point + Any Gain"
-                elif sub_mut.is_supertype(loss_mtype):
-                    plt_lbl = "Any Point + Any Loss"
-
-                elif sub_mut.is_supertype(dup_mtype):
-                    plt_lbl = "Any Point + Deep Gains"
-                elif sub_mut.is_supertype(loss_mtype):
-                    plt_lbl = "Any Point + Deep Losses"
-
-            else:
-                plt_lbl = ''
-                plt_sz = 31
-                lbl_gap = 0.13
-
-        elif len(mut.mtypes) == 1:
-            iso_mtype = tuple(tuple(mut.mtypes)[0].subtype_iter())[0][1]
-            plt_mrk = 'D'
-            plt_clr = choose_subtype_colour(iso_mtype)
-
-            if iso_mtype.is_supertype(pnt_mtype):
-                plt_sz = 413
-                lbl_gap = 0.31
-
-                if iso_mtype == pnt_mtype:
-                    plt_lbl = "Only: Any Point"
-
-                elif iso_mtype.is_supertype(gains_mtype):
-                    plt_lbl = "Only: Any Point + Any Gain"
-                elif iso_mtype.is_supertype(dels_mtype):
-                    plt_lbl = "Only: Any Point + Any Loss"
-
-                elif iso_mtype.is_supertype(dup_mtype):
-                    plt_lbl = "Only: Any Point + Deep Gains"
-                elif iso_mtype.is_supertype(loss_mtype):
-                    plt_lbl = "Only: Any Point + Deep Losses"
-
-            else:
-                plt_lbl = ''
-                plt_sz = 37
-                lbl_gap = 0.19
+            plt_sz = 347
+            lbl_gap = 0.31
+            edg_clr = plt_clr
 
         else:
-            plt_mrk = 'D'
-
-            if (size_val, auc_val) not in clr_dict:
-                plt_clr = 'black'
-
             plt_lbl = ''
-            plt_sz = 47
-            lbl_gap = 0.29
+            plt_sz = 31
+            lbl_gap = 0.13
+            edg_clr = 'none'
 
-        if (plt_lbl is not None
-                and not ((size_val, auc_val) in pnt_dict
-                         and pnt_dict[size_val, auc_val][0] > lbl_gap)):
+        if plt_lbl is not None:
             clr_dict[size_val, auc_val] = plt_clr
-            pnt_dict[size_val, auc_val] = lbl_gap, (plt_lbl, '')
+            plot_dict[size_val, auc_val] = lbl_gap, (plt_lbl, '')
 
-        ax.scatter(size_val, auc_val, marker=plt_mrk,
-                   c=[plt_clr], s=plt_sz, alpha=0.19, edgecolor='none')
+        ax.scatter(size_val, auc_val,
+                   c=[plt_clr], s=plt_sz, alpha=0.23, edgecolor=edg_clr)
 
     size_min, size_max = plt_df.Size.quantile(q=[0, 1])
     auc_min, auc_max = plt_df.AUC.quantile(q=[0, 1])
 
     x_min = max(size_min - (size_max - size_min) / 29, 0)
-    x_max = size_max + (size_max - size_min) / 29
+    x_max = size_max + (size_max - size_min) / 6.1
     y_min, y_max = auc_min - (1 - auc_min) / 17, 1 + (1 - auc_min) / 113
     x_rng, y_rng = x_max - x_min, y_max - y_min
 
@@ -178,16 +131,16 @@ def plot_size_comparisons(auc_vals, pheno_dict, conf_vals,
 
     coh_lbl = get_cohort_label(use_coh)
     ax.set_xlabel("# of Mutated Samples in {}".format(coh_lbl),
-                  size=25, weight='semibold')
+                  size=25, weight='bold')
     ax.set_ylabel("Classification Task\nAccuracy in {}".format(coh_lbl),
-                  size=25, weight='semibold')
+                  size=25, weight='bold')
 
-    if pnt_dict:
-        lbl_pos = place_scatterpie_labels(pnt_dict, fig, ax, seed=args.seed)
+    if plot_dict:
+        lbl_pos = place_scatterpie_labels(plot_dict, fig, ax, seed=args.seed)
 
         for (pnt_x, pnt_y), pos in lbl_pos.items():
             ax.text(pos[0][0], pos[0][1] + 700 ** -1,
-                    pnt_dict[pnt_x, pnt_y][1][0],
+                    plot_dict[pnt_x, pnt_y][1][0],
                     size=11, ha=pos[1], va='bottom')
 
             x_delta = pnt_x - pos[0][0]
@@ -202,9 +155,9 @@ def plot_size_comparisons(auc_vals, pheno_dict, conf_vals,
                 ln_cos, ln_sin = ln_x / ln_mag, ln_y / ln_mag
 
                 ax.plot([pnt_x - ln_cos * x_rng / 11
-                         * pnt_dict[pnt_x, pnt_y][0], end_x],
+                         * plot_dict[pnt_x, pnt_y][0], end_x],
                         [pnt_y - ln_sin * y_rng / 11
-                         * pnt_dict[pnt_x, pnt_y][0], end_y],
+                         * plot_dict[pnt_x, pnt_y][0], end_y],
                         c=clr_dict[pnt_x, pnt_y], linewidth=1.7, alpha=0.31)
 
     plt.savefig(
@@ -411,12 +364,12 @@ def plot_dyad_comparisons(auc_vals, pheno_dict, conf_vals, use_coh, args):
                 color='#550000', linewidth=1.9, linestyle='--', alpha=0.41)
 
         ax.set_xlabel("Accuracy of Subgrouping Classifier",
-                      size=23, weight='semibold')
+                      size=23, weight='bold')
 
     gain_ax.set_ylabel("Accuracy of\n(Subgrouping or CNAs) Classifier",
-                       size=23, weight='semibold')
-    gain_ax.set_title("Gain CNAs", size=27, weight='semibold')
-    loss_ax.set_title("Loss CNAs", size=27, weight='semibold')
+                       size=23, weight='bold')
+    gain_ax.set_title("Gain CNAs", size=27, weight='bold')
+    loss_ax.set_title("Loss CNAs", size=27, weight='bold')
 
     plt.tight_layout(w_pad=3.1)
     plt.savefig(
@@ -470,7 +423,7 @@ def plot_score_symmetry(pred_dfs, pheno_dict, auc_dfs, cdata,
         for ex_lbl, use_combs in zip(['Iso', 'IsoShal'],
                                      [iso_combs, ish_combs]):
             pair_strs = [
-                "###########"
+                "\n#########\n"
                 "{}: {}({})  {} pairs from {} types".format(
                     use_coh, args.gene, ex_lbl,
                     len(pairs_dict[ex_lbl]), len(use_combs)
@@ -530,9 +483,9 @@ def plot_score_symmetry(pred_dfs, pheno_dict, auc_dfs, cdata,
                          for mcomb1, mcomb2 in permt(mcombs)]
 
     if siml_metric == 'mean':
-        chunk_size = int(0.43 * len(map_args) / args.cores) + 1
+        chunk_size = int(len(map_args) / args.cores) + 1
     elif siml_metric == 'ks':
-        chunk_size = int(0.07 * len(map_args) / args.cores) + 1
+        chunk_size = int(len(map_args) / (23 * args.cores)) + 1
 
     pool = mp.Pool(args.cores)
     siml_list = pool.starmap(SIML_FXS[siml_metric], map_args, chunk_size)
@@ -542,13 +495,11 @@ def plot_score_symmetry(pred_dfs, pheno_dict, auc_dfs, cdata,
     #TODO: scale by plot ranges or leave as is and thus make sizes
     # relative to "true" plotting area?
     plt_lims = min(siml_list) - 0.19, max(siml_list) + 0.19
-    size_mult = (plt_lims[1] - plt_lims[0]) / (113 * len(map_args) ** 0.23)
-    gap_adj = (plt_lims[1] - plt_lims[0]) / 9173 * np.array([1, -1])
+    size_mult = 18301 * len(map_args) ** (-5 / 13)
     clr_norm = colors.Normalize(vmin=-1, vmax=2)
 
     for ax, ex_lbl in zip([iso_ax, ish_ax], ['Iso', 'IsoShal']):
         ax.grid(alpha=0.47, linewidth=0.9)
-        plt_wdgs = []
 
         ax.plot(plt_lims, [0, 0],
                 color='black', linewidth=1.37, linestyle=':', alpha=0.53)
@@ -574,37 +525,29 @@ def plot_score_symmetry(pred_dfs, pheno_dict, auc_dfs, cdata,
             plt_sz = size_mult * (np.mean(pheno_dict[mcomb1])
                                   * np.mean(pheno_dict[mcomb2])) ** 0.5
 
-            plt_clrs = [
-                choose_subtype_colour(
+            for i, (plt_half, mcomb) in enumerate(zip(['left', 'right'],
+                                                      [mcomb1, mcomb2])):
+                mrk_style = MarkerStyle('o', fillstyle=plt_half)
+
+                plt_clr = choose_subtype_colour(
                     tuple(reduce(or_, mcomb.mtypes).subtype_iter())[0][1])
-                for mcomb in [mcomb1, mcomb2]
-                ]
 
-            if plt_clrs[0] == plt_clrs[1]:
-                ax.add_patch(Wedge(siml_vals[ex_lbl, (mcomb1, mcomb2)],
-                                   plt_sz ** 0.5, 0, 360,
-                                   facecolor=plt_clrs[0], alpha=0.19,
-                                   edgecolor='none', lw=0,
-                                   transform=ax.transData))
+                ax.scatter(*siml_vals[ex_lbl, (mcomb1, mcomb2)],
+                           s=plt_sz, facecolor=plt_clr, marker=mrk_style,
+                           alpha=13 / 71, edgecolor='none')
 
-            else:
-                for i, mcomb in enumerate([mcomb1, mcomb2]):
-                    plt_pos = np.array([gap_adj[i], 0])
-                    plt_pos += siml_vals[ex_lbl, (mcomb1, mcomb2)]
-
-                    ax.add_patch(Wedge(plt_pos, plt_sz ** 0.5,
-                                       90 + i * 180, 90 + (i + 1) * 180,
-                                       facecolor=plt_clrs[i], alpha=0.19,
-                                       edgecolor='none', lw=0,
-                                       transform=ax.transData))
+        if ex_lbl == 'IsoShal':
+            ax.text(1, 0, "AUC >= {:.2f}".format(args.auc_cutoff),
+                    size=19, ha='right', va='bottom',
+                    transform=ax.transAxes, fontstyle='italic')
 
     iso_ax.set_title(
         "Similarities Computed Treating\nShallow CNAs as Mutant\n",
-        size=23, weight='semibold'
+        size=23, weight='bold'
         )
     ish_ax.set_title(
         "Similarities Computed Treating\nShallow CNAs as Wild-Type\n",
-        size=23, weight='semibold'
+        size=23, weight='bold'
         )
 
     for ax in [iso_ax, ish_ax]:
@@ -615,6 +558,144 @@ def plot_score_symmetry(pred_dfs, pheno_dict, auc_dfs, cdata,
     plt.savefig(os.path.join(
         plot_dir, args.gene, "{}__{}-siml-symmetry_{}_{}.svg".format(
             use_coh, siml_metric, args.classif, args.expr_source)
+        ), bbox_inches='tight', format='svg')
+
+    plt.close()
+
+
+def plot_subcopy_symmetry(pred_dfs, pheno_dict, auc_dfs, cdata,
+                          args, cna_lbl, use_coh, siml_metric):
+    fig, ax = plt.subplots(figsize=(8.43, 9))
+    cna_mtype = cna_mtypes[cna_lbl]
+
+    use_combs = {mut for mut, auc_val in auc_dfs['Iso'].iteritems()
+                 if (isinstance(mut, ExMcomb) and auc_val >= 0.6
+                     and not (mut.all_mtype & shal_mtype).is_empty())}
+
+    plt_combs = {mcomb for mcomb in use_combs
+                 if (set(mcomb.mtypes)
+                     == {MuType({('Gene', args.gene): cna_mtype})})}
+
+    assert len(plt_combs) <= 1, (
+        "Too many exclusive {} CNAs found!".format(cna_lbl))
+
+    if len(plt_combs) == 1:
+        plt_comb = tuple(plt_combs)[0]
+    else:
+        return None
+
+    use_combs = remove_pheno_dups({
+        mcomb for mcomb in use_combs
+        if (all((cna_mtype & tuple(mtp.subtype_iter())[0][1]).is_empty()
+                for mtp in mcomb.mtypes)
+            or not (pheno_dict[plt_comb] & pheno_dict[mcomb]).any())
+        }, pheno_dict)
+
+    use_mtree = tuple(cdata.mtrees.values())[0][args.gene]
+    all_mtype = MuType({('Gene', args.gene): use_mtree.allkey()})
+    all_phn = np.array(cdata.train_pheno(all_mtype))
+    train_samps = cdata.get_train_samples()
+
+    map_args = []
+    ex_indx = []
+
+    use_preds = pred_dfs['Iso'].loc[
+        use_combs | plt_combs, train_samps].applymap(np.mean)
+    wt_vals = {mcomb: pred_vals[~all_phn]
+               for mcomb, pred_vals in use_preds.iterrows()}
+    mut_vals = {mcomb: pred_vals[pheno_dict[mcomb]]
+                for mcomb, pred_vals in use_preds.iterrows()}
+
+    if siml_metric == 'mean':
+        wt_means = {mcomb: vals.mean() for mcomb, vals in wt_vals.items()}
+        mut_means = {mcomb: vals.mean() for mcomb, vals in mut_vals.items()}
+
+        map_args += [(wt_vals[mcomb1], mut_vals[mcomb1],
+                      use_preds.loc[mcomb1, pheno_dict[mcomb2]],
+                      wt_means[mcomb1], mut_means[mcomb1], None)
+                     for mcomb in use_combs
+                     for mcomb1, mcomb2 in permt([mcomb, plt_comb])]
+
+    elif siml_metric == 'ks':
+        base_dists = {mcomb: ks_2samp(wt_vals[mcomb], mut_vals[mcomb],
+                                      alternative='greater').statistic
+                      for mcomb in use_preds.index}
+
+        map_args += [(wt_vals[mcomb1], mut_vals[mcomb1],
+                      use_preds.loc[mcomb1, pheno_dict[mcomb2]],
+                      base_dists[mcomb1])
+                     for mcomb in use_combs
+                     for mcomb1, mcomb2 in permt([mcomb, plt_comb])]
+
+    if siml_metric == 'mean':
+        chunk_size = int(len(map_args) / args.cores) + 1
+    elif siml_metric == 'ks':
+        chunk_size = int(len(map_args) / (23 * args.cores)) + 1
+
+    pool = mp.Pool(args.cores)
+    siml_list = pool.starmap(SIML_FXS[siml_metric], map_args, chunk_size)
+    pool.close()
+    siml_vals = dict(zip(use_combs, zip(siml_list[::2], siml_list[1::2])))
+
+    plt_lims = min(siml_list) - 0.19, max(max(siml_list) + 0.19, 1.03)
+    size_mult = 20307 * len(map_args) ** (-5 / 13)
+    clr_norm = colors.Normalize(vmin=-1, vmax=2)
+
+    ax.plot(plt_lims, [0, 0],
+            color='black', linewidth=1.37, linestyle=':', alpha=0.53)
+    ax.plot([0, 0], plt_lims,
+            color='black', linewidth=1.37, linestyle=':', alpha=0.53)
+
+    ax.plot(plt_lims, plt_lims,
+            color='#550000', linewidth=1.43, linestyle='--', alpha=0.41)
+
+    for siml_val in [-1, 1, 2]:
+        ax.plot(plt_lims, [siml_val] * 2,
+                color=simil_cmap(clr_norm(siml_val)),
+                linewidth=4.1, linestyle=':', alpha=0.37)
+        ax.plot([siml_val] * 2, plt_lims,
+                color=simil_cmap(clr_norm(siml_val)),
+                linewidth=4.1, linestyle=':', alpha=0.37)
+
+    plt_lctr = plt.MaxNLocator(7, steps=[1, 2, 5])
+    ax.xaxis.set_major_locator(plt_lctr)
+    ax.yaxis.set_major_locator(plt_lctr)
+
+    for mcomb in use_combs:
+        plt_sz = size_mult * np.mean(pheno_dict[mcomb])
+
+        if len(mcomb.mtypes) == 1:
+            plt_clr = choose_subtype_colour(
+                tuple(reduce(or_, mcomb.mtypes).subtype_iter())[0][1])
+
+            ax.scatter(*siml_vals[mcomb], s=plt_sz, c=[plt_clr],
+                       alpha=13 / 71, edgecolor='none')
+
+        else:
+            for i, (plt_half, mtype) in enumerate(zip(['left', 'right'],
+                                                      mcomb.mtypes)):
+                mrk_style = MarkerStyle('o', fillstyle=plt_half)
+
+                plt_clr = choose_subtype_colour(
+                    tuple(mtype.subtype_iter())[0][1])
+
+                ax.scatter(*siml_vals[mcomb], marker=mrk_style, s=plt_sz,
+                           facecolor=plt_clr, alpha=13 / 71, edgecolor='none')
+
+    ax.set_xlabel("{} Similarity to Subgrouping".format(cna_lbl),
+                  size=23, weight='bold')
+    ax.set_ylabel(
+        "Subgrouping Similarity to\nAll {} Alterations".format(cna_lbl),
+        size=23, weight='bold'
+        )
+
+    ax.grid(alpha=0.47, linewidth=0.9)
+    ax.set_xlim(*plt_lims)
+    ax.set_ylim(*plt_lims)
+
+    plt.savefig(os.path.join(
+        plot_dir, args.gene, "{}__{}-sub{}-symmetry_{}_{}.svg".format(
+            use_coh, siml_metric, cna_lbl, args.classif, args.expr_source)
         ), bbox_inches='tight', format='svg')
 
     plt.close()
@@ -799,8 +880,17 @@ def main():
                               conf_dfs[coh]['All'], coh, args)
 
         for siml_metric in args.siml_metrics:
-            plot_score_symmetry(pred_dfs[coh], phn_dicts[coh], auc_dfs[coh],
-                                cdata_dict[coh], args, coh, siml_metric)
+            if args.auc_cutoff < 1:
+                plot_score_symmetry(
+                    pred_dfs[coh], phn_dicts[coh], auc_dfs[coh],
+                    cdata_dict[coh], args, coh, siml_metric
+                    )
+
+            for cna_lbl in cna_mtypes:
+                plot_subcopy_symmetry(
+                    pred_dfs[coh], phn_dicts[coh], auc_dfs[coh],
+                    cdata_dict[coh], args, cna_lbl, coh, siml_metric
+                    )
 
         if 'Consequence__Exon' not in set(coh_lvls.tolist()):
             if args.verbose:
