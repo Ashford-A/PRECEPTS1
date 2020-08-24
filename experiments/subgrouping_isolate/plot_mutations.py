@@ -66,12 +66,26 @@ def plot_lollipop(cdata_dict, domain_dict, args):
                 choose_subtype_colour(pnt_mtype | dels_mtype)]
 
     pie_ax = ax.inset_axes(bounds=(0.05, 0.41, 0.27, 0.27))
-    pie_ax.pie(x=get_pie_counts(pnt_mtype, use_mtree), colors=pie_clrs,
-               labels=['point muts\nwithout CNAs',
-                       'point & any gain', 'point & any loss'],
-               labeldistance=1.21, autopct='%.0f', pctdistance=0.37,
-               explode=[0, 0.19, 0.19], startangle=90,
-               wedgeprops=dict(alpha=0.67), textprops=dict(size=9))
+    pie_ax.pie(
+        x=get_pie_counts(pnt_mtype, use_mtree), colors=pie_clrs,
+        labels=['point muts\nwithout CNAs',
+                'point & any gain', 'point & any loss'],
+        labeldistance=1.23, explode=[0.19] * 3, startangle=90,
+        autopct=lambda x: format(x * var_count / 100, '.0f'),
+        pctdistance=0.37, wedgeprops=dict(alpha=0.67), textprops=dict(size=9)
+        )
+
+    for pie_indx1, pie_indx2 in [(3, 5), (5, 7)]:
+        txt_arts1 = pie_ax.get_children()[pie_indx1]
+        txt_arts2 = pie_ax.get_children()[pie_indx2]
+        txt_x1, txt_y1 = txt_arts1.get_position()
+        txt_x2, txt_y2 = txt_arts2.get_position()
+
+        if abs(txt_x1 - txt_x2) < 1 and abs(txt_y1 - txt_y2) < 0.37:
+            if txt_y1 >= txt_y2:
+                txt_arts2.set_position((txt_x2, txt_y2 - 0.41))
+            else:
+                txt_arts1.set_position((txt_x1, txt_y1 - 0.41))
 
     loc_dict = {
         form: sorted([(int(loc.split('-')[0]), len(loc_muts.get_samples()))
@@ -87,8 +101,10 @@ def plot_lollipop(cdata_dict, domain_dict, args):
                   for pos, _ in loc_counts if pos >= 0)
     max_pos = max(pos for loc_counts in loc_dict.values()
                   for pos, _ in loc_counts)
-    max_count = max(count for loc_counts in loc_dict.values()
-                    for _, count in loc_counts)
+    min_pos -= (max_pos - min_pos) / 43
+
+    max_count = max(max(count for loc_counts in loc_dict.values()
+                        for _, count in loc_counts), 13)
 
     pos_rng = max_pos - min_pos
     lgnd_ptchs = []
@@ -114,27 +130,37 @@ def plot_lollipop(cdata_dict, domain_dict, args):
                 if loc != '-' and loc_size >= 10:
                     loc_int = int(loc.split('-')[0])
 
-                    mut_lbls = sorted(
-                        get_fancy_label(MuType({
-                            ('Scale', 'Point'): {('HGVSp', lbl): None}}))
-                        for lbl, _ in loc_muts
-                        )
+                    loc_mtypes = sorted(
+                        [MuType({('HGVSp', lbl): None})
+                         for lbl, _ in loc_muts],
+                        key=lambda mtype: len(mtype.get_samples(form_muts))
+                        )[::-1]
 
-                    root_indx = re.match('[A-Z][0-9]+', mut_lbls[0]).span()[1]
-                    lbl_root = mut_lbls[0][:root_indx]
+                    mut_lbls = [get_fancy_label(loc_mtype)
+                                for loc_mtype in loc_mtypes]
+                    root_strs = {re.match('[A-Z][0-9]+', lbl).group()
+                                 for lbl in mut_lbls}
 
-                    if max(len(lbl) - len(lbl_root) for lbl in mut_lbls) > 4:
-                        loc_lbl = '\n'.join(
-                            [mut_lbls[0]] + [''.join([' ' * len(lbl_root) * 2,
-                                                      lbl.split(lbl_root)[1]])
-                                             for lbl in mut_lbls[1:]]
-                            )
+                    if len(root_strs) > 1:
+                        loc_lbl = '\n'.join(mut_lbls)
 
                     else:
-                        loc_lbl = "/".join(
-                            [mut_lbls[0]] + [lbl.split(lbl_root)[1]
-                                             for lbl in mut_lbls[1:]]
-                            )
+                        lbl_root = tuple(root_strs)[0]
+
+                        if max(len(lbl) - len(lbl_root)
+                               for lbl in mut_lbls) > 4:
+                            loc_lbl = '\n'.join(
+                                [mut_lbls[0]]
+                                + [''.join([' ' * len(lbl_root) * 2,
+                                            lbl.split(lbl_root)[1]])
+                                   for lbl in mut_lbls[1:]]
+                                )
+
+                        else:
+                            loc_lbl = "/".join(
+                                [mut_lbls[0]] + [lbl.split(lbl_root)[1]
+                                                 for lbl in mut_lbls[1:]]
+                                )
 
                     ax.text(loc_int + pos_rng / 115,
                             loc_size + max_count / 151,
@@ -150,7 +176,7 @@ def plot_lollipop(cdata_dict, domain_dict, args):
                         )
 
                     pie_ax.pie(x=get_pie_counts(loc_mtype, use_mtree),
-                               colors=pie_clrs, explode=[0, 0.23, 0.23],
+                               colors=pie_clrs, explode=[0.09] * 3,
                                startangle=90, wedgeprops=dict(alpha=0.67))
 
     use_tx = use_cdata._muts.loc[
@@ -163,17 +189,16 @@ def plot_lollipop(cdata_dict, domain_dict, args):
                                                               args.gene)
         )
 
+    # TODO: do domains need to be included in these plots?
     use_tx = use_tx[0]
     prot_patches = []
-    min_pos = max(min_pos - max_pos / 13.1, 1)
 
     for i, (domn_lbl, domn_data) in enumerate(domain_dict.items()):
         tx_annot = gn_annot['Transcripts'][use_tx]
 
         gene_domns = domn_data[(domn_data.Gene == gn_annot['Ens'])
                                & (domn_data.Transcript == use_tx)]
-        min_pos = max(
-            min(min_pos, gene_domns.DomainStart.min() - max_pos / 9.7), 1)
+        min_pos = min(min_pos, gene_domns.DomainStart.min() - max_pos / 67)
 
         for domn_id, domn_start, domn_end in zip(gene_domns.DomainID,
                                                  gene_domns.DomainStart,
