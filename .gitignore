@@ -4,3 +4,5 @@ experiments/**/setup
 experiments/**/output
 experiments/**/plots
 experiments/**/TODO*
+experiments/utilities/data_locs.py
+

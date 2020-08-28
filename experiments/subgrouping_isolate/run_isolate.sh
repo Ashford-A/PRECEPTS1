@@ -67,6 +67,8 @@ dvc run -d $COH_DIR -d $GENCODE_DIR -d $ONCOGENE_LIST -d $SUBTYPE_LIST \
 # if we are only enumerating, we quit before classification jobs are launched
 if $count_only
 then
+	cp setup/cohort-data.p.gz \
+		$FINALDIR/cohort-data__${mut_levels}__${search}__${classif}.p.gz
 	exit 0
 fi
 
