@@ -3,8 +3,15 @@ import random
 import numpy as np
 
 
-def place_scatterpie_labels(pnt_dict, fig, ax,
+def place_scatterpie_labels(plot_dict, clr_dict, fig, ax, plt_lims=None,
                             lbl_dens=1., font_adj=1., seed=None):
+    if plt_lims:
+        ax.set_xlim(plt_lims[0])
+        ax.set_ylim(plt_lims[1])
+
+    xmin, xmax = ax.get_xlim()
+    ymin, ymax = ax.get_ylim()
+
     if seed is not None:
         random.seed(seed)
 
@@ -15,14 +22,12 @@ def place_scatterpie_labels(pnt_dict, fig, ax,
     #TODO: does density only apply to freely-placed labels?
     xdist, ydist = 0.31 * (dist_trans([1, 1]) - dist_trans([0, 0]))
     xadj, yadj = 9.7 * (adj_trans([1, 1]) - adj_trans([0, 0]))
-    xmin, xmax = ax.get_xlim()
-    ymin, ymax = ax.get_ylim()
 
     # initialize objects storing where each label will be positioned, and how
     # much space needs to be left around already placed points and labels
-    lbl_pos = {pnt: None for pnt, (_, lbls) in pnt_dict.items() if lbls[0]}
+    lbl_pos = {pnt: None for pnt, (_, lbls) in plot_dict.items() if lbls[0]}
     pnt_gaps = {pnt: (7 * xadj * (sz + 0.053), 7 * yadj * sz)
-                for pnt, (sz, _) in pnt_dict.items()}
+                for pnt, (sz, _) in plot_dict.items()}
     pnt_boxs = {pnt: [[xgap * 1.07, xgap * 1.07], [ygap * 1.07, ygap * 1.07]]
                 for pnt, (xgap, ygap) in pnt_gaps.items()}
 
@@ -30,13 +35,13 @@ def place_scatterpie_labels(pnt_dict, fig, ax,
     lbl_wdths = {
         pnt: (font_adj * xadj * max(len(ln) for ln in lbls[1].split('\n'))
               if lbls[1] else font_adj * xadj * len(lbls[0]) * 2.1)
-        for pnt, (_, lbls) in pnt_dict.items()
+        for pnt, (_, lbls) in plot_dict.items()
         }
 
     lbl_hghts = {
         pnt: (font_adj * yadj * (4 + lbls[1].count('\n'))
               if lbls[1] else (font_adj * yadj) / 1.3)
-        for pnt, (_, lbls) in pnt_dict.items()
+        for pnt, (_, lbls) in plot_dict.items()
         }
 
     # for each point, check if there is enough space to plot its label
@@ -65,7 +70,7 @@ def place_scatterpie_labels(pnt_dict, fig, ax,
                                  < (pnt[1] + pnt_boxs[pnt][1][1]))
                              or ((pnt2[1] - pnt_boxs[pnt2][1][0])
                                  < pnt[1] < (pnt2[1] + pnt_boxs[pnt2][1][1])))
-                        for pnt2 in pnt_dict if pnt2 != pnt)):
+                        for pnt2 in plot_dict if pnt2 != pnt)):
  
             lbl_pos[pnt] = (pnt[0] - pnt_gaps[pnt][0], pnt[1]), 'right'
             pnt_boxs[pnt][0][0] = pnt_boxs[pnt][0][0] + lbl_wdths[pnt]
@@ -100,7 +105,7 @@ def place_scatterpie_labels(pnt_dict, fig, ax,
                                or ((pnt2[1] - pnt_boxs[pnt2][1][0])
                                    < pnt[1]
                                    < (pnt2[1] + pnt_boxs[pnt2][1][1])))
-                          for pnt2 in pnt_dict if pnt2 != pnt)):
+                          for pnt2 in plot_dict if pnt2 != pnt)):
 
             lbl_pos[pnt] = (pnt[0] + pnt_gaps[pnt][0], pnt[1]), 'left'
             pnt_boxs[pnt][0][1] = pnt_boxs[pnt][0][1] + lbl_wdths[pnt]
@@ -115,7 +120,7 @@ def place_scatterpie_labels(pnt_dict, fig, ax,
     while i < 50000 and any(lbl is None for lbl in lbl_pos.values()):
         i += 1
 
-        for pnt in tuple(pnt_dict):
+        for pnt in tuple(plot_dict):
             if (pnt in lbl_pos and lbl_pos[pnt] is None
                     and lbl_wdths[pnt] < (0.91 * (xmax - xmin))
                     and lbl_hghts[pnt] < (0.47 * (ymax - ymin))):
@@ -162,7 +167,7 @@ def place_scatterpie_labels(pnt_dict, fig, ax,
                                  or ((pnt2[1] - pnt_boxs[pnt2][1][0])
                                      < new_pos[1]
                                      < (pnt2[1] + pnt_boxs[pnt2][1][1])))
-                            for pnt2 in pnt_dict)
+                            for pnt2 in plot_dict)
 
                         or any(((new_pos[0] - pos2[0][0]) ** 2
                                 + (new_pos[1] - pos2[0][1]) ** 2) ** 0.5
@@ -179,6 +184,28 @@ def place_scatterpie_labels(pnt_dict, fig, ax,
                                if pos2 is not None and pos2[1] == 'center')):
 
                     lbl_pos[pnt] = (new_pos[0], new_pos[1]), 'center'
+
+    for (pnt_x, pnt_y), pos in lbl_pos.items():
+        ax.text(pos[0][0], pos[0][1] + 700 ** -1,
+                plot_dict[pnt_x, pnt_y][1][0],
+                size=11, ha=pos[1], va='bottom')
+
+        x_delta = pnt_x - pos[0][0]
+        y_delta = pnt_y - pos[0][1]
+
+        if abs(x_delta) > xdist / 8.53 or abs(y_delta) > ydist / 8.53:
+            end_x = pos[0][0] + np.sign(x_delta) * xdist / 79
+            end_y = pos[0][1] + np.heaviside(y_delta, 0) * ydist / 10.1
+
+            ln_x, ln_y = (pnt_x - end_x) / xdist, (pnt_y - end_y) / ydist
+            ln_mag = (ln_x ** 2 + ln_y ** 2) ** 0.5
+            ln_cos, ln_sin = ln_x / ln_mag, ln_y / ln_mag
+
+            ax.plot([pnt_x - ln_cos * xdist / 4.1
+                     * plot_dict[pnt_x, pnt_y][0], end_x],
+                    [pnt_y - ln_sin * ydist / 4.1
+                     * plot_dict[pnt_x, pnt_y][0], end_y],
+                    c=clr_dict[pnt_x, pnt_y], linewidth=1.7, alpha=0.31)
 
     return {pos: lbl for pos, lbl in lbl_pos.items() if lbl}
 
