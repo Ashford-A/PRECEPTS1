@@ -1,24 +1,31 @@
 
 import os
+import sys
+base_dir = os.path.dirname(__file__)
+sys.path.extend([os.path.join(base_dir, '..', '..', '..')])
+
+from HetMan.experiments.utilities.pipeline_setup import (
+    get_task_arr, tasks_files)
+
 
 LOCALDIR = os.path.join(os.environ['CODEDIR'],
-                        'HetMan', 'experiments', 'subvariant_isolate')
+                        'HetMan', 'experiments', 'gene_isolate')
 
-TMPDIR = os.path.join(os.environ['TEMPDIR'], 'HetMan', 'subvariant_isolate',
-                      config['gene'], config['cohort'], config['mut_levels'],
+TMPDIR = os.path.join(os.environ['TEMPDIR'], 'HetMan', 'gene_isolate',
+                      config['gene'], config['cohort'], config['mut_lvls'],
                       config['search'], config['classif'])
 
 OUTDIR = os.path.join(os.environ['DATADIR'],
-                      'HetMan', 'subvariant_isolate', config['gene'])
+                      'HetMan', 'gene_isolate', config['gene'])
 
 
-localrules: target
+localrules: target, merge
 
 
 rule target:
     input:
-        expand("{outdir}/out-siml__"
-               "{cohort}__{mut_levels}__{search}__{classif}.p.gz",
+        expand("{outdir}/out-conf__"
+               "{cohort}__{mut_lvls}_{search}_{classif}.p.gz",
                outdir=OUTDIR, **config)
 
     threads: 1
@@ -34,40 +41,62 @@ rule isolate:
         export OMP_NUM_THREADS=1;
         sleep $(( ({wildcards.cv_id} + 1) * ({wildcards.task_id} + 1) \
                 * $(shuf -i 1-9 -n 1) ));
- 
-        python {LOCALDIR}/fit_isolate.py {config[gene]} {config[classif]} \
-                {TMPDIR} --task_count={config[task_count]} \
-                --task_id={wildcards.task_id} --cv_id={wildcards.cv_id}
+
+        task_count=$(( 1 + $( grep -Eo '[0-9]+' \
+                {TMPDIR}/setup/tasks.txt | sort -rn | head -n 1 ) ))
+
+        python -m HetMan.experiments.gene_isolate.fit_isolate \
+                {config[gene]} {config[classif]} {TMPDIR} \
+                --task_count=$task_count --task_id={wildcards.task_id} \
+                --cv_id={wildcards.cv_id}
+
         """
 
 
-rule consolidate:
-    input:
-        expand("{tmpdir}/output/out__cv-{cv_id}_task-{task_id}.p",
-               tmpdir=TMPDIR,
-               cv_id=range(40), task_id=range(config['task_count']))
+rule gather:
+    input: tasks_files
 
-    output:
-        expand("{outdir}/out-siml__"
-               "{cohort}__{mut_levels}__{search}__{classif}.p.gz",
-               outdir=OUTDIR, **config)
+    output: "{TMPDIR}/merge/out-conf_{tasks}.p.gz"
 
     threads: 12
 
     shell: """
         set +u; source activate HetMan; set -u;
-        python {LOCALDIR}/merge_isolate.py {TMPDIR}
-        out_tag={config[cohort]}__{config[mut_levels]}__{config[search]}__{config[classif]}
 
+        tasks={wildcards.tasks}
+        python -m HetMan.experiments.gene_isolate.gather_isolate \
+                {config[gene]} {TMPDIR} --task_ids ${{tasks//-/ }}
+
+        """
+
+
+rule merge:
+    input:
+        [os.path.join(TMPDIR, 'merge',
+                      "out-conf_{}.p.gz".format('-'.join(task_list)))
+         for task_list in get_task_arr(TMPDIR)]
+
+    output:
+        expand("{outdir}/out-conf__"
+               "{cohort}__{mut_lvls}_{search}_{classif}.p.gz",
+               outdir=OUTDIR, **config)
+
+    threads: 1
+
+    shell:"""
+        set +u; source activate HetMan; set -u;
+        python -m HetMan.experiments.subgrouping_isolate.merge_isolate \
+                {TMPDIR}
+
+        out_tag={config[cohort]}__{config[mut_lvls]}_{config[search]}_{config[classif]}
         cp {TMPDIR}/setup/cohort-data.p.gz \
                 {OUTDIR}/cohort-data__${{out_tag}}.p.gz
+
         cp {TMPDIR}/out-pred.p.gz {OUTDIR}/out-pred__${{out_tag}}.p.gz
         cp {TMPDIR}/out-tune.p.gz {OUTDIR}/out-tune__${{out_tag}}.p.gz
         cp {TMPDIR}/out-pheno.p.gz {OUTDIR}/out-pheno__${{out_tag}}.p.gz
-
         cp {TMPDIR}/out-aucs.p.gz {OUTDIR}/out-aucs__${{out_tag}}.p.gz
         cp {TMPDIR}/out-conf.p.gz {OUTDIR}/out-conf__${{out_tag}}.p.gz
-        cp {TMPDIR}/out-siml.p.gz {OUTDIR}/out-siml__${{out_tag}}.p.gz
 
         """
 

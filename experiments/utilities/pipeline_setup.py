@@ -3,6 +3,7 @@ import os
 import argparse
 import bz2
 import dill as pickle
+import pipes
 
 
 def get_task_arr(out_dir):
@@ -52,8 +53,8 @@ def main():
                                   "cohort-data.p.gz"), 'r') as f:
         samp_count = len(pickle.load(f).get_samples())
 
-    task_load = int((args.time_max * 4513)
-                    / (args.task_size * samp_count ** 1.31))
+    task_load = int((args.time_max * 6137)
+                    / (301 + args.task_size * samp_count ** 1.37))
     task_count = (muts_count - 1) // task_load + 1
     merge_count = task_count // 2 + 1
 
@@ -69,6 +70,9 @@ def main():
     task_file = open(os.path.join(args.out_dir, 'setup', "tasks.txt"), "w")
     task_file.writelines(task_arr)
     task_file.close()
+
+    run_time = (1.07 * muts_count * args.time_max) / (task_count * task_load)
+    print("export run_time=%s" % (pipes.quote(str(int(run_time) + 1))))
 
 
 if __name__ == '__main__':
