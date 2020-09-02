@@ -4,14 +4,18 @@ import argparse
 import bz2
 import dill as pickle
 import pipes
+from math import ceil
+
+DIV_LINE = "=====\n"
 
 
 def get_task_arr(out_dir):
     tasks_file = open(os.path.join(out_dir, 'setup', "tasks.txt"), 'r')
     tasks_list = tasks_file.readlines()
     tasks_file.close()
+    tsk_stop = tasks_list.index(DIV_LINE)
 
-    return [tasks.strip().split(' ') for tasks in tasks_list]
+    return [tasks.strip().split(' ') for tasks in tasks_list[:tsk_stop]]
 
 
 def tasks_files(wildcards):
@@ -26,7 +30,7 @@ def get_task_count(out_dir):
     with open(os.path.join(out_dir, 'setup', "tasks.txt"), 'r') as f:
         task_list = f.readline().strip()
  
-        while task_list:
+        while task_list != DIV_LINE.strip():
             task_count = max(task_count,
                              *[int(tsk) + 1 for tsk in task_list.split(' ')])
             task_list = f.readline().strip()
@@ -41,7 +45,8 @@ def main():
         )
 
     parser.add_argument('out_dir', type=str)
-    parser.add_argument('time_max', type=int)
+    parser.add_argument('run_max', type=int)
+    parser.add_argument('--merge_max', type=int)
     parser.add_argument('--task_size', type=float, default=1)
     args = parser.parse_args()
 
@@ -53,26 +58,41 @@ def main():
                                   "cohort-data.p.gz"), 'r') as f:
         samp_count = len(pickle.load(f).get_samples())
 
-    task_load = int((args.time_max * 6137)
-                    / (301 + args.task_size * samp_count ** 1.37))
-    task_count = (muts_count - 1) // task_load + 1
-    merge_count = task_count // 2 + 1
+    task_load = args.run_max * 6137
+    task_load //= 301 + args.task_size * samp_count ** 1.37
+    task_count = int(((muts_count - 1) // task_load) + 1)
+    task_size = muts_count // task_count
 
-    task_list = tuple(range(task_count))
-    task_arr = []
+    if args.merge_max is None:
+        merge_count = 1
 
-    for i in range(merge_count):
-        task_arr += [
-            "{}\n".format(
-                ' '.join([str(tsk) for tsk in task_list[i::merge_count]]))
-            ]
+    else:
+        merge_load = (args.merge_max * 30701) // (53 + samp_count ** 1.47)
+        merge_count = int(merge_load // task_size + 1)
+
+    task_list = list(range(task_count))
+    task_arr = [[] for _ in range(ceil(task_count / merge_count))]
+    i = 0
+
+    while task_list:
+        tsk_indx = (len(task_list) - 1) // (i % len(task_list) + 1)
+        task_arr[i] += [str(task_list.pop(tsk_indx))]
+        i = (i + 1) % len(task_arr)
+
+    merge_size = 1
+    for i in range(len(task_arr)):
+        task_arr[i] = "{}\n".format(' '.join(sorted(task_arr[i])))
+        merge_size = max(merge_size, len(task_arr[i]))
+
+    task_arr = sorted(task_arr) + [DIV_LINE]
+    run_time = 1.07 * task_size * args.run_max / task_load
+    task_arr += ["run_time={}\n".format(int(run_time) + 1)]
+    merge_time = 1.03 * args.merge_max * task_size * merge_count / merge_load
+    task_arr += ["merge_time={}\n".format(int(merge_time) + 1)]
 
     task_file = open(os.path.join(args.out_dir, 'setup', "tasks.txt"), "w")
     task_file.writelines(task_arr)
     task_file.close()
-
-    run_time = (1.07 * muts_count * args.time_max) / (task_count * task_load)
-    print("export run_time=%s" % (pipes.quote(str(int(run_time) + 1))))
 
 
 if __name__ == '__main__':

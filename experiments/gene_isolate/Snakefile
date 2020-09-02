@@ -38,17 +38,14 @@ rule isolate:
 
     shell: """
         set +u; source activate HetMan; set -u;
+
         export OMP_NUM_THREADS=1;
         sleep $(( ({wildcards.cv_id} + 1) * ({wildcards.task_id} + 1) \
                 * $(shuf -i 1-9 -n 1) ));
 
-        task_count=$(( 1 + $( grep -Eo '[0-9]+' \
-                {TMPDIR}/setup/tasks.txt | sort -rn | head -n 1 ) ))
-
         python -m HetMan.experiments.gene_isolate.fit_isolate \
                 {config[gene]} {config[classif]} {TMPDIR} \
-                --task_count=$task_count --task_id={wildcards.task_id} \
-                --cv_id={wildcards.cv_id}
+                --task_id={wildcards.task_id} --cv_id={wildcards.cv_id}
 
         """
 

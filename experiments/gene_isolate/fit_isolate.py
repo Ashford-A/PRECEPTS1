@@ -1,6 +1,7 @@
 
 from ..utilities.handle_input import safe_load
 from ..utilities.mutations import pnt_mtype, shal_mtype, ExMcomb
+from ..utilities.pipeline_setup import get_task_count
 from ..utilities.classifiers import *
 
 import os
@@ -23,11 +24,6 @@ def main():
                         help="a classifier in HetMan.predict.classifiers")
     parser.add_argument('use_dir', type=str)
 
-    parser.add_argument(
-        '--task_count', type=int, default=1,
-        help='how many parallel tasks the list of types to test is split into'
-        )
-
     parser.add_argument('--task_id', type=int, default=0,
                         help='the subset of subtypes to assign to this task')
     parser.add_argument('--cv_id', type=int, default=0,
@@ -35,6 +31,7 @@ def main():
 
     args = parser.parse_args()
     setup_dir = os.path.join(args.use_dir, 'setup')
+    task_count = get_task_count(args.use_dir)
 
     with open(os.path.join(setup_dir, "muts-list.p"), 'rb') as muts_f:
         muts_list = pickle.load(muts_f)
@@ -71,7 +68,7 @@ def main():
 
     # for each subtype, check if it has been assigned to this task
     for i, mut in enumerate(muts_list):
-        if (i % args.task_count) == args.task_id:
+        if (i % task_count) == args.task_id:
             print("Isolating {} ...".format(mut))
 
             mut_samps = mut.get_samples(*cdata.mtrees.values())
