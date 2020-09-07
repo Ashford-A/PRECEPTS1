@@ -1,5 +1,5 @@
 
-from .tcga import MutationCohort as TCGAcohort
+from .utils import get_input_datasets
 
-__all__ = ['TCGAcohort']
+__all__ = ['get_input_datasets']
 

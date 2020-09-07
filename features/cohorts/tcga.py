@@ -2,7 +2,6 @@
 from ..data.expression import get_expr_firehose, get_expr_bmeg, get_expr_toil
 from ..data.copies import get_copies_firehose
 from .mut_freq import BaseMutFreqCohort
-from .utils import parse_subtypes
 
 from dryadic.features.cohorts.mut import (
     BaseMutationCohort, BaseCopyCohort, BaseTransferMutationCohort)
@@ -21,6 +20,25 @@ from itertools import cycle, combinations
 
 from pathlib import Path
 from sklearn.preprocessing import scale
+
+
+cohort_subtypes = {
+    'nonbasal': ['LumA', 'LumB', 'Her2', 'Normal'],
+    'luminal': ['LumA', 'LumB'],
+    }
+
+
+def parse_subtypes(cohort):
+    use_subtypes = None
+    coh_info = cohort.split('_')
+
+    if len(coh_info) > 1:
+        if coh_info[1] in cohort_subtypes:
+            use_subtypes = cohort_subtypes[coh_info[1]]
+        else:
+            use_subtypes = [coh_info[1]]
+
+    return use_subtypes
 
 
 def get_expr_data(cohort, expr_source, **expr_args):
@@ -279,11 +297,8 @@ def process_input_datasets(cohort, expr_source, var_source, copy_source,
     expr_data = expr.loc[use_samps]
     variants = variants.loc[variants.Sample.isin(use_samps)]
     copy_df = copy_df.loc[copy_df.Sample.isin(use_samps)]
-    variants = variants.assign(Scale='Point')
-    copy_df = copy_df.assign(Scale='Copy')
-    mut_data = pd.concat([variants, copy_df], sort=True)
 
-    return expr_data, mut_data, annot_dict
+    return expr_data, variants, copy_df, annot_dict
 
 
 class MutationCohort(BaseMutationCohort):
