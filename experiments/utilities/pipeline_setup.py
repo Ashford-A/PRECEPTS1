@@ -48,6 +48,7 @@ def main():
     parser.add_argument('run_max', type=int)
     parser.add_argument('--merge_max', type=int)
     parser.add_argument('--task_size', type=float, default=1)
+    parser.add_argument('--test', action='store_true')
     args = parser.parse_args()
 
     with open(os.path.join(args.out_dir, 'setup',
@@ -65,15 +66,14 @@ def main():
 
     if args.merge_max is None:
         merge_count = 1
-
     else:
-        merge_load = (args.merge_max * 30701) // (53 + samp_count ** 1.47)
+        merge_load = (args.merge_max * 10703) // (samp_count ** 1.17)
         merge_count = int(merge_load // task_size + 1)
 
     task_list = list(range(task_count))
     task_arr = [[] for _ in range(ceil(task_count / merge_count))]
-    i = 0
 
+    i = 0
     while task_list:
         tsk_indx = (len(task_list) - 1) // (i % len(task_list) + 1)
         task_arr[i] += [str(task_list.pop(tsk_indx))]
@@ -81,18 +81,23 @@ def main():
 
     merge_size = 1
     for i in range(len(task_arr)):
-        task_arr[i] = "{}\n".format(' '.join(sorted(task_arr[i])))
         merge_size = max(merge_size, len(task_arr[i]))
+        task_arr[i] = "{}\n".format(' '.join(sorted(task_arr[i])))
 
     task_arr = sorted(task_arr) + [DIV_LINE]
-    run_time = 1.07 * task_size * args.run_max / task_load
+    run_time = max(1.07 * task_size * args.run_max / task_load, 30)
     task_arr += ["run_time={}\n".format(int(run_time) + 1)]
-    merge_time = 1.03 * args.merge_max * task_size * merge_count / merge_load
+
+    merge_time = max(
+        1.03 * args.merge_max * task_size * merge_size / merge_load, 30)
     task_arr += ["merge_time={}\n".format(int(merge_time) + 1)]
 
-    task_file = open(os.path.join(args.out_dir, 'setup', "tasks.txt"), "w")
-    task_file.writelines(task_arr)
-    task_file.close()
+    if args.test:
+        print(''.join(task_arr))
+
+    else:
+        with open(os.path.join(args.out_dir, 'setup', "tasks.txt"), 'w') as f:
+            f.writelines(task_arr)
 
 
 if __name__ == '__main__':

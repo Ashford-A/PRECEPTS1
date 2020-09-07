@@ -22,8 +22,8 @@ from operator import add
 
 def main():
     parser = argparse.ArgumentParser(
-        "Processes and consolidates the distributed output of an iteration "
-        "of the subgrouping isolation experiment for use in further analyses."
+        'gather_isolate',
+        description="Processes and consolidates the output of the experiment."
         )
 
     parser.add_argument('gene', type=str, help="a mutated gene")
@@ -152,10 +152,12 @@ def main():
                 "match those enumerated during setup!".format(ex_lbl, cv_id)
                 )
 
-            pred_lists[ex_lbl][cv_id][samps_dict['test']] = pd.DataFrame(
-                out_preds.test.values.tolist(),
-                index=out_preds.index, columns=samps_dict['test']
-                ).applymap(lambda x: [x])
+            test_mat = np.vstack(out_preds.test.values).transpose()
+            pred_lists[ex_lbl][cv_id].loc[out_preds.index] = pred_lists[
+                ex_lbl][cv_id].loc[out_preds.index].assign(
+                    **{samp: [[x] for x in test_mat[i]]
+                       for i, samp in enumerate(samps_dict['test'])}
+                    )
 
             if 'train' in out_preds:
                 train_mat = out_preds.train[~out_preds.train.isnull()]
