@@ -1,5 +1,11 @@
 
 import os
+import sys
+base_dir = os.path.dirname(__file__)
+sys.path.extend([os.path.join(base_dir, '..', '..', '..')])
+
+from HetMan.experiments.utilities.pipeline_setup import (
+    get_task_arr, tasks_files)
 
 
 LOCALDIR = os.path.join(os.environ['CODEDIR'],
@@ -14,15 +20,6 @@ TMPDIR = os.path.join(
 OUTDIR = os.path.join(os.environ['DATADIR'],
                       'HetMan', 'subgrouping_isolate',
                       '__'.join([config['expr_source'], config['cohort']]))
-
-
-tasks_file = open(os.path.join(TMPDIR, 'setup', "tasks.txt"), 'r')
-tasks_list = tasks_file.readlines()
-tasks_file.close()
-
-task_arr = [tasks.strip().split(' ') for tasks in tasks_list]
-task_arr = [[tsks[i] for tsks in task_arr if i < len(tsks)]
-            for i in range(len(task_arr[0]))]
 
 
 localrules: target, merge
@@ -43,24 +40,16 @@ rule isolate:
 
     shell: """
         set +u; source activate HetMan; set -u;
+
         export OMP_NUM_THREADS=1;
         sleep $(( ({wildcards.cv_id} + 1) * ({wildcards.task_id} + 1) \
                 * $(shuf -i 1-9 -n 1) ));
 
-        task_count=$(( 1 + $( grep -Eo '[0-9]+' \
-                {TMPDIR}/setup/tasks.txt | sort -rn | head -n 1 ) ))
-
         python -m HetMan.experiments.subgrouping_isolate.fit_isolate \
-                {config[classif]} {TMPDIR} --task_count=$task_count \
+                {config[classif]} {TMPDIR} \
                 --task_id={wildcards.task_id} --cv_id={wildcards.cv_id}
 
         """
-
-
-def tasks_files(wildcards):
-    return [os.path.join(TMPDIR, 'output',
-                         "out__cv-{}_task-{}.p".format(cv_id, task_id))
-            for cv_id in range(40) for task_id in wildcards.tasks.split('-')]
 
 
 rule gather:
@@ -84,7 +73,7 @@ rule merge:
     input:
         [os.path.join(TMPDIR, 'merge',
                       "out-conf_{}.p.gz".format('-'.join(task_list)))
-         for task_list in task_arr]
+         for task_list in get_task_arr(TMPDIR)]
 
     output:
         expand("{outdir}/out-conf__{mut_levels}__{search}__{classif}.p.gz",

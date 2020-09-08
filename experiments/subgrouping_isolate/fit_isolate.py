@@ -1,7 +1,8 @@
 
 from ..utilities.handle_input import safe_load
 from ..utilities.mutations import pnt_mtype, shal_mtype, ExMcomb
-from ..subvariant_isolate.classifiers import *
+from ..utilities.pipeline_setup import get_task_count
+from ..utilities.classifiers import *
 
 import os
 import argparse
@@ -20,11 +21,6 @@ def main():
                         help="a classifier in HetMan.predict.classifiers")
     parser.add_argument('use_dir', type=str)
 
-    parser.add_argument(
-        '--task_count', type=int, default=1,
-        help='how many parallel tasks the list of types to test is split into'
-        )
-
     parser.add_argument('--task_id', type=int, default=0,
                         help='the subset of subtypes to assign to this task')
     parser.add_argument('--cv_id', type=int, default=0,
@@ -33,6 +29,7 @@ def main():
     # collect command line arguments, get directory where input has been saved
     args = parser.parse_args()
     setup_dir = os.path.join(args.use_dir, 'setup')
+    task_count = get_task_count(args.use_dir)
 
     # load the list of mutation types to test and the cohort -omic data
     with open(os.path.join(setup_dir, "muts-list.p"), 'rb') as muts_f:
@@ -61,9 +58,12 @@ def main():
     out_pred = {mut: {smps: None for smps in ['All', 'Iso', 'IsoShal']}
                 for mut in muts_list}
 
+    random.seed(10301)
+    random.shuffle(muts_list)
+
     # for each subtype, check if it has been assigned to this task
     for i, mut in enumerate(muts_list):
-        if (i % args.task_count) == args.task_id:
+        if (i % task_count) == args.task_id:
             print("Isolating {} ...".format(mut))
 
             cur_gene = tuple(mut.label_iter())[0]
