@@ -1,6 +1,8 @@
 
 from ..utilities.mutations import pnt_mtype, shal_mtype, ExMcomb
-from ..subvariant_isolate.merge_isolate import compare_muts, calculate_auc
+from ..utilities.pipeline_setup import get_task_count
+from ..utilities.misc import compare_muts
+from ..gene_isolate.utils import calculate_auc
 
 import os
 import argparse
@@ -34,8 +36,8 @@ def calculate_siml(base_mtype, phn_dict, ex_k, pred_vals):
 
 def main():
     parser = argparse.ArgumentParser(
-        "Processes and consolidates the distributed output of an iteration "
-        "of the subgrouping isolation experiment for use in further analyses."
+        'gather_isolate',
+        description="Processes and consolidates the output of the experiment."
         )
 
     parser.add_argument('use_dir', type=str)
@@ -74,14 +76,7 @@ def main():
 
     # find the number of parallelized tasks used in this run of the pipeline
     assert (len(file_dict) % 40) == 0, "Missing output files detected!"
-    task_count = 1
-    with open(os.path.join(args.use_dir, 'setup', "tasks.txt"), 'r') as f:
-        task_list = f.readline().strip()
-
-        while task_list:
-            task_count = max(task_count,
-                             *[int(tsk) + 1 for tsk in task_list.split(' ')])
-            task_list = f.readline().strip()
+    task_count = get_task_count(args.use_dir)
 
     if args.task_ids is None:
         use_tasks = set(range(task_count))
@@ -106,6 +101,9 @@ def main():
                for k in ['Pars', 'Time', 'Acc']}
     out_clf = None
     out_tune = None
+
+    random.seed(10301)
+    random.shuffle(muts_list)
 
     use_muts = [mut for i, mut in enumerate(muts_list)
                 if i % task_count in use_tasks]
@@ -176,10 +174,12 @@ def main():
                 "match those enumerated during setup!".format(ex_lbl, cv_id)
                 )
 
-            pred_lists[ex_lbl][cv_id][samps_dict['test']] = pd.DataFrame(
-                out_preds.test.values.tolist(),
-                index=out_preds.index, columns=samps_dict['test']
-                ).applymap(lambda x: [x])
+            test_mat = np.vstack(out_preds.test.values).transpose()
+            pred_lists[ex_lbl][cv_id].loc[out_preds.index] = pred_lists[
+                ex_lbl][cv_id].loc[out_preds.index].assign(
+                **{samp: [[x] for x in test_mat[i]]
+                   for i, samp in enumerate(samps_dict['test'])}
+                )
 
             if 'train' in out_preds:
                 train_mat = out_preds.train[~out_preds.train.isnull()]
@@ -231,14 +231,14 @@ def main():
                     mut, hld_samps].apply(len) == 40).all(), (
                         "Incorrect number of testing CV scores!")
 
-    pars_dfs = {ex_lbl: pd.concat(out_dfs['Pars'][ex_lbl], axis=1)
+    pars_dfs = {ex_lbl: pd.concat(out_dfs['Pars'][ex_lbl], axis=1, sort=True)
                 for ex_lbl in args.ex_lbls}
 
     for pars_df in pars_dfs.values():
         assert pars_df.shape[1] == (40 * len(out_clf.tune_priors)), (
             "Tuned parameter values missing for some CVs!")
 
-    time_dfs = {ex_lbl: pd.concat(out_dfs['Time'][ex_lbl], axis=1)
+    time_dfs = {ex_lbl: pd.concat(out_dfs['Time'][ex_lbl], axis=1, sort=True)
                 for ex_lbl in args.ex_lbls}
 
     for time_df in time_dfs.values():
@@ -247,7 +247,7 @@ def main():
         assert (time_df.applymap(len) == out_clf.test_count).values.all(), (
             "Algorithm fit times missing for some hyper-parameter values!")
 
-    acc_dfs = {ex_lbl: pd.concat(out_dfs['Acc'][ex_lbl], axis=1)
+    acc_dfs = {ex_lbl: pd.concat(out_dfs['Acc'][ex_lbl], axis=1, sort=True)
                for ex_lbl in args.ex_lbls}
 
     for acc_df in acc_dfs.values():

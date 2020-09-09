@@ -63,9 +63,9 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals,
                 auc_vec[(base_indx + 1):]).idxmax()
 
             if auc_vec[best_subtype] > 0.6:
-                clr_dict[gene] = choose_label_colour(gene)
-
                 auc_tupl = auc_vec[base_mtype], auc_vec[best_subtype]
+                clr_dict[auc_tupl] = choose_label_colour(gene)
+
                 plt_min = min(plt_min, auc_vec[base_indx] - 0.053,
                               auc_vec[best_subtype] - 0.029)
 
@@ -95,8 +95,8 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals,
                     )
 
                 pie_ax.pie(x=[best_prop, 1 - best_prop],
-                           colors=[clr_dict[gene] + (0.77, ),
-                                   clr_dict[gene] + (0.29, )],
+                           colors=[clr_dict[auc_tupl] + (0.77, ),
+                                   clr_dict[auc_tupl] + (0.29, )],
                            explode=[0.29, 0], startangle=90)
 
     if add_lgnd:
@@ -143,34 +143,12 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals,
     ax.set_ylabel("Accuracy of Best Subgrouping Classifier",
                   size=23, weight='semibold')
 
+    if plot_dict:
+        lbl_pos = place_scatterpie_labels(plot_dict, clr_dict, fig, ax,
+                                          lbl_dens=1.31)
+
     ax.set_xlim(plt_lims)
     ax.set_ylim(plt_lims)
-
-    lbl_pos = place_scatterpie_labels(plot_dict, fig, ax, lbl_dens=1.31)
-    for (pnt_x, pnt_y), pos in lbl_pos.items():
-        ax.text(pos[0][0], pos[0][1] + 700 ** -1,
-                plot_dict[pnt_x, pnt_y][1][0],
-                size=13, ha=pos[1], va='bottom')
-        ax.text(pos[0][0], pos[0][1] - 700 ** -1,
-                plot_dict[pnt_x, pnt_y][1][1],
-                size=9, ha=pos[1], va='top')
-
-        x_delta = pnt_x - pos[0][0]
-        y_delta = pnt_y - pos[0][1]
-        ln_lngth = np.sqrt((x_delta ** 2) + (y_delta ** 2))
-
-        # if the label is sufficiently far away from its point...
-        if ln_lngth > (0.019 + plot_dict[pnt_x, pnt_y][0] / 23):
-            use_clr = clr_dict[plot_dict[pnt_x, pnt_y][1][0]]
-            pnt_gap = plot_dict[pnt_x, pnt_y][0] / (29 * ln_lngth)
-            lbl_gap = 0.006 / ln_lngth
-
-            ax.plot([pnt_x - pnt_gap * x_delta,
-                     pos[0][0] + lbl_gap * x_delta],
-                    [pnt_y - pnt_gap * y_delta,
-                     pos[0][1] + lbl_gap * y_delta
-                     + 0.008 + 0.004 * np.sign(y_delta)],
-                    c=use_clr, linewidth=2.3, alpha=0.27)
 
     plt.savefig(
         os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
@@ -211,10 +189,9 @@ def plot_copy_comparisons(auc_vals, pheno_dict, conf_vals,
                     auc_vec[(base_indx + 1):]).idxmax()
 
                 if auc_vec[best_subtype] > 0.6:
-                    if gene not in clr_dict:
-                        clr_dict[gene] = choose_label_colour(gene)
-
                     auc_tupl = auc_vec[base_mtype], auc_vec[best_subtype]
+                    clr_dict[auc_tupl] = choose_label_colour(gene)
+
                     plt_min = min(plt_min,
                                   auc_tupl[0] - 0.053, auc_tupl[1] - 0.029)
 
@@ -249,8 +226,8 @@ def plot_copy_comparisons(auc_vals, pheno_dict, conf_vals,
                         )
 
                     pie_ax.pie(x=[best_prop, 1 - best_prop],
-                               colors=[clr_dict[gene] + (0.77, ),
-                                       clr_dict[gene] + (0.29, )],
+                               colors=[clr_dict[auc_tupl] + (0.77, ),
+                                       clr_dict[auc_tupl] + (0.29, )],
                                explode=[0.37, 0], startangle=90)
 
     gain_ax.set_xlabel("Accuracy of\n(All Gains + Gene-Wide) Classifier",
@@ -277,37 +254,11 @@ def plot_copy_comparisons(auc_vals, pheno_dict, conf_vals,
         ax.plot(plt_lims, plt_lims,
                 color='#550000', linewidth=2.1, linestyle='--', alpha=0.41)
 
+        lbl_pos = place_scatterpie_labels(plot_dict[copy_type], clr_dict,
+                                          fig, ax, font_adj=5 / 6)
+
         ax.set_xlim(plt_lims)
         ax.set_ylim(plt_lims)
-
-        lbl_pos = place_scatterpie_labels(plot_dict[copy_type], fig, ax,
-                                          font_adj=5 / 6)
-
-        for (pnt_x, pnt_y), pos in lbl_pos.items():
-            ax.text(pos[0][0], pos[0][1] + 700 ** -1,
-                    plot_dict[copy_type][pnt_x, pnt_y][1][0],
-                    size=12, ha=pos[1], va='bottom')
-            ax.text(pos[0][0], pos[0][1] - 700 ** -1,
-                    plot_dict[copy_type][pnt_x, pnt_y][1][1],
-                    size=8, ha=pos[1], va='top')
-
-            x_delta = pnt_x - pos[0][0]
-            y_delta = pnt_y - pos[0][1]
-            ln_lngth = np.sqrt((x_delta ** 2) + (y_delta ** 2))
-
-            # if the label is sufficiently far away from its point...
-            if ln_lngth > (0.019 + plot_dict[copy_type][pnt_x, pnt_y][0] / 23):
-                use_clr = clr_dict[plot_dict[copy_type][pnt_x, pnt_y][1][0]]
-                pnt_gap = plot_dict[copy_type][pnt_x, pnt_y][0]
-                pnt_gap /= (29 * ln_lngth)
-                lbl_gap = 0.006 / ln_lngth
-
-                ax.plot([pnt_x - pnt_gap * x_delta,
-                         pos[0][0] + lbl_gap * x_delta],
-                        [pnt_y - pnt_gap * y_delta,
-                         pos[0][1] + lbl_gap * y_delta
-                         + 0.008 + 0.004 * np.sign(y_delta)],
-                        c=use_clr, linewidth=1.7, alpha=0.27)
 
     plt.savefig(
         os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
