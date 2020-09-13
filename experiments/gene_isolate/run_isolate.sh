@@ -2,8 +2,8 @@
 #SBATCH --job-name=gn-iso
 #SBATCH --verbose
 
-
-source activate HetMan
+start_time=$( date +%s )
+source activate research
 rewrite=false
 count_only=false
 
@@ -33,13 +33,10 @@ do
 done
 
 # decide where intermediate files will be stored, find code source directory and input files
-OUTDIR=$TEMPDIR/HetMan/gene_isolate/$gene/$cohort/$mut_lvls/$search/$classif
-FINALDIR=$DATADIR/HetMan/gene_isolate/$gene
-export RUNDIR=$CODEDIR/HetMan/experiments/gene_isolate
+OUTDIR=$TEMPDIR/dryads-research/gene_isolate/$gene/$cohort/$mut_lvls/$search/$classif
+FINALDIR=$DATADIR/dryads-research/gene_isolate/$gene
+export RUNDIR=$CODEDIR/dryads-research/experiments/gene_isolate
 out_tag=${cohort}__${mut_lvls}_${search}_${classif}
-
-cd $CODEDIR || exit
-eval "$( python -m HetMan.experiments.utilities.data_dirs $cohort )"
 
 # if we want to rewrite the experiment, remove the intermediate output directory
 if $rewrite
@@ -49,18 +46,21 @@ fi
 
 # create the directories where intermediate and final output will be stored, move to working directory
 mkdir -p $FINALDIR $OUTDIR/setup $OUTDIR/output $OUTDIR/slurm $OUTDIR/merge
-cd $OUTDIR || exit
 
+cd $CODEDIR || exit
+eval "$( python -m dryads-research.experiments.utilities.data_dirs $cohort )"
+
+cd $OUTDIR || exit
 rm -rf .snakemake
 dvc init --no-scm -f
 export PYTHONPATH="$CODEDIR"
 
 # enumerate the mutation types that will be tested in this experiment
 dvc run -d $COH_DIR -d $GENCODE_DIR -d $ONCOGENE_LIST -d $SUBTYPE_LIST \
-	-d $RUNDIR/setup_isolate.py -d $CODEDIR/HetMan/environment.yml \
+	-d $RUNDIR/setup_isolate.py -d $CODEDIR/dryads-research/environment.yml \
 	-o setup/muts-list.p -m setup/muts-count.txt \
 	-f setup.dvc --overwrite-dvcfile \
-	python -m HetMan.experiments.gene_isolate.setup_isolate \
+	python -m dryads-research.experiments.gene_isolate.setup_isolate \
 	$gene $cohort $mut_lvls $search $OUTDIR
 
 # if we are only enumerating, we quit before classification jobs are launched
@@ -70,15 +70,27 @@ then
 	exit 0
 fi
 
+if [ -z ${SBATCH_TIMELIMIT+x} ]
+then
+	time_lim=2159
+else
+	time_lim=$SBATCH_TIMELIMIT
+fi
+
+cur_time=$( date +%s )
+time_left=$(( time_lim - (cur_time - start_time) / 60 + 1 ))
+
 if [ -z ${time_max+x} ]
 then
-	time_max=2159
+	time_max=$(( $time_left * 11 / 13 ))
 fi
 
 if [ ! -f setup/tasks.txt ]
 then
-	eval "$( python -m HetMan.experiments.utilities.pipeline_setup \
-		$OUTDIR $time_max --merge_max=200 )"
+	merge_max=$(( $time_left - $time_max - 3 ))
+
+	eval "$( python -m dryads-research.experiments.utilities.pipeline_setup \
+		$OUTDIR $time_max --merge_max=$merge_max )"
 fi
 
 eval "$( tail -n 2 setup/tasks.txt | head -n 1 )"

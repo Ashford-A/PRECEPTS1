@@ -1,7 +1,7 @@
 
 from .param_lists import search_params, mut_lvls
 from ..utilities.data_dirs import choose_source, vep_cache_dir
-from ..subgrouping_isolate.setup_isolate import get_input_datasets
+from ...features.cohorts import get_input_datasets
 from dryadic.features.data.vep import process_variants
 
 from ..utilities.mutations import (
@@ -39,9 +39,9 @@ def main():
     out_path = os.path.join(args.out_dir, 'setup')
 
     data_dict = get_input_datasets(
-        args.cohort, choose_source(args.cohort), use_genes=[args.gene],
+        args.cohort, choose_source(args.cohort),
         mut_fields=['Sample', 'Gene', 'Chr', 'Start', 'End',
-                    'Strand', 'RefAllele', 'TumorAllele']
+                    'RefAllele', 'TumorAllele']
         )
 
     var_df = pd.DataFrame({'Chr': data_dict['vars'].Chr.astype('int'),
@@ -49,7 +49,6 @@ def main():
                            'End': data_dict['vars'].End.astype('int'),
                            'RefAllele': data_dict['vars'].RefAllele,
                            'VarAllele': data_dict['vars'].TumorAllele,
-                           'Strand': data_dict['vars'].Strand,
                            'Sample': data_dict['vars'].Sample})
 
     lvl_lists = [('Scale', 'Copy') + lvl_list
@@ -71,9 +70,8 @@ def main():
         )
 
     variants = variants.loc[(variants.CANONICAL == 'YES')
-                            & variants.Gene.isin(data_dict['use_genes'])]
-    copies = data_dict['copy'].loc[
-        data_dict['copy'].Gene.isin(data_dict['use_genes'])]
+                            & (variants.Gene == args.gene)]
+    copies = data_dict['copy'].loc[data_dict['copy'].Gene == args.gene]
 
     assert not variants.duplicated().any(), (
         "Variant data contains {} duplicate entries!".format(

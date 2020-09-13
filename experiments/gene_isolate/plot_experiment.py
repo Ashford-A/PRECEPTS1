@@ -3,6 +3,7 @@ from ..utilities.mutations import (
     pnt_mtype, dup_mtype, loss_mtype, gains_mtype, dels_mtype)
 from dryadic.features.mutations import MuType
 
+from ..gene_isolate import base_dir
 from ..subgrouping_isolate.plot_gene import choose_subtype_colour
 from ..subgrouping_isolate.utils import remove_pheno_dups
 from ..utilities.labels import get_fancy_label
@@ -26,9 +27,6 @@ plt.style.use('fivethirtyeight')
 plt.rcParams['axes.facecolor'] = 'white'
 plt.rcParams['savefig.facecolor'] = 'white'
 plt.rcParams['axes.edgecolor'] = 'white'
-
-
-base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'gene_isolate')
 plot_dir = os.path.join(base_dir, 'plots', 'experiment')
 
 
