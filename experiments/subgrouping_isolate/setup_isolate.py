@@ -41,7 +41,7 @@ def main():
     data_dict = get_input_datasets(
         args.cohort, args.expr_source,
         mut_fields=['Sample', 'Gene', 'Chr', 'Start', 'End',
-                    'Strand', 'RefAllele', 'TumorAllele']
+                    'RefAllele', 'TumorAllele']
         )
 
     var_df = pd.DataFrame({'Chr': data_dict['vars'].Chr.astype('int'),
@@ -49,7 +49,6 @@ def main():
                            'End': data_dict['vars'].End.astype('int'),
                            'RefAllele': data_dict['vars'].RefAllele,
                            'VarAllele': data_dict['vars'].TumorAllele,
-                           'Strand': data_dict['vars'].Strand,
                            'Sample': data_dict['vars'].Sample})
 
     # get the combination of mutation attributes and search constraints

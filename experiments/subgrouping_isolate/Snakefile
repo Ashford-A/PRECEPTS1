@@ -1,24 +1,19 @@
 
 import os
 import sys
-base_dir = os.path.dirname(__file__)
-sys.path.extend([os.path.join(base_dir, '..', '..', '..')])
+sys.path.extend([os.path.join(os.environ['CODEDIR'], 'dryads-research',
+                              'experiments', 'utilities')])
+from pipeline_setup import get_task_arr, tasks_files
 
-from HetMan.experiments.utilities.pipeline_setup import (
-    get_task_arr, tasks_files)
-
-
-LOCALDIR = os.path.join(os.environ['CODEDIR'],
-                        'HetMan', 'experiments', 'subgrouping_isolate')
 
 TMPDIR = os.path.join(
-    os.environ['TEMPDIR'], 'HetMan', 'subgrouping_isolate',
+    os.environ['TEMPDIR'], 'dryads-research', 'subgrouping_isolate',
     config['expr_source'], config['cohort'],
     config['mut_levels'], config['search'], config['classif']
     )
 
 OUTDIR = os.path.join(os.environ['DATADIR'],
-                      'HetMan', 'subgrouping_isolate',
+                      'dryads-research', 'subgrouping_isolate',
                       '__'.join([config['expr_source'], config['cohort']]))
 
 
@@ -39,13 +34,13 @@ rule isolate:
     threads: 8
 
     shell: """
-        set +u; source activate HetMan; set -u;
+        set +u; source activate research; set -u;
 
         export OMP_NUM_THREADS=1;
         sleep $(( ({wildcards.cv_id} + 1) * ({wildcards.task_id} + 1) \
                 * $(shuf -i 1-9 -n 1) ));
 
-        python -m HetMan.experiments.subgrouping_isolate.fit_isolate \
+        python -m dryads-research.experiments.subgrouping_isolate.fit_isolate \
                 {config[classif]} {TMPDIR} \
                 --task_id={wildcards.task_id} --cv_id={wildcards.cv_id}
 
@@ -60,10 +55,10 @@ rule gather:
     threads: 12
 
     shell: """
-        set +u; source activate HetMan; set -u;
+        set +u; source activate research; set -u;
 
         tasks={wildcards.tasks}
-        python -m HetMan.experiments.subgrouping_isolate.gather_isolate \
+        python -m dryads-research.experiments.subgrouping_isolate.gather_isolate \
                 {TMPDIR} --task_ids ${{tasks//-/ }}
 
         """
@@ -82,8 +77,8 @@ rule merge:
     threads: 1
 
     shell:"""
-        set +u; source activate HetMan; set -u;
-        python -m HetMan.experiments.subgrouping_isolate.merge_isolate \
+        set +u; source activate research; set -u;
+        python -m dryads-research.experiments.subgrouping_isolate.merge_isolate \
                 {TMPDIR}
 
         out_tag={config[mut_levels]}__{config[search]}__{config[classif]}

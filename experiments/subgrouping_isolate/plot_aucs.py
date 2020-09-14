@@ -1,10 +1,12 @@
 
+
 from ..utilities.mutations import (
     pnt_mtype, copy_mtype, shal_mtype,
     dup_mtype, gains_mtype, loss_mtype, dels_mtype, Mcomb, ExMcomb
     )
 from dryadic.features.mutations import MuType
 
+from ..subgrouping_isolate import base_dir
 from ..utilities.labels import get_fancy_label
 from ..utilities.label_placement import place_scatterpie_labels
 from ..subvariant_test.utils import get_cohort_label
@@ -32,10 +34,6 @@ plt.style.use('fivethirtyeight')
 plt.rcParams['axes.facecolor'] = 'white'
 plt.rcParams['savefig.facecolor'] = 'white'
 plt.rcParams['axes.edgecolor'] = 'white'
-
-
-base_dir = os.path.join(os.environ['DATADIR'], 'HetMan',
-                        'subgrouping_isolate')
 plot_dir = os.path.join(base_dir, 'plots', 'aucs')
 
 

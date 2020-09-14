@@ -85,33 +85,33 @@ def plot_subcopy_adjacencies(pred_df, pheno_dict, auc_vals, cdata, args,
     auc_list: pd.Series
     for cur_gene, auc_list in plt_gby:
         gene_cna = MuType({('Gene', cur_gene): cna_mtype})
-        plt_types = {mcomb for mcomb in use_combs
+        plt_combs = {mcomb for mcomb in use_combs
                      if tuple(mcomb.mtypes)[0] == gene_cna}
 
-        if len(plt_types) > 1:
+        if len(plt_combs) > 1:
             raise ValueError("Too many exclusive {} CNAs associated with "
                              "`{}`!".format(cna_lbl, cur_gene))
 
-        if len(plt_types) == 1:
-            plt_type = tuple(plt_types)[0]
+        if len(plt_combs) == 1:
+            plt_comb = tuple(plt_combs)[0]
             use_mtree = tuple(cdata.mtrees.values())[0][cur_gene]
 
             all_mtype = MuType({('Gene', cur_gene): use_mtree.allkey()})
             all_phn = np.array(cdata.train_pheno(all_mtype))
-            use_preds = pred_df.loc[set(auc_list.index) | {plt_type},
+            use_preds = pred_df.loc[set(auc_list.index) | {plt_comb},
                                     train_samps].applymap(np.mean)
 
             for mcomb, auc_val in auc_list.iteritems():
                 copy_siml1 = SIML_FXS[siml_metric](
                     use_preds.loc[mcomb][~all_phn],
                     use_preds.loc[mcomb][pheno_dict[mcomb]],
-                    use_preds.loc[mcomb][pheno_dict[plt_type]]
+                    use_preds.loc[mcomb][pheno_dict[plt_comb]]
                     )
 
                 copy_siml2 = SIML_FXS[siml_metric](
-                    use_preds.loc[plt_type][~all_phn],
-                    use_preds.loc[plt_type][pheno_dict[plt_type]],
-                    use_preds.loc[plt_type][pheno_dict[mcomb]]
+                    use_preds.loc[plt_comb][~all_phn],
+                    use_preds.loc[plt_comb][pheno_dict[plt_comb]],
+                    use_preds.loc[plt_comb][pheno_dict[mcomb]]
                     )
 
                 ylim = max(ylim,
@@ -211,7 +211,6 @@ def plot_subcopy_adjacencies(pred_df, pheno_dict, auc_vals, cdata, args,
 def plot_copy_interaction(pred_df, pheno_dict, auc_vals,
                           cdata, args, siml_metric, add_lgnd=False):
     fig, (gain_ax, loss_ax) = plt.subplots(figsize=(10, 9), nrows=2, ncols=1)
-    cna_mtypes = {'Gain': gains_mtype, 'Loss': dels_mtype}
 
     use_mcombs = {mut for mut in auc_vals.index
                   if (isinstance(mut, ExMcomb) and len(mut.mtypes) == 1
