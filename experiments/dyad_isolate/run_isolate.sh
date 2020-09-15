@@ -3,12 +3,13 @@
 #SBATCH --verbose
 
 
-source activate HetMan
+start_time=$( date +%s )
+source activate research
 rewrite=false
 count_only=false
 
 # collect command line arguments
-while getopts e:t:s:l:c:m:rn var
+while getopts :e:t:s:l:c:m:rn var
 do
 	case "$var" in
 		e)  expr_source=$OPTARG;;
@@ -33,13 +34,10 @@ do
 done
 
 # decide where intermediate files will be stored, find code source directory and input files
-OUTDIR=$TEMPDIR/HetMan/dyad_isolate/$expr_source/$cohort/$search/$mut_lvls/$classif
-FINALDIR=$DATADIR/HetMan/dyad_isolate/${expr_source}__${cohort}
-export RUNDIR=$CODEDIR/HetMan/experiments/dyad_isolate
-
-cd $CODEDIR || exit
-eval "$(python -m HetMan.experiments.subgrouping_isolate.data_dirs \
-	$expr_source $cohort)"
+OUTDIR=$TEMPDIR/dryads-research/dyad_isolate/$expr_source/$cohort/$search/$mut_lvls/$classif
+FINALDIR=$DATADIR/dryads-research/dyad_isolate/${expr_source}__${cohort}
+export RUNDIR=$CODEDIR/dryads-research/experiments/dyad_isolate
+out_tag=${search}_${mut_lvls}_${classif}
 
 # if we want to rewrite the experiment, remove the intermediate output directory
 if $rewrite
@@ -56,26 +54,49 @@ rm -rf .snakemake
 dvc init --no-scm -f
 export PYTHONPATH="$CODEDIR"
 
+eval "$( python -m dryads-research.experiments.utilities.data_dirs \
+	$cohort --expr_source $expr_source )"
+
 # enumerate the mutation types that will be tested in this experiment
 dvc run -d $COH_DIR -d $GENCODE_DIR -d $ONCOGENE_LIST -d $SUBTYPE_LIST \
-	-d $RUNDIR/setup_isolate.py -d $CODEDIR/HetMan/environment.yml \
+	-d $RUNDIR/setup_isolate.py -d $CODEDIR/dryads-research/environment.yml \
 	-o setup/muts-list.p -m setup/muts-count.txt \
 	-f setup.dvc --overwrite-dvcfile \
-	python -m HetMan.experiments.dyad_isolate.setup_isolate \
+	python -m dryads-research.experiments.dyad_isolate.setup_isolate \
 	$expr_source $cohort $search $mut_lvls $OUTDIR
+
+if [ -z ${SBATCH_TIMELIMIT+x} ]
+then
+	time_lim=2159
+else
+	time_lim=$SBATCH_TIMELIMIT
+fi
+
+cur_time=$( date +%s )
+time_left=$(( time_lim - (cur_time - start_time) / 60 + 1 ))
+
+if [ -z ${time_max+x} ]
+then
+	time_max=$(( $time_left * 11 / 13 ))
+fi
+
+if [ ! -f setup/tasks.txt ]
+then
+	merge_max=$(( $time_left - $time_max - 3 ))
+
+	eval "$( python -m dryads-research.experiments.utilities.pipeline_setup \
+		$OUTDIR $time_max --merge_max=$merge_max )"
+fi
 
 # if we are only enumerating, we quit before classification jobs are launched
 if $count_only
 then
+	cp setup/cohort-data.p.gz $FINALDIR/cohort-data__${out_tag}.p.gz
 	exit 0
 fi
 
-# calculate how many parallel tasks the mutations will be tested over
-merge_max=1200
-muts_count=$(cat setup/muts-count.txt)
-task_count=$(( $(( $muts_count - 1 )) / $test_max + 1 ))
-merge_count=$(( $(( $muts_count - 1)) / $merge_max + 1 ))
-xargs -n $merge_count <<< $(seq 0 $(( $task_count - 1 ))) > setup/tasks.txt
+eval "$( tail -n 2 setup/tasks.txt | head -n 1 )"
+eval "$( tail -n 1 setup/tasks.txt )"
 
 dvc run -d setup/muts-list.p -d $RUNDIR/fit_isolate.py -O out-conf.p.gz \
 	-f output.dvc --overwrite-dvcfile --ignore-build-cache \
@@ -86,7 +107,8 @@ dvc run -d setup/muts-list.p -d $RUNDIR/fit_isolate.py -O out-conf.p.gz \
 	-n {cluster.ntasks} -c {cluster.cpus-per-task} \
 	--mem-per-cpu {cluster.mem-per-cpu} --exclude=$ex_nodes --no-requeue" \
 	--config expr_source='"$expr_source"' cohort='"$cohort"' \
-	search='"$search"' mut_lvls='"$mut_lvls"' classif='"$classif"
+	search='"$search"' mut_lvls='"$mut_lvls"' classif='"$classif"' \
+	time_max='"$run_time"' merge_max='"$merge_time"
 
-cp output.dvc $FINALDIR/output_${search}_${mut_lvls}_${classif}.dvc
+cp output.dvc $FINALDIR/output_${out_tag}.dvc
 

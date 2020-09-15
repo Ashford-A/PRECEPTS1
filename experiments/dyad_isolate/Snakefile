@@ -1,28 +1,20 @@
 
 import os
+import sys
+sys.path.extend([os.path.join(os.environ['CODEDIR'], 'dryads-research',
+                              'experiments', 'utilities')])
+from pipeline_setup import get_task_arr, tasks_files
 
-
-LOCALDIR = os.path.join(os.environ['CODEDIR'],
-                        'HetMan', 'experiments', 'dyad_isolate')
 
 TMPDIR = os.path.join(
-    os.environ['TEMPDIR'], 'HetMan', 'dyad_isolate',
+    os.environ['TEMPDIR'], 'dryads-research', 'dyad_isolate',
     config['expr_source'], config['cohort'],
     config['search'], config['mut_lvls'], config['classif']
     )
 
 OUTDIR = os.path.join(os.environ['DATADIR'],
-                      'HetMan', 'dyad_isolate',
+                      'dryads-research', 'dyad_isolate',
                       '__'.join([config['expr_source'], config['cohort']]))
-
-
-tasks_file = open(os.path.join(TMPDIR, 'setup', "tasks.txt"), 'r')
-tasks_list = tasks_file.readlines()
-tasks_file.close()
-
-task_arr = [tasks.strip().split(' ') for tasks in tasks_list]
-task_arr = [[tsks[i] for tsks in task_arr if i < len(tsks)]
-            for i in range(len(task_arr[0]))]
 
 
 localrules: target, merge
@@ -42,25 +34,17 @@ rule isolate:
     threads: 8
 
     shell: """
-        set +u; source activate HetMan; set -u;
+        set +u; source activate research; set -u;
+
         export OMP_NUM_THREADS=1;
         sleep $(( ({wildcards.cv_id} + 1) * ({wildcards.task_id} + 1) \
                 * $(shuf -i 1-9 -n 1) ));
 
-        task_count=$(( 1 + $( grep -Eo '[0-9]+' \
-                {TMPDIR}/setup/tasks.txt | sort -rn | head -n 1 ) ))
-
-        python -m HetMan.experiments.dyad_isolate.fit_isolate \
-                {config[classif]} {TMPDIR} --task_count=$task_count \
+        python -m dryads-research.experiments.dyad_isolate.fit_isolate \
+                {config[classif]} {TMPDIR} \
                 --task_id={wildcards.task_id} --cv_id={wildcards.cv_id}
 
         """
-
-
-def tasks_files(wildcards):
-    return [os.path.join(TMPDIR, 'output',
-                         "out__cv-{}_task-{}.p".format(cv_id, task_id))
-            for cv_id in range(40) for task_id in wildcards.tasks.split('-')]
 
 
 rule gather:
@@ -68,14 +52,14 @@ rule gather:
 
     output: "{TMPDIR}/merge/out-conf_{tasks}.p.gz"
 
-    threads: 16
+    threads: 12
 
     shell: """
-        set +u; source activate HetMan; set -u;
+        set +u; source activate research; set -u;
 
         tasks={wildcards.tasks}
-        python -m HetMan.experiments.dyad_isolate.gather_isolate \
-                {TMPDIR} --task_ids ${{tasks//-/ }} -c 16
+        python -m dryads-research.experiments.dyad_isolate.gather_isolate \
+                {TMPDIR} --task_ids ${{tasks//-/ }} -c 12
 
         """
 
@@ -84,7 +68,7 @@ rule merge:
     input:
         [os.path.join(TMPDIR, 'merge',
                       "out-conf_{}.p.gz".format('-'.join(task_list)))
-         for task_list in task_arr]
+         for task_list in get_task_arr(TMPDIR)]
 
     output:
         expand("{outdir}/out-conf_{search}_{mut_lvls}_{classif}.p.gz",
@@ -93,8 +77,8 @@ rule merge:
     threads: 1
 
     shell: """
-        set +u; source activate HetMan; set -u;
-        python -m HetMan.experiments.subgrouping_isolate.merge_isolate \
+        set +u; source activate research; set -u;
+        python -m dryads-research.experiments.subgrouping_isolate.merge_isolate \
                 {TMPDIR}
 
         out_tag={config[search]}_{config[mut_lvls]}_{config[classif]}
