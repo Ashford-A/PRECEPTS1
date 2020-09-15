@@ -4,7 +4,9 @@ isolation experiment to facilitate further analyses.
 """
 
 from ..utilities.mutations import pnt_mtype, shal_mtype, deep_mtype, ExMcomb
-from ..subvariant_isolate.merge_isolate import compare_muts, calculate_auc
+from ..utilities.pipeline_setup import get_task_count
+from ..gene_isolate.utils import calculate_auc
+from ..utilities.misc import compare_muts
 from dryadic.features.mutations import MuType
 
 import os
@@ -73,14 +75,7 @@ def main():
             file_dict[out_fl] = out_task, out_cv
 
     assert (len(file_dict) % 40) == 0, "Missing output files detected!"
-    task_count = 1
-    with open(os.path.join(args.use_dir, 'setup', "tasks.txt"), 'r') as f:
-        task_list = f.readline().strip()
-
-        while task_list:
-            task_count = max(task_count,
-                             *[int(tsk) + 1 for tsk in task_list.split(' ')])
-            task_list = f.readline().strip()
+    task_count = get_task_count(args.use_dir)
 
     if args.task_ids is None:
         use_tasks = set(range(task_count))
@@ -188,10 +183,12 @@ def main():
                 "match those enumerated during setup!".format(ex_lbl, cv_id)
                 )
 
-            pred_lists[ex_lbl][cv_id][samps_dict['test']] = pd.DataFrame(
-                out_preds.test.values.tolist(),
-                index=out_preds.index, columns=samps_dict['test']
-                ).applymap(lambda x: [x])
+            test_mat = np.vstack(out_preds.test.values).transpose()
+            pred_lists[ex_lbl][cv_id].loc[out_preds.index] = pred_lists[
+                ex_lbl][cv_id].loc[out_preds.index].assign(
+                    **{samp: [[x] for x in test_mat[i]]
+                       for i, samp in enumerate(samps_dict['test'])}
+                    )
 
             if 'train' in out_preds:
                 train_mat = out_preds.train[~out_preds.train.isnull()]

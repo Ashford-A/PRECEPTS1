@@ -1,21 +1,21 @@
 
-from ..dyad_isolate.param_lists import search_params, mut_lvls
-from ..subgrouping_isolate.data_dirs import vep_cache_dir
-
+from .param_lists import search_params, mut_lvls
+from ..utilities.data_dirs import vep_cache_dir
+from ...features.cohorts import get_input_datasets
+from ...features.data.oncoKB import get_gene_list
 from dryadic.features.data.vep import process_variants
+
 from ..utilities.mutations import (pnt_mtype, shal_mtype,
                                    dup_mtype, loss_mtype, Mcomb, ExMcomb)
 from dryadic.features.mutations import MuType
-
-from ..subgrouping_isolate.setup_isolate import get_input_datasets
 from ..subgrouping_isolate.utils import IsoMutationCohort
 
 import os
 import argparse
 import bz2
 import dill as pickle
-import pandas as pd
 
+import pandas as pd
 from itertools import combinations as combn
 from itertools import product
 
@@ -52,9 +52,9 @@ def main():
     out_path = os.path.join(args.out_dir, 'setup')
 
     data_dict = get_input_datasets(
-        args.cohort, args.expr_source, min_sources=4,
+        args.cohort, args.expr_source,
         mut_fields=['Sample', 'Gene', 'Chr', 'Start', 'End',
-                    'Strand', 'RefAllele', 'TumorAllele']
+                    'RefAllele', 'TumorAllele']
         )
 
     var_df = pd.DataFrame({'Chr': data_dict['vars'].Chr.astype('int'),
@@ -62,7 +62,6 @@ def main():
                            'End': data_dict['vars'].End.astype('int'),
                            'RefAllele': data_dict['vars'].RefAllele,
                            'VarAllele': data_dict['vars'].TumorAllele,
-                           'Strand': data_dict['vars'].Strand,
                            'Sample': data_dict['vars'].Sample})
 
     lvl_lists = [('Gene', 'Scale', 'Copy') + lvl_list
@@ -83,10 +82,10 @@ def main():
         distance=0, consequence_choose='pick', forks=4, update_cache=False
         )
 
+    use_genes = get_gene_list(min_sources=4)
     variants = variants.loc[(variants.CANONICAL == 'YES')
-                            & variants.Gene.isin(data_dict['use_genes'])]
-    copies = data_dict['copy'].loc[
-        data_dict['copy'].Gene.isin(data_dict['use_genes'])]
+                            & variants.Gene.isin(use_genes)]
+    copies = data_dict['copy'].loc[data_dict['copy'].Gene.isin(use_genes)]
 
     assert not variants.duplicated().any(), (
         "Variant data contains {} duplicate entries!".format(
@@ -107,8 +106,7 @@ def main():
         "Level combination mutation trees contain mismatching sets of genes!")
 
     mut_genes = tuple(mut_genes)[0]
-    total_samps = len(cdata.get_samples())
-    max_samps = total_samps - search_dict['samp_cutoff']
+    max_samps = len(cdata.get_samples()) - search_dict['samp_cutoff']
 
     test_mtypes = dict()
     test_muts = set()

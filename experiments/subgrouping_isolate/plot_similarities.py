@@ -5,6 +5,7 @@ from ..utilities.mutations import (
     )
 from dryadic.features.mutations import MuType
 
+from ..subgrouping_isolate import base_dir
 from .utils import remove_pheno_dups
 from ..utilities.metrics import calculate_mean_siml, calculate_ks_siml
 from ..utilities.labels import get_fancy_label
@@ -44,10 +45,6 @@ plt.style.use('fivethirtyeight')
 plt.rcParams['axes.facecolor'] = 'white'
 plt.rcParams['savefig.facecolor'] = 'white'
 plt.rcParams['axes.edgecolor'] = 'white'
-
-
-base_dir = os.path.join(os.environ['DATADIR'], 'HetMan',
-                        'subgrouping_isolate')
 plot_dir = os.path.join(base_dir, 'plots', 'similarities')
 
 SIML_FXS = {'mean': calculate_mean_siml, 'ks': calculate_ks_siml}
@@ -284,10 +281,18 @@ def plot_copy_interaction(pred_df, pheno_dict, auc_vals,
                 plt_lims[0] = min(plt_lims[0], copy_siml - 0.11)
                 plt_lims[1] = max(plt_lims[1], copy_siml + 0.11)
 
-    clr_norm = colors.Normalize(vmin=-1, vmax=2)
-    for ax in gain_ax, loss_ax:
-        ax.grid(alpha=0.43, linewidth=0.7)
+    gain_ax.set_ylabel("Similarity to\nAll Gain Alterations",
+                       size=23, weight='bold')
+    loss_ax.set_ylabel("Similarity to\nAll Loss Alterations",
+                       size=23, weight='bold')
+    loss_ax.set_xlabel("Accuracy of Isolated Classifier",
+                       size=23, weight='bold')
 
+    clr_norm = colors.Normalize(vmin=-1, vmax=2)
+    y_rng = plt_lims[1] - plt_lims[0]
+
+    for cna_lbl, ax in zip(['Gain', 'Loss'], [gain_ax, loss_ax]):
+        ax.grid(alpha=0.43, linewidth=0.7)
         ax.plot([1, 1], plt_lims, color='black', linewidth=1.1, alpha=0.89)
         ax.plot([0.6, 1], [0, 0],
                 color='black', linewidth=1.3, linestyle=':', alpha=0.53)
@@ -297,46 +302,11 @@ def plot_copy_interaction(pred_df, pheno_dict, auc_vals,
                     color=simil_cmap(clr_norm(siml_val)),
                     linewidth=4.1, linestyle=':', alpha=0.53)
 
-    gain_ax.set_ylabel("Similarity to\nAll Gain Alterations",
-                       size=23, weight='bold')
-    loss_ax.set_ylabel("Similarity to\nAll Loss Alterations",
-                       size=23, weight='bold')
-    loss_ax.set_xlabel("Accuracy of Isolated Classifier",
-                       size=23, weight='bold')
+        lbl_pos = place_scatterpie_labels(plot_dicts[cna_lbl], clr_dict,
+                                          fig, ax, font_adj=5 / 7)
 
-    y_rng = plt_lims[1] - plt_lims[0]
-    for cna_lbl, ax in zip(['Gain', 'Loss'], [gain_ax, loss_ax]):
         ax.set_xlim(0.59, 1.005)
         ax.set_ylim(*plt_lims)
-
-        lbl_pos = place_scatterpie_labels(plot_dicts[cna_lbl], fig, ax,
-                                          font_adj=5 / 7)
-
-        for (pnt_x, pnt_y), pos in lbl_pos.items():
-            ax.text(pos[0][0], pos[0][1] + 700 ** -1,
-                    plot_dicts[cna_lbl][pnt_x, pnt_y][1][0],
-                    size=13, ha=pos[1], va='bottom')
-            ax.text(pos[0][0], pos[0][1] + 700 ** -1,
-                    plot_dicts[cna_lbl][pnt_x, pnt_y][1][1],
-                    size=9, ha=pos[1], va='top')
-
-            x_delta = pnt_x - pos[0][0]
-            y_delta = pnt_y - pos[0][1]
-
-            if abs(x_delta) > 0.013 or abs(y_delta) > y_rng / 23:
-                end_x = pos[0][0] + np.sign(x_delta) * 0.013 / 203
-                end_y = pos[0][1] + np.heaviside(y_delta, 0) * y_rng / 29
-
-                ln_x, ln_y = (pnt_x - end_x) / 0.41, (pnt_y - end_y) / y_rng
-                ln_mag = (ln_x ** 2 + ln_y ** 2) ** 0.5
-                ln_cos, ln_sin = ln_x / ln_mag, ln_y / ln_mag
-
-                ax.plot([pnt_x - ln_cos * 0.041
-                         * plot_dicts[cna_lbl][pnt_x, pnt_y][0], end_x],
-                        [pnt_y - ln_sin * y_rng / 11
-                         * plot_dicts[cna_lbl][pnt_x, pnt_y][0], end_y],
-                        c=clr_dict[plot_dicts[cna_lbl][pnt_x, pnt_y][1][0]],
-                        linewidth=1.7, alpha=0.31)
 
     plt.tight_layout(pad=0, h_pad=1.9)
     plt.savefig(
