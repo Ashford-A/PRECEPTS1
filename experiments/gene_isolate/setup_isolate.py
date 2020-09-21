@@ -1,22 +1,19 @@
 
 from .param_lists import search_params, mut_lvls
 from ..utilities.data_dirs import choose_source, vep_cache_dir
-from ...features.cohorts import get_input_datasets
-from dryadic.features.data.vep import process_variants
+from ...features.cohorts.utils import get_cohort_data
 
 from ..utilities.mutations import (
     pnt_mtype, shal_mtype, dup_mtype, gains_mtype, loss_mtype, dels_mtype,
     Mcomb, ExMcomb
     )
 from dryadic.features.mutations import MuType
-from ..subgrouping_isolate.utils import IsoMutationCohort
 
 import os
 import argparse
 import bz2
 import dill as pickle
 
-import pandas as pd
 from itertools import combinations as combn
 from functools import reduce
 from operator import or_
@@ -37,49 +34,12 @@ def main():
 
     args = parser.parse_args()
     out_path = os.path.join(args.out_dir, 'setup')
-
-    data_dict = get_input_datasets(
-        args.cohort, choose_source(args.cohort),
-        mut_fields=['Sample', 'Gene', 'Chr', 'Start', 'End',
-                    'RefAllele', 'TumorAllele']
-        )
-
-    var_df = pd.DataFrame({'Chr': data_dict['vars'].Chr.astype('int'),
-                           'Start': data_dict['vars'].Start.astype('int'),
-                           'End': data_dict['vars'].End.astype('int'),
-                           'RefAllele': data_dict['vars'].RefAllele,
-                           'VarAllele': data_dict['vars'].TumorAllele,
-                           'Sample': data_dict['vars'].Sample})
-
     lvl_lists = [('Scale', 'Copy') + lvl_list
                  for lvl_list in mut_lvls[args.mut_lvls]]
     search_dict = search_params[args.search_params]
 
-    var_fields = {'Gene', 'Canonical', 'Location', 'VarAllele'}
-    for lvl_list in lvl_lists:
-        for lvl in lvl_list[2:]:
-            if '-domain' in lvl and 'Domains' not in var_fields:
-                var_fields |= {'Domains'}
-            else:
-                var_fields |= {lvl}
-
-    variants = process_variants(
-        var_df, out_fields=var_fields, cache_dir=vep_cache_dir,
-        temp_dir=out_path, assembly=data_dict['assembly'],
-        distance=0, consequence_choose='pick', forks=4, update_cache=False
-        )
-
-    variants = variants.loc[(variants.CANONICAL == 'YES')
-                            & (variants.Gene == args.gene)]
-    copies = data_dict['copy'].loc[data_dict['copy'].Gene == args.gene]
-
-    assert not variants.duplicated().any(), (
-        "Variant data contains {} duplicate entries!".format(
-            variants.duplicated().sum())
-        )
-
-    cdata = IsoMutationCohort(data_dict['expr'], variants, lvl_lists, copies,
-                              data_dict['annot'], leaf_annot=None)
+    cdata = get_cohort_data(args.cohort, choose_source(args.cohort),
+                            lvl_lists, vep_cache_dir, out_path, {args.gene})
     with bz2.BZ2File(os.path.join(out_path, "cohort-data.p.gz"), 'w') as f:
         pickle.dump(cdata, f, protocol=-1)
 
