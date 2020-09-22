@@ -1,6 +1,7 @@
 
 import numpy as np
 from colorsys import hls_to_rgb
+import dill as pickle
 from importlib import import_module
 
 
@@ -32,6 +33,14 @@ def choose_label_colour(gene, clr_seed=15707, clr_lum=0.5, clr_sat=0.8):
                        % (2 ** 14)))
 
     return hls_to_rgb(h=np.random.uniform(size=1)[0], l=clr_lum, s=clr_sat)
+
+
+def transfer_model(trnsf_fl, clf, use_feats):
+    with open(trnsf_fl, 'rb') as f:
+        trnsf_preds = clf.predict_omic(pickle.load(f).train_data(
+            pheno=None, include_feats=use_feats)[0], lbl_type='raw')
+
+    return trnsf_preds
 
 
 def load_mut_clf(clf_lbl):
