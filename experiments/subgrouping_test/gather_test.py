@@ -1,9 +1,10 @@
 
-import os
-import sys
-base_dir = os.path.dirname(__file__)
-sys.path.extend([os.path.join(base_dir, '..', '..', '..')])
+from ..utilities.mutations import RandomType
+from ..utilities.pipeline_setup import get_task_count
+from ..utilities.misc import compare_muts
+from ...features.cohorts.utils import get_cohort_subtypes
 
+import os
 import argparse
 import bz2
 from pathlib import Path
@@ -14,22 +15,10 @@ import pandas as pd
 from joblib import Parallel, delayed
 import random
 
-from HetMan.experiments.subvariant_tour.utils import RandomType
-from HetMan.experiments.subvariant_infer.merge_infer import (
-    get_cohort_subtypes)
-
 from itertools import cycle
 from itertools import combinations as combn
 from functools import reduce
-from operator import or_
-
-
-def hash_cdata(cdata):
-    cdata_hash = {'expr': tuple(cdata.data_hash()[0])}
-    for lvls, mtree in cdata.mtrees.items():
-        cdata_hash[lvls] = hash(mtree)
-
-    return cdata_hash
+from operator import or_, add
 
 
 def merge_cohort_data(out_dir, use_seed=None):
@@ -131,11 +120,6 @@ def merge_cohort_data(out_dir, use_seed=None):
     return use_cdata
 
 
-def compare_muts(*muts_lists):
-    return len(set(tuple(sorted(muts_list))
-                   for muts_list in muts_lists)) == 1
-
-
 def calculate_auc(phn_vec, pred_mat):
     if phn_vec.all() or not phn_vec.any():
         auc_val = 0.5
@@ -154,10 +138,6 @@ def transfer_signatures(trnsf_cdata, orig_cdata,
     use_muts = {mtype for mtype in mtype_list
                 if not isinstance(mtype, RandomType)}
 
-    base_lvls = 'Gene', 'Scale', 'Copy', 'Exon', 'Location', 'Protein'
-    if base_lvls not in trnsf_cdata.mtrees:
-        trnsf_cdata.add_mut_lvls(base_lvls)
-
     sub_stat = np.array([smp in orig_cdata.get_train_samples()
                          for smp in trnsf_cdata.get_train_samples()])
     if subt_smps:
@@ -172,7 +152,7 @@ def transfer_signatures(trnsf_cdata, orig_cdata,
     if use_muts:
         auc_dict = {
             'all': pd.Series(dict(zip(use_muts, Parallel(
-                backend='threading', n_jobs=12, pre_dispatch=12)(
+                n_jobs=12, prefer='threads', pre_dispatch=120)(
                     delayed(calculate_auc)(pheno_dict[mtype],
                                            pred_df.loc[mtype].T[~sub_stat])
                     for mtype in use_muts
@@ -181,7 +161,7 @@ def transfer_signatures(trnsf_cdata, orig_cdata,
 
             'CV': pd.DataFrame.from_records(
                 tuple(zip(cycle(use_muts), Parallel(
-                    backend='threading', n_jobs=12, pre_dispatch=12)(
+                    n_jobs=12, prefer='threads', pre_dispatch=120)(
                         delayed(calculate_auc)(
                             pheno_dict[mtype],
                             pred_df.loc[mtype].T[~sub_stat, cv_id]
@@ -192,7 +172,7 @@ def transfer_signatures(trnsf_cdata, orig_cdata,
                 ).pivot_table(index=0, values=1, aggfunc=list).iloc[:, 0],
 
             'mean': pd.Series(dict(zip(use_muts, Parallel(
-                backend='threading', n_jobs=12, pre_dispatch=12)(
+                n_jobs=12, prefer='threads', pre_dispatch=120)(
                     delayed(calculate_auc)(
                         pheno_dict[mtype],
                         pred_df.loc[mtype].T[~sub_stat].mean(axis=1)
@@ -210,50 +190,114 @@ def transfer_signatures(trnsf_cdata, orig_cdata,
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('use_dir', type=str, default=base_dir)
+    parser.add_argument('use_dir', type=str)
+    parser.add_argument('--task_ids', type=int, nargs='+')
     args = parser.parse_args()
 
+    # load the -omic datasets for this experiment's tumour cohort
+    with bz2.BZ2File(os.path.join(args.use_dir, 'setup',
+                                  "cohort-data.p.gz"), 'r') as f:
+        cdata = pickle.load(f)
+
+    # load the mutations present in the cohort sorted into the attribute
+    # hierarchy used in this experiment as well as the subgroupings tested
+    use_mtree = tuple(cdata.mtrees.values())[0]
+    with open(os.path.join(args.use_dir, 'setup', "muts-list.p"), 'rb') as f:
+        muts_list = pickle.load(f)
+
     # get list of output files from all parallelized jobs
-    file_list = tuple(Path(os.path.join(args.use_dir, 'output')).glob(
-        "out__cv-*_task*.p"))
-    assert (len(file_list) % 40) == 0, "Missing output files detected!"
+    file_list = tuple(Path(args.use_dir, 'output').glob("out__cv-*_task*.p"))
+    file_dict = dict()
 
-    task_count = len(file_list) // 40
-    out_data = [[None for task_id in range(task_count)]
-                for cv_id in range(40)]
+    # filter output files according to whether they came from one of the
+    # parallelized tasks assigned to this gather task
+    for out_fl in file_list:
+        fl_info = out_fl.stem.split("out__")[1]
+        out_task = int(fl_info.split("task-")[1])
 
-    for out_fl in file_list: 
-        base_name = out_fl.stem.split('out__')[1]
-        cv_id = int(base_name.split('cv-')[1].split('_')[0])
-        task_id = int(base_name.split('task-')[1])
+        # gets the parallelized task id and learning cross-validation fold
+        # each output file corresponds to
+        if args.task_ids is None or out_task in args.task_ids:
+            out_cv = int(fl_info.split("cv-")[1].split("_")[0])
+            file_dict[out_fl] = out_task, out_cv
 
-        with open(out_fl, 'rb') as f:
-            out_data[cv_id][task_id] = pickle.load(f)
+    # find the number of parallelized tasks used in this run of the pipeline
+    assert (len(file_dict) % 40) == 0, "Missing output files detected!"
+    task_count = get_task_count(args.use_dir)
 
-    use_clfs = set(out_dict['Clf'] for ols in out_data for out_dict in ols)
-    assert len(use_clfs) == 1, ("Each experiment must be run with "
-                                "exactly one classifier!")
-    use_clf = tuple(use_clfs)[0]
+    if args.task_ids is None:
+        use_tasks = set(range(task_count))
+        out_tag = ''
 
-    use_tune = set(out_dict['Clf'].tune_priors for ols in out_data
-                   for out_dict in ols)
-    assert len(use_tune) == 1, ("Each experiment must be run with "
-                                "exactly one set of tuning priors!")
+    else:
+        use_tasks = set(args.task_ids)
+        out_tag = "_{}".format('-'.join([
+            str(tsk) for tsk in sorted(use_tasks)]))
 
-    with open(os.path.join(args.use_dir, 'setup', "cohort-data.p"),
-              'rb') as fl:
-        cdata = pickle.load(fl)
+    # organize output files according to their cross-validation fold for
+    # easier collation of output data across parallelized task ids
+    file_sets = {
+        cv_id: {out_fl for out_fl, (out_task, out_cv) in file_dict.items()
+                if out_task in use_tasks and out_cv == cv_id}
+        for cv_id in range(40)
+        }
 
+    # initialize object that will store raw experiment output data
     out_dfs = {k: [None for cv_id in range(40)]
-               for k in ['Pred', 'Pars', 'Time', 'Acc', 'Transfer']}
+               for k in ['Pred', 'Pars', 'Time', 'Acc', 'Coef', 'Transfer']}
+    out_clf = None
+    out_tune = None
 
-    for cv_id, ols in enumerate(out_data):
+    random.seed(10301)
+    random.shuffle(muts_list)
+
+    use_muts = [mut for i, mut in enumerate(muts_list)
+                if i % task_count in use_tasks]
+
+    for cv_id, out_fls in file_sets.items():
+        out_list = []
+
+        for out_fl in out_fls:
+            with open(out_fl, 'rb') as f:
+                out_list += [pickle.load(f)]
+
+        for out_dicts in out_list:
+            if out_clf is None:
+                out_clf = out_dicts['Clf']
+
+            else:
+                assert out_clf == out_dicts['Clf'], (
+                    "Each experiment must be run with the same classifier!")
+
+            if out_tune is None:
+                out_tune = out_dicts['Clf'].tune_priors
+
+            else:
+                assert out_tune == out_dicts['Clf'].tune_priors, (
+                    "Each experiment must be run with exactly "
+                    "one set of tuning priors!"
+                    )
+
         for k in out_dfs:
-            out_dfs[k][cv_id] = pd.concat([
-                pd.DataFrame.from_dict(out_dict[k], orient='index')
-                for out_dict in ols
-                ])
+            if k == 'Coef':
+                out_dfs[k][cv_id] = pd.DataFrame({
+                    mut: out_vals for out_dicts in out_list
+                    for mut, out_vals in out_dicts[k].items()
+                    }).transpose().fillna(0.0)
 
+            else:
+                out_dfs[k][cv_id] = pd.concat([
+                    pd.DataFrame.from_dict(out_dicts[k], orient='index')
+                    for out_dicts in out_list
+                    ])
+
+            assert sorted(out_dfs[k][cv_id].index) == sorted(use_muts), (
+                "Mutations with predictions for c-v fold <{}> don't "
+                "match those enumerated during setup!".format(cv_id)
+                )
+
+        # recover the cohort training/testing data split that was
+        # used to generate the results in this file
         cdata_samps = sorted(cdata.get_samples())
         random.seed((cv_id // 4) * 7712 + 13)
         random.shuffle(cdata_samps)
@@ -270,137 +314,133 @@ def main():
         "Inconsistent number of CV scores across cohort samples!")
 
     pars_df = pd.concat(out_dfs['Pars'], axis=1)
-    assert pars_df.shape[1] == (40 * len(use_clf.tune_priors)), (
+    assert pars_df.shape[1] == (40 * len(out_clf.tune_priors)), (
         "Tuned parameter values missing for some CVs!")
 
     time_df = pd.concat(out_dfs['Time'], axis=1)
     assert time_df.shape[1] == 80, (
         "Algorithm fitting times missing for some CVs!")
-    assert (time_df.applymap(len) == use_clf.test_count).values.all(), (
+    assert (time_df.applymap(len) == out_clf.test_count).values.all(), (
         "Algorithm fitting times missing for some hyper-parameter values!")
 
     acc_df = pd.concat(out_dfs['Acc'], axis=1)
     assert acc_df.shape[1] == 120, (
         "Algorithm tuning accuracies missing for some CVs!")
-    assert (acc_df.applymap(len) == use_clf.test_count).values.all(), (
+    assert (acc_df.applymap(len) == out_clf.test_count).values.all(), (
         "Algorithm tuning stats missing for some hyper-parameter values!")
 
+    coef_df = pd.concat(out_dfs['Coef'], axis=1)
     trnsf_df = pd.concat(out_dfs['Transfer'], axis=1)
     assert (trnsf_df.columns.value_counts() == 40).all(), (
         "Inconsistent number of predicted scores across transfer cohorts!")
 
-    with open(os.path.join(args.use_dir, 'setup', "muts-list.p"), 'rb') as f:
-        muts_list = pickle.load(f)
-
-    for out_df in [pred_df, pars_df, time_df, acc_df, trnsf_df]:
-        assert compare_muts(out_df.index, muts_list), (
+    for out_df in [pred_df, pars_df, time_df, acc_df, coef_df, trnsf_df]:
+        assert compare_muts(out_df.index, use_muts), (
             "Mutations for which predictions were made do not match the list "
             "of mutations enumerated during setup!"
             )
 
     pred_df = pd.DataFrame({
         mtype: pred_df.loc[mtype].groupby(level=0).apply(lambda x: x.values)
-         for mtype in muts_list
+         for mtype in use_muts
         }).transpose()
 
-    with bz2.BZ2File(os.path.join(args.use_dir, "out-pred.p.gz"), 'w') as fl:
+    assert (pred_df.applymap(len) == 10).values.all(), (
+        "Incorrect number of testing CV scores!")
+
+    with bz2.BZ2File(os.path.join(args.use_dir, 'merge',
+                                  "out-pred{}.p.gz".format(out_tag)),
+                     'w') as fl:
         pickle.dump(pred_df, fl, protocol=-1)
-    with bz2.BZ2File(os.path.join(args.use_dir, "out-tune.p.gz"), 'w') as fl:
-        pickle.dump([pars_df, time_df, acc_df, use_clf], fl, protocol=-1)
+
+    with bz2.BZ2File(os.path.join(args.use_dir, 'merge',
+                                  "out-tune{}.p.gz".format(out_tag)),
+                     'w') as fl:
+        pickle.dump([pars_df, time_df, acc_df, out_clf], fl, protocol=-1)
 
     cdata.update_split(test_prop=0)
     train_samps = np.array(cdata.get_train_samples())
     pheno_dict = {mtype: np.array(cdata.train_pheno(mtype))
-                  for mtype in muts_list}
+                  for mtype in use_muts}
 
-    with bz2.BZ2File(os.path.join(args.use_dir, "out-pheno.p.gz"), 'w') as fl:
+    with bz2.BZ2File(os.path.join(args.use_dir, 'merge',
+                                  "out-pheno{}.p.gz".format(out_tag)),
+                     'w') as fl:
         pickle.dump(pheno_dict, fl, protocol=-1)
 
     # calculates AUCs for prediction tasks using scores from all
     # cross-validations concatenated together...
     auc_dict = {
-        'all': pd.Series(dict(zip(muts_list, Parallel(
-            backend='threading', n_jobs=12, pre_dispatch=12)(
+        'all': pd.Series(dict(zip(use_muts, Parallel(
+            n_jobs=12, prefer='threads', pre_dispatch=120)(
                 delayed(calculate_auc)(
                     pheno_dict[mtype],
-                    np.vstack(pred_df.loc[mtype, train_samps].values)
+                    np.vstack(pred_df.loc[mtype][train_samps].values)
                     )
-                for mtype in muts_list
+                for mtype in use_muts
                 )
             ))),
 
         # ...and for each cross-validation run considered separately...
         'CV': pd.DataFrame.from_records(
-            tuple(zip(cycle(muts_list), Parallel(
-                backend='threading', n_jobs=12, pre_dispatch=12)(
+            tuple(zip(cycle(use_muts), Parallel(
+                n_jobs=12, prefer='threads', pre_dispatch=120)(
                     delayed(calculate_auc)(
                         pheno_dict[mtype],
                         np.vstack(pred_df.loc[
-                            mtype, train_samps].values)[:, cv_id]
+                            mtype][train_samps].values)[:, cv_id]
                         )
-                    for cv_id in range(10) for mtype in muts_list
+                    for cv_id in range(10) for mtype in use_muts
                     )
                 ))
             ).pivot_table(index=0, values=1, aggfunc=list).iloc[:, 0],
 
         # ...and finally using the average of predicted scores for each
         # sample across CV runs
-        'mean': pd.Series(dict(zip(muts_list, Parallel(
-            backend='threading', n_jobs=12, pre_dispatch=12)(
+        'mean': pd.Series(dict(zip(use_muts, Parallel(
+            n_jobs=12, prefer='threads', pre_dispatch=120)(
                 delayed(calculate_auc)(
                     pheno_dict[mtype],
                     np.vstack(pred_df.loc[
-                        mtype, train_samps].values).mean(axis=1)
+                        mtype][train_samps].values).mean(axis=1)
                     )
-                for mtype in muts_list
+                for mtype in use_muts
                 )
             )))
         }
 
     auc_dict['CV'].name = None
     auc_dict['CV'].index.name = None
-    with bz2.BZ2File(os.path.join(args.use_dir, "out-aucs.p.gz"), 'w') as fl:
+
+    with bz2.BZ2File(os.path.join(args.use_dir, 'merge',
+                                  "out-aucs{}.p.gz".format(out_tag)),
+                     'w') as fl:
         pickle.dump(auc_dict, fl, protocol=-1)
 
     random.seed(7609)
     sub_inds = [random.choices([False, True], k=len(cdata.get_samples()))
-                for _ in range(500)]
+                for _ in range(100)]
 
-    conf_list = {
-        'all': pd.DataFrame.from_records(
-            tuple(zip(cycle(muts_list), Parallel(
-                backend='threading', n_jobs=12, pre_dispatch=12)(
-                    delayed(calculate_auc)(
-                        pheno_dict[mtype][sub_indx],
-                        np.vstack(pred_df.loc[
-                            mtype, train_samps[sub_indx]].values)
-                        )
-                    for sub_indx in sub_inds for mtype in muts_list
+    conf_df = pd.DataFrame.from_records(
+        tuple(zip(cycle(use_muts), Parallel(
+            n_jobs=12, prefer='threads', pre_dispatch=120)(
+                delayed(calculate_auc)(
+                    pheno_dict[mtype][sub_indx],
+                    np.vstack(pred_df.loc[
+                        mtype][train_samps[sub_indx]].values).mean(axis=1)
                     )
-                ))
-            ).pivot_table(index=0, values=1, aggfunc=list).iloc[:, 0],
+                for sub_indx in sub_inds for mtype in use_muts
+                )
+            ))
+        ).pivot_table(index=0, values=1, aggfunc=list).iloc[:, 0]
 
-        'mean': pd.DataFrame.from_records(
-            tuple(zip(cycle(muts_list), Parallel(
-                backend='threading', n_jobs=12, pre_dispatch=12)(
-                    delayed(calculate_auc)(
-                        pheno_dict[mtype][sub_indx],
-                        np.vstack(pred_df.loc[
-                            mtype, train_samps[sub_indx]].values).mean(axis=1)
-                        )
-                    for sub_indx in sub_inds for mtype in muts_list
-                    )
-                ))
-            ).pivot_table(index=0, values=1, aggfunc=list).iloc[:, 0]
-        }
+    conf_df.name = None
+    conf_df.index.name = None
 
-    conf_list['all'].name = None
-    conf_list['mean'].name = None
-    conf_list['all'].index.name = None
-    conf_list['mean'].index.name = None
-
-    with bz2.BZ2File(os.path.join(args.use_dir, "out-conf.p.gz"), 'w') as fl:
-        pickle.dump(conf_list, fl, protocol=-1)
+    with bz2.BZ2File(os.path.join(args.use_dir, 'merge',
+                                  "out-conf{}.p.gz".format(out_tag)),
+                     'w') as fl:
+        pickle.dump(conf_df, fl, protocol=-1)
 
     trnsf_df = pd.DataFrame(
         {coh: {mtype: np.vstack(vals) for mtype, vals in trnsf_mat.iterrows()}
@@ -409,17 +449,16 @@ def main():
 
     coh_files = Path(os.path.join(args.use_dir, 'setup')).glob(
         "cohort-data__*.p")
-    coh_dict = {coh_fl.stem.split('__')[1]: coh_fl for coh_fl in coh_files}
+    coh_dict = {coh_fl.stem.split('__')[2]: coh_fl for coh_fl in coh_files}
     subt_dict = dict()
 
     for coh in tuple(coh_dict):
         subt_dict[coh] = None
+        coh_subtypes = get_cohort_subtypes(coh)
 
-        if coh != cdata.cohort:
-            coh_subtypes = get_cohort_subtypes(coh)
-            for subt, sub_smps in coh_subtypes.items():
-                coh_dict['_'.join([coh, subt])] = coh_dict[coh]
-                subt_dict['_'.join([coh, subt])] = sub_smps
+        for subt, sub_smps in coh_subtypes.items():
+            coh_dict['_'.join([coh, subt])] = coh_dict[coh]
+            subt_dict['_'.join([coh, subt])] = sub_smps
 
     trnsf_dict = {coh: {'Samps': None, 'AUC': None} for coh in coh_dict}
     for coh, coh_fl in coh_dict.items():
@@ -435,16 +474,22 @@ def main():
 
             trnsf_dict[coh]['Pheno'], trnsf_dict[coh]['AUC'] = (
                 transfer_signatures(trnsf_cdata, cdata, trnsf_df[coh_k],
-                                    muts_list, subt_dict[coh])
+                                    use_muts, subt_dict[coh])
                 )
 
-    trnsf_vals = {coh: trnsf_mat.apply(lambda vals: np.mean(vals, axis=0))
-                  for coh, trnsf_mat in trnsf_df.items()}
-    with bz2.BZ2File(os.path.join(args.use_dir, "trnsf-vals.p.gz"),
+    trnsf_vals = {
+        coh: trnsf_mat.apply(lambda vals: np.round(np.mean(vals, axis=0), 7))
+        for coh, trnsf_mat in trnsf_df.items()
+        }
+
+    with bz2.BZ2File(os.path.join(args.use_dir, 'merge',
+                                  "trnsf-vals{}.p.gz".format(out_tag)),
                      'w') as fl:
         pickle.dump(trnsf_vals, fl, protocol=-1)
 
-    with bz2.BZ2File(os.path.join(args.use_dir, "out-trnsf.p.gz"), 'w') as fl:
+    with bz2.BZ2File(os.path.join(args.use_dir, 'merge',
+                                  "out-trnsf{}.p.gz".format(out_tag)),
+                     'w') as fl:
         pickle.dump(trnsf_dict, fl, protocol=-1)
 
 
