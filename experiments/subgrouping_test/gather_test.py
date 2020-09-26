@@ -133,12 +133,12 @@ def calculate_auc(phn_vec, pred_mat):
     return auc_val
 
 
-def transfer_signatures(trnsf_cdata, orig_cdata,
-                        pred_df, mtype_list, subt_smps):
+def transfer_signatures(trnsf_cdata, orig_samps,
+                        pred_df, mtype_list, subt_smps=None):
     use_muts = {mtype for mtype in mtype_list
                 if not isinstance(mtype, RandomType)}
 
-    sub_stat = np.array([smp in orig_cdata.get_train_samples()
+    sub_stat = np.array([smp in orig_samps
                          for smp in trnsf_cdata.get_train_samples()])
     if subt_smps:
         sub_stat |= np.array([smp not in subt_smps
@@ -204,6 +204,8 @@ def main():
     use_mtree = tuple(cdata.mtrees.values())[0]
     with open(os.path.join(args.use_dir, 'setup', "muts-list.p"), 'rb') as f:
         muts_list = pickle.load(f)
+    with open(os.path.join(args.use_dir, 'setup', "feat-list.p"), 'rb') as f:
+        use_feats = pickle.load(f)
 
     # get list of output files from all parallelized jobs
     file_list = tuple(Path(args.use_dir, 'output').glob("out__cv-*_task*.p"))
@@ -278,14 +280,18 @@ def main():
                     "one set of tuning priors!"
                     )
 
-        for k in out_dfs:
-            if k == 'Coef':
-                out_dfs[k][cv_id] = pd.DataFrame({
-                    mut: out_vals for out_dicts in out_list
-                    for mut, out_vals in out_dicts[k].items()
-                    }).transpose().fillna(0.0)
+        out_dfs['Coef'][cv_id] = pd.DataFrame({
+            mut: out_vals for out_dicts in out_list
+            for mut, out_vals in out_dicts['Coef'].items()
+            }).transpose().fillna(0.0)
 
-            else:
+        out_dfs['Coef'][cv_id] = out_dfs['Coef'][cv_id].assign(
+            **{gene: 0
+               for gene in use_feats - set(out_dfs['Coef'][cv_id].columns)}
+            )
+
+        for k in out_dfs:
+            if k != 'Coef':
                 out_dfs[k][cv_id] = pd.concat([
                     pd.DataFrame.from_dict(out_dicts[k], orient='index')
                     for out_dicts in out_list
@@ -330,6 +336,9 @@ def main():
         "Algorithm tuning stats missing for some hyper-parameter values!")
 
     coef_df = pd.concat(out_dfs['Coef'], axis=1)
+    assert (coef_df.columns.value_counts() == 40).all(), (
+        "Inconsistent number of model coefficients across cv-folds!")
+
     trnsf_df = pd.concat(out_dfs['Transfer'], axis=1)
     assert (trnsf_df.columns.value_counts() == 40).all(), (
         "Inconsistent number of predicted scores across transfer cohorts!")
@@ -339,6 +348,11 @@ def main():
             "Mutations for which predictions were made do not match the list "
             "of mutations enumerated during setup!"
             )
+
+    with bz2.BZ2File(os.path.join(args.use_dir, 'merge',
+                                  "out-coef{}.p.gz".format(out_tag)),
+                     'w') as fl:
+        pickle.dump(coef_df, fl, protocol=-1)
 
     pred_df = pd.DataFrame({
         mtype: pred_df.loc[mtype].groupby(level=0).apply(lambda x: x.values)
@@ -450,37 +464,44 @@ def main():
     coh_files = Path(os.path.join(args.use_dir, 'setup')).glob(
         "cohort-data__*.p")
     coh_dict = {coh_fl.stem.split('__')[2]: coh_fl for coh_fl in coh_files}
-    subt_dict = dict()
 
-    for coh in tuple(coh_dict):
-        subt_dict[coh] = None
-        coh_subtypes = get_cohort_subtypes(coh)
-
-        for subt, sub_smps in coh_subtypes.items():
-            coh_dict['_'.join([coh, subt])] = coh_dict[coh]
-            subt_dict['_'.join([coh, subt])] = sub_smps
-
-    trnsf_dict = {coh: {'Samps': None, 'AUC': None} for coh in coh_dict}
+    trnsf_dict = dict()
     for coh, coh_fl in coh_dict.items():
         with open(coh_fl, 'rb') as f:
             trnsf_cdata = pickle.load(f)
 
-        trnsf_dict[coh]['Samps'] = trnsf_cdata.get_train_samples()
-        if any(mtree != dict() for mtree in trnsf_cdata.mtrees.values()):
-            if subt_dict[coh] is None:
-                coh_k = coh
-            else:
-                coh_k = coh.split('_')[0]
+        trnsf_smps = trnsf_cdata.get_train_samples()
+        if (set(trnsf_smps) != set(cdata_samps)
+                and any(mtree != dict()
+                        for mtree in trnsf_cdata.mtrees.values())):
+            trnsf_dict[coh] = {'Samps': trnsf_smps}
 
-            trnsf_dict[coh]['Pheno'], trnsf_dict[coh]['AUC'] = (
-                transfer_signatures(trnsf_cdata, cdata, trnsf_df[coh_k],
-                                    use_muts, subt_dict[coh])
+            trnsf_dict[coh].update(
+                zip(['Pheno', 'AUC'],
+                    transfer_signatures(trnsf_cdata, cdata_samps,
+                                        trnsf_df[coh], use_muts))
                 )
 
-    trnsf_vals = {
+            for subt, smps in get_cohort_subtypes(coh).items():
+                subt_smps = smps & set(trnsf_dict[coh]['Samps'])
+
+                if subt_smps != set(cdata_samps):
+                    subt_lbl = '_'.join([coh, subt])
+
+                    trnsf_dict[subt_lbl] = {
+                        'Samps': subt_smps,
+                        **dict(zip(
+                            ['Pheno', 'AUC'],
+                            transfer_signatures(trnsf_cdata, cdata_samps,
+                                                trnsf_df[coh], use_muts,
+                                                subt_smps)
+                            ))
+                        }
+
+    trnsf_vals = pd.DataFrame({
         coh: trnsf_mat.apply(lambda vals: np.round(np.mean(vals, axis=0), 7))
         for coh, trnsf_mat in trnsf_df.items()
-        }
+        })
 
     with bz2.BZ2File(os.path.join(args.use_dir, 'merge',
                                   "trnsf-vals{}.p.gz".format(out_tag)),

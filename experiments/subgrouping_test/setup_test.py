@@ -176,7 +176,7 @@ def main():
     coh_list = list_cohorts(trnsf_src, expr_dir=expr_sources['Firehose'],
                             copy_dir=expr_sources['Firehose'])
     coh_list -= {args.cohort}
-    coh_list |= {'METABRIC', 'CCLE'}
+    coh_list |= {'METABRIC', 'beatAML', 'CCLE'}
 
     # initiate set of genetic expression features, reset random seed
     coh_dir = os.path.join(args.out_dir.split('subgrouping_test')[0],
@@ -189,6 +189,8 @@ def main():
 
         if coh_base in {'METABRIC', 'CCLE'}:
             use_src = 'microarray'
+        elif coh_base in {'beatAML'}:
+            use_src = 'toil__gns'
         else:
             use_src = str(trnsf_src)
 
