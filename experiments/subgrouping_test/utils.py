@@ -1,6 +1,23 @@
 
-import re
+from ..utilities.labels import ordinal_label
+from ..utilities.misc import choose_label_colour
+from ..utilities.mutations import RandomType
 from dryadic.features.mutations import MuType
+import re
+
+
+def choose_mtype_colour(mtype):
+    if isinstance(mtype, RandomType):
+        if mtype.base_mtype is None:
+            plt_clr = '0.59'
+        else:
+            plt_clr = choose_label_colour(tuple(
+                mtype.base_mtype.label_iter())[0])
+
+    else:
+        plt_clr = choose_label_colour(tuple(mtype.label_iter())[0])
+
+    return plt_clr
 
 
 def label_subtype(sub_type):
@@ -71,16 +88,4 @@ def get_fancy_label(mtype):
 
     return "{} mutations that are\n{}".format(
         mtype.get_labels()[0], '\nor '.join(use_lbls))
-
-
-def get_cohort_label(coh):
-    if '_' in coh:
-        coh_lbl = "{}({})".format(*coh.split('_'))
-        coh_lbl = coh_lbl.replace("IDHmut-non-codel", "IDHmut-nc")
-        coh_lbl = coh_lbl.replace("SquamousCarcinoma", "SqmsCarc")
-
-    else:
-        coh_lbl = str(coh)
-
-    return coh_lbl
 

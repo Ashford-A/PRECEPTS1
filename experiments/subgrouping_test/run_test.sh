@@ -95,7 +95,7 @@ then
 	merge_max=$(( $time_left - $time_max - 3 ))
 
 	eval "$( python -m dryads-research.experiments.utilities.pipeline_setup \
-		$OUTDIR $time_max --merge_max=$merge_max )"
+		$OUTDIR $time_max --merge_max=$merge_max --samp_exp=0.47 )"
 fi
 
 # if we are only enumerating, we quit before classification jobs are launched

@@ -40,34 +40,40 @@ def get_task_count(out_dir):
 
 def main():
     parser = argparse.ArgumentParser(
-        'setup_tasks',
+        'pipeline_setup',
         description="Figures out how to parallelize classification tasks."
         )
 
     parser.add_argument('out_dir', type=str)
     parser.add_argument('run_max', type=int)
+
     parser.add_argument('--merge_max', type=int)
     parser.add_argument('--task_size', type=float, default=1)
+    parser.add_argument('--merge_size', type=float, default=1)
+    parser.add_argument('--samp_exp', type=float, default=1)
     parser.add_argument('--test', action='store_true')
     args = parser.parse_args()
 
+    # find how many mutation classification tasks are to be run
     with open(os.path.join(args.out_dir, 'setup',
                            "muts-count.txt"), 'r') as f:
         muts_count = int(f.readline())
 
+    # find how large the training cohort will be
     with bz2.BZ2File(os.path.join(args.out_dir, 'setup',
                                   "cohort-data.p.gz"), 'r') as f:
         samp_count = len(pickle.load(f).get_samples())
 
-    task_load = args.run_max * 6137
-    task_load //= 301 + args.task_size * samp_count ** 1.37
+    task_load = args.run_max * 23
+    task_load //= (13 + args.task_size * samp_count) ** args.samp_exp
     task_count = int(((muts_count - 1) // task_load) + 1)
     task_size = muts_count // task_count
 
     if args.merge_max is None:
         merge_count = 1
     else:
-        merge_load = (args.merge_max * 10703) // (samp_count ** 1.17)
+        merge_load = args.merge_max * 7703
+        merge_load //= args.merge_size * (samp_count ** 1.17)
         merge_count = int(merge_load // task_size + 1)
 
     task_list = list(range(task_count))
@@ -76,20 +82,21 @@ def main():
     i = 0
     while task_list:
         tsk_indx = (len(task_list) - 1) // (i % len(task_list) + 1)
-        task_arr[i] += [str(task_list.pop(tsk_indx))]
+        task_arr[i] += [task_list.pop(tsk_indx)]
         i = (i + 1) % len(task_arr)
 
     merge_size = 1
     for i in range(len(task_arr)):
         merge_size = max(merge_size, len(task_arr[i]))
-        task_arr[i] = "{}\n".format(' '.join(sorted(task_arr[i])))
+        task_arr[i] = "{}\n".format(' '.join([
+            str(tsk) for tsk in sorted(task_arr[i])]))
 
     task_arr = sorted(task_arr) + [DIV_LINE]
     run_time = max(1.07 * task_size * args.run_max / task_load, 30)
     task_arr += ["run_time={}\n".format(int(run_time) + 1)]
 
     merge_time = max(
-        1.03 * args.merge_max * task_size * merge_size / merge_load, 30)
+        1.07 * args.merge_max * task_size * merge_size / merge_load, 30)
     task_arr += ["merge_time={}\n".format(int(merge_time) + 1)]
 
     if args.test:

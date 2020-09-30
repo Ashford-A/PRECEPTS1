@@ -84,6 +84,7 @@ dependencies:
   - importlib-metadata=1.7.0
   - importlib_metadata=1.7.0
   - inflect=4.1.0
+  - iniconfig=1.0.1
   - ipdb=0.13.3
   - ipython=7.16.1
   - ipython_genutils=0.2.0
@@ -129,6 +130,7 @@ dependencies:
   - markupsafe=1.1.1
   - matplotlib=3.3.1
   - matplotlib-base=3.3.1
+  - more-itertools=8.5.0
   - multidict=4.7.3
   - mysql-connector-c=6.1.6
   - nanotime=0.5.2
@@ -137,13 +139,15 @@ dependencies:
   - numpy=1.19.1
   - numpy-base=1.19.1
   - olefile=0.46
-  - openssl=1.1.1g
+  - openssl=1.1.1h
+  - packaging=20.4
   - paml=4.9
   - pandas=1.1.1
   - pango=1.40.14
   - paramiko=2.7.2
   - parso=0.7.0
   - pathspec=0.7.0
+  - patsy=0.5.1
   - pcre=8.44
   - perl=5.26.2
   - perl-aceperl=1.92
@@ -364,12 +368,14 @@ dependencies:
   - pillow=7.2.0
   - pip=20.2.2
   - pixman=0.40.0
+  - pluggy=0.13.1
   - ply=3.11
   - prettytable=0.7.2
   - prompt-toolkit=3.0.7
   - protobuf=3.13.0
   - psutil=5.7.2
   - ptyprocess=0.6.0
+  - py=1.9.0
   - pyasn1=0.4.8
   - pyasn1-modules=0.2.7
   - pycparser=2.20
@@ -384,6 +390,7 @@ dependencies:
   - pysftp=0.2.9
   - pysocks=1.7.1
   - pystan=2.19.0.0
+  - pytest=6.0.2
   - python=3.6.10
   - python-dateutil=2.8.1
   - python-irodsclient=0.8.2
@@ -410,9 +417,11 @@ dependencies:
   - snakemake=5.3.0
   - snakemake-minimal=5.3.0
   - sqlite=3.33.0
+  - statsmodels=0.11.1
   - t_coffee=11.0.8
   - tidyp=1.04
   - tk=8.6.10
+  - toml=0.10.1
   - tornado=6.0.4
   - traitlets=4.3.3
   - treelib=1.6.1
@@ -422,6 +431,7 @@ dependencies:
   - wcwidth=0.2.5
   - wheel=0.35.1
   - wrapt=1.12.1
+  - xlrd=1.2.0
   - xmlrunner=1.7.7
   - xorg-kbproto=1.0.7
   - xorg-libice=1.0.10

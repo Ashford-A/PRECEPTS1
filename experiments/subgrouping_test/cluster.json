@@ -10,21 +10,21 @@
     },
 
     'test' : {
-        'job-name' : "subv-test_fit",
+        'job-name' : "subg-test_fit",
         'output' : "slurm/classify_{wildcards.cv_id}_{wildcards.task_id}.out",
         'error' : "slurm/classify_{wildcards.cv_id}_{wildcards.task_id}.err",
-        'time' : "35:55:00",
+        'time' : "{config[time_max]}",
         'cpus-per-task' : 8,
-        'mem-per-cpu': 4000,
+        'mem-per-cpu': 3000,
     },
 
-    'consolidate' : {
-        'job-name' : "subv-test_cnsl",
-        'output' : "slurm/consolidate.out",
-        'error' : "slurm/consolidate.err",
-        'time' : "35:55:00",
+    'gather' : {
+        'job-name' : "subg-test_gthr",
+        'output' : "slurm/gather_{wildcards.tasks}.out",
+        'error' : "slurm/gather_{wildcards.tasks}.err",
+        'time' : "{config[merge_max]}",
         'cpus-per-task' : 12,
-        'mem-per-cpu': 2000,
+        'mem-per-cpu': 4000,
     },
 }
 

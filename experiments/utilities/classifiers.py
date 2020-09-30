@@ -8,7 +8,7 @@ from sklearn.linear_model import LogisticRegression
 
 class Lasso(Base, LinearPipe):
 
-    feat_inst = SelectMeanVar(mean_perc=95, var_perc=100)
+    feat_inst = SelectMeanVar(mean_perc=90, var_perc=100)
 
     tune_priors = (
         ('fit__C', tuple(10 ** np.linspace(-4, 3, 8))),
@@ -21,7 +21,7 @@ class Lasso(Base, LinearPipe):
 
 class Ridge(Base, LinearPipe):
 
-    feat_inst = SelectMeanVar(mean_perc=95, var_perc=100)
+    feat_inst = SelectMeanVar(mean_perc=90, var_perc=100)
 
     tune_priors = (
         ('fit__C', tuple(10 ** np.linspace(-7, 0, 8))),

@@ -1,6 +1,6 @@
 
 from .data_locs import (
-    firehose_dir, syn_root, metabric_dir, baml_dir, gencode_dir,
+    firehose_dir, syn_root, metabric_dir, baml_dir, ccle_dir, gencode_dir,
     oncogene_list, subtype_file, vep_cache_dir, domain_dir, expr_sources
     )
 

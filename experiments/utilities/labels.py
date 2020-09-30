@@ -12,6 +12,18 @@ copy_lbls = {shal_mtype: 'any shallow loss/gain',
              gains_mtype: 'any gain', dels_mtype: 'any loss'}
 
 
+def get_cohort_label(coh):
+    if '_' in coh:
+        coh_lbl = "{}({})".format(*coh.split('_'))
+        coh_lbl = coh_lbl.replace("IDHmut-non-codel", "IDHmut-nc")
+        coh_lbl = coh_lbl.replace("SquamousCarcinoma", "SqmsCarc")
+
+    else:
+        coh_lbl = str(coh)
+
+    return coh_lbl
+
+
 def ordinal_label(n):
     return "%d%s" % (n, {1: "st", 2: "nd", 3: "rd"}.get(n if n < 20
                                                         else n % 10, "th"))

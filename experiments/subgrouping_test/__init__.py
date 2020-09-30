@@ -1,19 +1,9 @@
 
-from .data_dirs import (expr_sources, expr_dir, copy_dir, syn_root, annot_dir,
-                        gene_list, type_file, baml_dir, metabric_dir,
-                        ccle_dir)
-from dryadic.features.mutations import MuType
-
-
-pnt_mtype = MuType({('Scale', 'Point'): None})
-copy_mtype = MuType({('Scale', 'Copy'): None})
-gain_mtype = MuType({('Scale', 'Copy'): {('Copy', 'DeepGain'): None}})
-loss_mtype = MuType({('Scale', 'Copy'): {('Copy', 'DeepDel'): None}})
+import os
+base_dir = os.path.join(os.environ['DATADIR'],
+                        'dryads-research', 'subgrouping_test')
 
 train_cohorts = {'BLCA', 'BRCA_LumA', 'CESC_SquamousCarcinoma', 'HNSC_HPV-',
                  'KIRC', 'LGG_IDHmut-non-codel', 'LIHC', 'LUAD', 'LUSC',
                  'METABRIC_LumA', 'OV', 'PRAD', 'SKCM', 'STAD', 'THCA'}
-
-__all__ = ['expr_sources', 'expr_dir', 'copy_dir', 'syn_root', 'annot_dir',
-           'gene_list', 'type_file', 'baml_dir', 'metabric_dir', 'ccle_dir']
 

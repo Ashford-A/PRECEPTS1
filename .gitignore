@@ -1,8 +1,10 @@
 __pycache__/
+*.pyc
 experiments/old
 experiments/**/setup
 experiments/**/output
 experiments/**/plots
 experiments/**/TODO*
+experiments/**/files.sh
 experiments/utilities/data_locs.py
 

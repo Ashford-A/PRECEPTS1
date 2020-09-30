@@ -47,6 +47,10 @@ auc_cmap = LinearSegmentedColormap('aucCmap', {
 corr_cmap = ScalarMappable(norm=Normalize(vmin=-1, vmax=1),
                            cmap=auc_cmap).to_rgba
 
+variant_clrs = {'WT': "0.29", 'Point': "#0D29FF",
+                'Gain': "#6AC500", 'Loss': "#BB0048"}
+mcomb_clrs = {'Point+Loss': "#7C30B0", 'Point+Gain': "#25A497"}
+
 form_clrs = dict(zip(['Frame_Shift', 'Nonsense_Mutation',
                       'Splice_Site', 'Splice_Region', 'Intron', "3'UTR",
                       'Missense_Mutation', 'In_Frame'],
