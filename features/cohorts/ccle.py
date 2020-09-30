@@ -81,6 +81,44 @@ def load_ccle_copies(ccle_dir):
                        sep='\t', index_col=0).transpose()[1:]
 
 
+def process_input_datasets(ccle_dir, annot_dir, expr_source, **coh_args):
+    samp_data = load_ccle_samps(ccle_dir)
+    expr = load_ccle_expression(ccle_dir, expr_source, **coh_args)
+    variants = load_ccle_variants(ccle_dir)
+    copies = load_ccle_copies(ccle_dir)
+
+    expr.index = [samp_data.index[samp_data.SAMPLE_ID == smp][0]
+                  for smp in expr.index]
+    copies.index = [samp_data.index[samp_data.SAMPLE_ID == smp][0]
+                    for smp in copies.index]
+    variants.Sample = [samp_data.index[samp_data.SAMPLE_ID == smp][0]
+                       for smp in variants.Sample]
+
+    use_samps = set(expr.index) & set(copies.index)
+    expr = drop_duplicate_genes(expr.loc[use_samps])
+
+    annot_file = os.path.join(annot_dir, "gencode.v19.annotation.gtf.gz")
+    annot_data = get_gencode(annot_file, ['transcript', 'exon'])
+
+    annot_dict = {at['gene_name']: {**{'Ens': ens}, **at}
+                  for ens, at in annot_data.items()
+                  if at['gene_name'] in set(expr.columns)}
+
+    expr = expr.loc[:, expr.columns.isin(annot_dict)]
+    variants = variants.loc[variants.Sample.isin(use_samps)
+                            & variants.Gene.isin(annot_dict)]
+
+    copies = copies.loc[use_samps, copies.columns.isin(annot_dict)]
+    copy_df = pd.DataFrame(copies.stack()).reset_index()
+    copy_df.columns = ['Sample', 'Gene', 'Copy']
+
+    copy_df = copy_df.loc[(copy_df.Copy != 0)]
+    copy_df.Copy = copy_df.Copy.map({-2: 'DeepDel', -1: 'ShalDel',
+                                     1: 'ShalGain', 2: 'DeepGain'})
+
+    return expr, variants, copy_df, annot_dict
+
+
 class CellLineCohort(BaseMutationCohort):
 
     def __init__(self,
@@ -88,40 +126,6 @@ class CellLineCohort(BaseMutationCohort):
                  domain_dir=None, cv_seed=None, test_prop=0,
                  leaf_annot=('Nucleo', ), **coh_args):
         self.cohort = 'CCLE'
-
-        samp_data = load_ccle_samps(ccle_dir)
-        expr = load_ccle_expression(ccle_dir, expr_source, **coh_args)
-        muts = load_ccle_variants(ccle_dir)
-        copies = load_ccle_copies(ccle_dir)
-
-        expr.index = [samp_data.index[samp_data.SAMPLE_ID == smp][0]
-                      for smp in expr.index]
-        copies.index = [samp_data.index[samp_data.SAMPLE_ID == smp][0]
-                        for smp in copies.index]
-        muts.Sample = [samp_data.index[samp_data.SAMPLE_ID == smp][0]
-                       for smp in muts.Sample]
-
-        use_samps = set(expr.index) & set(copies.index)
-        expr = drop_duplicate_genes(expr.loc[use_samps])
-        muts = muts.loc[muts.Sample.isin(use_samps)]
-        annot_data = get_gencode(annot_file, ['transcript', 'exon'])
-
-        self.gene_annot = {at['gene_name']: {**{'Ens': ens}, **at}
-                           for ens, at in annot_data.items()
-                           if at['gene_name'] in set(expr.columns)}
-
-        expr = expr.loc[:, expr.columns.isin(self.gene_annot)]
-        muts = muts.loc[muts.Gene.isin(self.gene_annot.keys())]
-        muts['Scale'] = 'Point'
-
-        copies = copies.loc[use_samps, copies.columns.isin(self.gene_annot)]
-        copy_df = pd.DataFrame(copies.stack()).reset_index()
-        copy_df.columns = ['Sample', 'Gene', 'Copy']
-
-        copy_df = copy_df.loc[(copy_df.Copy != 0)]
-        copy_df.Copy = copy_df.Copy.map({-2: 'DeepDel', -1: 'ShalDel',
-                                         1: 'ShalGain', 2: 'DeepGain'})
-        copy_df['Scale'] = 'Copy'
 
         muts['Exon'] = [
             tuple(exn_no)[0] if len(exn_no) == 1 else '.'

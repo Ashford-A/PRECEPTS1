@@ -171,19 +171,16 @@ def process_input_datasets(metabric_dir, annot_dir, use_types=None,
     expr_data = expr.loc[use_samps, expr.columns.isin(annot_dict)]
     variants = variants.loc[variants.Sample.isin(use_samps)
                             & variants.Gene.isin(annot_dict)]
-    copy_df = copy_df.loc[use_samps, copy_df.columns.isin(annot_dict)]
 
-    variants['Scale'] = 'Point'
+    copy_df = copy_df.loc[use_samps, copy_df.columns.isin(annot_dict)]
     copy_df = pd.DataFrame(copy_df.stack()).reset_index()
     copy_df.columns = ['Sample', 'Gene', 'Copy']
 
     copy_df = copy_df.loc[(copy_df.Copy != 0)]
     copy_df.Copy = copy_df.Copy.map({-2: 'DeepDel', -1: 'ShalDel',
                                      1: 'ShalGain', 2: 'DeepGain'})
-    copy_df['Scale'] = 'Copy'
-    mut_data = pd.concat([variants, copy_df], sort=True)
 
-    return expr_data, mut_data, annot_dict
+    return expr_data, variants, copy_df, annot_dict
 
 
 class MetabricCohort(BaseMutationCohort):

@@ -27,6 +27,13 @@ cohort_subtypes = {
     'luminal': ['LumA', 'LumB'],
     }
 
+tcga_subtypes = {
+    'BRCA': ('LumA', 'luminal', 'nonbasal'),
+    'HNSC': ('HPV-', 'HPV+'),
+    'CESC': ('SquamousCarcinoma', ),
+    'LGG': ('IDHmut-non-codel', ),
+    }
+
 
 def parse_subtypes(cohort):
     use_subtypes = None
@@ -39,6 +46,13 @@ def parse_subtypes(cohort):
             use_subtypes = [coh_info[1]]
 
     return use_subtypes
+
+
+def choose_subtypes(use_types, base_coh, type_file):
+    type_data = pd.read_csv(type_file, sep='\t', index_col=0, comment='#')
+    type_data = type_data[type_data.DISEASE == base_coh]
+
+    return set(type_data.index[type_data.SUBTYPE.isin(use_types)])
 
 
 def get_expr_data(cohort, expr_source, **expr_args):
@@ -286,13 +300,9 @@ def process_input_datasets(cohort, expr_source, var_source, copy_source,
     expr, variants, copy_df = add_mutations(base_coh, var_source, copy_source,
                                             expr, annot_dict, **data_args)
 
-    type_data = pd.read_csv(type_file,
-                            sep='\t', index_col=0, comment='#')
-    type_data = type_data[type_data.DISEASE == base_coh]
-
     use_samps = set(expr.index)
     if use_types is not None:
-        use_samps &= set(type_data.index[type_data.SUBTYPE.isin(use_types)])
+        use_samps &= choose_subtypes(use_types, base_coh, type_file)
 
     expr_data = expr.loc[use_samps]
     variants = variants.loc[variants.Sample.isin(use_samps)]

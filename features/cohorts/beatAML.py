@@ -18,8 +18,8 @@ def load_beat_expression(baml_dir):
 def load_beat_variants(syn, **var_args):
     field_dict = (
         ('Chr', 1), ('Start', 2), ('End', 3), ('RefAllele', 4),
-        ('TumorAllele', 5), ('tot_reads', 8), ('alt_reads', 9),
-        ('Consequence', 15), ('Gene', 17), ('Exon', 22),
+        ('TumorAllele', 5), ('Genotyper', 7), ('tot_reads', 8),
+        ('alt_reads', 9), ('Consequence', 15), ('Gene', 17), ('Exon', 22),
         ('HGVSc', 23), ('HGVSp', 24), ('Variant_Class', 31), ('Sample', 38)
         )
 
@@ -38,9 +38,9 @@ def load_beat_variants(syn, **var_args):
             if name in {'Sample'} | set(var_args['mut_fields'])
             ]))
 
-    var_data = pd.read_csv(syn.get('syn18683049').path,
-                           engine='c', dtype='object', sep='\t', header=None,
-                           skiprows=1, usecols=use_cols, names=use_fields)
+    var_data = pd.read_csv(syn.get('syn18683049').path, sep='\t',
+                           header=None, dtype='object', skiprows=1,
+                           usecols=use_cols, names=use_fields)
 
     if 'Transcript' in use_fields:
         var_data['Transcript'] = var_data.HGVSc.str.split('\\.[0-9]+:').apply(
@@ -103,13 +103,11 @@ def process_input_datasets(baml_dir, annot_dir, syn, **data_args):
     expr_data = drop_duplicate_genes(expr.rename(
         columns={gn: annot_data[gn]['gene_name'] for gn in expr.columns}))
 
+    # duplicates need to be filtered out here as they arise from two different
+    # callers (varscan and mutect) being used to produce the mutation dataset
     variants = variants.loc[variants.Sample.isin(use_samps)
                             & variants.Gene.isin(annot_dict)]
-    variants['Scale'] = 'Point'
-
-    if 'Gene' in variants:
-        variants['Strand'] = [annot_dict[gn]['Strand']
-                              for gn in variants.Gene.values]
+    variants = variants.loc[~variants.duplicated()]
 
     return expr_data, variants, annot_dict
 
