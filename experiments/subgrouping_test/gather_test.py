@@ -1,5 +1,5 @@
 
-from ..utilities.mutations import RandomType
+from ..utilities.mutations import copy_mtype, RandomType
 from ..utilities.pipeline_setup import get_task_count
 from ..utilities.misc import compare_muts
 from ...features.cohorts.utils import get_cohort_subtypes
@@ -137,6 +137,14 @@ def transfer_signatures(trnsf_cdata, orig_samps,
                         pred_df, mtype_list, subt_smps=None):
     use_muts = {mtype for mtype in mtype_list
                 if not isinstance(mtype, RandomType)}
+
+    # treats special case of cohorts which do not have CNA data (e.g. beatAML)
+    if not any(len(copy_mtype.get_samples(mtree)) > 0
+               for mtree in trnsf_cdata.mtrees.values()):
+        use_muts = {
+            mtype for mtype in use_muts
+            if (tuple(mtype.subtype_iter())[0][1] & copy_mtype).is_empty()
+            }
 
     sub_stat = np.array([smp in orig_samps
                          for smp in trnsf_cdata.get_train_samples()])
@@ -463,7 +471,7 @@ def main():
 
     coh_files = Path(os.path.join(args.use_dir, 'setup')).glob(
         "cohort-data__*.p")
-    coh_dict = {coh_fl.stem.split('__')[2]: coh_fl for coh_fl in coh_files}
+    coh_dict = {coh_fl.stem.split('__')[-1]: coh_fl for coh_fl in coh_files}
 
     trnsf_dict = dict()
     for coh, coh_fl in coh_dict.items():
@@ -476,11 +484,12 @@ def main():
                         for mtree in trnsf_cdata.mtrees.values())):
             trnsf_dict[coh] = {'Samps': trnsf_smps}
 
-            trnsf_dict[coh].update(
-                zip(['Pheno', 'AUC'],
-                    transfer_signatures(trnsf_cdata, cdata_samps,
-                                        trnsf_df[coh], use_muts))
-                )
+            if coh != 'CCLE':
+                trnsf_dict[coh].update(
+                    zip(['Pheno', 'AUC'],
+                        transfer_signatures(trnsf_cdata, cdata_samps,
+                                            trnsf_df[coh], use_muts))
+                    )
 
             for subt, smps in get_cohort_subtypes(coh).items():
                 subt_smps = smps & set(trnsf_dict[coh]['Samps'])

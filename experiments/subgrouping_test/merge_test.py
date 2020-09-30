@@ -36,7 +36,7 @@ def main():
     for coef_file in Path(args.use_dir, 'merge').glob("out-coef_*.p.gz"):
         with bz2.BZ2File(coef_file, 'r') as fl:
             coef_data = pickle.load(fl)
-        coef_df = pd.concat([coef_df, coef_data])
+        coef_df = pd.concat([coef_df, coef_data.sort_index(axis=1)])
 
     assert sorted(muts_list) == sorted(coef_df.index), (
         "Tested mutations missing from merged classifier coefficients!")
@@ -108,26 +108,30 @@ def main():
                      'w') as fl:
         pickle.dump(trnsf_preds, fl, protocol=-1)
 
-    trnsf_dict = {'Samps': {coh: None for coh in trnsf_preds.columns},
-                  'Pheno': {coh: dict() for coh in trnsf_preds.columns},
-                  'AUC': {coh: pd.DataFrame() for coh in trnsf_preds.columns}}
-
+    trnsf_dict = dict()
     for trnsf_file in Path(args.use_dir, 'merge').glob("out-trnsf_*.p.gz"):
         with bz2.BZ2File(trnsf_file, 'r') as fl:
             trnsf_data = pickle.load(fl)
 
-        for coh in trnsf_preds.columns:
-            if trnsf_dict['Samps'][coh] is None:
-                trnsf_dict['Samps'][coh] = trnsf_data[coh]['Samps']
+        for coh, trnsf_out in trnsf_data.items():
+            if coh not in trnsf_dict:
+                trnsf_dict[coh] = {'Samps': None, 'Pheno': dict(),
+                                   'AUC': pd.DataFrame()}
+
+            if trnsf_dict[coh]['Samps'] is None:
+                trnsf_dict[coh]['Samps'] = trnsf_out['Samps']
             else:
-                assert trnsf_dict['Samps'][coh] == trnsf_data[coh]['Samps'], (
+                assert trnsf_dict[coh]['Samps'] == trnsf_out['Samps'], (
                     "Mismatching sample sets in tranfer cohort `{}`!".format(
                         coh)
                     )
 
-            trnsf_dict['Pheno'][coh].update(trnsf_data[coh]['Pheno'])
-            trnsf_dict['AUC'][coh] = pd.concat([
-                trnsf_dict['AUC'][coh], pd.DataFrame(trnsf_data[coh]['AUC'])])
+            if coh != 'CCLE':
+                trnsf_dict[coh]['Pheno'].update(trnsf_out['Pheno'])
+                trnsf_dict[coh]['AUC'] = pd.concat([
+                    trnsf_dict[coh]['AUC'],
+                    pd.DataFrame(trnsf_out['AUC'])
+                    ])
 
     with bz2.BZ2File(os.path.join(args.use_dir, "out-trnsf.p.gz"), 'w') as fl:
         pickle.dump(trnsf_dict, fl, protocol=-1)

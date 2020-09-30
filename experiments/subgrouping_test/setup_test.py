@@ -167,13 +167,8 @@ def main():
     with open(os.path.join(out_path, "muts-count.txt"), 'w') as fl:
         fl.write(str(len(use_mtypes)))
 
-    if args.expr_source in {'Firehose', 'microarray'}:
-        trnsf_src = 'Firehose'
-    else:
-        trnsf_src = args.expr_source.split('__')[0]
-
     # get list of available cohorts for this source of expression data
-    coh_list = list_cohorts(trnsf_src, expr_dir=expr_sources['Firehose'],
+    coh_list = list_cohorts('Firehose', expr_dir=expr_sources['Firehose'],
                             copy_dir=expr_sources['Firehose'])
     coh_list -= {args.cohort}
     coh_list |= {'METABRIC', 'beatAML', 'CCLE'}
@@ -192,7 +187,7 @@ def main():
         elif coh_base in {'beatAML'}:
             use_src = 'toil__gns'
         else:
-            use_src = str(trnsf_src)
+            use_src = 'Firehose'
 
         coh_tag = "cohort-data__{}__{}.p".format(use_src, coh)
         coh_path = os.path.join(coh_dir, coh_tag)

@@ -94,7 +94,7 @@ rule merge:
         cp {TMPDIR}/out-aucs.p.gz {OUTDIR}/out-aucs__${{out_tag}}.p.gz
         cp {TMPDIR}/out-conf.p.gz {OUTDIR}/out-conf__${{out_tag}}.p.gz
 
-        cp {TMPDIR}/trnsf-vals.p.gz {OUTDIR}/trnsf-vals__${{out_tag}}.p.gz
+        cp {TMPDIR}/trnsf-preds.p.gz {OUTDIR}/trnsf-preds__${{out_tag}}.p.gz
         cp {TMPDIR}/out-trnsf.p.gz {OUTDIR}/out-trnsf__${{out_tag}}.p.gz
 
         """

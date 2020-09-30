@@ -46,7 +46,7 @@ then
 fi
 
 # create the directories where intermediate and final output will be stored, move to working directory
-mkdir -p $TEMPDIR/dryads-research/subgrouping_test/$expr_source/setup
+mkdir -p $TEMPDIR/dryads-research/subgrouping_test/setup
 mkdir -p $FINALDIR $OUTDIR/setup $OUTDIR/output $OUTDIR/slurm
 cd $OUTDIR || exit
 
@@ -63,13 +63,17 @@ then
 	dvc init --no-scm
 fi
 
-# enumerate the mutation types that will be tested in this experiment
-dvc run -d $COH_DIR -d $GENCODE_DIR -d $ONCOGENE_LIST -d $SUBTYPE_LIST \
-	-d $RUNDIR/setup_test.py -d $CODEDIR/dryads-research/environment.yml \
-	-o setup/muts-list.p -m setup/muts-count.txt \
-	-f setup.dvc --overwrite-dvcfile \
-	python -m dryads-research.experiments.subgrouping_test.setup_test \
-	$expr_source $cohort $samp_cutoff $mut_levels $OUTDIR
+if $rewrite
+then
+	# enumerate the mutation types that will be tested in this experiment
+	dvc run -d $COH_DIR -d $GENCODE_DIR -d $ONCOGENE_LIST \
+		-d $SUBTYPE_LIST -d $RUNDIR/setup_test.py \
+		-d $CODEDIR/dryads-research/environment.yml \
+		-o setup/muts-list.p -m setup/muts-count.txt \
+		-f setup.dvc --overwrite-dvcfile \
+		python -m dryads-research.experiments.subgrouping_test.setup_test \
+		$expr_source $cohort $samp_cutoff $mut_levels $OUTDIR
+fi
 
 if [ -z ${SBATCH_TIMELIMIT+x} ]
 then
@@ -107,7 +111,7 @@ eval "$( tail -n 1 setup/tasks.txt )"
 dvc run -d setup/muts-list.p -d $RUNDIR/fit_test.py -O out-conf.p.gz \
 	-O $FINALDIR/out-trnsf__${mut_levels}__${classif}.p.gz -f output.dvc \
 	--overwrite-dvcfile --ignore-build-cache 'snakemake -s $RUNDIR/Snakefile \
-	-j 200 --latency-wait 120 --cluster-config $RUNDIR/cluster.json \
+	-j 400 --latency-wait 120 --cluster-config $RUNDIR/cluster.json \
 	--cluster "sbatch -p {cluster.partition} -J {cluster.job-name} \
 	-t {cluster.time} -o {cluster.output} -e {cluster.error} \
 	-n {cluster.ntasks} -c {cluster.cpus-per-task} \

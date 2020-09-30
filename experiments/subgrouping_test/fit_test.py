@@ -61,7 +61,7 @@ def main():
     out_pred = {mtype: dict() for mtype in mtype_list}
     out_coef = {mtype: dict() for mtype in mtype_list}
 
-    coh_dict = {coh_fl.stem.split('__')[2]: coh_fl
+    coh_dict = {coh_fl.stem.split('__')[-1]: coh_fl
                 for coh_fl in Path(setup_dir).glob("cohort-data__*.p")}
     out_trnsf = {mtype: {coh: None for coh in coh_dict}
                  for mtype in mtype_list}
