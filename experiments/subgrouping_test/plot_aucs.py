@@ -618,7 +618,7 @@ def main():
     out_use = out_list.groupby('Levels')['Samps'].min()
     if 'Consequence__Exon' not in out_use.index:
         raise ValueError("Cannot compare AUCs until this experiment is run "
-                         "with mutation levels `Exon__Location__Protein` "
+                         "with mutation levels `Consequence__Exon` "
                          "which tests genes' base mutations!")
 
     os.makedirs(os.path.join(plot_dir,

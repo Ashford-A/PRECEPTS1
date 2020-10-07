@@ -97,5 +97,9 @@ rule merge:
         cp {TMPDIR}/trnsf-preds.p.gz {OUTDIR}/trnsf-preds__${{out_tag}}.p.gz
         cp {TMPDIR}/out-trnsf.p.gz {OUTDIR}/out-trnsf__${{out_tag}}.p.gz
 
+        python -m dryads-research.experiments.subgrouping_test.plot_experiment \
+                {config[expr_source]} {config[cohort]} {config[samp_cutoff]} \
+                {config[mut_levels]} {config[classif]}
+
         """
 

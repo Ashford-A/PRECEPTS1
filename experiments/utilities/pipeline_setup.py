@@ -92,7 +92,7 @@ def main():
             str(tsk) for tsk in sorted(task_arr[i])]))
 
     task_arr = sorted(task_arr) + [DIV_LINE]
-    run_time = max(1.07 * task_size * args.run_max / task_load, 30)
+    run_time = max(1.07 * task_size * args.run_max / task_load, 45)
     task_arr += ["run_time={}\n".format(int(run_time) + 1)]
 
     merge_time = max(

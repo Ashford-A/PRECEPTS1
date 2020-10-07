@@ -57,12 +57,6 @@ export PYTHONPATH="$CODEDIR"
 eval "$( python -m dryads-research.experiments.utilities.data_dirs \
 	$cohort --expr_source $expr_source )"
 
-# initiate version control in this directory if it hasn't been already
-if [ ! -d .dvc ]
-then
-	dvc init --no-scm
-fi
-
 if $rewrite
 then
 	# enumerate the mutation types that will be tested in this experiment
@@ -120,5 +114,6 @@ dvc run -d setup/muts-list.p -d $RUNDIR/fit_test.py -O out-conf.p.gz \
 	samp_cutoff='"$samp_cutoff"' mut_levels='"$mut_levels"' \
 	classif='"$classif"' time_max='"$run_time"' merge_max='"$merge_time"
 
+rm $OUTDIR/setup/cohort-data__*
 cp output.dvc $FINALDIR/output__${mut_levels}__${classif}.dvc
 

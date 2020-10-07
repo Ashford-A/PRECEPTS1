@@ -1,16 +1,9 @@
 
+from ..subgrouping_test import base_dir
+from .utils import choose_mtype_colour
+from ..utilities.colour_maps import variant_clrs
+
 import os
-import sys
-
-base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'subvariant_test')
-sys.path.extend([os.path.join(os.path.dirname(__file__), '../../..')])
-plot_dir = os.path.join(base_dir, 'plots', 'experiment')
-
-from HetMan.experiments.subvariant_test.merge_test import merge_cohort_data
-from HetMan.experiments.subvariant_tour.utils import RandomType
-from HetMan.experiments.subvariant_test.plot_aucs import choose_gene_colour
-from HetMan.experiments.subvariant_infer import variant_clrs
-
 import argparse
 import bz2
 import dill as pickle
@@ -19,8 +12,14 @@ import numpy as np
 import pandas as pd
 
 import matplotlib as mpl
-mpl.use('Agg')
 import matplotlib.pyplot as plt
+
+mpl.use('Agg')
+plt.style.use('fivethirtyeight')
+plt.rcParams['axes.facecolor'] = 'white'
+plt.rcParams['savefig.facecolor'] = 'white'
+plt.rcParams['axes.edgecolor'] = 'white'
+plot_dir = os.path.join(base_dir, 'plots', 'experiment')
 
 
 def lbl_norm(lbls, wt_val, mut_val):
@@ -34,31 +33,21 @@ def lbl_norm(lbls, wt_val, mut_val):
     return np.mean(norm_lbls), np.var(norm_lbls)
 
 
-def choose_mtype_colour(mtype):
-    if isinstance(mtype, RandomType):
-        if mtype.base_mtype is None:
-            plt_clr = '0.59'
-        else:
-            plt_clr = choose_gene_colour(mtype.base_mtype.get_labels()[0])
-
-    else:
-        plt_clr = choose_gene_colour(mtype.get_labels()[0])
-
-    return plt_clr
-
-
 def plot_auc_stability(auc_vals, pheno_dict, args):
     fig, ax = plt.subplots(figsize=(13, 8))
 
-    stat_dict = {'Mean': auc_vals.apply(np.mean),
-                 'Var': auc_vals.apply(np.std)}
+    # calculate average and standard deviation of task AUCs across CVs
+    stat_dict = pd.DataFrame({'Mean': auc_vals.apply(np.mean),
+                              'Var': auc_vals.apply(np.std)})
 
+    # plot mean and SD of AUCs for each classification task
     for mtype, mean_val in stat_dict['Mean'].iteritems():
         ax.scatter(mean_val, stat_dict['Var'][mtype],
                    facecolor=[choose_mtype_colour(mtype)],
                    s=251 * np.mean(pheno_dict[mtype]),
                    alpha=0.23, edgecolors='none')
 
+    # get axis limits, leaving spare room on the bottom for labels
     x_lims = ax.get_xlim()
     y_lims = [-ax.get_ylim()[1] / 91, ax.get_ylim()[1]]
 
@@ -117,8 +106,12 @@ def plot_label_stability(pred_df, auc_vals, pheno_dict, args):
         axarr[auc_indx].set_title(
             "{:.3f} - {:.3f}".format(auc_bins[auc_indx].left,
                                      auc_bins[auc_indx].right),
-            fontsize=21
+            fontsize=19
             )
+
+        axarr[auc_indx].text(0.5, 0.99, "n={}".format(pred_mat.shape[0]),
+                             size=14, ha='center', va='top',
+                             transform=axarr[auc_indx].transAxes)
 
         qnt_pnts = np.linspace(2.5, 97.5, 190)
         wt_qnts = np.unique(np.percentile(wt_vals[:, 0], q=qnt_pnts))
@@ -162,6 +155,15 @@ def plot_label_stability(pred_df, auc_vals, pheno_dict, args):
         axarr[auc_indx].set_xlim(x_lims)
         axarr[auc_indx].set_ylim(y_lims)
 
+    fig.text(0.5, 0, "Mean Sample Score",
+             fontsize=23, weight='semibold', ha='center', va='top')
+    fig.text(-1 / 137, 0.5, "Sample Score SD",
+             fontsize=23, weight='semibold', rotation=90,
+             ha='center', va='center')
+
+    fig.text(1 / 23, 0.95, "AUC Bins",
+             fontsize=15, weight='semibold', ha='right', va='center')
+
     fig.tight_layout(w_pad=2.3, h_pad=1.9)
     plt.savefig(
         os.path.join(plot_dir,
@@ -177,10 +179,11 @@ def plot_label_stability(pred_df, auc_vals, pheno_dict, args):
 
 def main():
     parser = argparse.ArgumentParser(
-        "Plots general information about a particular run of the experiment.")
+        'plot_experiment',
+        description="Plots general diagnostics about a single experiment run."
+        )
 
-    parser.add_argument('expr_source',
-                        help="a source of expression data", type=str)
+    parser.add_argument('expr_source', help="a source of expression datasets")
     parser.add_argument('cohort', help="a TCGA cohort", type=str)
     parser.add_argument('samp_cutoff',
                         help="a mutation frequency cutoff", type=int)
@@ -192,13 +195,12 @@ def main():
     args = parser.parse_args()
     out_tag = "{}__{}__samps-{}".format(
         args.expr_source, args.cohort, args.samp_cutoff)
-    cdata = merge_cohort_data(os.path.join(base_dir, out_tag), use_seed=8713)
 
     with bz2.BZ2File(os.path.join(base_dir, out_tag,
-                                  "out-pred__{}__{}.p.gz".format(
+                                  "cohort-data__{}__{}.p.gz".format(
                                       args.mut_levels, args.classif)),
                      'r') as f:
-        pred_df = pickle.load(f)
+        cdata = pickle.load(f)
 
     with bz2.BZ2File(os.path.join(base_dir, out_tag,
                                   "out-pheno__{}__{}.p.gz".format(
@@ -207,10 +209,16 @@ def main():
         pheno_dict = pickle.load(f)
 
     with bz2.BZ2File(os.path.join(base_dir, out_tag,
+                                  "out-pred__{}__{}.p.gz".format(
+                                      args.mut_levels, args.classif)),
+                     'r') as f:
+        pred_df = pickle.load(f)
+
+    with bz2.BZ2File(os.path.join(base_dir, out_tag,
                                   "out-aucs__{}__{}.p.gz".format(
                                       args.mut_levels, args.classif)),
                      'r') as f:
-        auc_df = pd.DataFrame.from_dict(pickle.load(f))
+        auc_df = pickle.load(f)
 
     os.makedirs(os.path.join(plot_dir, out_tag), exist_ok=True)
     plot_auc_stability(auc_df['CV'], pheno_dict, args)

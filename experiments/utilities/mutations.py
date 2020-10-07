@@ -223,7 +223,7 @@ class RandomType(MuType):
         return use_str
 
     def __repr__(self):
-        use_str = "random samples using {} with seed {}".format(
+        use_str = "random samples of size {} with seed {}".format(
             str(self.size_dist), self.seed)
 
         if self.base_mtype:
