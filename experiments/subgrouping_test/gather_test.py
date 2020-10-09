@@ -12,112 +12,10 @@ import dill as pickle
 
 import numpy as np
 import pandas as pd
+
 from joblib import Parallel, delayed
 import random
-
 from itertools import cycle
-from itertools import combinations as combn
-from functools import reduce
-from operator import or_, add
-
-
-def merge_cohort_data(out_dir, use_seed=None):
-    cdata_file = os.path.join(out_dir, "cohort-data.p")
-
-    if os.path.isfile(cdata_file):
-        with open(cdata_file, 'rb') as fl:
-            cur_cdata = pickle.load(fl)
-            cur_hash = hash_cdata(cur_cdata)
-
-    else:
-        cur_hash = None
-
-    new_files = tuple(Path(out_dir).glob("cohort-data__*.p"))
-    new_mdls = [new_file.stem.split("cohort-data__")[1].split(".p")[0]
-                for new_file in new_files]
-    new_cdatas = {new_mdl: None for new_mdl in new_mdls}
-    new_chsums = {new_mdl: None for new_mdl in new_mdls}
-
-    for new_mdl, new_file in zip(new_mdls, new_files):
-        with open(new_file, 'rb') as f:
-            new_cdatas[new_mdl] = pickle.load(f)
-        new_chsums[new_mdl] = hash_cdata(new_cdatas[new_mdl])
-
-    for mdl, cdata in new_cdatas.items():
-        if cdata.get_seed() != use_seed:
-            raise MergeError("Cohort for model {} does not have the correct "
-                             "cross-validation seed!".format(mdl))
-
-        if cdata.get_test_samples():
-            raise MergeError("Cohort for model {} does not have an empty "
-                             "testing sample set!".format(mdl))
-
-    for (mdl1, chsum1), (mdl2, chsum2) in combn(new_chsums.items(), 2):
-        expr_diff = pd.Series({
-            gene: nsum - dict(chsum2['expr'])[gene]
-            for gene, nsum in chsum1['expr']
-            })
-
-        assert (expr_diff.abs() < 1e2).all(), (
-            "Inconsistent expression hashes found for cohorts in new "
-            "experiments `{}` and `{}` !".format(mdl1, mdl2)
-            )
-
-        for both_lvl in ((chsum1.keys() - {'expr'})
-                         & (chsum2.keys() - {'expr'})):
-            assert chsum1[both_lvl] == chsum2[both_lvl], (
-                "Inconsistent hashes at mutation level `{}` "
-                "found for cohorts in new experiments `{}` and "
-                "`{}` !".format(both_lvl, mdl1, mdl2)
-                )
-
-    if new_files:
-        if cur_hash is not None:
-            for new_mdl, new_chsum in new_chsums.items():
-                #TODO: figure out how to make this more robust
-                expr_diff = pd.Series({
-                    gene: nsum - dict(cur_hash['expr'])[gene]
-                    for gene, nsum in new_chsum['expr']
-                    })
-
-                assert (expr_diff.abs() < 1e2).all(), (
-                    "Inconsistent expression hashes found for cohort in "
-                    "new experiment `{}` !".format(new_mdl)
-                    )
-
-                for both_lvl in ((new_chsum.keys() - {'expr'})
-                                 & (cur_hash.keys() - {'expr'})):
-                    assert new_chsum[both_lvl] == cur_hash[both_lvl], (
-                        "Inconsistent hashes at mutation "
-                        "level `{}` found for cohort in new "
-                        "experiment `{}` !".format(both_lvl, new_mdl)
-                        )
-
-            use_cdata = cur_cdata
-
-        else:
-            use_cdata = tuple(new_cdatas.values())[0]
-
-        use_cdata.mtrees = dict(reduce(
-            or_, [set(cdata.mtrees.items())
-                  for cdata in [use_cdata] + list(new_cdatas.values())]
-            ))
-
-        with open(cdata_file, 'wb') as f:
-            pickle.dump(use_cdata, f, protocol=-1)
-        for new_file in new_files:
-            os.remove(new_file)
-
-    else:
-        if cur_hash is None:
-            raise ValueError("No cohort datasets found in {}, has an "
-                             "experiment with these parameters been run to "
-                             "completion yet?".format(out_dir))
-
-        else:
-            use_cdata = cur_cdata
-
-    return use_cdata
 
 
 def calculate_auc(phn_vec, pred_mat):
@@ -441,7 +339,7 @@ def main():
 
     random.seed(7609)
     sub_inds = [random.choices([False, True], k=len(cdata.get_samples()))
-                for _ in range(100)]
+                for _ in range(1000)]
 
     conf_df = pd.DataFrame.from_records(
         tuple(zip(cycle(use_muts), Parallel(

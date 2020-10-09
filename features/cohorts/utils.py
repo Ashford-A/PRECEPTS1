@@ -109,7 +109,7 @@ def get_input_datasets(cohort, expr_source, mut_fields=None):
 
 
 def get_cohort_data(cohort, expr_source, mut_lvls, vep_cache_dir, out_path,
-                    use_genes=None):
+                    use_genes=None, use_copies=True):
     data_dict = get_input_datasets(
         cohort, expr_source,
         mut_fields=['Sample', 'Gene', 'Chr', 'Start', 'End',
@@ -122,6 +122,7 @@ def get_cohort_data(cohort, expr_source, mut_lvls, vep_cache_dir, out_path,
                                   [('Gene', 'Form')], data_dict['copy'],
                                   data_dict['annot'], leaf_annot=None)
 
+    # format the mutation calls into a format compatible with VEP
     var_df = pd.DataFrame({'Chr': data_dict['vars'].Chr.astype('int'),
                            'Start': data_dict['vars'].Start.astype('int'),
                            'End': data_dict['vars'].End.astype('int'),
@@ -133,10 +134,10 @@ def get_cohort_data(cohort, expr_source, mut_lvls, vep_cache_dir, out_path,
         var_fields = ['Gene', 'Canonical', 'Location', 'VarAllele']
         cdata_lvls = [mut_lvls]
 
-        for lvl in mut_lvls[3:]:
+        for lvl in mut_lvls:
             if '-domain' in lvl and 'Domains' not in var_fields:
                 var_fields += ['Domains']
-            else:
+            elif lvl not in {'Gene', 'Scale', 'Copy'}:
                 var_fields += [lvl]
 
     elif isinstance(mut_lvls[0], tuple):
@@ -144,10 +145,10 @@ def get_cohort_data(cohort, expr_source, mut_lvls, vep_cache_dir, out_path,
         cdata_lvls = list(mut_lvls)
 
         for lvl_list in mut_lvls:
-            for lvl in lvl_list[2:]:
+            for lvl in lvl_list:
                 if '-domain' in lvl and 'Domains' not in var_fields:
                     var_fields |= {'Domains'}
-                else:
+                elif lvl not in {'Gene', 'Scale', 'Copy'}:
                     var_fields |= {lvl}
 
     else:
@@ -162,17 +163,23 @@ def get_cohort_data(cohort, expr_source, mut_lvls, vep_cache_dir, out_path,
         distance=0, consequence_choose='pick', forks=4, update_cache=False
         )
 
-    # remove mutation calls not assigned to a canonical transcript by VEP as
-    # well as those not associated with genes linked to cancer processes
-    variants = variants.loc[variants.CANONICAL == 'YES']
-    if data_dict['copy'] is None:
+    # handle case where we don't need CNA data, where there is no CNA data
+    # available for the cohort, and where there is CNA data respectively
+    if not use_copies:
+        copies = None
+    elif data_dict['copy'] is None:
         copies = pd.DataFrame(columns=['Gene', 'Copy'])
     else:
         copies = data_dict['copy']
 
+    # remove mutation calls not assigned to a canonical transcript by VEP as
+    # well as those not associated with genes linked to cancer processes
+    variants = variants.loc[variants.CANONICAL == 'YES']
     if use_genes:
         variants = variants.loc[variants.Gene.isin(use_genes)]
-        copies = copies.loc[copies.Gene.isin(use_genes)]
+
+        if copies is not None:
+            copies = copies.loc[copies.Gene.isin(use_genes)]
 
     assert not variants.duplicated().any(), (
         "Variant data contains {} duplicate entries!".format(
