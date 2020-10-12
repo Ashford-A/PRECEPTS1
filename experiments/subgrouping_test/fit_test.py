@@ -14,7 +14,7 @@ from pathlib import Path
 
 def main():
     parser = argparse.ArgumentParser(
-        'fit_isolate',
+        'fit_test',
         description="Runs a portion of an experiment's classification tasks."
         )
 

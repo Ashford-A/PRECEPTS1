@@ -1,55 +1,24 @@
 
+from ..subgrouping_tour import cis_lbls
+from ..utilities.handle_input import safe_load
+from ..utilities.pipeline_setup import get_task_count
+from ..utilities.classifiers import *
+
 import os
-import sys
-base_dir = os.path.dirname(__file__)
-sys.path.extend([os.path.join(base_dir, '..', '..', '..')])
-
-from HetMan.experiments.subvariant_tour import cis_lbls
-from HetMan.experiments.subvariant_test.classifiers import *
-
 import argparse
 import dill as pickle
-import time
 import random
 
 
-def get_excluded_genes(cis_lbl, cur_gene, gene_annot):
-    if cis_lbl == 'None':
-        ex_genes = set()
-    elif cis_lbl == 'Self':
-        ex_genes = {cur_gene}
-
-    elif cis_lbl == 'Chrm':
-        use_chr = gene_annot[cur_gene]['Chr']
-        ex_genes = {gene for gene, annot in gene_annot.items()
-                    if annot['Chr'] == use_chr}
-
-    else:
-        raise ValueError(
-            "Unrecognized cis-masking label `{}`!".format(cis_lbl))
-
-    return ex_genes
-
-
 def main():
-    """Runs the experiment."""
-
     parser = argparse.ArgumentParser(
-        "Isolate the expression signature of mutation subtypes from their "
-        "parent gene(s)' signature or that of a list of genes in a given "
-        "TCGA cohort."
+        'fit_tour',
+        description="Runs a portion of an experiment's classification tasks."
         )
 
-    # positional arguments for which cohort of samples and which mutation
-    # classifier to use for testing
     parser.add_argument('classif', type=str,
                         help="a classifier in HetMan.predict.classifiers")
-    parser.add_argument('--use_dir', type=str, default=base_dir)
-
-    parser.add_argument(
-        '--task_count', type=int, default=10,
-        help='how many parallel tasks the list of types to test is split into'
-        )
+    parser.add_argument('use_dir', type=str)
 
     parser.add_argument('--task_id', type=int, default=0,
                         help='the subset of subtypes to assign to this task')
@@ -58,24 +27,19 @@ def main():
 
     args = parser.parse_args()
     setup_dir = os.path.join(args.use_dir, 'setup')
-    coh_path = os.path.join(args.use_dir, '..', '..', "cohort-data.p")
+    task_count = get_task_count(args.use_dir)
+
     with open(os.path.join(setup_dir, "muts-list.p"), 'rb') as muts_f:
         mtype_list = pickle.load(muts_f)
 
+    coh_path = os.path.join(setup_dir, "cohort-data.p.gz")
+    cdata = safe_load(coh_path, retry_pause=41)
     clf = eval(args.classif)
     mut_clf = clf()
+
+    # figure out which cohort samples will be used for tuning and testing the
+    # classifier and which samples will be used for testing
     use_seed = 9073 + 97 * args.cv_id
-    cdata = None
-
-    while cdata is None:
-        try:
-            with open(coh_path, 'rb') as cdata_f:
-                cdata = pickle.load(cdata_f)
-
-        except:
-            print("Failed to load cohort data, trying again...")
-            time.sleep(61)
-
     cdata_samps = sorted(cdata.get_samples())
     random.seed((args.cv_id // 4) * 7712 + 13)
     random.shuffle(cdata_samps)
@@ -93,14 +57,16 @@ def main():
     out_pred = {mtype: {cis_lbl: None for cis_lbl in cis_lbls}
                 for mtype in mtype_list}
 
+    random.seed(10301)
+    random.shuffle(mtype_list)
+
     # for each subtype, check if it has been assigned to this task
     for i, mtype in enumerate(mtype_list):
-        if (i % args.task_count) == args.task_id:
+        if (i % task_count) == args.task_id:
             print("Testing {} ...".format(mtype))
 
             for cis_lbl in cis_lbls:
-                ex_genes = get_excluded_genes(cis_lbl, mtype.get_labels()[0],
-                                              cdata.gene_annot)
+                ex_genes = cdata.get_cis_genes(cis_lbl, mut=mtype)
 
                 # tune the hyper-parameters of the classifier
                 mut_clf, cv_output = mut_clf.tune_coh(
@@ -121,10 +87,10 @@ def main():
                 out_acc[mtype][cis_lbl]['par'] = cv_output['params']
  
                 mut_clf.fit_coh(cdata, mtype, exclude_feats=ex_genes)
-                out_pred[mtype][cis_lbl] = mut_clf.parse_preds(
+                out_pred[mtype][cis_lbl] = np.round(mut_clf.parse_preds(
                     mut_clf.predict_test(cdata, lbl_type='raw',
                                          exclude_feats=ex_genes)
-                    )
+                    ), 7)
 
         else:
             del(out_pars[mtype])

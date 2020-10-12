@@ -41,10 +41,6 @@ def main():
                             use_copies=False)
     with bz2.BZ2File(os.path.join(out_path, "cohort-data.p.gz"), 'w') as f:
         pickle.dump(cdata, f, protocol=-1)
-    """
-    with bz2.BZ2File(os.path.join(out_path, "cohort-data.p.gz"), 'r') as f:
-        cdata = pickle.load(f)
-    """
 
     total_samps = len(cdata.get_samples())
     max_samps = total_samps - search_dict['samp_cutoff']

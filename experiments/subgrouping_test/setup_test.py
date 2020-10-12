@@ -21,7 +21,7 @@ from itertools import product
 
 def main():
     parser = argparse.ArgumentParser(
-        'setup_isolate',
+        'setup_test',
         description="Load datasets and enumerate subgroupings to be tested."
         )
 
@@ -140,7 +140,7 @@ def main():
     use_mtypes |= {
         RandomType(size_dist=len(mtype.get_samples(cdata.mtrees[lvl_list])),
                    seed=(lvls_seed * (i + 19) + 1307) % (2 ** 22))
-        for i, (mtype, _) in enumerate(product(mtype_list, range(2)))
+        for i, (mtype, _) in enumerate(product(mtype_list, range(5)))
         if (mtype & copy_mtype).is_empty()
         }
 
@@ -153,12 +153,9 @@ def main():
             seed=(lvls_seed * (i + 23) + 7391) % (2 ** 22)
             )
 
-        for i, (mtype, _) in enumerate(product(mtype_list, range(2)))
+        for i, (mtype, _) in enumerate(product(mtype_list, range(5)))
         if ((mtype & copy_mtype).is_empty()
-            and (len(mtype.get_samples(cdata.mtrees[lvl_list]))
-                 < sum(cdata.train_pheno(
-                     MuType({('Gene',
-                              tuple(mtype.label_iter())[0]): pnt_mtype})))))
+            and tuple(mtype.subtype_iter())[0][1] != pnt_mtype)
         }
 
     # save enumerated subgroupings and number of subgroupings to file
