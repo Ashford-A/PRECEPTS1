@@ -64,17 +64,17 @@ def main():
                                   "cohort-data.p.gz"), 'r') as f:
         samp_count = len(pickle.load(f).get_samples())
 
-    task_load = args.run_max * 23
-    task_load //= (13 + args.task_size * samp_count) ** args.samp_exp
-    task_count = int(((muts_count - 1) // task_load) + 1)
+    task_load = args.run_max * (607 ** args.samp_exp)
+    task_load //= args.task_size * ((1.07 * samp_count) ** args.samp_exp)
+    task_count = int((muts_count - 1) // task_load) + 2
     task_size = muts_count // task_count
 
     if args.merge_max is None:
         merge_count = 1
     else:
-        merge_load = args.merge_max * 7703
+        merge_load = args.merge_max * 13701
         merge_load //= args.merge_size * (samp_count ** 1.17)
-        merge_count = int(merge_load // task_size + 1)
+        merge_count = max(int(merge_load // task_size), 1)
 
     task_list = list(range(task_count))
     task_arr = [[] for _ in range(ceil(task_count / merge_count))]

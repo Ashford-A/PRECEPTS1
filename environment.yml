@@ -19,6 +19,7 @@ dependencies:
   - binutils_linux-64=2.31.1
   - biopython=1.77
   - blas=2.17
+  - bleach=3.2.1
   - boto3=1.9.66
   - botocore=1.12.67
   - bzip2=1.0.8
@@ -29,12 +30,13 @@ dependencies:
   - cffi=1.14.2
   - chardet=3.0.4
   - clustalw=2.1
+  - cmarkgfm=0.4.2
   - colorama=0.4.3
   - configargparse=1.2.3
   - configobj=5.0.6
   - configparser=5.0.0
   - contextlib2=0.6.0.post1
-  - cryptography=3.1
+  - cryptography=3.1.1
   - curl=7.71.1
   - cycler=0.10.0
   - cython=0.29.21
@@ -368,6 +370,7 @@ dependencies:
   - pillow=7.2.0
   - pip=20.2.2
   - pixman=0.40.0
+  - pkginfo=1.5.0.1
   - pluggy=0.13.1
   - ply=3.11
   - prettytable=0.7.2
@@ -400,7 +403,9 @@ dependencies:
   - qt=5.9.7
   - ratelimiter=1.2.0
   - readline=8.0
+  - readme_renderer=24.0
   - requests=2.24.0
+  - requests-toolbelt=0.9.1
   - rsa=3.1.4
   - ruamel=1.0
   - ruamel.yaml=0.15.100
@@ -423,12 +428,15 @@ dependencies:
   - tk=8.6.10
   - toml=0.10.1
   - tornado=6.0.4
+  - tqdm=4.50.2
   - traitlets=4.3.3
   - treelib=1.6.1
+  - twine=2.0.0
   - typing_extensions=3.7.4.3
   - unzip=6.0
   - urllib3=1.24.3
   - wcwidth=0.2.5
+  - webencodings=0.5.1
   - wheel=0.35.1
   - wrapt=1.12.1
   - xlrd=1.2.0
@@ -453,6 +461,7 @@ dependencies:
   - zstd=1.4.4
   - pip:
     - deprecated==1.2.10
+    - dryads==0.5.0a2
     - entrypoints==0.3
     - keyring==12.0.2
     - keyrings-alt==3.1
