@@ -87,7 +87,7 @@ time_left=$(( time_lim - (cur_time - start_time) / 60 + 1 ))
 # allocate time for running classification tasks
 if [ -z ${time_max+x} ]
 then
-	time_max=$(( $time_left * 11 / 13 ))
+	time_max=$(( $time_left * 13 / 17 ))
 fi
 
 # figure out how to distribute the classification and consolidation tasks across
@@ -98,7 +98,7 @@ then
 
 	eval "$( python -m dryads-research.experiments.utilities.pipeline_setup \
 		$OUTDIR $time_max --merge_max=$merge_max \
-		--task_size=3 --merge_size=3 --samp_exp=0.43 )"
+		--task_size=2.67 --merge_size=17 --samp_exp=0.43 )"
 fi
 
 # if we are only enumerating, quit before classification jobs are launched

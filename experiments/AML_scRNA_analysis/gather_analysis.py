@@ -296,6 +296,11 @@ def main():
     conf_df.name = None
     conf_df.index.name = None
 
+    with bz2.BZ2File(os.path.join(args.use_dir, 'merge',
+                                  "out-conf{}.p.gz".format(out_tag)),
+                     'w') as fl:
+        pickle.dump(conf_df, fl, protocol=-1)
+
 
 if __name__ == "__main__":
     main()

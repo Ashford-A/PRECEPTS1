@@ -17,7 +17,7 @@ localrules: target, merge
 
 rule target:
     input:
-        expand("{outdir}/out-sc__{param_tag}.p.gz",
+        expand("{outdir}/out-conf__{param_tag}.p.gz",
                outdir=OUTDIR, param_tag=PARAM_TAG)
 
     threads: 1
@@ -45,7 +45,7 @@ rule tour:
 rule gather:
     input: tasks_files
 
-    output: "{TMPDIR}/merge/out-sc_{tasks}.p.gz",
+    output: "{TMPDIR}/merge/out-conf_{tasks}.p.gz",
 
     threads: 12
 
@@ -62,11 +62,11 @@ rule gather:
 rule merge:
     input:
         [os.path.join(TMPDIR, 'merge',
-                      "out-sc_{}.p.gz".format('-'.join(task_list)))
+                      "out-conf_{}.p.gz".format('-'.join(task_list)))
          for task_list in get_task_arr(TMPDIR)]
 
     output:
-        expand("{outdir}/out-sc__{param_tag}.p.gz",
+        expand("{outdir}/out-conf__{param_tag}.p.gz",
                outdir=OUTDIR, param_tag=PARAM_TAG)
 
     threads: 1
@@ -80,9 +80,11 @@ rule merge:
         cp {TMPDIR}/setup/cohort-data.p.gz \
                 {OUTDIR}/cohort-data__${{out_tag}}.p.gz
 
+        cp {TMPDIR}/out-pheno.p.gz {OUTDIR}/out-pheno__${{out_tag}}.p.gz
         cp {TMPDIR}/out-pred.p.gz {OUTDIR}/out-pred__${{out_tag}}.p.gz
         cp {TMPDIR}/out-tune.p.gz {OUTDIR}/out-tune__${{out_tag}}.p.gz
-        cp {TMPDIR}/out-pheno.p.gz {OUTDIR}/out-pheno__${{out_tag}}.p.gz
+        cp {TMPDIR}/out-sc.p.gz {OUTDIR}/out-sc__${{out_tag}}.p.gz
+
         cp {TMPDIR}/out-aucs.p.gz {OUTDIR}/out-aucs__${{out_tag}}.p.gz
         cp {TMPDIR}/out-conf.p.gz {OUTDIR}/out-conf__${{out_tag}}.p.gz
 
