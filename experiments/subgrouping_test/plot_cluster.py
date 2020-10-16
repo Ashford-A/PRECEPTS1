@@ -1,65 +1,65 @@
 
+from ..subgrouping_test import base_dir
+from ..utilities.transformers import OmicPCA, OmicTSNE, OmicUMAP
+from ..utilities.data_dirs import vep_cache_dir
+from ..utilities.labels import get_cohort_label
+from ...features.cohorts.utils import load_cohort, list_cohort_subtypes
+
 import os
-import sys
-
-base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'subvariant_test')
-sys.path.extend([os.path.join(os.path.dirname(__file__), '..', '..', '..')])
-plot_dir = os.path.join(base_dir, 'plots', 'cluster')
-
-from HetMan.experiments.tcga_cluster import *
-from HetMan.experiments.subvariant_test import type_file, metabric_dir
-from HetMan.features.cohorts.metabric import (
-    load_metabric_samps, choose_subtypes)
-
-from HetMan.experiments.subvariant_test.merge_test import merge_cohort_data
-from HetMan.experiments.subvariant_test.setup_test import load_cohort
-from HetMan.experiments.subvariant_test.utils import get_cohort_label
-
 import argparse
 from pathlib import Path
+import bz2
+import dill as pickle
+
 import numpy as np
 import pandas as pd
 
 import matplotlib as mpl
-mpl.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib.lines import Line2D
 
+mpl.use('Agg')
 plt.style.use('fivethirtyeight')
-plt.rcParams['axes.facecolor']='white'
-plt.rcParams['savefig.facecolor']='white'
-plt.rcParams['axes.edgecolor']='white'
+plt.rcParams['axes.facecolor'] = 'white'
+plt.rcParams['savefig.facecolor'] = 'white'
+plt.rcParams['axes.edgecolor'] = 'white'
+plot_dir = os.path.join(base_dir, 'plots', 'cluster')
+
+clust_algs = {'PCA': OmicPCA(), 'tSNE': OmicTSNE(), 'UMAP': OmicUMAP()}
 
 
-def plot_clustering(trans_expr, type_data, type_clrs,
-                    cdata, args, pca_comps=(0, 1)):
+def plot_clustering(trans_expr, subt_data, cdata, args, pca_comps=(0, 1)):
     fig, ax = plt.subplots(figsize=(9, 8))
 
+    plt_subts = subt_data.unique()
+    subt_clrs = dict(zip(
+        plt_subts, sns.color_palette('bright', n_colors=len(plt_subts))))
+
     trans_expr = trans_expr[:, np.array(pca_comps)]
-    type_stat = np.array([type_data.loc[samp, 'SUBTYPE']
-                          if samp in type_data.index else 'Not Available'
+    subt_stat = np.array([subt_data[samp]
+                          if samp in subt_data.index else 'Not Available'
                           for samp in cdata.train_data(None)[0].index])
 
     lgnd_lbls = []
     lgnd_marks = []
 
-    for sub_type in sorted(set(type_stat)):
-        type_indx = type_stat == sub_type
+    for sub_type in sorted(set(subt_stat)):
+        subt_indx = subt_stat == sub_type
 
         if sub_type == 'Not Available':
-            type_clr = '0.53'
+            subt_clr = '0.53'
         else:
-            type_clr = type_clrs[sub_type]
+            subt_clr = subt_clrs[sub_type]
 
-        ax.scatter(trans_expr[type_indx, 0], trans_expr[type_indx, 1],
-                   marker='o', s=31, c=[type_clr],
+        ax.scatter(trans_expr[subt_indx, 0], trans_expr[subt_indx, 1],
+                   marker='o', s=31, c=[subt_clr],
                    alpha=0.27, edgecolor='none')
 
-        lgnd_lbls += ["{} ({})".format(sub_type, np.sum(type_indx))]
+        lgnd_lbls += ["{} ({})".format(sub_type, np.sum(subt_indx))]
         lgnd_marks += [Line2D([], [], marker='o', linestyle='None',
                               markersize=23, alpha=0.43,
-                              markerfacecolor=type_clr,
+                              markerfacecolor=subt_clr,
                               markeredgecolor='none')]
 
     ax.set_xlabel("{} Component {}".format(args.transform, pca_comps[0] + 1),
@@ -72,7 +72,7 @@ def plot_clustering(trans_expr, type_data, type_clrs,
 
     ax.legend(lgnd_marks, lgnd_lbls, bbox_to_anchor=(0.5, -0.05),
               frameon=False, fontsize=21, ncol=3, loc=9, handletextpad=0.3)
-    ax.grid(alpha=0.47, linewidth=1.3)
+    ax.grid(alpha=0.41, linewidth=0.9)
 
     ax.set_title(' - '.join([get_cohort_label(args.cohort),
                              args.expr_source]),
@@ -91,8 +91,8 @@ def plot_clustering(trans_expr, type_data, type_clrs,
 
 def main():
     parser = argparse.ArgumentParser(
-        "Plots the clustering of the samples in a given cohort as "
-        "performed by an unsupervised learning method."
+        'plot_cluster',
+        description="Plots the output of unsupervised learning on a cohort."
         )
 
     parser.add_argument('expr_source',
@@ -107,68 +107,51 @@ def main():
     args = parser.parse_args()
     np.random.seed(args.seed)
 
-    use_ctf = sorted(
-        int(out_file.parts[-2].split('__samps-')[1])
-        for out_file in Path(base_dir).glob(
-            "{}__{}__samps-*/out-conf__*__*.p.gz".format(
-                args.expr_source, args.cohort)
-            )
-        )
-
     out_datas = [
-        out_file.parts[-2:] for out_file in Path(base_dir).glob(
-            "{}__{}__samps-*/out-conf__*__*.p.gz".format(
-                args.expr_source, args.cohort)
-            )
+        out_file.parts[-2:] for out_file in Path(base_dir).glob(os.path.join(
+            "{}__{}__samps-*".format(args.expr_source, args.cohort),
+            "out-trnsf__*__*.p.gz"
+            ))
         ]
 
-    if use_ctf:
-        out_dir = os.path.join(base_dir, "{}__{}__samps-{}".format(
-            args.expr_source, args.cohort, use_ctf[0]))
-        cdata = merge_cohort_data(out_dir, use_seed=8713)
+    out_list = pd.DataFrame([
+        {'Samps': int(out_data[0].split('__samps-')[1]),
+         'Levels': '__'.join(out_data[1].split(
+             'out-trnsf__')[1].split('__')[:-1]),
+         'Classif': out_data[1].split('__')[-1].split('.p.gz')[0]}
+        for out_data in out_datas
+        ])
+
+    if out_list.shape[0] > 0:
+        out_use = out_list.groupby(['Levels', 'Classif'])['Samps'].min()
+        cdata = None
+
+        for (lvls, clf), ctf in out_use.iteritems():
+            out_tag = "{}__{}__samps-{}".format(
+                args.expr_source, args.cohort, ctf)
+
+            with bz2.BZ2File(os.path.join(
+                    base_dir, out_tag,
+                    "cohort-data__{}__{}.p.gz".format(lvls, clf)
+                    ), 'r') as f:
+                new_cdata = pickle.load(f)
+
+            if cdata is None:
+                cdata = new_cdata
+            else:
+                cdata.merge(new_cdata)
 
     else:
-        cdata = load_cohort(args.cohort, args.expr_source)
+        cdata = load_cohort(args.cohort, args.expr_source,
+                            ('Consequence', 'Exon'), vep_cache_dir)
 
-    if args.expr_source == 'Firehose' or 'toil_' in args.expr_source:
-        type_data = pd.read_csv(type_file, sep='\t', index_col=0, comment='#')
-
-        if '_' in cdata.cohort:
-            use_cohort = cdata.cohort.split('_')[0]
-        else:
-            use_cohort = cdata.cohort
-
-        if use_cohort in type_data.DISEASE.values:
-            type_data = type_data[type_data.DISEASE == use_cohort]
-            type_list = sorted(set(type_data.SUBTYPE.values))
-
-            type_clrs = dict(zip(type_list,
-                                 sns.color_palette('bright',
-                                                   n_colors=len(type_list))))
-
-        else:
-            type_data = pd.DataFrame({'SUBTYPE': 'Not Available'},
-                                     index=cdata.get_samples())
-            type_clrs = dict()
-
-    elif args.cohort.split('_')[0] == 'METABRIC':
-        type_data = pd.DataFrame({'SUBTYPE': 'Other'},
-                                 index=cdata.get_samples())
-
-        samp_data = load_metabric_samps(metabric_dir)
-        samp_data = samp_data.loc[samp_data.index.isin(cdata.get_samples())]
-
-        type_list = ['Basal', 'Her2', 'LumA', 'LumB']
-        for tp in type_list:
-            type_data.SUBTYPE[type_data.index.isin(
-                choose_subtypes(samp_data, tp))] = tp
-
-        type_clrs = dict(zip(
-            type_list, sns.color_palette('bright', n_colors=len(type_list))))
-
-    os.makedirs(plot_dir, exist_ok=True)
     trans_expr = clust_algs[args.transform].fit_transform_coh(cdata)
-    plot_clustering(trans_expr.copy(), type_data, type_clrs, cdata, args)
+    os.makedirs(plot_dir, exist_ok=True)
+
+    type_dict = list_cohort_subtypes(args.cohort.split('_')[0])
+    subt_data = pd.concat([pd.Series(subt, index=smps)
+                           for subt, smps in type_dict.items()])
+    plot_clustering(trans_expr.copy(), subt_data, cdata, args)
 
 
 if __name__ == "__main__":
