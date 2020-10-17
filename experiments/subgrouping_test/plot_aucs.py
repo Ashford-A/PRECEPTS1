@@ -246,7 +246,7 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals, args, add_lgnd):
     fig, ax = plt.subplots(figsize=(10.3, 11))
 
     plot_dict = dict()
-    clr_dict = dict()
+    line_dict = dict()
     plt_min = 0.57
 
     # filter out experiment results for mutations representing randomly
@@ -274,7 +274,7 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals, args, add_lgnd):
                 auc_vec[(base_indx + 1):]).idxmax()
 
             auc_tupl = auc_vec[base_mtype], auc_vec[best_subtype]
-            clr_dict[auc_tupl] = choose_label_colour(gene)
+            line_dict[auc_tupl] = dict(c=choose_label_colour(gene))
             base_size = np.mean(pheno_dict[base_mtype])
             plt_size = 0.07 * base_size ** 0.5
 
@@ -309,11 +309,11 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals, args, add_lgnd):
                                 axes_kwargs=dict(aspect='equal'), borderpad=0)
 
             pie_ax.pie(x=[best_prop, 1 - best_prop],
-                       colors=[clr_dict[auc_tupl] + (0.77,),
-                               clr_dict[auc_tupl] + (0.29,)],
+                       colors=[line_dict[auc_tupl]['c'] + (0.77,),
+                               line_dict[auc_tupl]['c'] + (0.29,)],
                        explode=[0.29, 0], startangle=90)
 
-    plt_lims = plt_min, 1 + (1 - plt_min) / 61
+    plt_lims = plt_min, 1 + (1 - plt_min) / 181
     ax.grid(linewidth=0.83, alpha=0.41)
 
     ax.plot(plt_lims, [0.5, 0.5],
@@ -335,9 +335,9 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals, args, add_lgnd):
         ax, plot_dict = add_scatterpie_legend(ax, plot_dict, plt_min, args)
 
     if plot_dict:
-        lbl_pos = place_scatter_labels(plot_dict, clr_dict, fig, ax,
+        lbl_pos = place_scatter_labels(plot_dict, ax,
                                        plt_lims=[[plt_min + 0.01, 0.99]] * 2,
-                                       seed=args.seed)
+                                       seed=args.seed, line_dict=line_dict)
 
     ax.set_xlim(plt_lims)
     ax.set_ylim(plt_lims)
@@ -352,10 +352,10 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals, args, add_lgnd):
 
 
 def plot_copy_comparisons(auc_vals, pheno_dict, conf_vals, args):
-    fig, ax = plt.subplots(figsize=(11, 11))
+    fig, ax = plt.subplots(figsize=(10.3, 11))
 
     plot_dict = dict()
-    clr_dict = dict()
+    line_dict = dict()
 
     use_aucs = auc_vals[[
         not isinstance(mtype, RandomType)
@@ -381,7 +381,7 @@ def plot_copy_comparisons(auc_vals, pheno_dict, conf_vals, args):
 
             if auc_vec[best_subtype] > 0.6:
                 auc_tupl = auc_vec[base_mtype], auc_vec[best_subtype]
-                clr_dict[auc_tupl] = choose_label_colour(gene)
+                line_dict[auc_tupl] = dict(c=choose_label_colour(gene))
 
                 if base_gain in pheno_dict and base_loss in pheno_dict:
                     cnv_size = np.mean(pheno_dict[base_gain]
@@ -420,12 +420,12 @@ def plot_copy_comparisons(auc_vals, pheno_dict, conf_vals, args):
                     )
 
                 pie_ax.pie(x=[best_prop, 1 - best_prop],
-                           colors=[clr_dict[auc_tupl] + (0.77, ),
-                                   clr_dict[auc_tupl] + (0.29, )],
+                           colors=[line_dict[auc_tupl]['c'] + (0.77, ),
+                                   line_dict[auc_tupl]['c'] + (0.29, )],
                            explode=[0.29, 0], startangle=90)
 
     # figure out where to place the labels for each point, and plot them
-    plt_lims = plt_min, 1 + (1 - plt_min) / 47
+    plt_lims = plt_min, 1 + (1 - plt_min) / 181
     ax.plot(plt_lims, [0.5, 0.5],
             color='black', linewidth=1.3, linestyle=':', alpha=0.71)
     ax.plot([0.5, 0.5], plt_lims,
@@ -443,9 +443,9 @@ def plot_copy_comparisons(auc_vals, pheno_dict, conf_vals, args):
                   size=23, weight='semibold')
 
     if plot_dict:
-        lbl_pos = place_scatter_labels(plot_dict, clr_dict, fig, ax,
+        lbl_pos = place_scatter_labels(plot_dict, ax,
                                        plt_lims=[plt_lims, plt_lims],
-                                       seed=args.seed)
+                                       seed=args.seed, line_dict=line_dict)
 
     ax.set_xlim(plt_lims)
     ax.set_ylim(plt_lims)
@@ -469,7 +469,7 @@ def plot_aupr_comparisons(auc_vals, pred_df, pheno_dict, conf_vals, args):
         ]]
 
     plot_dicts = {'Base': dict(), 'Subg': dict()}
-    clr_dicts = {'Base': dict(), 'Subg': dict()}
+    line_dicts = {'Base': dict(), 'Subg': dict()}
     plt_max = 0.53
 
     for gene, auc_vec in use_aucs.groupby(
@@ -526,7 +526,7 @@ def plot_aupr_comparisons(auc_vals, pred_df, pheno_dict, conf_vals, args):
                                                  (base_auprs, subg_auprs),
                                                  [base_lbl, subg_lbl]):
                     plot_dicts[lbl][auprs] = plt_size, mtype_lbl
-                    clr_dicts[lbl][auprs] = choose_label_colour(gene)
+                    line_dicts[lbl][auprs] = dict(c=choose_label_colour(gene))
 
                 for ax, lbl, (base_aupr, subg_aupr) in zip(
                         [base_ax, subg_ax], ['Base', 'Subg'],
@@ -545,7 +545,7 @@ def plot_aupr_comparisons(auc_vals, pred_df, pheno_dict, conf_vals, args):
                         axes_kwargs=dict(aspect='equal'), borderpad=0
                         )
 
-                    use_clr = clr_dicts[lbl][base_aupr, subg_aupr]
+                    use_clr = line_dicts[lbl][base_aupr, subg_aupr]['c']
                     pie_ax.pie(x=[best_prop, 1 - best_prop],
                                colors=[use_clr + (0.77, ),
                                        use_clr + (0.29, )],
@@ -557,6 +557,8 @@ def plot_aupr_comparisons(auc_vals, pred_df, pheno_dict, conf_vals, args):
                       size=21, weight='semibold')
 
     for ax, lbl in zip([base_ax, subg_ax], ['Base', 'Subg']):
+        ax.grid(linewidth=0.83, alpha=0.41)
+
         ax.plot([0, plt_max], [0, 0],
                 color='black', linewidth=1.5, alpha=0.89)
         ax.plot([0, 0], [0, plt_max],
@@ -576,11 +578,13 @@ def plot_aupr_comparisons(auc_vals, pred_df, pheno_dict, conf_vals, args):
                       size=19, weight='semibold')
 
         if plot_dicts[lbl]:
-            lbl_pos = place_scatter_labels(plot_dicts[lbl], clr_dicts[lbl],
-                                           fig, ax, seed=args.seed)
+            lbl_pos = place_scatter_labels(
+                plot_dicts[lbl], ax, plt_lims=[[plt_max / 67, plt_max]] * 2,
+                seed=args.seed, line_dict=line_dicts[lbl]
+                )
 
-        ax.set_xlim([-0.01, plt_max])
-        ax.set_ylim([-0.01, plt_max])
+        ax.set_xlim([-plt_max / 181, plt_max])
+        ax.set_ylim([-plt_max / 181, plt_max])
 
     plt.savefig(
         os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),

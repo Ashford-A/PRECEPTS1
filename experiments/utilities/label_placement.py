@@ -8,9 +8,9 @@ def check_overlap(bx1, bx2):
                 or bx1[0, 1] <= bx2[1, 1] or bx2[0, 1] <= bx1[1, 1])
 
 
-def place_scatter_labels(plot_dict, clr_dict, fig, ax, plt_type='pie',
-                         plt_lims=None, plc_lims=None,
-                         font_size=13, seed=None):
+def place_scatter_labels(plot_dict, ax, plt_type='pie', plt_lims=None,
+                         plc_lims=None, font_size=13, seed=None,
+                         line_dict=None, **line_args):
     if plt_lims:
         ax.set_xlim(plt_lims[0])
         ax.set_ylim(plt_lims[1])
@@ -22,6 +22,9 @@ def place_scatter_labels(plot_dict, clr_dict, fig, ax, plt_type='pie',
 
     if seed is not None:
         random.seed(seed)
+
+    if not line_args:
+        line_args = dict(linewidth=1.7, alpha=0.31)
 
     adj_trans = lambda x: ax.transData.inverted().transform(x)
     xadj, yadj = adj_trans([1, 1]) - adj_trans([0, 0])
@@ -52,8 +55,8 @@ def place_scatter_labels(plot_dict, clr_dict, fig, ax, plt_type='pie',
         for pnt, (_, lbls) in plot_dict.items() if lbls[0]
         }
 
-    lbl_hghts = {pnt: (17 * font_adj * yadj
-                       * (2.1 + 11 / 19 * lbls[1].count('\n'))
+    lbl_hghts = {pnt: (19 * font_adj * yadj
+                       * (2.3 + 11 / 19 * lbls[1].count('\n'))
                        if lbls[1] else 17 * font_adj * yadj)
                  for pnt, (_, lbls) in plot_dict.items() if lbls[0]}
 
@@ -99,14 +102,14 @@ def place_scatter_labels(plot_dict, clr_dict, fig, ax, plt_type='pie',
     # for labels that couldn't be placed right beside their points, look for
     # empty space in the vicinity
     i = 0
-    while i < 50000 and any(lbl is None for lbl in lbl_pos.values()):
+    while i < 65000 and any(lbl is None for lbl in lbl_pos.values()):
         i += 1
 
         for pnt, (_, (_, bot_lbl)) in plot_dict.items():
             if (pnt in lbl_pos and lbl_pos[pnt] is None
                     and lbl_wdths[pnt] < (0.91 * (xmax - xmin))
                     and lbl_hghts[pnt] < (0.47 * (ymax - ymin))):
-                pos_rands = [random.expovariate((i * adj / 2317) ** -1)
+                pos_rands = [random.expovariate((i * adj / 1703) ** -1)
                              for adj in [xadj, yadj]]
 
                 new_pos = [
@@ -121,8 +124,8 @@ def place_scatter_labels(plot_dict, clr_dict, fig, ax, plt_type='pie',
                                      xmin + lbl_wdths[pnt] * 0.53,
                                      xmax - lbl_wdths[pnt] * 0.53)
                 new_pos[1] = np.clip(new_pos[1],
-                                     ymin + lbl_hghts[pnt] * 1.61,
-                                     ymax - lbl_hghts[pnt] * 2.61)
+                                     ymin + lbl_hghts[pnt] * 0.71,
+                                     ymax - lbl_hghts[pnt] * 0.71)
 
                 # exclude areas too far away from the original point
                 new_pos[0] = np.clip(new_pos[0],
@@ -183,8 +186,12 @@ def place_scatter_labels(plot_dict, clr_dict, fig, ax, plt_type='pie',
                            [crc_x + xgap / 2.9, crc_y - ygap / 2.9]])
 
         if not check_overlap(lbl_bx, crc_bx):
-            ax.plot([crc_x, txt_x], [crc_y, txt_y],
-                    c=clr_dict[pnt_x, pnt_y], linewidth=1.7, alpha=0.31)
+            line_props = line_args.copy()
+
+            if line_dict and (pnt_x, pnt_y) in line_dict:
+                line_props.update(line_dict[pnt_x, pnt_y])
+
+            ax.plot([crc_x, txt_x], [crc_y, txt_y], **line_props)
 
     return {pos: lbl for pos, lbl in lbl_pos.items() if lbl}
 
