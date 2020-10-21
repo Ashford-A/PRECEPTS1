@@ -3,10 +3,9 @@ from ..utilities.mutations import pnt_mtype, copy_mtype, RandomType
 from dryadic.features.mutations import MuType
 
 from ..subgrouping_test import base_dir, train_cohorts
-from .utils import filter_mtype
+from .utils import filter_mtype, choose_cohort_colour
 from ..utilities.labels import get_cohort_label, get_fancy_label
 from ..utilities.label_placement import place_scatter_labels
-from ..utilities.pcawg_colours import cohort_clrs
 from ..utilities.colour_maps import auc_cmap
 
 import os
@@ -32,34 +31,12 @@ plt.rcParams['axes.edgecolor'] = 'white'
 plot_dir = os.path.join(base_dir, 'plots', 'gene')
 
 
-def choose_cohort_colour(cohort):
-    coh_base = cohort.split('_')[0]
-
-    # if using a non-TCGA cohort, match to a TCGA cohort of the same
-    # disease type, using white for pan-cancer cohorts
-    if coh_base == 'METABRIC':
-        use_clr = cohort_clrs['BRCA']
-    elif coh_base == 'beatAML':
-        use_clr = cohort_clrs['LAML']
-    elif coh_base == 'CCLE':
-        use_clr = '#000000'
-
-    # otherwise, choose the colour according to the PCAWG scheme
-    else:
-        use_clr = cohort_clrs[coh_base]
-
-    # convert the hex colour to a [0-1] RGB tuple
-    return tuple(int(use_clr.lstrip('#')[i:(i + 2)], 16) / 256
-                 for i in range(0, 6, 2))
-
-
 def plot_sub_comparisons(auc_dict, conf_dict, pheno_dict, use_clf, args,
                          include_copy=False):
     fig, ax = plt.subplots(figsize=(11, 11))
 
     gene_mtype = MuType({('Gene', args.gene): pnt_mtype})
     plot_dict = dict()
-    clr_dict = dict()
     plt_min = 0.89
 
     # for each cohort, check if the given gene had subgroupings that were
@@ -91,7 +68,6 @@ def plot_sub_comparisons(auc_dict, conf_dict, pheno_dict, use_clf, args,
                 base_mtype = (best_subtype - gene_mtype) | gene_mtype
 
             auc_tupl = use_aucs[base_mtype], use_aucs[best_subtype]
-            clr_dict[auc_tupl] = 'black'
             base_size = np.mean(pheno_dict[src, coh][base_mtype])
             plt_size = 0.07 * base_size ** 0.5
 
@@ -129,14 +105,8 @@ def plot_sub_comparisons(auc_dict, conf_dict, pheno_dict, use_clf, args,
                                choose_cohort_colour(coh) + (0.23, )],
                        wedgeprops=dict(edgecolor='black', linewidth=10 / 11))
 
-    #for pnt_x, pnt_y in plot_dict:
-    #    plot_dict[pnt_x, pnt_y][0] *= (1 - plt_min) * 1.31
-
     plt_lims = plt_min, 1 + (1 - plt_min) / 113
     ax.grid(linewidth=0.83, alpha=0.41)
-
-    #for (pnt_x, pnt_y), pos in lbl_pos.items():
-    #    coh_lbl = get_cohort_label(plot_dict[pnt_x, pnt_y][1][0])
 
     ax.plot([plt_min, 1], [0.5, 0.5],
             color='black', linewidth=1.3, linestyle=':', alpha=0.71)
@@ -158,10 +128,10 @@ def plot_sub_comparisons(auc_dict, conf_dict, pheno_dict, use_clf, args,
     # figure out where to place the annotation labels for each cohort so that
     # they don't overlap with one another or the pie charts
     if plot_dict:
-        lbl_pos = place_scatter_labels(plot_dict, clr_dict, fig, ax,
+        lbl_pos = place_scatter_labels(plot_dict, ax,
                                        plt_lims=[[plt_min + 0.01, 0.99]] * 2,
                                        font_size=19, seed=args.seed,
-                                       linewidth=0.83, alpha=0.61)
+                                       c='black', linewidth=0.83, alpha=0.61)
 
     ax.set_xlim(plt_lims)
     ax.set_ylim(plt_lims)
@@ -368,7 +338,7 @@ def plot_transfer_comparisons(trnsf_dict, conf_dict, pheno_dict,
 
     best_subtype = sorted(conf_agg.items(), key=lambda x: x[1])[-1][0]
     plot_dict = dict()
-    clr_dict = dict()
+    line_dict = dict()
     plt_min = 0.83
 
     for (src, train_coh, trnsf_coh), auc_vals in trnsf_dict.items():
@@ -378,7 +348,7 @@ def plot_transfer_comparisons(trnsf_dict, conf_dict, pheno_dict,
                                        get_cohort_label(trnsf_coh)])
 
             auc_tupl = auc_vals.loc[base_mtype], auc_vals.loc[best_subtype]
-            clr_dict[auc_tupl] = choose_cohort_colour(train_coh)
+            line_dict[auc_tupl] = dict(c=choose_cohort_colour(train_coh))
             base_size = np.mean(pheno_dict[src, train_coh][base_mtype])
             plt_size = 0.07 * base_size ** 0.5
 
@@ -400,8 +370,8 @@ def plot_transfer_comparisons(trnsf_dict, conf_dict, pheno_dict,
                                 axes_kwargs=dict(aspect='equal'), borderpad=0)
 
             pie_ax.pie(x=[best_prop, 1 - best_prop], explode=[0.29, 0],
-                       colors=[clr_dict[auc_tupl] + (0.83, ),
-                               clr_dict[auc_tupl] + (0.23, )],
+                       colors=[line_dict[auc_tupl]['c'] + (0.83, ),
+                               line_dict[auc_tupl]['c'] + (0.23, )],
                        wedgeprops=dict(edgecolor='black', linewidth=13 / 11))
 
     plt_lims = plt_min, 1 + (1 - plt_min) / 103
@@ -426,9 +396,10 @@ def plot_transfer_comparisons(trnsf_dict, conf_dict, pheno_dict,
 
     # figure out where to place the labels for each point, and plot them
     if plot_dict:
-        lbl_pos = place_scatter_labels(plot_dict, clr_dict, fig, ax,
+        lbl_pos = place_scatter_labels(plot_dict, ax,
                                        plt_lims=[[plt_min + 0.01, 0.99]] * 2,
-                                       font_size=19, seed=args.seed)
+                                       font_size=19, seed=args.seed,
+                                       line_dict=line_dict)
 
     ax.set_xlim(plt_lims)
     ax.set_ylim(plt_lims)
