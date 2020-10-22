@@ -23,7 +23,7 @@ dependencies:
   - boto3=1.9.66
   - botocore=1.12.67
   - bzip2=1.0.8
-  - ca-certificates=2020.7.22
+  - ca-certificates=2020.10.14
   - cachetools=4.1.1
   - cairo=1.14.12
   - certifi=2020.6.20
@@ -64,6 +64,7 @@ dependencies:
   - gitdb=4.0.5
   - gitpython=3.1.3
   - glib=2.56.2
+  - goatools=1.0.6
   - google-api-core=1.17.0
   - google-auth=1.21.0
   - google-cloud-core=1.4.1
@@ -114,6 +115,7 @@ dependencies:
   - libgfortran-ng=7.3.0
   - liblapack=3.8.0
   - liblapacke=3.8.0
+  - libllvm10=10.0.1
   - libopenblas=0.3.10
   - libpng=1.6.37
   - libprotobuf=3.13.0
@@ -128,6 +130,7 @@ dependencies:
   - libxml2=2.9.10
   - libxslt=1.1.34
   - llvm-openmp=10.0.1
+  - llvmlite=0.34.0
   - lz4-c=1.9.2
   - markupsafe=1.1.1
   - matplotlib=3.3.1
@@ -138,6 +141,7 @@ dependencies:
   - nanotime=0.5.2
   - ncurses=6.2
   - networkx=2.5
+  - numba=0.51.2
   - numpy=1.19.1
   - numpy-base=1.19.1
   - olefile=0.46
@@ -382,6 +386,7 @@ dependencies:
   - pyasn1=0.4.8
   - pyasn1-modules=0.2.7
   - pycparser=2.20
+  - pydot=1.4.1
   - pyfiglet=0.8.post1
   - pygments=2.6.1
   - pygraphviz=1.3.1
@@ -397,6 +402,7 @@ dependencies:
   - python=3.6.10
   - python-dateutil=2.8.1
   - python-irodsclient=0.8.2
+  - python-wget=3.2
   - python_abi=3.6
   - pytz=2020.1
   - pyyaml=5.3.1
@@ -424,6 +430,7 @@ dependencies:
   - sqlite=3.33.0
   - statsmodels=0.11.1
   - t_coffee=11.0.8
+  - tbb=2020.2
   - tidyp=1.04
   - tk=8.6.10
   - toml=0.10.1
@@ -433,6 +440,7 @@ dependencies:
   - treelib=1.6.1
   - twine=2.0.0
   - typing_extensions=3.7.4.3
+  - umap-learn=0.4.6
   - unzip=6.0
   - urllib3=1.24.3
   - wcwidth=0.2.5
@@ -440,6 +448,7 @@ dependencies:
   - wheel=0.35.1
   - wrapt=1.12.1
   - xlrd=1.2.0
+  - xlsxwriter=1.3.7
   - xmlrunner=1.7.7
   - xorg-kbproto=1.0.7
   - xorg-libice=1.0.10

@@ -39,7 +39,9 @@ def place_scatter_labels(plot_dict, ax, plt_type='pie', plt_lims=None,
                     for pnt, (sz, _) in plot_dict.items()}
 
     elif plt_type == 'scatter':
-        pass
+        pnt_gaps = {pnt: (sz * 41 * xadj + xgap, sz * 41 * yadj + ygap)
+                    for pnt, (sz, _) in plot_dict.items()}
+
     else:
         raise ValueError("Unrecognized plot type `{}`!".format(plt_type))
 

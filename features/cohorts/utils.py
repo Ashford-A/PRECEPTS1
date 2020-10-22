@@ -9,8 +9,10 @@ from .tcga import tcga_subtypes
 from .tcga import process_input_datasets as process_tcga_datasets
 from .tcga import choose_subtypes as choose_tcga_subtypes
 from .tcga import parse_subtypes as parse_tcga_subtypes
+
 from .metabric import process_input_datasets as process_metabric_datasets
 from .metabric import choose_subtypes as choose_metabric_subtypes
+from .metabric import list_subtypes as list_metabric_subtypes
 from .metabric import load_metabric_samps
 from .ccle import process_input_datasets as process_ccle_datasets
 
@@ -192,6 +194,9 @@ def get_cohort_data(cohort, expr_source, mut_lvls, vep_cache_dir, out_path,
 
 def load_cohort(cohort, expr_source, mut_lvls,
                 vep_cache_dir, use_path=None, temp_path=None, use_genes=None):
+    if isinstance(mut_lvls[0], str):
+        mut_lvls = [mut_lvls]
+
     if use_path is not None and os.path.exists(use_path):
         try:
             with open(use_path, 'rb') as f:
@@ -205,7 +210,9 @@ def load_cohort(cohort, expr_source, mut_lvls,
         cdata = get_cohort_data(cohort, expr_source, mut_lvls,
                                 vep_cache_dir, temp_path, use_genes)
 
-    if cohort != 'CCLE' and mut_lvls not in cdata.mtrees:
+    if cohort != 'CCLE' and not all(any(mtree_lvls[-(len(lvls)):] == lvls
+                                        for mtree_lvls in cdata.mtrees)
+                                    for lvls in mut_lvls):
         cdata.merge(get_cohort_data(cohort, expr_source, mut_lvls,
                                     vep_cache_dir, temp_path, use_genes))
 
@@ -229,4 +236,20 @@ def get_cohort_subtypes(coh):
         subt_dict = dict()
 
     return subt_dict
+
+
+def list_cohort_subtypes(coh):
+    if coh == 'METABRIC':
+         type_dict = list_metabric_subtypes(load_metabric_samps(metabric_dir))
+
+    elif coh == 'beatAML':
+        type_dict = {}
+
+    else:
+        tcga_types = pd.read_csv(subtype_file,
+                                 sep='\t', index_col=0, comment='#')
+        tcga_types = tcga_types.loc[tcga_types.DISEASE == coh]
+        type_dict = tcga_types.groupby('SUBTYPE').groups
+
+    return type_dict
 

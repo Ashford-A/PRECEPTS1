@@ -134,6 +134,11 @@ def choose_subtypes(samp_data, use_types):
     return sub_samps
 
 
+def list_subtypes(samp_data):
+    return {subt: choose_subtypes(samp_data, subt)
+            for subt in ['Basal', 'LumA', 'LumB', 'Her2']}
+
+
 def process_input_datasets(metabric_dir, annot_dir, use_types=None,
                            **data_args):
 

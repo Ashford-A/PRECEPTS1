@@ -66,6 +66,7 @@ def nest_label(mtype, sub_link=' or ', phrase_link=' '):
 
                 else:
                     exn_lbls = [ordinal_label(int(lbl.split('/')[0]))
+                                if lbl != '-' else 'no exon'
                                 for lbl in sorted(lbls)]
                     exn_lbls[-1] = 'or {}'.format(exn_lbls[-1])
 
@@ -199,9 +200,9 @@ def get_fancy_label(mtype, scale_link=None, pnt_link=None, phrase_link=None):
         scale_link = ' or '
 
     if pnt_link is None:
-        pnt_link = scale_link
+        pnt_link = ' or '
     if phrase_link is None:
-        phrase_link = scale_link
+        phrase_link = ' '
 
     if mtype.cur_level == 'Scale':
         sub_dict = dict(mtype.subtype_iter())
