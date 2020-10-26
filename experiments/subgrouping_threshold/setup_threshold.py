@@ -1,61 +1,52 @@
 
-import os
-import sys
-base_dir = os.path.dirname(__file__)
-sys.path.extend([os.path.join(base_dir, '../../..')])
-
-from HetMan.experiments.subvariant_threshold import *
-from HetMan.experiments.subvariant_test.setup_test import (
-    get_cohort_data, load_cohort)
-from HetMan.experiments.subvariant_infer.setup_infer import choose_source
-from HetMan.features.cohorts.tcga import list_cohorts
-
-from HetMan.experiments.subvariant_threshold.utils import MutThresh
-from HetMan.experiments.subvariant_test import (
-    pnt_mtype, copy_mtype, gain_mtype, loss_mtype)
-from HetMan.experiments.subvariant_tour.utils import RandomType
+from ..utilities.mutations import pnt_mtype, dup_mtype, loss_mtype, RandomType
 from dryadic.features.mutations import MuType
 
+from .utils import MutThresh
+from ..utilities.data_dirs import choose_source, vep_cache_dir, expr_sources
+from ...features.cohorts.utils import get_cohort_data, load_cohort
+from ...features.cohorts.tcga import list_cohorts
+
+import os
 import argparse
 from pathlib import Path
 import bz2
 import dill as pickle
 import subprocess
 
-import numpy as np
-import pandas as pd
-
 from functools import reduce
 from operator import or_
+
+import numpy as np
+import pandas as pd
 import random
 
 
 def main():
     parser = argparse.ArgumentParser(
-        "Set up the gene subtype expression effect isolation experiment by "
-        "enumerating the subtypes to be tested."
+        'setup_threshold',
+        description="Load datasets and enumerate subgroupings to be tested."
         )
 
-    parser.add_argument('cohort', type=str, help="which TCGA cohort to use")
+    parser.add_argument('cohort', type=str, help="a tumour cohort")
     parser.add_argument('classif', type=str, help="a mutation classifier")
-    parser.add_argument('out_dir', type=str, default=base_dir)
-    parser.add_argument('test_dir', type=str, default=base_dir)
+    parser.add_argument('out_dir', type=str,)
+    parser.add_argument('test_dir', type=str,)
 
     args = parser.parse_args()
     use_coh = args.cohort.split('_')[0]
     use_source = choose_source(use_coh)
  
-    base_path = os.path.join(
-        args.out_dir.split('subvariant_threshold')[0], 'subvariant_threshold')
+    base_path = os.path.join(args.out_dir.split('subgrouping_threshold')[0],
+                             'subgrouping_threshold')
     coh_dir = os.path.join(base_path, 'setup')
-    coh_path = os.path.join(coh_dir, "cohort-data__{}.p".format(args.cohort))
     out_path = os.path.join(args.out_dir, 'setup')
 
     # find all the subvariant enumeration experiments that have run to
     # completion using the given combination of cohort and mutation classifier
-    test_outs = Path(os.path.join(args.test_dir, 'subvariant_test')).glob(
+    test_outs = Path(os.path.join(args.test_dir, 'subgrouping_test')).glob(
         os.path.join("{}__{}__samps-*".format(use_source, args.cohort),
-                     "trnsf-vals__*__{}.p.gz".format(args.classif))
+                     "out-trnsf__*__{}.p.gz".format(args.classif))
         )
 
     # parse the enumeration experiment output files to find the minimum sample
@@ -63,10 +54,10 @@ def main():
     out_datas = [Path(out_file).parts[-2:] for out_file in test_outs]
     out_df = pd.DataFrame([{'Samps': int(out_data[0].split('__samps-')[1]),
                             'Levels': '__'.join(out_data[1].split(
-                                'trnsf-vals__')[1].split('__')[:-1])}
+                                'out-trnsf__')[1].split('__')[:-1])}
                            for out_data in out_datas])
 
-    if 'Exon__Location__Protein' not in set(out_df.Levels):
+    if 'Consequence__Exon' not in set(out_df.Levels):
         raise ValueError("Cannot infer subvariant behaviour until the "
                          "`subvariant_test` experiment is run "
                          "with mutation levels `Exon__Location__Protein` "
@@ -76,13 +67,13 @@ def main():
     conf_dict = dict()
     for lvls, ctf in out_df.groupby('Levels')['Samps']:
         conf_fl = os.path.join(
-            args.test_dir, 'subvariant_test',
+            args.test_dir, 'subgrouping_test',
             "{}__{}__samps-{}".format(use_source, args.cohort, ctf.values[0]),
             "out-conf__{}__{}.p.gz".format(lvls, args.classif)
             )
 
         with bz2.BZ2File(conf_fl, 'r') as f:
-            conf_dict[lvls] = pickle.load(f)['mean']
+            conf_dict[lvls] = pickle.load(f)
 
     conf_vals = pd.concat(conf_dict.values())
     conf_vals = conf_vals[[not isinstance(mtype, RandomType)
@@ -90,7 +81,7 @@ def main():
 
     test_genes = {'Point': set(), 'Gain': set(), 'Loss': set()}
     for gene, conf_vec in conf_vals.groupby(
-            lambda mtype: mtype.get_labels()[0]):
+            lambda mtype: tuple(mtype.label_iter())[0]):
 
         if len(conf_vec) > 1:
             auc_vec = conf_vec.apply(np.mean)
@@ -100,16 +91,15 @@ def main():
             sub_aucs = auc_vec[:base_indx].append(
                 auc_vec[(base_indx + 1):])
             best_subtype = sub_aucs.idxmax()
-            best_indx = auc_vec.index.get_loc(best_subtype)
 
-            if auc_vec[best_indx] > 0.65:
+            if auc_vec[best_subtype] > 0.65:
                 test_genes['Point'] |= {gene}
 
                 for test_mtype in sub_aucs.index:
-                    mtype_sub = test_mtype.subtype_list()[0][1]
+                    mtype_sub = tuple(test_mtype.subtype_iter())[0][1]
 
                     if ((gene not in test_genes['Gain'])
-                            and not (mtype_sub & gain_mtype).is_empty()):
+                            and not (mtype_sub & dup_mtype).is_empty()):
                         test_indx = 'Gain'
 
                     elif ((gene not in test_genes['Loss'])
@@ -131,29 +121,25 @@ def main():
     use_genes = list(reduce(or_, test_genes.values()))
     use_mtypes = set()
     use_ctf = int(out_df.Samps.min())
-    mtree_k = ['Gene', 'Scale', 'Copy']
-    use_lfs = ('ref_count', 'alt_count', 'PolyPhen', 'SIFT', 'depth')
+    mtree_k = ('Gene', 'Scale', 'Copy')
+    use_lfs = ['ref_count', 'alt_count', 'PolyPhen', 'SIFT', 'depth']
 
-    cdata = get_cohort_data(args.cohort, choose_source(args.cohort),
-                            [mtree_k], use_genes, leaf_annot=use_lfs,
-                            gene_annot=['transcript'])
-
-    with open(coh_path, 'wb') as f:
-        pickle.dump(cdata, f, protocol=-1)
-    with open(os.path.join(out_path, "cohort-data.p"), 'wb') as f:
+    cdata = get_cohort_data(args.cohort, use_source, [mtree_k], vep_cache_dir,
+                            out_path, use_genes, leaf_annot=use_lfs)
+    with bz2.BZ2File(os.path.join(out_path, "cohort-data.p.gz"), 'w') as f:
         pickle.dump(cdata, f, protocol=-1)
 
-    for gene, mtree in cdata.mtrees[tuple(mtree_k)]:
+    for gene, mtree in cdata.mtrees[mtree_k]:
         base_mtypes = {MuType({('Gene', gene): pnt_mtype})}
 
         if gene in test_genes['Gain']:
-            base_mtypes |= {MuType({('Gene', gene): pnt_mtype | gain_mtype})}
+            base_mtypes |= {MuType({('Gene', gene): pnt_mtype | dup_mtype})}
         if gene in test_genes['Loss']:
             base_mtypes |= {MuType({('Gene', gene): pnt_mtype | loss_mtype})}
 
         for base_mtype in base_mtypes:
             base_size = len(base_mtype.get_samples(
-                cdata.mtrees[tuple(mtree_k)]))
+                cdata.mtrees[mtree_k]))
 
             gene_mtypes = {
                 MutThresh('VAF', vaf_val, base_mtype)
@@ -165,10 +151,6 @@ def main():
                         mtree, ['ref_count', 'alt_count']).values()
                     )
                 }
-
-            test_mtype = MutThresh(
-                'VAF', 0.25, MuType({('Gene', gene): pnt_mtype | gain_mtype}))
-            n_samps = len(test_mtype.get_samples(cdata.mtrees[tuple(mtree_k)]))
 
             for lf_annt in ['PolyPhen', 'SIFT', 'depth']:
                 gene_mtypes |= {
@@ -182,7 +164,7 @@ def main():
             use_mtypes |= {
                 mtype for mtype in gene_mtypes
                 if (use_ctf
-                    <= len(mtype.get_samples(cdata.mtrees[tuple(mtree_k)]))
+                    <= len(mtype.get_samples(cdata.mtrees[mtree_k]))
                     < min(base_size, len(cdata.get_samples()) - use_ctf + 1))
                 }
 
@@ -191,22 +173,24 @@ def main():
     with open(os.path.join(out_path, "muts-count.txt"), 'w') as fl:
         fl.write(str(len(use_mtypes)))
 
-    coh_list = list_cohorts('Firehose', expr_dir=expr_dir, copy_dir=copy_dir)
+    # get list of available cohorts for this source of expression data
+    coh_list = list_cohorts('Firehose', expr_dir=expr_sources['Firehose'],
+                            copy_dir=expr_sources['Firehose'])
     coh_list -= {args.cohort}
     use_feats = set(cdata.get_features())
     random.seed()
 
     for coh in random.sample(coh_list, k=len(coh_list)):
         coh_base = coh.split('_')[0]
-        coh_tag = "cohort-data__{}.p".format(coh)
+
+        coh_tag = "cohort-data__{}__{}.p".format('Firehose', coh)
         coh_path = os.path.join(coh_dir, coh_tag)
 
-        trnsf_cdata = load_cohort(
-            coh, 'Firehose', coh_path, mut_lvls=[mtree_k],
-            use_genes=use_genes, leaf_annot=use_lfs, gene_annot=['transcript']
-            )
-
+        trnsf_cdata = load_cohort(coh, 'Firehose', [mtree_k], vep_cache_dir,
+                                  coh_path, out_path, use_genes,
+                                  leaf_annot=use_lfs)
         use_feats &= set(trnsf_cdata.get_features())
+
         with open(coh_path, 'wb') as f:
             pickle.dump(trnsf_cdata, f, protocol=-1)
 
@@ -216,7 +200,6 @@ def main():
 
     with open(os.path.join(out_path, "feat-list.p"), 'wb') as f:
         pickle.dump(use_feats, f, protocol=-1)
-
 
 if __name__ == '__main__':
     main()
