@@ -1,66 +1,95 @@
 
 import os
+import sys
+sys.path.extend([os.path.join(os.environ['CODEDIR'], 'dryads-research',
+                              'experiments', 'utilities')])
+from pipeline_setup import get_task_arr, tasks_files
 
-LOCALDIR = os.path.join(os.environ['CODEDIR'], 'HetMan',
-                        'experiments', 'subvariant_threshold')
-TMPDIR = os.path.join(os.environ['TEMPDIR'], 'HetMan', 'subvariant_threshold',
+
+TMPDIR = os.path.join(os.environ['TEMPDIR'],
+                      'dryads-research', 'subgrouping_threshold',
                       config['cohort'], config['classif'])
-OUTDIR = os.path.join(os.environ['DATADIR'], 'HetMan', 'subvariant_threshold')
+
+OUTDIR = os.path.join(os.environ['DATADIR'], 'dryads-research',
+                      'subgrouping_threshold')
 
 
-localrules: target
+localrules: target, merge
 
 
 rule target:
     input:
-        expand("{outdir}/trnsf-vals__{cohort}__{classif}.p.gz",
-               outdir=OUTDIR, cohort=config['cohort'],
-               classif=config['classif']),
+        expand("{outdir}/out-trnsf__{cohort}__{classif}.p.gz",
+               outdir=OUTDIR, **config)
 
     threads: 1
 
 
-rule threshold:
+rule test:
     output: "{TMPDIR}/output/out__cv-{cv_id}_task-{task_id}.p"
 
     threads: 8
 
     shell: """
-        set +u; source activate HetMan; set -u;
+        set +u; source activate research; set -u;
+
         export OMP_NUM_THREADS=1;
-        sleep $(( ({wildcards.cv_id} + 1) * ({wildcards.task_id} + 1) * $(shuf -i 1-9 -n 1) ));
- 
-        python {LOCALDIR}/fit_threshold.py {config[classif]} \
-                --use_dir={TMPDIR} --task_count={config[task_count]} \
+        sleep $(( ({wildcards.cv_id} + 1) * ({wildcards.task_id} + 1)
+                * $(shuf -i 1-9 -n 1) ));
+
+        python -m dryads-research.experiments.subgrouping_threshold.fit_threshold \
+                {config[classif]} {TMPDIR} \
                 --task_id={wildcards.task_id} --cv_id={wildcards.cv_id}
+
         """
 
 
-rule consolidate:
-    input:
-        expand("{tmpdir}/output/out__cv-{cv_id}_task-{task_id}.p",
-               tmpdir=TMPDIR,
-               cv_id=range(40), task_id=range(config['task_count']))
+rule gather:
+    input: tasks_files
 
-    output:
-        expand("{outdir}/trnsf-vals__{cohort}__{classif}.p.gz",
-               outdir=OUTDIR, cohort=config['cohort'],
-               classif=config['classif'])
+    output: "{TMPDIR}/merge/out-trnsf_{tasks}.p.gz",
 
     threads: 12
 
     shell: """
-        set +u; source activate HetMan; set -u;
-        python {LOCALDIR}/merge_threshold.py {TMPDIR}
+        set +u; source activate research; set -u;
+
+        tasks={wildcards.tasks}
+        python -m dryads-research.experiments.subgrouping_threshold.gather_threshold \
+                {TMPDIR} --task_ids ${{tasks//-/ }}
+
+        """
+
+
+rule merge:
+    input:
+        [os.path.join(TMPDIR, 'merge',
+                      "out-trnsf_{}.p.gz".format('-'.join(task_list)))
+         for task_list in get_task_arr(TMPDIR)]
+
+    output:
+        expand("{outdir}/out-trnsf__{cohort}__{classif}.p.gz",
+               outdir=OUTDIR, **config)
+
+    threads: 1
+
+    shell:"""
+        set +u; source activate research; set -u;
+        python -m dryads-research.experiments.subgrouping_threshold.merge_threshold \
+                {TMPDIR}
 
         out_tag={config[cohort]}__{config[classif]}
-        cp {TMPDIR}/setup/cohort-data.p {OUTDIR}/cohort-data__${{out_tag}}.p
+        cp {TMPDIR}/setup/cohort-data.p.gz \
+                {OUTDIR}/cohort-data__${{out_tag}}.p.gz
 
         cp {TMPDIR}/out-pred.p.gz {OUTDIR}/out-pred__${{out_tag}}.p.gz
+        cp {TMPDIR}/out-tune.p.gz {OUTDIR}/out-tune__${{out_tag}}.p.gz
         cp {TMPDIR}/out-pheno.p.gz {OUTDIR}/out-pheno__${{out_tag}}.p.gz
         cp {TMPDIR}/out-aucs.p.gz {OUTDIR}/out-aucs__${{out_tag}}.p.gz
+        cp {TMPDIR}/out-conf.p.gz {OUTDIR}/out-conf__${{out_tag}}.p.gz
+
+        cp {TMPDIR}/trnsf-preds.p.gz {OUTDIR}/trnsf-preds__${{out_tag}}.p.gz
         cp {TMPDIR}/out-trnsf.p.gz {OUTDIR}/out-trnsf__${{out_tag}}.p.gz
-        cp {TMPDIR}/trnsf-vals.p.gz {OUTDIR}/trnsf-vals__${{out_tag}}.p.gz
 
         """
 
