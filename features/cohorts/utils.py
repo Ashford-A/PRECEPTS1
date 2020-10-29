@@ -84,6 +84,7 @@ def get_input_datasets(cohort, expr_source, mut_fields=None):
                 )
             })
 
+    # ...otherwise, assume we are dealing with a TCGA dataset
     else:
         syn.login()
         data_dict['assembly'] = 'GRCh37'
@@ -111,18 +112,36 @@ def get_input_datasets(cohort, expr_source, mut_fields=None):
 
 
 def get_cohort_data(cohort, expr_source, mut_lvls, vep_cache_dir, out_path,
-                    use_genes=None, use_copies=True):
-    data_dict = get_input_datasets(
-        cohort, expr_source,
-        mut_fields=['Sample', 'Gene', 'Chr', 'Start', 'End',
-                    'RefAllele', 'TumorAllele']
-        )
+                    use_genes=None, use_copies=True, leaf_annot=None):
+    mut_fields = ['Sample', 'Gene', 'Chr', 'Start', 'End',
+                  'RefAllele', 'TumorAllele']
+    if leaf_annot is not None:
+        mut_fields += leaf_annot
+
+    data_dict = get_input_datasets(cohort, expr_source, mut_fields=mut_fields)
 
     # TODO: how to handle this special case
     if cohort == 'CCLE':
         return BaseMutationCohort(data_dict['expr'], data_dict['vars'],
                                   [('Gene', 'Form')], data_dict['copy'],
                                   data_dict['annot'], leaf_annot=None)
+
+    elif leaf_annot is not None:
+        use_vars = data_dict['vars'].loc[
+            data_dict['vars'].Gene.isin(use_genes)]
+        use_copy = data_dict['copy'].loc[
+            data_dict['copy'].Gene.isin(use_genes)]
+
+        if 'ref_count' in leaf_annot:
+            use_vars.loc[:, 'ref_count'] = use_vars.ref_count.astype(int)
+        if 'depth' in leaf_annot:
+            use_vars.loc[:, 'depth'] = use_vars.depth.astype(int)
+        if 'alt_count' in leaf_annot:
+            use_vars.loc[:, 'alt_count'] = use_vars.alt_count.astype(int)
+
+        return BaseMutationCohort(data_dict['expr'], use_vars,
+                                  mut_lvls, use_copy,
+                                  data_dict['annot'], leaf_annot=leaf_annot)
 
     # format the mutation calls into a format compatible with VEP
     var_df = pd.DataFrame({'Chr': data_dict['vars'].Chr.astype('int'),
@@ -188,12 +207,12 @@ def get_cohort_data(cohort, expr_source, mut_lvls, vep_cache_dir, out_path,
             variants.duplicated().sum())
         )
 
-    return BaseMutationCohort(data_dict['expr'], variants, cdata_lvls,
-                              copies, data_dict['annot'], leaf_annot=None)
+    return BaseMutationCohort(data_dict['expr'], variants, cdata_lvls, copies,
+                              data_dict['annot'], leaf_annot=None)
 
 
-def load_cohort(cohort, expr_source, mut_lvls,
-                vep_cache_dir, use_path=None, temp_path=None, use_genes=None):
+def load_cohort(cohort, expr_source, mut_lvls, vep_cache_dir, use_path=None,
+                temp_path=None, use_genes=None, leaf_annot=None):
     if isinstance(mut_lvls[0], str):
         mut_lvls = [mut_lvls]
 
@@ -204,17 +223,20 @@ def load_cohort(cohort, expr_source, mut_lvls,
 
         except:
             cdata = get_cohort_data(cohort, expr_source, mut_lvls,
-                                    vep_cache_dir, temp_path, use_genes)
+                                    vep_cache_dir, temp_path, use_genes,
+                                    leaf_annot=leaf_annot)
 
     else:
         cdata = get_cohort_data(cohort, expr_source, mut_lvls,
-                                vep_cache_dir, temp_path, use_genes)
+                                vep_cache_dir, temp_path, use_genes,
+                                leaf_annot=leaf_annot)
 
     if cohort != 'CCLE' and not all(any(mtree_lvls[-(len(lvls)):] == lvls
                                         for mtree_lvls in cdata.mtrees)
                                     for lvls in mut_lvls):
         cdata.merge(get_cohort_data(cohort, expr_source, mut_lvls,
-                                    vep_cache_dir, temp_path, use_genes))
+                                    vep_cache_dir, temp_path, use_genes,
+                                    leaf_annot=leaf_annot))
 
     return cdata
 
