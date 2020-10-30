@@ -4,7 +4,9 @@ from ..utilities.mutations import (
 from dryadic.features.mutations import MuType
 
 from ..subgrouping_test import base_dir
+from .utils import filter_mtype
 from ..utilities.colour_maps import variant_clrs
+from ..utilities.labels import get_fancy_label
 
 import os
 import argparse
@@ -14,11 +16,22 @@ import dill as pickle
 
 import numpy as np
 import pandas as pd
-from scipy.stats import pearsonr, spearmanr
+
 from itertools import combinations as combn
+from scipy.stats import pearsonr, spearmanr
+from scipy.spatial import distance
+from scipy.cluster.hierarchy import linkage, dendrogram
+
+from goatools.base import download_go_basic_obo
+from goatools.obo_parser import GODag
+from goatools.base import download_ncbi_associations
+from goatools.anno.genetogo_reader import Gene2GoReader
+from ...features.data.genes_NCBI_9606_ProteinCoding import GENEID2NT
+from goatools.goea.go_enrichment_ns import GOEnrichmentStudyNS
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 mpl.use('Agg')
 plt.style.use('fivethirtyeight')
@@ -45,24 +58,11 @@ def choose_subtype_colour(mtype):
     return use_clr
 
 
-def filter_mtype(mtype, gene):
-    if isinstance(mtype, RandomType):
-        if mtype.base_mtype is None:
-            filter_stat = False
-        else:
-            filter_stat = tuple(mtype.base_mtype.label_iter())[0] == gene
-
-    else:
-        filter_stat = tuple(mtype.label_iter())[0] == gene
-
-    return filter_stat
-
-
-def plot_task_characteristics(coef_mat, auc_vals, pheno_dict, pred_df, args):
+def plot_task_characteristics(coef_df, auc_vals, pheno_dict, pred_df, args):
     fig, axarr = plt.subplots(figsize=(11, 18), nrows=3, ncols=1)
 
-    coef_magns = coef_mat.abs().mean(axis=1)
-    for mtype, coef_list in coef_mat.iterrows():
+    coef_magns = coef_df.abs().mean(axis=1)
+    for mtype, coef_list in coef_df.iterrows():
         use_clr = choose_subtype_colour(mtype)
 
         coef_grps = coef_list.groupby(level=0)
@@ -107,10 +107,10 @@ def plot_task_characteristics(coef_mat, auc_vals, pheno_dict, pred_df, args):
     plt.close()
 
 
-def plot_coef_divergence(coef_mat, auc_vals, pheno_dict, args):
+def plot_coef_divergence(coef_df, auc_vals, pheno_dict, args):
     fig, ax = plt.subplots(figsize=(13, 8))
 
-    coef_means = coef_mat.groupby(level=0, axis=1).mean()
+    coef_means = coef_df.groupby(level=0, axis=1).mean()
     base_mtype = MuType({('Gene', args.gene): pnt_mtype})
 
     for mtype, coef_vals in coef_means.iterrows():
@@ -147,6 +147,206 @@ def plot_coef_divergence(coef_mat, auc_vals, pheno_dict, args):
     plt.close()
 
 
+def plot_top_heatmap(coef_df, auc_vals, pheno_dict, args):
+    coef_vals = coef_df.groupby(level=0, axis=1).mean()
+
+    if args.auc_cutoff == -1:
+        min_auc = auc_vals[MuType({('Gene', args.gene): pnt_mtype})]
+    else:
+        min_auc = args.auc_cutoff
+
+    plt_mtypes = {mtype for mtype, auc_val in auc_vals.iteritems()
+                  if (not isinstance(mtype, RandomType)
+                      and auc_val >= min_auc
+                      and (tuple(mtype.subtype_iter())[0][1]
+                           & copy_mtype).is_empty())}
+    plt_genes = set()
+
+    for mtype in plt_mtypes:
+        plt_genes |= set(coef_vals.loc[mtype].abs().sort_values()[-10:].index)
+
+    fig, ax = plt.subplots(figsize=(4 + len(plt_genes) / 11,
+                                    0.53 + len(plt_mtypes) / 5))
+
+    plot_df = coef_vals.loc[plt_mtypes, plt_genes]
+    plot_df = plot_df.iloc[
+        dendrogram(linkage(distance.pdist(plot_df, metric='euclidean'),
+                           method='centroid'), no_plot=True)['leaves'],
+        dendrogram(linkage(distance.pdist(plot_df.transpose(),
+                                          metric='euclidean'),
+                           method='centroid'), no_plot=True)['leaves']
+        ]
+
+    xlabs = [gene for gene in plot_df.columns]
+    ylabs = [get_fancy_label(tuple(mtype.subtype_iter())[0][1])
+             for mtype in plot_df.index]
+
+    coef_cmap = sns.diverging_palette(13, 131, s=91, l=41, sep=3,
+                                      as_cmap=True)
+
+    sns.heatmap(plot_df, cmap=coef_cmap, center=0,
+                xticklabels=xlabs, yticklabels=ylabs)
+
+    ax.set_xticklabels(xlabs, size=5, ha='right', rotation=47)
+    ax.set_yticklabels(ylabs, size=9, ha='right', rotation=0)
+
+    plt.savefig(
+        os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
+                     "{}_top-heatmap_{}.svg".format(
+                         args.gene, args.classif)),
+        bbox_inches='tight', format='svg'
+        )
+
+    plt.close()
+
+
+def plot_all_heatmap(coef_df, auc_vals, pheno_dict, args):
+    coef_vals = coef_df.groupby(level=0, axis=1).mean()
+
+    plt_mtypes = {mtype for mtype in coef_vals.index
+                  if (not isinstance(mtype, RandomType)
+                      and (tuple(mtype.subtype_iter())[0][1]
+                           & copy_mtype).is_empty())}
+
+    fig, ax = plt.subplots(figsize=(23, len(plt_mtypes) / 5))
+    plot_df = coef_vals.loc[plt_mtypes]
+
+    plot_df = plot_df.loc[:, plot_df.abs().sum() > 0]
+    plt_max = np.abs(np.percentile(plot_df.values.flatten(),
+                                   q=[1, 99])).max()
+
+    plot_df = plot_df.iloc[
+        dendrogram(linkage(distance.pdist(plot_df, metric='euclidean'),
+                           method='centroid'), no_plot=True)['leaves'],
+        dendrogram(linkage(distance.pdist(plot_df.transpose(),
+                                          metric='euclidean'),
+                           method='centroid'), no_plot=True)['leaves']
+        ]
+
+    ylabs = [get_fancy_label(tuple(mtype.subtype_iter())[0][1])
+             for mtype in plot_df.index]
+    coef_cmap = sns.diverging_palette(13, 131, s=91, l=41, sep=3,
+                                      as_cmap=True)
+
+    sns.heatmap(plot_df, cmap=coef_cmap, vmin=-plt_max, vmax=plt_max,
+                xticklabels=False, yticklabels=ylabs)
+    ax.set_yticklabels(ylabs, size=8, ha='right', rotation=0)
+
+    plt.savefig(
+        os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
+                     "{}_all-heatmap_{}.svg".format(
+                         args.gene, args.classif)),
+        bbox_inches='tight', format='svg'
+        )
+
+    plt.close()
+
+
+def plot_go_enrichment(coef_df, auc_vals, pheno_dict, args, mode='abs'):
+    obo_fl = os.path.join(args.go_dir, "go-basic.obo")
+    download_go_basic_obo(obo_fl)
+    obodag = GODag(obo_fl)
+
+    assoc_fl = os.path.join(args.go_dir, "gene2go")
+    download_ncbi_associations(assoc_fl)
+    objanno = Gene2GoReader(assoc_fl, taxids=[9606])
+    ns2assoc = objanno.get_ns2assc()
+
+    ncbi_map = {info.Symbol: ncbi_id for ncbi_id, info in GENEID2NT.items()}
+    use_genes = set(coef_df.columns) & set(ncbi_map)
+    bgrd_ids = [ncbi_map[gn] for gn in use_genes]
+
+    goeaobj = GOEnrichmentStudyNS(bgrd_ids, ns2assoc, obodag,
+                                  propagate_counts=False, alpha=0.05,
+                                  methods=['fdr_bh'])
+
+    plot_dict = dict()
+    use_gos = set()
+    coef_mat = coef_df.loc[:, [gene in use_genes for gene in coef_df.columns]]
+
+    if mode == 'bayes':
+        coef_means = coef_mat.groupby(level=0, axis=1).mean()
+        coef_stds = coef_mat.groupby(level=0, axis=1).std()
+    else:
+        coef_mat = coef_mat.groupby(level=0, axis=1).mean()
+
+    for mtype, coefs in coef_mat.iterrows():
+        if not isinstance(mtype, RandomType):
+            if mode == 'abs':
+                fgrd_ctf = coefs.abs().quantile(0.95)
+                fgrd_genes = coefs.index[coefs.abs() > fgrd_ctf]
+                use_clr = 3.17
+
+            elif mode == 'high':
+                fgrd_ctf = coefs.quantile(0.95)
+                fgrd_genes = coefs.index[coefs > fgrd_ctf]
+                use_clr = 2.03
+            elif mode == 'low':
+                fgrd_ctf = coefs.quantile(0.05)
+                fgrd_genes = coefs.index[coefs < fgrd_ctf]
+                use_clr = 1.03
+
+            elif mode == 'bayes':
+                gene_scrs = coef_means.loc[mtype].abs() - coef_stds.loc[mtype]
+                fgrd_genes = gene_scrs.index[gene_scrs > 0]
+                use_clr = 3.17
+
+            else:
+                raise ValueError(
+                    "Unrecognized `mode` argument <{}>!".format(mode))
+
+            fgrd_ids = [ncbi_map[gn] for gn in fgrd_genes]
+            goea_out = goeaobj.run_study(fgrd_ids, prt=None)
+
+            plot_dict[mtype] = {
+                rs.name: np.log10(rs.p_fdr_bh) for rs in goea_out
+                if rs.enrichment == 'e' and rs.p_fdr_bh < 0.05
+                }
+
+    plot_df = pd.DataFrame(plot_dict, columns=plot_dict.keys())
+    if plot_df.shape[0] == 0:
+        print("Could not find any enriched GO terms across {} "
+              "subgroupings!".format(plot_df.shape[1]))
+        return None
+
+    fig, ax = plt.subplots(figsize=(4.7 + plot_df.shape[0] / 2.3,
+                                    2 + plot_df.shape[1] / 5.3))
+
+    if plot_df.shape[0] > 2:
+        plot_df = plot_df.iloc[
+            dendrogram(linkage(distance.pdist(plot_df.fillna(0.0),
+                                              metric='cityblock'),
+                               method='centroid'), no_plot=True)['leaves']
+            ].transpose()
+    else:
+        plot_df = plot_df.transpose()
+
+    xlabs = [rs_nm for rs_nm in plot_df.columns]
+    ylabs = [get_fancy_label(tuple(mtype.subtype_iter())[0][1])
+             for mtype in plot_df.index]
+
+    pval_cmap = sns.cubehelix_palette(start=use_clr, rot=0, dark=0, light=1,
+                                      reverse=True, as_cmap=True)
+
+    sns.heatmap(plot_df, cmap=pval_cmap, vmin=-5, vmax=0,
+                linewidths=0.23, linecolor='0.73',
+                xticklabels=xlabs, yticklabels=ylabs)
+
+    ax.set_xticklabels(xlabs, size=15, ha='right', rotation=31)
+    ax.set_yticklabels(ylabs, size=9, ha='right', rotation=0)
+    ax.set_xlim((plot_df.shape[1] / -83, plot_df.shape[1] * 1.009))
+    ax.set_ylim((plot_df.shape[0] * 1.009, plot_df.shape[0] / -83))
+
+    plt.savefig(
+        os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
+                     "{}_go-{}-enrichment_{}.svg".format(
+                         args.gene, mode, args.classif)),
+        bbox_inches='tight', format='svg'
+        )
+
+    plt.close()
+
+
 def main():
     parser = argparse.ArgumentParser(
         'plot_aucs',
@@ -157,6 +357,12 @@ def main():
     parser.add_argument('cohort', help="a tumour cohort")
     parser.add_argument('classif', help="a mutation classifier")
     parser.add_argument('gene', help="a mutated gene")
+
+    parser.add_argument('--auc_cutoff', '-a', type=float,
+                        help="min AUC for tasks shown in heatmaps",
+                        nargs='?', default=0.7, const=-1)
+    parser.add_argument('--go_dir', help="where are GO files to be stored?",
+                        default=None)
 
     # parse command line arguments, create directory where plots will be saved
     args = parser.parse_args()
@@ -257,14 +463,22 @@ def main():
                                          if filter_mtype(mtype, args.gene)]]
 
     pred_df = pd.concat(pred_dict.values())
-    coef_mat = pd.concat(coef_dict.values())
-    assert coef_mat.index.isin(phn_dict).all()
+    coef_df = pd.concat(coef_dict.values())
+    assert coef_df.index.isin(phn_dict).all()
     auc_df = pd.concat(auc_dict.values())
     conf_list = pd.concat(conf_dict.values())
 
-    plot_task_characteristics(coef_mat, auc_df['mean'],
+    plot_task_characteristics(coef_df, auc_df['mean'],
                               phn_dict, pred_df, args)
-    plot_coef_divergence(coef_mat, auc_df['mean'], phn_dict, args)
+    plot_coef_divergence(coef_df, auc_df['mean'], phn_dict, args)
+
+    plot_top_heatmap(coef_df, auc_df['mean'], phn_dict, args)
+    plot_all_heatmap(coef_df, auc_df['mean'], phn_dict, args)
+
+    if args.go_dir:
+        for use_mode in ['high', 'low', 'abs', 'bayes']:
+            plot_go_enrichment(coef_df, auc_df['mean'],
+                               phn_dict, args, use_mode)
 
 
 if __name__ == '__main__':
