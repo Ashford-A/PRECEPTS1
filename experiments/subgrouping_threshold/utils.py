@@ -1,6 +1,6 @@
 
 from dryadic.features.mutations import MuType
-from ..subvariant_tour.utils import RandomType
+from ..utilities.mutations import RandomType
 
 import numpy as np
 import pandas as pd

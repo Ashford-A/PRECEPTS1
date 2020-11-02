@@ -1,19 +1,13 @@
 
-import os
-import sys
-
-base_dir = os.path.join(os.environ['DATADIR'], 'HetMan',
-                        'subvariant_threshold')
-sys.path.extend([os.path.join(os.path.dirname(__file__), '..', '..', '..')])
-plot_dir = os.path.join(base_dir, 'plots', 'aucs')
-
-from HetMan.experiments.subvariant_infer import variant_clrs
-from HetMan.experiments.subvariant_infer.setup_infer import choose_source
-from HetMan.experiments.subvariant_tour.plot_aucs import choose_gene_colour
-from HetMan.experiments.subvariant_tour.utils import RandomType
-from HetMan.experiments.subvariant_test import pnt_mtype, copy_mtype
+from ..utilities.mutations import pnt_mtype, copy_mtype, RandomType
 from dryadic.features.mutations import MuType
 
+from ..subgrouping_threshold import base_dir
+from ..utilities.data_dirs import choose_source
+from ..utilities.misc import choose_label_colour
+from ..utilities.colour_maps import variant_clrs
+
+import os
 import argparse
 from pathlib import Path
 import bz2
@@ -21,14 +15,15 @@ import dill as pickle
 import pandas as pd
 
 import matplotlib as mpl
-mpl.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 
+mpl.use('Agg')
 plt.style.use('fivethirtyeight')
-plt.rcParams['axes.facecolor']='white'
-plt.rcParams['savefig.facecolor']='white'
-plt.rcParams['axes.edgecolor']='white'
+plt.rcParams['axes.facecolor'] = 'white'
+plt.rcParams['savefig.facecolor'] = 'white'
+plt.rcParams['axes.edgecolor'] = 'white'
+plot_dir = os.path.join(base_dir, 'plots', 'aucs')
 
 
 def plot_sub_comparison(orig_aucs, auc_vals, orig_phenos, pheno_dict, args):
@@ -72,7 +67,7 @@ def plot_sub_comparison(orig_aucs, auc_vals, orig_phenos, pheno_dict, args):
                        if mtype.annot == annt_lbl}
 
         if annt_mtypes:
-            annt_clr = choose_gene_colour(annt_lbl, clr_seed=9930)
+            annt_clr = choose_label_colour(annt_lbl, clr_seed=9930)
             lgnd_ptchs += [Patch(color=annt_clr, alpha=0.43,
                                  label="{} thresholds".format(annt_lbl))]
 
@@ -110,9 +105,8 @@ def plot_sub_comparison(orig_aucs, auc_vals, orig_phenos, pheno_dict, args):
 
 def main():
     parser = argparse.ArgumentParser(
-        "Plots classification performance using mutation subtypes of a gene "
-        "in a cohort chosen by using thresholds versus subtypes chosen by "
-        "other means."
+        'plot_aucs',
+        description="Plots comparisons of performances of classifier tasks."
         )
 
     parser.add_argument('gene', help='a mutated gene')
@@ -120,19 +114,20 @@ def main():
     parser.add_argument('classif', help='a mutation classifier')
 
     args = parser.parse_args()
-    orig_dir = os.path.join(Path(base_dir).parent, "subvariant_test")
+    orig_dir = os.path.join(Path(base_dir).parent, "subgrouping_test")
+    use_src = choose_source(args.cohort)
 
     orig_datas = [
         out_file.parts[-2:] for out_file in Path(orig_dir).glob(os.path.join(
-            "{}__{}__samps-*".format(choose_source(args.cohort), args.cohort),
-            "trnsf-vals__*__{}.p.gz".format(args.classif)
+            "{}__{}__samps-*".format(use_src, args.cohort),
+            "out-trnsf__*__{}.p.gz".format(args.classif)
             ))
         ]
 
     orig_list = pd.DataFrame([
         {'Samps': int(orig_data[0].split('__samps-')[1]),
          'Levels': '__'.join(orig_data[1].split(
-             'trnsf-vals__')[1].split('__')[:-1])}
+             'out-trnsf__')[1].split('__')[:-1])}
         for orig_data in orig_datas
         ])
 
@@ -141,12 +136,11 @@ def main():
                          "for these parameters!")
 
     orig_use = orig_list.groupby('Levels')['Samps'].min()
-    if 'Exon__Location__Protein' not in orig_use.index:
-        raise ValueError("Cannot compare AUCs until the subvariant testing "
+    if 'Consequence__Exon' not in orig_use.index:
+        raise ValueError("Cannot compare AUCs until the subgrouping testing "
                          "experiment is run with mutation levels "
-                         "`Exon__Location__Protein` which tests genes' "
+                         "`Consequence__Exon` which tests genes' "
                          "base mutations!")
-
 
     with bz2.BZ2File(os.path.join(
             base_dir, "out-pheno__{}__{}.p.gz".format(
@@ -160,13 +154,15 @@ def main():
             )) as fl:
         auc_vals = pickle.load(fl)['mean']
 
-    auc_vals = auc_vals[[mtype for mtype in auc_vals.index
-                         if (mtype.base_mtype.get_labels()[0] == args.gene
-                             and (mtype.base_mtype.subtype_list()[0][1]
-                                  & copy_mtype).is_empty())]]
+    auc_vals = auc_vals[[
+        mtype for mtype in auc_vals.index
+        if (tuple(mtype.base_mtype.label_iter())[0] == args.gene
+            and (tuple(mtype.base_mtype.subtype_iter())[0][1]
+                 & copy_mtype).is_empty())
+        ]]
 
     if len(auc_vals) == 0:
-        raise ValueError("No subvariant threshold experiment output found "
+        raise ValueError("No subgrouping threshold experiment output found "
                          "for gene {} in cohort {} for "
                          "classifier {} !".format(args.gene, args.cohort,
                                                   args.classif))
@@ -175,8 +171,7 @@ def main():
     auc_df = dict()
 
     for lvls, ctf in orig_use.iteritems():
-        out_tag = "{}__{}__samps-{}".format(
-            choose_source(args.cohort), args.cohort, ctf)
+        out_tag = "{}__{}__samps-{}".format(use_src, args.cohort, ctf)
 
         with bz2.BZ2File(os.path.join(orig_dir, out_tag,
                                       "out-pheno__{}__{}.p.gz".format(
@@ -196,10 +191,10 @@ def main():
     orig_aucs = orig_aucs[[
         ((isinstance(mtype, RandomType) and isinstance(mtype.size_dist, int)
           and mtype.base_mtype is not None
-          and mtype.base_mtype.get_labels()[0] == args.gene)
+          and tuple(mtype.base_mtype.label_iter())[0] == args.gene)
          or (not isinstance(mtype, RandomType)
-             and mtype.get_labels()[0] == args.gene
-             and (mtype.subtype_list()[0][1] & copy_mtype).is_empty()))
+             and tuple(mtype.label_iter())[0] == args.gene
+             and (tuple(mtype.subtype_iter())[0][1] & copy_mtype).is_empty()))
         for mtype in orig_aucs.index
         ]]
 
