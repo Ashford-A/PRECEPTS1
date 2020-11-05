@@ -98,3 +98,8 @@ def calc_auc(vals, stat):
     return (np.greater.outer(vals[stat], vals[~stat]).mean()
             + 0.5 * np.equal.outer(vals[stat], vals[~stat]).mean())
 
+
+def calc_conf(auc_vals1, auc_vals2):
+    return (np.greater.outer(auc_vals1, auc_vals2).mean()
+            + 0.5 * np.equal.outer(auc_vals1, auc_vals2).mean())
+

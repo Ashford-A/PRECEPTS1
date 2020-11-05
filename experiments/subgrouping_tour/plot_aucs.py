@@ -1,6 +1,7 @@
 
 from dryadic.features.mutations import MuType
 from ..subgrouping_tour import base_dir
+from ..utilities.metrics import calc_conf
 from ..utilities.misc import choose_label_colour
 from ..utilities.labels import get_fancy_label
 from ..utilities.label_placement import place_scatter_labels
@@ -28,7 +29,7 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals, args):
     fig, ax = plt.subplots(figsize=(10.3, 11))
 
     plot_dict = dict()
-    clr_dict = dict()
+    line_dict = dict()
     plt_min = 0.57
 
     # for each gene whose mutations were tested, pick a random colour
@@ -49,7 +50,7 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals, args):
             # against the AUC for all point mutations of the gene...
             if auc_vec[best_subtype] > 0.6:
                 auc_tupl = auc_vec[base_mtype], auc_vec[best_subtype]
-                clr_dict[auc_tupl] = choose_label_colour(gene)
+                line_dict[auc_tupl] = dict(c=choose_label_colour(gene))
 
                 base_size = np.mean(pheno_dict[base_mtype])
                 plt_size = 0.07 * base_size ** 0.5
@@ -58,8 +59,8 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals, args):
                               auc_vec[best_subtype] - 0.029)
 
                 best_prop = np.mean(pheno_dict[best_subtype]) / base_size
-                conf_sc = np.greater.outer(conf_vals[best_subtype],
-                                           conf_vals[base_mtype]).mean()
+                conf_sc = calc_conf(conf_vals[best_subtype],
+                                    conf_vals[base_mtype])
 
                 # ...and if we are sure that the optimal subgrouping AUC is
                 # better than the point mutation AUC then add a label with the
@@ -85,8 +86,8 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals, args):
                     )
 
                 pie_ax.pie(x=[best_prop, 1 - best_prop],
-                           colors=[clr_dict[auc_tupl] + (0.77,),
-                                   clr_dict[auc_tupl] + (0.29,)],
+                           colors=[line_dict[auc_tupl]['c'] + (0.77,),
+                                   line_dict[auc_tupl]['c'] + (0.29,)],
                            explode=[0.29, 0], startangle=90)
 
     plt_lims = plt_min, 1 + (1 - plt_min) / 61
@@ -108,8 +109,9 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals, args):
                   size=23, weight='semibold')
 
     if plot_dict:
-        lbl_pos = place_scatter_labels(plot_dict, clr_dict, fig, ax,
-                                       plt_lims=[plt_lims, plt_lims])
+        lbl_pos = place_scatter_labels(plot_dict, ax,
+                                       plt_lims=[[plt_min + 0.01, 0.99]] * 2,
+                                       line_dict=line_dict)
 
     ax.set_xlim(plt_lims)
     ax.set_ylim(plt_lims)
@@ -127,7 +129,7 @@ def plot_aupr_comparisons(pred_df, pheno_dict, auc_vals, conf_vals, args):
     fig, (base_ax, subg_ax) = plt.subplots(figsize=(17, 8), nrows=1, ncols=2)
 
     plot_dicts = {'Base': dict(), 'Subg': dict()}
-    clr_dicts = {'Base': dict(), 'Subg': dict()}
+    line_dicts = {'Base': dict(), 'Subg': dict()}
     plt_max = 0.53
 
     for gene, auc_vec in auc_vals.groupby(
@@ -153,8 +155,8 @@ def plot_aupr_comparisons(pred_df, pheno_dict, auc_vals, conf_vals, args):
                 subg_auprs = (aupr_score(pheno_dict[best_subtype], base_infr),
                               aupr_score(pheno_dict[best_subtype], best_infr))
 
-                conf_sc = np.greater.outer(conf_vals[best_subtype],
-                                           conf_vals[base_mtype]).mean()
+                conf_sc = calc_conf(conf_vals[best_subtype],
+                                    conf_vals[base_mtype])
 
                 base_lbl = '', ''
                 subg_lbl = '', ''
@@ -184,7 +186,7 @@ def plot_aupr_comparisons(pred_df, pheno_dict, auc_vals, conf_vals, args):
                                                  (base_auprs, subg_auprs),
                                                  [base_lbl, subg_lbl]):
                     plot_dicts[lbl][auprs] = plt_size, mtype_lbl
-                    clr_dicts[lbl][auprs] = choose_label_colour(gene)
+                    line_dicts[lbl][auprs] = dict(c=choose_label_colour(gene))
 
                 for ax, lbl, (base_aupr, subg_aupr) in zip(
                         [base_ax, subg_ax], ['Base', 'Subg'],
@@ -203,7 +205,7 @@ def plot_aupr_comparisons(pred_df, pheno_dict, auc_vals, conf_vals, args):
                         axes_kwargs=dict(aspect='equal'), borderpad=0
                         )
 
-                    use_clr = clr_dicts[lbl][base_aupr, subg_aupr]
+                    use_clr = line_dicts[lbl][base_aupr, subg_aupr]['c']
                     pie_ax.pie(x=[best_prop, 1 - best_prop],
                                colors=[use_clr + (0.77,),
                                        use_clr + (0.29,)],
@@ -235,13 +237,12 @@ def plot_aupr_comparisons(pred_df, pheno_dict, auc_vals, conf_vals, args):
         ax.set_ylabel("using best subgrouping task's predicted scores",
                       size=19, weight='semibold')
 
-        lbl_pos = place_scatter_labels(
-            plot_dicts[lbl], clr_dicts[lbl], fig, ax,
-            plt_lims=[[plt_max / 71, plt_max * 0.97]] * 2
-            )
+        lbl_pos = place_scatter_labels(plot_dicts[lbl], ax,
+                                       plt_lims=[[plt_max / 67, plt_max]] * 2,
+                                       line_dict=line_dicts[lbl])
 
-        ax.set_xlim([-0.01, plt_max])
-        ax.set_ylim([-0.01, plt_max])
+        ax.set_xlim([-plt_max / 181, plt_max])
+        ax.set_ylim([-plt_max / 181, plt_max])
 
     plt.savefig(
         os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),

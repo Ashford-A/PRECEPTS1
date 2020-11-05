@@ -7,6 +7,7 @@ from .utils import filter_mtype, choose_cohort_colour
 from ..utilities.labels import get_cohort_label, get_fancy_label
 from ..utilities.label_placement import place_scatter_labels
 from ..utilities.colour_maps import auc_cmap
+from ..utilities.metrics import calc_conf
 
 import os
 import argparse
@@ -78,8 +79,8 @@ def plot_sub_comparisons(auc_dict, conf_dict, pheno_dict, use_clf, args,
 
             best_prop = np.mean(pheno_dict[src, coh][best_subtype])
             best_prop /= base_size
-            conf_sc = np.greater.outer(conf_dict[src, coh][best_subtype],
-                                       conf_dict[src, coh][base_mtype]).mean()
+            conf_sc = calc_conf(conf_dict[src, coh][best_subtype],
+                                conf_dict[src, coh][base_mtype])
 
             if conf_sc > 0.8:
                 plot_dict[auc_tupl][1] = coh_lbl, get_fancy_label(
@@ -171,8 +172,8 @@ def plot_conf_distributions(auc_vals, conf_dict, pheno_dict, use_clf, args):
             if conf_list[best_subtype] > 0.6:
                 coh_dict[src, coh] = (
                     choose_cohort_colour(coh), best_subtype,
-                    np.greater.outer(use_confs[best_subtype],
-                                     use_confs[base_mtype]).mean()
+                    calc_conf(use_confs[best_subtype],
+                              use_confs[base_mtype])
                     )
 
     ymin = 0.83
@@ -261,8 +262,7 @@ def plot_transfer_aucs(trnsf_dict, auc_dict, conf_dict, pheno_dict,
 
             for mtype, conf_list in use_confs.iteritems():
                 conf_sc = np.sum(pheno_dict[src, coh][mtype])
-                conf_sc *= np.greater.outer(
-                    conf_list, conf_vals[base_mtype]).mean() - 0.5
+                conf_sc *= calc_conf(conf_list, conf_vals[base_mtype]) - 0.5
 
                 if mtype in conf_agg:
                     conf_agg[mtype] += conf_sc
@@ -276,23 +276,24 @@ def plot_transfer_aucs(trnsf_dict, auc_dict, conf_dict, pheno_dict,
                                if mtype in auc_vals.index}).unstack()
 
         auc_cmap.set_bad('black')
-        sns.heatmap(trnsf_mat, cmap=auc_cmap,
-                    vmin=0, vmax=1, cbar_kws={'aspect': 7}, ax=ax)
+        xlabs = [get_cohort_label(coh) for coh in trnsf_mat.columns]
+        ylabs = [get_cohort_label(coh) for _, coh in trnsf_mat.index]
+
+        sns.heatmap(trnsf_mat, cmap=auc_cmap, ax=ax, vmin=0, vmax=1,
+                    xticklabels=xlabs, yticklabels=ylabs,
+                    cbar_kws={'aspect': 7})
 
         plt_ylims = ax.get_ylim()
         ax.set_ylim([plt_ylims[1] - 0.5, plt_ylims[0] + 0.5])
 
-        xlabs = [get_cohort_label(coh) for coh in trnsf_mat.columns]
-        ylabs = [get_cohort_label(coh) for _, coh in trnsf_mat.index]
         ax.set_title(get_fancy_label(tuple(mtype.subtype_iter())[0][1]),
                      size=19)
-
         ax.set_xticklabels(xlabs, size=12, ha='right', rotation=37)
         ax.set_yticklabels(ylabs, size=12, ha='right', rotation=0)
 
         ax.collections = [ax.collections[-1]]
         cbar = ax.collections[-1].colorbar
-        cbar.ax.tick_params(labelsize=15)
+        cbar.ax.tick_params(labelsize=13)
         cbar.ax.set_title('AUC', size=17, weight='semibold')
 
     fig.text(0.5, -0.02, "Testing Cohort", fontsize=23, weight='semibold',
@@ -328,8 +329,7 @@ def plot_transfer_comparisons(trnsf_dict, conf_dict, pheno_dict,
 
             for mtype, conf_list in use_confs.iteritems():
                 conf_sc = np.sum(pheno_dict[src, coh][mtype])
-                conf_sc *= np.greater.outer(
-                    conf_list, conf_vals[base_mtype]).mean() - 0.5
+                conf_sc *= calc_conf(conf_list, conf_vals[base_mtype]) - 0.5
 
                 if mtype in conf_agg:
                     conf_agg[mtype] += conf_sc
@@ -338,7 +338,6 @@ def plot_transfer_comparisons(trnsf_dict, conf_dict, pheno_dict,
 
     best_subtype = sorted(conf_agg.items(), key=lambda x: x[1])[-1][0]
     plot_dict = dict()
-    line_dict = dict()
     plt_min = 0.83
 
     for (src, train_coh, trnsf_coh), auc_vals in trnsf_dict.items():
@@ -347,8 +346,8 @@ def plot_transfer_comparisons(trnsf_dict, conf_dict, pheno_dict,
             coh_lbl = ' \u2192 '.join([get_cohort_label(train_coh),
                                        get_cohort_label(trnsf_coh)])
 
+            coh_clr = choose_cohort_colour(train_coh)
             auc_tupl = auc_vals.loc[base_mtype], auc_vals.loc[best_subtype]
-            line_dict[auc_tupl] = dict(c=choose_cohort_colour(train_coh))
             base_size = np.mean(pheno_dict[src, train_coh][base_mtype])
             plt_size = 0.07 * base_size ** 0.5
 
@@ -370,8 +369,7 @@ def plot_transfer_comparisons(trnsf_dict, conf_dict, pheno_dict,
                                 axes_kwargs=dict(aspect='equal'), borderpad=0)
 
             pie_ax.pie(x=[best_prop, 1 - best_prop], explode=[0.29, 0],
-                       colors=[line_dict[auc_tupl]['c'] + (0.83, ),
-                               line_dict[auc_tupl]['c'] + (0.23, )],
+                       colors=[coh_clr + (0.83, ), coh_clr + (0.23, )],
                        wedgeprops=dict(edgecolor='black', linewidth=13 / 11))
 
     plt_lims = plt_min, 1 + (1 - plt_min) / 103
@@ -399,7 +397,7 @@ def plot_transfer_comparisons(trnsf_dict, conf_dict, pheno_dict,
         lbl_pos = place_scatter_labels(plot_dict, ax,
                                        plt_lims=[[plt_min + 0.01, 0.99]] * 2,
                                        font_size=19, seed=args.seed,
-                                       line_dict=line_dict)
+                                       c='black', linewidth=0.83, alpha=0.61)
 
     ax.set_xlim(plt_lims)
     ax.set_ylim(plt_lims)
@@ -542,7 +540,9 @@ def main():
                          "gene `{}`!".format(args.gene))
 
     os.makedirs(os.path.join(plot_dir, args.gene), exist_ok=True)
-    plt_clfs = out_use.index.get_level_values('Classif').value_counts()
+    plt_tbl = out_use.groupby(['Source', 'Cohort', 'Classif']).count()
+    plt_tbl = plt_tbl[plt_tbl == 4]
+    plt_clfs = plt_tbl.index.get_level_values('Classif').value_counts()
 
     for clf in plt_clfs[plt_clfs > 1].index:
         clf_aucs = {(src, coh): auc_data

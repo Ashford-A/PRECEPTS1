@@ -3,6 +3,7 @@ from ..utilities.mutations import pnt_mtype, copy_mtype, RandomType
 from dryadic.features.mutations import MuType
 
 from ..subgrouping_test import base_dir
+from ..utilities.metrics import calc_conf
 from ..utilities.misc import choose_label_colour
 from ..utilities.colour_maps import variant_clrs
 from ..utilities.labels import get_fancy_label
@@ -101,8 +102,7 @@ def plot_distr_comparisons(auc_vals, conf_vals, pheno_dict, args):
             if conf_vec[best_subtype] > 0.7:
                 gene_dict[gene] = (
                     choose_label_colour(gene), base_mtype, best_subtype,
-                    np.greater.outer(conf_list[best_subtype],
-                                     conf_list[base_mtype]).mean()
+                    calc_conf(conf_list[best_subtype], conf_list[base_mtype])
                     )
 
     plt_size = min(len(gene_dict), 12)
@@ -208,8 +208,8 @@ def plot_sub_comparisons(conf_vals, pheno_dict, args):
                               conf_vec[best_subtype] - 0.029)
 
                 best_prop = np.mean(pheno_dict[best_subtype]) / base_size
-                conf_sc = np.greater.outer(conf_vals[best_subtype],
-                                           conf_vals[base_mtype]).mean()
+                conf_sc = calc_conf(conf_vals[best_subtype],
+                                    conf_vals[base_mtype])
 
                 if conf_sc > 0.8:
                     plot_dict[auc_tupl][1] = gene, get_fancy_label(
@@ -251,7 +251,7 @@ def plot_sub_comparisons(conf_vals, pheno_dict, args):
                   "\nof best found subgrouping", size=21, weight='semibold')
 
     if plot_dict:
-        lbl_pos = place_scatter_labels(plot_dict, clr_dict, fig, ax,
+        lbl_pos = place_scatter_labels(plot_dict, ax,
                                        plt_lims=[plt_lims, plt_lims])
 
     ax.set_xlim(plt_lims)
