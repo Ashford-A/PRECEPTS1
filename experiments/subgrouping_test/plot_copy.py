@@ -1,18 +1,13 @@
 
-import os
-import sys
-
-base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'subvariant_test')
-sys.path.extend([os.path.join(os.path.dirname(__file__), '..', '..', '..')])
-plot_dir = os.path.join(base_dir, 'plots', 'copy')
-
-from HetMan.experiments.subvariant_test import (
-    pnt_mtype, copy_mtype, gain_mtype, loss_mtype)
-from HetMan.experiments.subvariant_tour.utils import RandomType
-from HetMan.experiments.subvariant_test.utils import get_fancy_label
-from HetMan.experiments.subvariant_infer import variant_clrs
+from ..utilities.mutations import (pnt_mtype, copy_mtype,
+                                   dup_mtype, loss_mtype, RandomType)
 from dryadic.features.mutations import MuType
 
+from ..subgrouping_test import base_dir
+from ..utilities.colour_maps import variant_clrs
+from ..utilities.labels import get_cohort_label, get_fancy_label
+
+import os
 import argparse
 from pathlib import Path
 import bz2
@@ -22,43 +17,30 @@ import numpy as np
 import pandas as pd
 
 import matplotlib as mpl
-mpl.use('Agg')
 import matplotlib.pyplot as plt
 
+mpl.use('Agg')
 plt.style.use('fivethirtyeight')
-plt.rcParams['axes.facecolor']='white'
-plt.rcParams['savefig.facecolor']='white'
-plt.rcParams['axes.edgecolor']='white'
+plt.rcParams['axes.facecolor'] = 'white'
+plt.rcParams['savefig.facecolor'] = 'white'
+plt.rcParams['axes.edgecolor'] = 'white'
+plot_dir = os.path.join(base_dir, 'plots', 'copy')
 
 
-def select_mtype(mtype, gene):
-    if isinstance(mtype, RandomType):
-        if mtype.base_mtype is None:
-            slct_stat = False
-        else:
-            slct_stat = mtype.base_mtype.get_labels()[0] == gene
-
-    else:
-        slct_stat = mtype.get_labels()[0] == gene
-
-    return slct_stat
-
-
-def plot_sub_comparison(auc_vals, pheno_dict, conf_vals, args):
+def plot_sub_comparison(auc_vals, pheno_dict, use_gene, args):
     fig, ax = plt.subplots(figsize=(11, 11))
 
-    mtype_dict = {mtype: (mtype | MuType({('Gene', args.gene): gain_mtype}),
-                          mtype | MuType({('Gene', args.gene): loss_mtype}))
+    mtype_dict = {mtype: (mtype | MuType({('Gene', use_gene): dup_mtype}),
+                          mtype | MuType({('Gene', use_gene): loss_mtype}))
                   for mtype in auc_vals.index
-                  if (not isinstance(mtype, RandomType)
-                      and (mtype.subtype_list()[0][1]
-                           & copy_mtype).is_empty())}
+                  if (tuple(mtype.subtype_iter())[0][1]
+                      & copy_mtype).is_empty()}
 
     plt_min = 0.83
     for base_mtype, (gain_dyad, loss_dyad) in mtype_dict.items():
         plt_min = min(plt_min, auc_vals[base_mtype] - 0.02)
 
-        if base_mtype.subtype_list()[0][1] == pnt_mtype:
+        if tuple(base_mtype.subtype_iter())[0][1] == pnt_mtype:
             use_mrk = 'X'
             use_sz = 2917 * np.mean(pheno_dict[base_mtype])
             use_alpha = 0.47
@@ -92,8 +74,8 @@ def plot_sub_comparison(auc_vals, pheno_dict, conf_vals, args):
     ax.plot([plt_min + 0.005, 0.997], [plt_min + 0.005, 0.997],
             color='#550000', linewidth=2.1, linestyle='--', alpha=0.41)
 
-    ax.set_xlim([plt_min, 1 + (1 - plt_min) / 71])
-    ax.set_ylim([plt_min, 1 + (1 - plt_min) / 71])
+    ax.set_xlim([plt_min, 1 + (1 - plt_min) / 181])
+    ax.set_ylim([plt_min, 1 + (1 - plt_min) / 181])
 
     ax.set_xlabel("AUC of subgrouping", size=27, weight='semibold')
     ax.set_ylabel("AUC of subgrouping when\nCNAs were added",
@@ -102,7 +84,7 @@ def plot_sub_comparison(auc_vals, pheno_dict, conf_vals, args):
     plt.savefig(
         os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
                      "{}_sub-comparisons_{}.svg".format(
-                         args.gene, args.classif)),
+                         use_gene, args.classif)),
         bbox_inches='tight', format='svg'
         )
 
@@ -111,18 +93,14 @@ def plot_sub_comparison(auc_vals, pheno_dict, conf_vals, args):
 
 def main():
     parser = argparse.ArgumentParser(
-        "Plots the AUCs for a particular classifier on the mutations "
-        "enumerated for a given mutated gene in a cohort relative to "
-        "mutations in which copy number alterations are included."
+        'plot_copy',
+        description="Plots data on classification tasks involving CNAs."
         )
 
-    parser.add_argument('expr_source',
-                        help="a source of expression data", type=str)
-    parser.add_argument('cohort', help="a TCGA cohort", type=str)
-    parser.add_argument('gene', help="a mutation classifier", type=str)
+    parser.add_argument('expr_source', help="a source of expression datasets")
+    parser.add_argument('cohort', help="a tumour cohort", type=str)
     parser.add_argument('classif', help="a mutation classifier", type=str)
 
-    # parse command line arguments, create directory where plots will be saved
     args = parser.parse_args()
     out_datas = [
         out_file.parts[-2:] for out_file in Path(base_dir).glob(os.path.join(
@@ -139,67 +117,60 @@ def main():
     if out_list.shape[0] == 0:
         raise ValueError("No experiment output found for these parameters!")
 
-    out_use = out_list.groupby('Levels')['Samps'].min()
-    if 'Exon__Location__Protein' not in out_use.index:
-        raise ValueError("Cannot compare AUCs until this experiment is run "
-                         "with mutation levels `Exon__Location__Protein` "
-                         "which tests genes' base mutations!")
+    os.makedirs(os.path.join(plot_dir,
+                             '__'.join([args.expr_source, args.cohort])),
+                exist_ok=True)
 
+    out_use = out_list.groupby('Levels')['Samps'].min()
+    cdata = None
     pred_dict = dict()
     phn_dict = dict()
-    auc_dict = dict()
-    conf_dict = dict()
+    auc_vals = pd.Series()
 
     for lvls, ctf in out_use.iteritems():
         out_tag = "{}__{}__samps-{}".format(
             args.expr_source, args.cohort, ctf)
 
         with bz2.BZ2File(os.path.join(base_dir, out_tag,
-                                      "out-pred__{}__{}.p.gz".format(
+                                      "cohort-data__{}__{}.p.gz".format(
                                           lvls, args.classif)),
                          'r') as f:
-            pred_data = pickle.load(f)
+            new_cdata = pickle.load(f)
 
-            pred_dict[lvls] = pred_data.loc[[select_mtype(mtype, args.gene)
-                                             for mtype in pred_data.index]]
+        if cdata is None:
+            cdata = new_cdata
+        else:
+            cdata.merge(new_cdata)
 
         with bz2.BZ2File(os.path.join(base_dir, out_tag,
                                       "out-pheno__{}__{}.p.gz".format(
                                           lvls, args.classif)),
                          'r') as f:
-            phn_data = pickle.load(f)
-
-            phn_dict.update({mtype: phn for mtype, phn in phn_data.items()
-                             if select_mtype(mtype, args.gene)})
+            phn_dict.update(pickle.load(f))
 
         with bz2.BZ2File(os.path.join(base_dir, out_tag,
                                       "out-aucs__{}__{}.p.gz".format(
                                           lvls, args.classif)),
                          'r') as f:
-            auc_data = pd.DataFrame.from_dict(pickle.load(f))
+            auc_vals = auc_vals.append(pickle.load(f)['mean'])
 
-            auc_dict[lvls] = auc_data.loc[[select_mtype(mtype, args.gene)
-                                           for mtype in auc_data.index]]
-
-        with bz2.BZ2File(os.path.join(base_dir, out_tag,
-                                      "out-conf__{}__{}.p.gz".format(
-                                          lvls, args.classif)),
-                         'r') as f:
-            conf_data = pd.DataFrame.from_dict(pickle.load(f))
-
-            conf_dict[lvls] = conf_data.loc[[select_mtype(mtype, args.gene)
-                                             for mtype in conf_data.index]]
-
+    assert auc_vals.index.isin(phn_dict).all()
     os.makedirs(os.path.join(plot_dir,
                              '__'.join([args.expr_source, args.cohort])),
                 exist_ok=True)
 
-    pred_df = pd.concat(pred_dict.values())
-    auc_df = pd.concat(auc_dict.values())
-    conf_df = pd.concat(conf_dict.values())
-    assert auc_df.index.isin(phn_dict).all()
+    use_aucs = auc_vals[[not isinstance(mtype, RandomType)
+                         for mtype in auc_vals.index]]
 
-    plot_sub_comparison(auc_df['mean'], phn_dict, conf_df['mean'], args)
+    for gene, auc_vec in use_aucs.groupby(
+            lambda mtype: tuple(mtype.label_iter())[0]):
+        copy_mtypes = {
+            mtype for mtype in auc_vec.index
+            if not (tuple(mtype.subtype_iter())[0][1] & copy_mtype).is_empty()
+            }
+
+        if copy_mtypes:
+            plot_sub_comparison(auc_vec, phn_dict, gene, args)
 
 
 if __name__ == '__main__':
