@@ -1,10 +1,10 @@
 
-from ..utilities.mutations import (
-    pnt_mtype, copy_mtype, dup_mtype, loss_mtype, RandomType)
+from ..utilities.mutations import pnt_mtype, copy_mtype, RandomType
 from dryadic.features.mutations import MuType
 
 from ..subgrouping_test import base_dir
 from ..utilities.data_dirs import choose_source
+from ..utilities.metrics import calc_conf
 from ..utilities.misc import choose_label_colour
 from ..utilities.labels import get_cohort_label, get_fancy_label
 from ..utilities.label_placement import place_scatter_labels
@@ -19,7 +19,7 @@ import dill as pickle
 import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
-from itertools import permutations
+from itertools import permutations, product
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -38,7 +38,9 @@ def plot_auc_comparison(auc_dfs, pheno_dicts, args):
 
     use_mtypes = {mtype for mtype in (auc_dfs[args.cohorts[0]].index
                                       & auc_dfs[args.cohorts[1]].index)
-                  if not isinstance(mtype, RandomType)}
+                  if (not isinstance(mtype, RandomType)
+                      and (tuple(mtype.subtype_iter())[0][1]
+                           & copy_mtype).is_empty())}
 
     plt_min = 0.83
     for mtype in use_mtypes:
@@ -47,32 +49,33 @@ def plot_auc_comparison(auc_dfs, pheno_dicts, args):
 
         mtype_sz = (np.mean(pheno_dicts[args.cohorts[0]][mtype])
                     * np.mean(pheno_dicts[args.cohorts[1]][mtype])) ** 0.5
-        plt_min = min(plt_min, auc_val1 - 0.02, auc_val2 - 0.02)
+        plt_min = min(plt_min, auc_val1 - 0.01, auc_val2 - 0.01)
 
         ax.scatter(auc_val1, auc_val2,
                    c=[choose_label_colour(tuple(mtype.label_iter())[0])],
-                   s=899 * mtype_sz, alpha=0.19, edgecolor='none')
+                   s=1003 * mtype_sz, alpha=0.23, edgecolor='none')
 
-    ax.plot([plt_min, 1], [0.5, 0.5],
+    plt_lims = plt_min, 1 + (1 - plt_min) / 181
+    ax.grid(linewidth=0.83, alpha=0.41)
+
+    ax.plot(plt_lims, [0.5, 0.5],
             color='black', linewidth=1.3, linestyle=':', alpha=0.71)
-    ax.plot([0.5, 0.5], [plt_min, 1],
+    ax.plot([0.5, 0.5], plt_lims,
             color='black', linewidth=1.3, linestyle=':', alpha=0.71)
 
-    ax.plot([plt_min, 1.0005], [1, 1],
-            color='black', linewidth=1.9, alpha=0.89)
-    ax.plot([1, 1], [plt_min, 1.0005],
-            color='black', linewidth=1.9, alpha=0.89)
-    ax.plot([plt_min + 0.01, 0.997], [plt_min + 0.01, 0.997],
+    ax.plot(plt_lims, [1, 1], color='black', linewidth=1.9, alpha=0.89)
+    ax.plot([1, 1], plt_lims, color='black', linewidth=1.9, alpha=0.89)
+    ax.plot(plt_lims, plt_lims,
             color='#550000', linewidth=2.1, linestyle='--', alpha=0.41)
-
-    ax.set_xlim([plt_min, 1 + (1 - plt_min) / 103])
-    ax.set_ylim([plt_min, 1 + (1 - plt_min) / 103])
 
     lbl_base = "AUC in training cohort\n{}"
     xlbl = lbl_base.format(get_cohort_label(args.cohorts[0]))
     ylbl = lbl_base.format(get_cohort_label(args.cohorts[1]))
     ax.set_xlabel(xlbl, size=27, weight='semibold')
     ax.set_ylabel(ylbl, size=27, weight='semibold')
+
+    ax.set_xlim(plt_lims)
+    ax.set_ylim(plt_lims)
 
     plt.savefig(os.path.join(plot_dir, '__'.join(args.cohorts),
                              "auc-comparison_{}.svg".format(args.classif)),
@@ -81,40 +84,41 @@ def plot_auc_comparison(auc_dfs, pheno_dicts, args):
     plt.close()
 
 
-def plot_coh_comparison(auc_dfs, pheno_dicts, args):
+def plot_coh_comparison(auc_dfs, conf_dfs, pheno_dicts, args):
     fig, ax = plt.subplots(figsize=(10.3, 11))
 
-    use_aucs = pd.DataFrame({
+    use_aucs = {
         coh: auc_df['mean'][[mtype for mtype in auc_df.index
                              if (not isinstance(mtype, RandomType)
                                  and (tuple(mtype.subtype_iter())[0][1]
                                       & copy_mtype).is_empty())]]
         for coh, auc_df in auc_dfs.items()
-        })
+        }
 
-    use_aucs = use_aucs.loc[~use_aucs.isnull().any(axis=1)]
     plot_dict = dict()
-    clr_dict = dict()
+    line_dict = dict()
     plt_min = 0.83
     coh1, coh2 = args.cohorts
 
-    for gene, auc_df in use_aucs.groupby(
+    for gene, auc_vec1 in use_aucs[coh1].groupby(
             lambda mtype: tuple(mtype.label_iter())[0]):
-        if auc_df.shape[0] > 1:
-            base_mtype = MuType({('Gene', gene): pnt_mtype})
+        if len(auc_vec1) > 1:
+            auc_vec2 = use_aucs[coh2][[
+                mtype for mtype in use_aucs[coh2].index
+                if tuple(mtype.label_iter())[0] == gene
+                ]]
 
-            base_indx = auc_df.index.get_loc(base_mtype)
-            best_subtype1 = auc_df[coh1][:base_indx].append(
-                auc_df[coh1][(base_indx + 1):]).idxmax()
-            best_subtype2 = auc_df[coh2][:base_indx].append(
-                auc_df[coh2][(base_indx + 1):]).idxmax()
+            if len(auc_vec2) > 1:
+                base_mtype = MuType({('Gene', gene): pnt_mtype})
 
-            if (auc_df[coh1][best_subtype1] > 0.6
-                    or auc_df[coh2][best_subtype2] > 0.6):
-                for (coh, auc_vec), best_subtype in zip(
-                        auc_df.iteritems(), [best_subtype1, best_subtype2]):
+                for coh, auc_vec in zip(args.cohorts, [auc_vec1, auc_vec2]):
+                    base_indx = auc_vec.index.get_loc(base_mtype)
+                    best_subtype = auc_vec[:base_indx].append(
+                        auc_vec[(base_indx + 1):]).idxmax()
+
                     auc_tupl = tuple(auc_vec[[base_mtype, best_subtype]])
-                    clr_dict[auc_tupl] = choose_label_colour(gene)
+                    use_clr = choose_label_colour(gene)
+                    line_dict[auc_tupl] = dict(c=use_clr)
 
                     base_size = np.mean(pheno_dicts[coh][base_mtype])
                     plt_size = 0.07 * base_size ** 0.5
@@ -135,31 +139,28 @@ def plot_coh_comparison(auc_dfs, pheno_dicts, args):
                         )
 
                     if coh == coh1:
-                        pie_args = dict(
-                            colors=[clr_dict[auc_tupl] + (0.77, ),
-                                    clr_dict[auc_tupl] + (0.29, )]
-                            )
+                        pie_args = dict(colors=[use_clr + (0.77, ),
+                                                use_clr + (0.29, )])
 
                     else:
-                        pie_args = dict(
-                            colors=['none', 'none'],
-                            wedgeprops=dict(edgecolor=clr_dict[auc_tupl],
-                                            linewidth=7 / 3, alpha=0.37)
-                            )
+                        pie_args = dict(colors=['none', 'none'],
+                                        wedgeprops=dict(edgecolor=use_clr,
+                                                        linewidth=7 / 3,
+                                                        alpha=0.37))
 
                     pie_ax.pie(x=[best_prop, 1 - best_prop],
                                explode=[0.37, 0], startangle=90, **pie_args)
 
-    plt_lims = plt_min, 1 + (1 - plt_min) / 103
+    plt_lims = plt_min, 1 + (1 - plt_min) / 181
+    ax.grid(linewidth=0.83, alpha=0.41)
+
     ax.plot(plt_lims, [0.5, 0.5], color='black',
             linewidth=1.3, linestyle=':', alpha=0.71)
     ax.plot([0.5, 0.5], plt_lims, color='black',
             linewidth=1.3, linestyle=':', alpha=0.71)
 
-    ax.plot(plt_lims, [1, 1], color='black',
-            linewidth=1.9, alpha=0.89)
-    ax.plot([1, 1], plt_lims, color='black',
-            linewidth=1.9, alpha=0.89)
+    ax.plot(plt_lims, [1, 1], color='black', linewidth=1.9, alpha=0.89)
+    ax.plot([1, 1], plt_lims, color='black', linewidth=1.9, alpha=0.89)
     ax.plot(plt_lims, plt_lims, color='#550000',
             linewidth=2.1, linestyle='--', alpha=0.37)
 
@@ -170,9 +171,9 @@ def plot_coh_comparison(auc_dfs, pheno_dicts, args):
 
     #TODO: have one label per gene, with lines to both cohort pies?
     if plot_dict:
-        lbl_pos = place_scatter_labels(plot_dict, clr_dict, fig, ax,
+        lbl_pos = place_scatter_labels(plot_dict, ax,
                                        plt_lims=[plt_lims, plt_lims],
-                                       font_size=15)
+                                       line_dict=line_dict, font_size=15)
 
     ax.set_xlim(plt_lims)
     ax.set_ylim(plt_lims)
@@ -203,13 +204,13 @@ def plot_sub_comparison(auc_dfs, trnsf_dicts, pheno_dicts, conf_dfs, args):
             }
         for train_coh, other_coh in permutations(args.cohorts)
         }
+
+    plot_dicts = {(i, j): dict() for i, j in product(range(2), repeat=2)}
+    line_dicts = {(i, j): dict() for i, j in product(range(2), repeat=2)}
     plt_min = 0.83
 
     for i, auc_lbl in enumerate(['Wthn', 'Trnsf']):
         for j, coh in enumerate(args.cohorts):
-            plot_dict = dict()
-            clr_dict = dict()
-
             for gene, auc_vec in auc_dicts[coh][auc_lbl][use_mtypes].groupby(
                     lambda mtype: tuple(mtype.label_iter())[0]):
 
@@ -222,28 +223,29 @@ def plot_sub_comparison(auc_dfs, trnsf_dicts, pheno_dicts, conf_dfs, args):
 
                     if auc_vec[best_subtype] > 0.6:
                         auc_tupl = auc_vec[base_mtype], auc_vec[best_subtype]
-                        clr_dict[auc_tupl] = choose_label_colour(gene)
+                        use_clr = choose_label_colour(gene)
+                        line_dicts[i, j][auc_tupl] = dict(c=use_clr)
 
                         base_size = np.mean(pheno_dicts[coh][base_mtype])
                         plt_size = 0.07 * base_size ** 0.5
-                        plot_dict[auc_tupl] = [plt_size, ('', '')]
+                        plot_dicts[i, j][auc_tupl] = [plt_size, ('', '')]
                         plt_min = min(plt_min, min(auc_tupl) - 0.03)
 
                         best_prop = np.mean(pheno_dicts[coh][best_subtype])
                         best_prop /= base_size
-                        conf_sc = np.greater.outer(
-                            conf_dfs[coh].loc[best_subtype],
-                            conf_dfs[coh].loc[base_mtype]
-                            ).mean()
+                        conf_sc = calc_conf(conf_dfs[coh].loc[best_subtype],
+                                            conf_dfs[coh].loc[base_mtype])
 
                         if conf_sc > 0.9:
-                            plot_dict[auc_tupl][1] = gene, get_fancy_label(
-                                tuple(best_subtype.subtype_iter())[0][1],
-                                pnt_link='\n', phrase_link=' '
+                            plot_dicts[i, j][auc_tupl][1] = (
+                                gene, get_fancy_label(
+                                    tuple(best_subtype.subtype_iter())[0][1],
+                                    pnt_link='\n', phrase_link=' '
+                                    )
                                 )
 
                         else:
-                            plot_dict[auc_tupl][1] = gene, ''
+                            plot_dicts[i, j][auc_tupl][1] = gene, ''
 
                         auc_bbox = (auc_tupl[0] - plt_size / 2,
                                     auc_tupl[1] - plt_size / 2,
@@ -257,37 +259,40 @@ def plot_sub_comparison(auc_dfs, trnsf_dicts, pheno_dicts, conf_dfs, args):
                             )
 
                         pie_ax.pie(x=[best_prop, 1 - best_prop],
-                                   colors=[clr_dict[auc_tupl] + (0.77, ),
-                                           clr_dict[auc_tupl] + (0.29, )],
+                                   colors=[use_clr + (0.77, ),
+                                           use_clr + (0.29, )],
                                    explode=[0.29, 0], startangle=90)
 
-            plt_lims = plt_min, 1 + (1 - plt_min) / 113
-            axarr[i, j].plot(plt_lims, [0.5, 0.5], color='black',
-                             linewidth=1.3, linestyle=':', alpha=0.71)
-            axarr[i, j].plot([0.5, 0.5], plt_lims, color='black',
-                             linewidth=1.3, linestyle=':', alpha=0.71)
+    plt_lims = plt_min, 1 + (1 - plt_min) / 151
+    for i, j in product(range(2), repeat=2):
+        axarr[i, j].grid(linewidth=0.83, alpha=0.41)
 
-            axarr[i, j].plot(plt_lims, [1, 1], color='black',
-                             linewidth=1.9, alpha=0.89)
-            axarr[i, j].plot([1, 1], plt_lims, color='black',
-                             linewidth=1.9, alpha=0.89)
-            axarr[i, j].plot(plt_lims, plt_lims, color='#550000',
-                             linewidth=2.1, linestyle='--', alpha=0.41)
+        axarr[i, j].plot(plt_lims, [0.5, 0.5], color='black',
+                         linewidth=1.3, linestyle=':', alpha=0.71)
+        axarr[i, j].plot([0.5, 0.5], plt_lims, color='black',
+                         linewidth=1.3, linestyle=':', alpha=0.71)
 
-            axarr[i, j].set_xlabel("AUC using all point mutations",
+        axarr[i, j].plot(plt_lims, [1, 1], color='black',
+                         linewidth=1.9, alpha=0.89)
+        axarr[i, j].plot([1, 1], plt_lims, color='black',
+                         linewidth=1.9, alpha=0.89)
+        axarr[i, j].plot(plt_lims, plt_lims, color='#550000',
+                         linewidth=2.1, linestyle='--', alpha=0.41)
+
+        axarr[i, j].set_xlabel("AUC using all point mutations",
+                               size=23, weight='semibold')
+
+        if j == 0:
+            axarr[i, j].set_ylabel("AUC of best found subgrouping",
                                    size=23, weight='semibold')
 
-            if j == 0:
-                axarr[i, j].set_ylabel("AUC of best found subgrouping",
-                                       size=23, weight='semibold')
+        if plot_dicts[i, j]:
+            lbl_pos = place_scatter_labels(plot_dicts[i, j], axarr[i, j],
+                                           plt_lims=[plt_lims, plt_lims],
+                                           line_dict=line_dicts[i, j])
 
-            if plot_dict:
-                lbl_pos = place_scatter_labels(plot_dict, clr_dict,
-                                               fig, axarr[i, j],
-                                               plt_lims=[plt_lims, plt_lims])
-
-            axarr[i, j].set_xlim(plt_lims)
-            axarr[i, j].set_ylim(plt_lims)
+        axarr[i, j].set_xlim(plt_lims)
+        axarr[i, j].set_ylim(plt_lims)
 
     plt.savefig(os.path.join(plot_dir, '__'.join(args.cohorts),
                              "sub-comparison_{}.svg".format(args.classif)),
@@ -308,7 +313,7 @@ def plot_cross_sub_comparison(auc_dfs, pheno_dicts, conf_dfs, args):
 
     for i, (base_coh, other_coh) in enumerate(permutations(args.cohorts)):
         plot_dict = dict()
-        clr_dict = dict()
+        line_dict = dict()
 
         for gene, auc_vec in auc_dfs[base_coh].loc[
                 use_mtypes, 'mean'].groupby(
@@ -324,21 +329,19 @@ def plot_cross_sub_comparison(auc_dfs, pheno_dicts, conf_dfs, args):
                 if auc_vec[best_subtype] > 0.6:
                     plt_x = auc_dfs[other_coh].loc[base_mtype, 'mean']
                     plt_y = auc_dfs[other_coh].loc[best_subtype, 'mean']
-                    clr_dict[plt_x, plt_y] = choose_label_colour(gene)
+                    use_clr = choose_label_colour(gene)
+                    line_dict[plt_x, plt_y] = dict(c=use_clr)
 
                     base_size = np.mean(pheno_dicts[other_coh][base_mtype])
                     plt_size = 0.07 * base_size ** 0.5
                     plot_dict[plt_x, plt_y] = [plt_size, ('', '')]
-                    plt_min = min(plt_min, auc_vec[base_indx] - 0.053,
-                                  auc_vec[best_subtype] - 0.029)
+                    plt_min = min(plt_min, plt_x - 0.01, plt_y - 0.01)
 
                     best_prop = np.mean(pheno_dicts[other_coh][best_subtype])
                     best_prop /= base_size
 
-                    conf_sc = np.greater.outer(
-                        conf_dfs[other_coh][best_subtype],
-                        conf_dfs[other_coh][base_mtype]
-                        ).mean()
+                    conf_sc = calc_conf(conf_dfs[other_coh][best_subtype],
+                                        conf_dfs[other_coh][base_mtype])
 
                     if conf_sc > 0.8:
                         plot_dict[plt_x, plt_y][1] = gene, get_fancy_label(
@@ -359,21 +362,15 @@ def plot_cross_sub_comparison(auc_dfs, pheno_dicts, conf_dfs, args):
                                         borderpad=0)
 
                     pie_ax.pie(x=[best_prop, 1 - best_prop],
-                               colors=[clr_dict[plt_x, plt_y] + (0.77, ),
-                                       clr_dict[plt_x, plt_y] + (0.29, )],
+                               colors=[use_clr + (0.77, ),
+                                       use_clr + (0.29, )],
                                explode=[0.29, 0], startangle=90)
 
-        axarr[i].plot([0.48, 1], [0.5, 0.5], color='black',
-                      linewidth=1.3, linestyle=':', alpha=0.71)
-        axarr[i].plot([0.5, 0.5], [0.48, 1], color='black',
-                      linewidth=1.3, linestyle=':', alpha=0.71)
-
-        axarr[i].plot([0.48, 1.0005], [1, 1], color='black',
-                      linewidth=1.9, alpha=0.89)
-        axarr[i].plot([1, 1], [0.48, 1.0005], color='black',
-                      linewidth=1.9, alpha=0.89)
-        axarr[i].plot([0.49, 0.997], [0.49, 0.997], color='#550000',
-                      linewidth=2.1, linestyle='--', alpha=0.41)
+        if plot_dict:
+            lbl_pos = place_scatter_labels(
+                plot_dict, axarr[i],
+                plt_lims=[[0.48, 1.01], [0.48, 1.01]], line_dict=line_dict
+                )
 
         xlbl = "AUC in {} using\nall point mutations".format(
             get_cohort_label(other_coh))
@@ -383,14 +380,22 @@ def plot_cross_sub_comparison(auc_dfs, pheno_dicts, conf_dfs, args):
         axarr[i].set_xlabel(xlbl, size=19, weight='semibold')
         axarr[i].set_ylabel(ylbl, size=19, weight='semibold')
 
-        if plot_dict:
-            lbl_pos = place_scatter_labels(
-                plot_dict, clr_dict, fig, axarr[i],
-                plt_lims=[[0.48, 1.01], [0.48, 1.01]]
-                )
+    plt_lims = plt_min, 1 + (1 - plt_min) / 73
+    for ax in axarr:
+        ax.grid(linewidth=0.83, alpha=0.41)
 
-        axarr[i].set_xlim([0.48, 1.01])
-        axarr[i].set_ylim([0.48, 1.01])
+        ax.plot(plt_lims, [0.5, 0.5], color='black',
+                linewidth=1.3, linestyle=':', alpha=0.71)
+        ax.plot([0.5, 0.5], plt_lims, color='black',
+                linewidth=1.3, linestyle=':', alpha=0.71)
+
+        ax.plot(plt_lims, [1, 1], color='black', linewidth=1.9, alpha=0.89)
+        ax.plot([1, 1], plt_lims, color='black', linewidth=1.9, alpha=0.89)
+        ax.plot(plt_lims, plt_lims, color='#550000',
+                linewidth=2.1, linestyle='--', alpha=0.41)
+
+        ax.set_xlim(plt_lims)
+        ax.set_ylim(plt_lims)
 
     plt.savefig(
         os.path.join(plot_dir, '__'.join(args.cohorts),
@@ -410,7 +415,7 @@ def plot_metrics_comparison(auc_dfs, pheno_dicts, args):
 
     plt_min = 0.83
     for ax, auc_lbl in zip(axarr, ['mean', 'all', 'CV']):
-        ax.set_title(auc_lbl, size=25, weight='semibold')
+        ax.set_title(auc_lbl, size=23, weight='semibold')
 
         if auc_lbl == 'CV':
             auc_vals1 = auc_dfs[args.cohorts[0]]['CV'].apply(
@@ -432,40 +437,46 @@ def plot_metrics_comparison(auc_dfs, pheno_dicts, args):
                         * np.mean(pheno_dicts[args.cohorts[1]][mtype])) ** 0.5
 
             ax.scatter(auc_vals1[mtype], auc_vals2[mtype], c=[gene_clr],
-                       s=408 * mtype_sz, alpha=0.17, edgecolor='none')
+                       s=408 * mtype_sz, alpha=0.19, edgecolor='none')
+
+        corr_val = spearmanr(auc_vals1[use_mtypes], auc_vals2[use_mtypes])[0]
+        ax.text(0.97, 0.1, "Spearman: {:.3f}".format(corr_val),
+                size=15, ha='right', va='bottom', transform=ax.transAxes)
 
         rmse_val = ((auc_vals1[use_mtypes]
                      - auc_vals2[use_mtypes]) ** 2).mean() ** 0.5
-        ax.text(0.96, 0.08, "RMSE: {:.3f}".format(rmse_val),
-                size=17, ha='right', va='bottom', transform=ax.transAxes)
+        ax.text(0.97, 0.06, "RMSE: {:.3f}".format(rmse_val),
+                size=15, ha='right', va='bottom', transform=ax.transAxes)
 
         mae_val = (auc_vals1[use_mtypes] - auc_vals2[use_mtypes]).abs().mean()
-        ax.text(0.96, 0.03, "MAE: {:.3f}".format(mae_val),
-                size=17, ha='right', va='bottom', transform=ax.transAxes)
+        ax.text(0.97, 0.02, "MAE: {:.3f}".format(mae_val),
+                size=15, ha='right', va='bottom', transform=ax.transAxes)
 
+    plt_lims = plt_min, 1 + (1 - plt_min) / 181
     for ax in axarr:
-        ax.plot([plt_min, 1], [0.5, 0.5],
+        ax.grid(linewidth=0.83, alpha=0.41)
+
+        ax.plot(plt_lims, [0.5, 0.5],
                 color='black', linewidth=1.3, linestyle=':', alpha=0.71)
-        ax.plot([0.5, 0.5], [plt_min, 1],
+        ax.plot([0.5, 0.5], plt_lims,
                 color='black', linewidth=1.3, linestyle=':', alpha=0.71)
 
-        ax.plot([plt_min, 1.0005], [1, 1],
-                color='black', linewidth=1.9, alpha=0.89)
-        ax.plot([1, 1], [plt_min, 1.0005],
-                color='black', linewidth=1.9, alpha=0.89)
-        ax.plot([plt_min + 0.01, 0.997], [plt_min + 0.01, 0.997],
+        ax.plot(plt_lims, [1, 1], color='black', linewidth=1.9, alpha=0.89)
+        ax.plot([1, 1], plt_lims, color='black', linewidth=1.9, alpha=0.89)
+        ax.plot(plt_lims, plt_lims,
                 color='#550000', linewidth=2.1, linestyle='--', alpha=0.41)
 
-        ax.set_xlim([plt_min, 1 + (1 - plt_min) / 53])
-        ax.set_ylim([plt_min, 1 + (1 - plt_min) / 53])
+        ax.tick_params(axis='both', which='major', labelsize=13)
+        ax.set_xlim(plt_lims)
+        ax.set_ylim(plt_lims)
 
-        coh_lbl1 = get_cohort_label(args.cohorts[0])
-        coh_lbl2 = get_cohort_label(args.cohorts[1])
+    coh_lbl1 = get_cohort_label(args.cohorts[0])
+    coh_lbl2 = get_cohort_label(args.cohorts[1])
 
     fig.text(0.5, 0, "AUC in training cohort {}".format(coh_lbl1),
-             fontsize=23, weight='semibold', ha='center', va='top')
+             fontsize=21, weight='semibold', ha='center', va='top')
     fig.text(-1 / 53, 0.5, "AUC in training cohort\n{}".format(coh_lbl2),
-             fontsize=23, weight='semibold', rotation=90,
+             fontsize=21, weight='semibold', rotation=90,
              ha='center', va='center')
 
     fig.tight_layout(w_pad=2.3)
@@ -523,20 +534,21 @@ def plot_transfer_aucs(trnsf_dicts, auc_dfs, pheno_dicts, args):
                                     alpha=0.19, edgecolor='none')
 
     for ax in axarr.flatten():
-        ax.plot([plt_min, 1], [0.5, 0.5],
+        plt_lims = plt_min, 1 + (1 - plt_min) / 181
+        ax.grid(linewidth=0.83, alpha=0.41)
+
+        ax.plot(plt_lims, [0.5, 0.5],
                 color='black', linewidth=1.3, linestyle=':', alpha=0.71)
-        ax.plot([0.5, 0.5], [plt_min, 1],
+        ax.plot([0.5, 0.5], plt_lims,
                 color='black', linewidth=1.3, linestyle=':', alpha=0.71)
 
-        ax.plot([plt_min, 1.0005], [1, 1],
-                color='black', linewidth=1.9, alpha=0.89)
-        ax.plot([1, 1], [plt_min, 1.0005],
-                color='black', linewidth=1.9, alpha=0.89)
-        ax.plot([plt_min + 0.01, 0.997], [plt_min + 0.01, 0.997],
+        ax.plot(plt_lims, [1, 1], color='black', linewidth=1.9, alpha=0.89)
+        ax.plot([1, 1], plt_lims, color='black', linewidth=1.9, alpha=0.89)
+        ax.plot(plt_lims, plt_lims,
                 color='#550000', linewidth=2.1, linestyle='--', alpha=0.41)
 
-        ax.set_xlim([plt_min, 1 + (1 - plt_min) / 71])
-        ax.set_ylim([plt_min, 1 + (1 - plt_min) / 71])
+        ax.set_xlim(plt_lims)
+        ax.set_ylim(plt_lims)
 
     fig.tight_layout(w_pad=2.1, h_pad=4.1)
     plt.savefig(os.path.join(plot_dir, '__'.join(args.cohorts),
@@ -567,8 +579,8 @@ def plot_silent_comparison(auc_dfs, cdata_dict, args):
                 and len(dict(muts_dict2[gene])['Point'].get_samples()) >= 20))
         }
 
-    plot_dict = {'Freq': dict(), 'Sil': dict()}
-    clr_dict = {'Freq': dict(), 'Sil': dict()}
+    plot_dicts = {'Freq': dict(), 'Sil': dict()}
+    line_dicts = {'Freq': dict(), 'Sil': dict()}
     freq_max = 0.27
     sil_max = 0.19
 
@@ -612,18 +624,18 @@ def plot_silent_comparison(auc_dfs, cdata_dict, args):
         sil_ax.scatter(sil1, sil2,
                        c=[plt_clr], s=29, alpha=0.29, edgecolor='none')
 
-        clr_dict['Freq'][freq1, freq2] = plt_clr
-        clr_dict['Sil'][sil1, sil2] = plt_clr
+        line_dicts['Freq'][freq1, freq2] = dict(c=plt_clr)
+        line_dicts['Sil'][sil1, sil2] = dict(c=plt_clr)
 
         if abs(freq1 - freq2) > 0.03 or (freq1 + freq2) > 0.3:
-            plot_dict['Freq'][freq1, freq2] = 0.005, (plt_gene, '')
+            plot_dicts['Freq'][freq1, freq2] = 0.005, (plt_gene, '')
         else:
-            plot_dict['Freq'][freq1, freq2] = 0.005, ('', '')
+            plot_dicts['Freq'][freq1, freq2] = 0.005, ('', '')
 
         if abs(sil1 - sil2) > 0.1:
-            plot_dict['Sil'][sil1, sil2] = 0.005, (plt_gene, '')
+            plot_dicts['Sil'][sil1, sil2] = 0.005, (plt_gene, '')
         else:
-            plot_dict['Sil'][sil1, sil2] = 0.005, ('', '')
+            plot_dicts['Sil'][sil1, sil2] = 0.005, ('', '')
 
     freq_max = min(freq_max, 1.005)
     sil_max = min(sil_max, 1.005)
@@ -631,8 +643,8 @@ def plot_silent_comparison(auc_dfs, cdata_dict, args):
     for ax, pnt_lbl, plt_max in zip([freq_ax, sil_ax],
                                     ['Freq', 'Sil'], [freq_max, sil_max]):
         plt_lims = -plt_max / 73, plt_max
+        ax.grid(linewidth=0.83, alpha=0.41)
 
-        ax.grid(linewidth=0.53)
         ax.plot([0, plt_max - 0.01], [0, plt_max - 0.01],
                 color='#550000', linewidth=2.1, linestyle='--', alpha=0.41)
 
@@ -645,14 +657,15 @@ def plot_silent_comparison(auc_dfs, cdata_dict, args):
         ax.plot([0, plt_max], [1, 1],
                 color='black', linewidth=0.83, alpha=0.83)
 
-        if plot_dict[pnt_lbl]:
+        if plot_dicts[pnt_lbl]:
             lbl_pos = place_scatter_labels(
-                plot_dict[pnt_lbl], clr_dict[pnt_lbl], fig, ax,
-                plt_lims=[[plt_max / 31, plt_max], [plt_max / 31, plt_max]]
+                plot_dicts[pnt_lbl], ax,
+                plt_lims=[[plt_max / 31, plt_max], [plt_max / 31, plt_max]],
+                line_dict=line_dicts[pnt_lbl], linewidth=0.91, alpha=0.43
                 )
 
-        ax.set_xlim([-plt_max / 73, plt_max])
-        ax.set_ylim([-plt_max / 73, plt_max])
+        ax.set_xlim(plt_lims)
+        ax.set_ylim(plt_lims)
 
     coh_lbl1 = get_cohort_label(args.cohorts[0])
     coh_lbl2 = get_cohort_label(args.cohorts[1])
@@ -701,15 +714,10 @@ def plot_subtype_comparison(auc_dfs, pheno_dicts, conf_dfs, plt_gene, args):
     conf_min = 0.43
 
     for mtype in use_mtypes:
-        conf_sc1 = np.greater.outer(
-            conf_dfs[args.cohorts[0]][mtype],
-            conf_dfs[args.cohorts[0]][base_mtype]
-            ).mean()
-
-        conf_sc2 = np.greater.outer(
-            conf_dfs[args.cohorts[1]][mtype],
-            conf_dfs[args.cohorts[1]][base_mtype]
-            ).mean()
+        conf_sc1 = calc_conf(conf_dfs[args.cohorts[0]][mtype],
+                             conf_dfs[args.cohorts[0]][base_mtype])
+        conf_sc2 = calc_conf(conf_dfs[args.cohorts[1]][mtype],
+                             conf_dfs[args.cohorts[1]][base_mtype])
 
         if conf_sc1 > 0.5 or conf_sc2 > 0.5:
             mtype_sz = (np.mean(pheno_dicts[args.cohorts[0]][mtype])
@@ -788,10 +796,8 @@ def plot_subtype_transfer(auc_dfs, trnsf_dicts, pheno_dicts, conf_dfs,
                 use_sz = 1507 * mtype_sz
                 use_alpha = 0.23
 
-                conf_sc = np.greater.outer(
-                    conf_dfs[train_coh][mtype],
-                    conf_dfs[train_coh][base_mtype]
-                    ).mean()
+                conf_sc = calc_conf(conf_dfs[train_coh][mtype],
+                                    conf_dfs[train_coh][base_mtype])
 
             ax.scatter(train_auc, trnsf_aucs[mtype],
                        marker=use_mrk, s=use_sz, alpha=use_alpha,
@@ -806,20 +812,21 @@ def plot_subtype_transfer(auc_dfs, trnsf_dicts, pheno_dicts, conf_dfs,
         ax.set_ylabel(y_lbl, size=23, weight='semibold')
 
     for ax in axarr:
-        ax.plot([plt_min, 1], [0.5, 0.5],
+        ax.grid(linewidth=0.83, alpha=0.41)
+        plt_lims = plt_min, 1 + (1 - plt_min) / 181
+
+        ax.plot(plt_lims, [0.5, 0.5],
                 color='black', linewidth=1.3, linestyle=':', alpha=0.71)
-        ax.plot([0.5, 0.5], [plt_min, 1],
+        ax.plot([0.5, 0.5], plt_lims,
                 color='black', linewidth=1.3, linestyle=':', alpha=0.71)
 
-        ax.plot([plt_min, 1.0005], [1, 1],
-                color='black', linewidth=1.9, alpha=0.89)
-        ax.plot([1, 1], [plt_min, 1.0005],
-                color='black', linewidth=1.9, alpha=0.89)
-        ax.plot([plt_min, 0.999], [plt_min, 0.999],
+        ax.plot(plt_lims, [1, 1], color='black', linewidth=1.9, alpha=0.89)
+        ax.plot([1, 1], plt_lims, color='black', linewidth=1.9, alpha=0.89)
+        ax.plot(plt_lims, plt_lims,
                 color='#550000', linewidth=2.1, linestyle='--', alpha=0.41)
 
-        ax.set_xlim([plt_min, 1 + (1 - plt_min) / 77])
-        ax.set_ylim([plt_min, 1 + (1 - plt_min) / 77])
+        ax.set_xlim(plt_lims)
+        ax.set_ylim(plt_lims)
 
     fig.tight_layout(w_pad=2.3)
     plt.savefig(
@@ -898,8 +905,7 @@ def plot_subtype_response(auc_dicts, ccle_dfs, resp_vals,
             color='#550000', linewidth=2.1, linestyle='--', alpha=0.41)
 
     if plot_dict:
-        lbl_pos = place_scatter_labels(plot_dict, clr_dict, fig, ax,
-                                       font_size=17)
+        lbl_pos = place_scatter_labels(plot_dict, ax, font_size=17)
 
     ax.set_xlim(plt_lims)
     ax.set_ylim(plt_lims)
@@ -1028,7 +1034,7 @@ def main():
                 exist_ok=True)
 
     plot_auc_comparison(auc_dfs, phn_dicts, args)
-    plot_coh_comparison(auc_dfs, phn_dicts, args)
+    plot_coh_comparison(auc_dfs, conf_dfs, phn_dicts, args)
     plot_sub_comparison(auc_dfs, trnsf_dicts, phn_dicts, conf_dfs, args)
 
     plot_cross_sub_comparison(auc_dfs, phn_dicts, conf_dfs, args)
