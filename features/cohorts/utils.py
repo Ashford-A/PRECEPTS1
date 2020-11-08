@@ -100,7 +100,8 @@ def get_input_datasets(cohort, expr_source, mut_fields=None):
                 process_tcga_datasets(
                     cohort, expr_source=source_base,
                     var_source='mc3', copy_source='Firehose',
-                    expr_dir=expr_sources[source_base], annot_dir=gencode_dir,
+                    expr_dir=expr_sources[source_base],
+                    copy_dir=expr_sources['Firehose'], annot_dir=gencode_dir,
                     type_file=subtype_file, collapse_txs=collapse_txs,
                     annot_fields=['transcript'], syn=syn,
                     mut_fields=mut_fields

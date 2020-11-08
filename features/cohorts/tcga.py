@@ -154,7 +154,8 @@ def get_variant_data(cohort, var_source, **var_args):
                 print("Skipping mutations for {}".format(mut_fl))
             
         muts = pd.concat(mut_list)
-        muts.Sample = muts.Sample.apply(lambda smp: "-".join(smp.split("-")[:4]))
+        muts.Sample = muts.Sample.apply(
+            lambda smp: "-".join(smp.split("-")[:4]))
         mut_tar.close()
 
     elif var_source == 'BMEG':
@@ -291,11 +292,10 @@ def process_input_datasets(cohort, expr_source, var_source, copy_source,
         annot_data = get_gencode(annot_file)
 
     # restructure annotation data around expression gene labels
-    annot_dict = {
-        at['gene_name']: {**{'Ens': ens}, **at}
-        for ens, at in annot_data.items()
-        if at['gene_name'] in set(expr.columns.get_level_values('Gene'))
-        }
+    use_genes = set(expr.columns.get_level_values('Gene'))
+    annot_dict = {at['gene_name']: {**{'Ens': ens}, **at}
+                  for ens, at in annot_data.items()
+                  if at['gene_name'] in use_genes}
 
     expr, variants, copy_df = add_mutations(base_coh, var_source, copy_source,
                                             expr, annot_dict, **data_args)
@@ -487,7 +487,7 @@ class MutFreqCohort(BaseMutFreqCohort):
                            if at['gene_name'] in expr.columns}
 
         expr, variants = add_mutations(cohort, var_source, copy_source,
-                                          expr, self.gene_annot, **coh_args)
+                                       expr, self.gene_annot, **coh_args)
 
         super().__init__(expr, variants, cv_prop, cv_seed)
 
