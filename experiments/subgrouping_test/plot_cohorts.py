@@ -186,7 +186,7 @@ def plot_coh_comparison(auc_dfs, conf_dfs, pheno_dicts, args):
 
 
 def plot_sub_comparison(auc_dfs, trnsf_dicts, pheno_dicts, conf_dfs, args):
-    fig, axarr = plt.subplots(figsize=(12.9, 14), nrows=2, ncols=2)
+    fig, axarr = plt.subplots(figsize=(15, 14), nrows=2, ncols=2)
 
     use_mtypes = {mtype for mtype in (auc_dfs[args.cohorts[0]].index
                                       & auc_dfs[args.cohorts[1]].index)
@@ -198,8 +198,8 @@ def plot_sub_comparison(auc_dfs, trnsf_dicts, pheno_dicts, conf_dfs, args):
         train_coh: {
             'Wthn': auc_dfs[train_coh]['mean'],
             'Trnsf': pd.concat([
-                trnsf_data[train_coh]['AUC']['mean']
-                for trnsf_data in trnsf_dicts[other_coh].values()
+                trnsf_data[other_coh]['AUC']['mean']
+                for trnsf_data in trnsf_dicts[train_coh].values()
                 ])
             }
         for train_coh, other_coh in permutations(args.cohorts)
@@ -209,8 +209,8 @@ def plot_sub_comparison(auc_dfs, trnsf_dicts, pheno_dicts, conf_dfs, args):
     line_dicts = {(i, j): dict() for i, j in product(range(2), repeat=2)}
     plt_min = 0.83
 
-    for i, auc_lbl in enumerate(['Wthn', 'Trnsf']):
-        for j, coh in enumerate(args.cohorts):
+    for i, coh in enumerate(args.cohorts):
+        for j, auc_lbl in enumerate(['Wthn', 'Trnsf']):
             for gene, auc_vec in auc_dicts[coh][auc_lbl][use_mtypes].groupby(
                     lambda mtype: tuple(mtype.label_iter())[0]):
 
@@ -236,7 +236,7 @@ def plot_sub_comparison(auc_dfs, trnsf_dicts, pheno_dicts, conf_dfs, args):
                         conf_sc = calc_conf(conf_dfs[coh].loc[best_subtype],
                                             conf_dfs[coh].loc[base_mtype])
 
-                        if conf_sc > 0.9:
+                        if conf_sc > 0.6:
                             plot_dicts[i, j][auc_tupl][1] = (
                                 gene, get_fancy_label(
                                     tuple(best_subtype.subtype_iter())[0][1],
@@ -279,12 +279,24 @@ def plot_sub_comparison(auc_dfs, trnsf_dicts, pheno_dicts, conf_dfs, args):
         axarr[i, j].plot(plt_lims, plt_lims, color='#550000',
                          linewidth=2.1, linestyle='--', alpha=0.41)
 
-        axarr[i, j].set_xlabel("AUC using all point mutations",
-                               size=23, weight='semibold')
+        if i == 1:
+            axarr[i, j].set_xlabel("AUC using all point mutations",
+                                   size=19, weight='semibold')
+
+        elif j == 0:
+            axarr[i, j].set_title("AUCs in training cohort",
+                                  size=25, fontweight='semibold')
+        elif j == 1:
+            axarr[i, j].set_title("AUCs in transfer cohort",
+                                  size=25, fontweight='semibold')
 
         if j == 0:
             axarr[i, j].set_ylabel("AUC of best found subgrouping",
-                                   size=23, weight='semibold')
+                                   size=19, weight='semibold')
+
+        plt_lctr = plt.MaxNLocator(5, steps=[1, 2, 5])
+        axarr[i, j].xaxis.set_major_locator(plt_lctr)
+        axarr[i, j].yaxis.set_major_locator(plt_lctr)
 
         if plot_dicts[i, j]:
             lbl_pos = place_scatter_labels(plot_dicts[i, j], axarr[i, j],
@@ -294,6 +306,14 @@ def plot_sub_comparison(auc_dfs, trnsf_dicts, pheno_dicts, conf_dfs, args):
         axarr[i, j].set_xlim(plt_lims)
         axarr[i, j].set_ylim(plt_lims)
 
+    for i, coh in enumerate(args.cohorts):
+        axarr[i, 0].text(-0.23, 0.5,
+                         "training cohort:\n{}".format(get_cohort_label(coh)),
+                         size=25, weight='semibold', rotation=90,
+                         ha='center', va='center',
+                         transform=axarr[i, 0].transAxes)
+
+    fig.tight_layout(w_pad=1.3, h_pad=3.1)
     plt.savefig(os.path.join(plot_dir, '__'.join(args.cohorts),
                              "sub-comparison_{}.svg".format(args.classif)),
                 bbox_inches='tight', format='svg')
@@ -1048,10 +1068,10 @@ def main():
             plot_subtype_transfer(auc_dfs, trnsf_dicts, phn_dicts, conf_dfs,
                                   gene, args)
 
-        if args.drugs is not None:
-            for drug in args.drugs:
-                plot_subtype_response(auc_dfs, ccle_dfs, resp_df[drug],
-                                      conf_dfs, phn_dicts, gene, args)
+            if args.drugs is not None:
+                for drug in args.drugs:
+                    plot_subtype_response(auc_dfs, ccle_dfs, resp_df[drug],
+                                          conf_dfs, phn_dicts, gene, args)
 
 
 if __name__ == '__main__':
