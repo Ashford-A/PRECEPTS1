@@ -95,9 +95,8 @@ def main():
         description="Plots the output of unsupervised learning on a cohort."
         )
 
-    parser.add_argument('expr_source',
-                        help="a source of expression data", type=str)
-    parser.add_argument('cohort', help="a TCGA cohort", type=str)
+    parser.add_argument('expr_source', help="a source of expression datasets")
+    parser.add_argument('cohort', help="a tumour sample -omic dataset")
 
     parser.add_argument('transform', type=str,
                         choices=list(clust_algs.keys()),
@@ -147,10 +146,15 @@ def main():
 
     trans_expr = clust_algs[args.transform].fit_transform_coh(cdata)
     os.makedirs(plot_dir, exist_ok=True)
-
     type_dict = list_cohort_subtypes(args.cohort.split('_')[0])
-    subt_data = pd.concat([pd.Series(subt, index=smps)
-                           for subt, smps in type_dict.items()])
+
+    if type_dict:
+        subt_data = pd.concat([pd.Series(subt, index=smps)
+                               for subt, smps in type_dict.items()])
+    else:
+        subt_data = pd.Series({smp: 'Not Available'
+                               for smp in cdata.get_samples()})
+
     plot_clustering(trans_expr.copy(), subt_data, cdata, args)
 
 

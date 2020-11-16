@@ -1,6 +1,5 @@
 
-from ..utilities.mutations import (
-    pnt_mtype, copy_mtype, dup_mtype, loss_mtype, RandomType)
+from ..utilities.mutations import pnt_mtype, copy_mtype, RandomType
 from dryadic.features.mutations import MuType
 
 from ..subgrouping_test import base_dir, train_cohorts
@@ -32,50 +31,48 @@ plot_dir = os.path.join(base_dir, 'plots', 'classif')
 
 
 def plot_gene_accuracy(auc_vals, pheno_dict, args):
+    fig, axarr = plt.subplots(figsize=(13, 8), nrows=2, ncols=8)
+
     use_aucs = auc_vals[[not isinstance(mtype, RandomType)
                          and tuple(mtype.subtype_iter())[0][1] == pnt_mtype
                          for _, _, mtype in auc_vals.index]]
 
-    # get list of cohorts within which this classifier was run, create
-    # a suitably sized figure with a panel for each cohort
-    plt_cohs = sorted(set((src, coh) for src, coh, _ in auc_vals.index))
-    fig, axarr = plt.subplots(figsize=(1 + 1.5 * len(plt_cohs), 6),
-                              nrows=1, ncols=len(plt_cohs), squeeze=False)
+    plt_cohs = sorted(set((src, coh) for src, coh, _ in use_aucs.index))
+    top_genes = use_aucs.groupby(['Source', 'Cohort']).apply(
+        lambda aucs: aucs.sort_values().index.get_level_values('Mtype')[-8:])
 
     plot_dict = {(src, coh): dict() for src, coh in plt_cohs}
     line_dict = {(src, coh): dict() for src, coh in plt_cohs}
     plt_ylims = use_aucs.min() - 0.01, 1.003
 
     for (src, coh, mtype), auc_val in use_aucs.iteritems():
-        cur_ax = axarr[0, plt_cohs.index((src, coh))]
+        ax_indx = plt_cohs.index((src, coh))
+        cur_ax = axarr[ax_indx // 8, ax_indx % 8]
         cur_gene = tuple(mtype.label_iter())[0]
 
         # jitter the plotted point on the horizontal plane, scale the point
         # according to how frequently the gene was mutated in the cohort
         plt_x = 0.5 + np.random.randn() / 7.9
-        plt_size = np.mean(pheno_dict[src, coh][mtype])
-        line_dict[src, coh][plt_x, auc_val] = dict(
-            c=choose_label_colour(cur_gene))
+        base_size = np.mean(pheno_dict[src, coh][mtype])
+        pnt_size = 0.91 * base_size ** 0.5
+        use_clr = choose_label_colour(cur_gene)
+        line_dict[src, coh][plt_x, auc_val] = dict(c=use_clr)
 
         # if classification performance was good enough, add a gene name label
-        if auc_val > 0.8:
-            plot_dict[src, coh][plt_x, auc_val] = plt_size, (cur_gene, '')
+        if auc_val > 0.7 and mtype in top_genes.loc[src, coh]:
+            plot_dict[src, coh][plt_x, auc_val] = pnt_size, (cur_gene, '')
         else:
-            plot_dict[src, coh][plt_x, auc_val] = plt_size, ('', '')
+            plot_dict[src, coh][plt_x, auc_val] = pnt_size, ('', '')
 
-        cur_ax.scatter(plt_x, auc_val, s=311 * plt_size,
-                       c=[line_dict[src, coh][plt_x, auc_val]['c']],
-                       alpha=0.37, edgecolors='none')
+        cur_ax.scatter(plt_x, auc_val, s=311 * base_size,
+                       c=[use_clr], alpha=0.37, edgecolors='none')
 
     for i, (ax, (src, coh)) in enumerate(zip(axarr.flatten(), plt_cohs)):
-        if i == 0:
-            ax.set_ylabel('Gene-Wide Classifier AUC',
-                          size=25, weight='semibold')
-        else:
+        if i not in {0, 8}:
             ax.set_yticklabels([])
 
         ax.text(0.5, -0.01, get_cohort_label(coh).replace("(", "\n("),
-                size=17, weight='semibold', ha='center', va='top',
+                size=18, weight='semibold', ha='center', va='top',
                 transform=ax.transAxes)
 
         ax.plot([0, 1], [1, 1], color='black', linewidth=2.7, alpha=0.89)
@@ -84,20 +81,24 @@ def plot_gene_accuracy(auc_vals, pheno_dict, args):
 
         ax.set_xticklabels([])
         ax.grid(axis='x', linewidth=0)
+        ax.grid(axis='y', linewidth=0.73, alpha=0.41)
 
     for ax, (src, coh) in zip(axarr.flatten(), plt_cohs):
         lbl_pos = place_scatter_labels(
             plot_dict[src, coh], ax,
-            plt_lims=[[use_aucs.min(), 1]] * 2,
+            plt_lims=[plt_ylims] * 2,
             plc_lims=[[use_aucs.min() + 0.01, 0.99]] * 2,
-            plt_type='scatter', font_size=10, seed=args.seed,
-            line_dict=line_dict, linewidth=0.9, alpha=0.37
+            plt_type='scatter', font_size=9, seed=args.seed,
+            line_dict=line_dict[src, coh], linewidth=0.7, alpha=0.37
             )
 
         ax.set_xlim([0, 1])
         ax.set_ylim(plt_ylims)
 
-    fig.tight_layout(w_pad=0)
+    fig.text(-0.023, 0.5, 'Gene-Wide Classifier AUC', size=23,
+             ha='center', va='center', rotation=90, weight='semibold')
+
+    fig.tight_layout(w_pad=0.3, h_pad=2.9)
     fig.savefig(
         os.path.join(plot_dir, args.classif, "gene-accuracy.svg"),
         bbox_inches='tight', format='svg'
@@ -116,11 +117,8 @@ def plot_gene_results(auc_vals, conf_vals, pheno_dict, args):
         ]]
 
     plot_dict = dict()
-    line_dict = dict()
-
     for (src, coh, gene), auc_vec in use_aucs.groupby(
             lambda x: (x[0], x[1], tuple(x[2].label_iter())[0])):
-
         if len(auc_vec) > 1 and auc_vec.max() > 0.68:
             base_mtype = MuType({('Gene', gene): pnt_mtype})
 
@@ -136,14 +134,15 @@ def plot_gene_results(auc_vals, conf_vals, pheno_dict, args):
 
                 if conf_sc > 0.77:
                     auc_tupl = auc_vec[src, coh, best_subtype], conf_sc
-                    line_dict[auc_tupl] = dict(c=choose_cohort_colour(coh))
+                    coh_lbl = get_cohort_label(coh)
+                    use_clr = choose_cohort_colour(coh)
 
                     base_size = np.mean(pheno_dict[src, coh][base_mtype])
                     best_prop = np.mean(pheno_dict[src, coh][best_subtype])
                     best_prop /= base_size
                     plt_size = 0.023 * base_size ** 0.5
 
-                    plot_dict[auc_tupl] = [plt_size, (gene, coh)]
+                    plot_dict[auc_tupl] = [plt_size, (gene, coh_lbl)]
                     auc_bbox = (auc_tupl[0] - plt_size / 2,
                                 auc_tupl[1] - plt_size / 2,
                                 plt_size, plt_size)
@@ -156,25 +155,25 @@ def plot_gene_results(auc_vals, conf_vals, pheno_dict, args):
 
                     pie_ax.pie(x=[best_prop, 1 - best_prop],
                                explode=[0.19, 0],
-                               colors=[line_dict[auc_tupl]['c'] + (0.83,),
-                                       line_dict[auc_tupl]['c'] + (0.23,)],
+                               colors=[use_clr + (0.83,), use_clr + (0.23,)],
                                wedgeprops=dict(edgecolor='black',
                                                linewidth=5 / 13))
 
+    ax.grid(linewidth=0.83, alpha=0.41)
     ax.tick_params(pad=7.3)
     ax.plot([0.65, 1.0005], [1, 1], color='black', linewidth=1.7, alpha=0.89)
     ax.plot([1, 1], [0.59, 1.0005], color='black', linewidth=1.7, alpha=0.89)
 
-    ax.set_xlabel('AUC of Best Found Subgrouping',
+    ax.set_xlabel("AUC of Best Found Subgrouping",
                   size=23, weight='semibold')
-    ax.set_ylabel('Down-Sampled AUC\nSuperiority Confidence',
+    ax.set_ylabel("Down-Sampled AUC Confidence\nAgainst Gene-Wide Task",
                   size=23, weight='semibold')
 
     lbl_pos = place_scatter_labels(plot_dict, ax,
                                    plt_lims=[[0.68, 1], [0.77, 1]],
                                    plc_lims=[[0.69, 0.991], [0.78, 0.991]],
                                    font_size=11, seed=args.seed,
-                                   line_dict=line_dict)
+                                   c='black', linewidth=0.71, alpha=0.61)
 
     ax.set_xlim([0.68, 1.001])
     ax.set_ylim([0.77, 1.001])
@@ -292,6 +291,11 @@ def main():
     out_use = out_list.groupby(['Source', 'Cohort', 'Levels'])['Samps'].min()
     out_use = out_use[out_use.index.get_level_values(
         'Cohort').isin(train_cohorts)]
+
+    out_use = out_use.loc[
+        ~((out_use.index.get_level_values('Cohort') == 'BRCA_LumA')
+          & (out_use.index.get_level_values('Source') == 'toil__gns'))
+        ]
     os.makedirs(os.path.join(plot_dir, args.classif), exist_ok=True)
 
     phn_dict = dict()

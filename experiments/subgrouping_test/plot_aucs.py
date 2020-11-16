@@ -466,7 +466,7 @@ def main():
         )
 
     parser.add_argument('expr_source', help="a source of expression datasets")
-    parser.add_argument('cohort', help="a tumour cohort")
+    parser.add_argument('cohort', help="a tumour sample -omic dataset")
     parser.add_argument('classif', help="a mutation classifier")
 
     parser.add_argument(
