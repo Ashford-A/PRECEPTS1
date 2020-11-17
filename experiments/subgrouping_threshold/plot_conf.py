@@ -4,6 +4,7 @@ from dryadic.features.mutations import MuType
 
 from ..subgrouping_threshold import base_dir
 from ..utilities.data_dirs import choose_source
+from ..utilities.metrics import calc_conf
 from ..utilities.misc import choose_label_colour
 from ..utilities.labels import get_cohort_label
 from ..utilities.colour_maps import variant_clrs
@@ -82,8 +83,7 @@ def plot_sub_comparison(orig_aucs, auc_vals, orig_conf, conf_vals,
             annt_df = annt_df.sort_values('Size')
 
             best_annt = annt_df.sort_values('AUC').index[-1]
-            annt_sc = np.greater.outer(conf_vals[best_annt],
-                                       orig_conf[best_orig]).mean()
+            annt_sc = calc_conf(conf_vals[best_annt], orig_conf[best_orig])
 
             ax.plot(annt_df.Size, annt_df.AUC, marker='o', markersize=6,
                     linewidth=3.7, c=annt_clr, alpha=0.47)

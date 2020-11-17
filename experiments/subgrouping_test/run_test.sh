@@ -91,7 +91,7 @@ then
 		samp_exp=0.5
 	elif [ $classif == 'RidgeMoreTune' ]
 	then
-		task_size=4
+		task_size=3.7
 		samp_exp=0.5
 
 	elif [ $classif == 'SVCrbf' ]
@@ -100,7 +100,7 @@ then
 		samp_exp=1.13
 	elif [ $classif == 'Forests' ]
 	then
-		task_size=13
+		task_size=11
 		samp_exp=0.75
 	fi
 
@@ -122,7 +122,7 @@ eval "$( tail -n 1 setup/tasks.txt )"
 dvc run -d setup/muts-list.p -d $RUNDIR/fit_test.py -O out-conf.p.gz \
 	-O $FINALDIR/out-trnsf__${mut_levels}__${classif}.p.gz -f output.dvc \
 	--overwrite-dvcfile --ignore-build-cache 'snakemake -s $RUNDIR/Snakefile \
-	-j 400 --latency-wait 120 --cluster-config $RUNDIR/cluster.json \
+	-j 800 --latency-wait 120 --cluster-config $RUNDIR/cluster.json \
 	--cluster "sbatch -p {cluster.partition} -J {cluster.job-name} \
 	-t {cluster.time} -o {cluster.output} -e {cluster.error} \
 	-n {cluster.ntasks} -c {cluster.cpus-per-task} \

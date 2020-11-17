@@ -38,14 +38,15 @@ def nest_label(mtype, sub_link=' or ', phrase_link=' '):
     sub_lbls = []
 
     for lbls, tp in mtype.child_iter():
-        if (tp is not None and len(lbls) == 1
-                and tp.get_sorted_levels()[-1][:4] == 'HGVS'):
-            hgvs_lbl = str(tp).split(':')[-1].split('.')[-1]
+        if (tp is not None
+                and all(MuType(lf).get_sorted_levels()[-1][:4] == 'HGVS'
+                        for lf in tp.leaves())):
+            hgvs_lbls = [str(MuType(lf)).split(':')[-1].split('.')[-1]
+                         for lf in tp.leaves()]
 
-            if hgvs_lbl == '-':
-                sub_lbls += ["(no location)"]
-            else:
-                sub_lbls += [parse_hgvs(hgvs_lbl)]
+            sub_lbls += [' or '.join(["(no location)" if hgvs_lbl == '-'
+                                      else parse_hgvs(hgvs_lbl)
+                                      for hgvs_lbl in hgvs_lbls])]
 
         else:
             if mtype.cur_level[:4] == 'HGVS':
@@ -177,8 +178,8 @@ def nest_label(mtype, sub_link=' or ', phrase_link=' '):
                                 ])
 
                         else:
-                            sub_lbls[-1] = ' '.join([sub_words[0],
-                                                     sub_lbls[-1]])
+                            sub_lbls[-1] = ' '.join([
+                                sub_words[0], sub_lbls[-1]])
 
                     else:
                         sub_lbls[-1] = phrase_link.join([sub_words[0],

@@ -1,8 +1,8 @@
 
+from .classifiers import *
 from ..utilities.handle_input import safe_load
 from ..utilities.mutations import RandomType
 from ..utilities.pipeline_setup import get_task_count
-from ..utilities.classifiers import *
 from ..utilities.misc import transfer_model
 
 import os

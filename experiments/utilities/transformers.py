@@ -17,7 +17,7 @@ class Base(OmicPipe):
 
     """
 
-    feat_inst = SelectMeanVar(mean_perc=98, var_perc=100)
+    feat_inst = SelectMeanVar(mean_perc=90, var_perc=100)
     norm_inst = StandardScaler()
 
     def __init__(self):

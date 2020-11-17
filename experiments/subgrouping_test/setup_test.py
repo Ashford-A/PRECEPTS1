@@ -133,13 +133,13 @@ def main():
     # makes sure random subgroupings are the same between different runs
     # of this experiment
     mtype_list = sorted(use_mtypes)
-    random.seed((88701 * lvls_seed + 1313) % (2 ** 16))
+    random.seed((88701 * lvls_seed + 1313) % (2 ** 17))
     random.shuffle(mtype_list)
 
     # generate random subgroupings chosen from all samples in the cohort
     use_mtypes |= {
         RandomType(size_dist=len(mtype.get_samples(cdata.mtrees[lvl_list])),
-                   seed=(lvls_seed * (i + 19) + 1307) % (2 ** 22))
+                   seed=(lvls_seed * (i + 3751) + 19207) % (2 ** 26))
         for i, (mtype, _) in enumerate(product(mtype_list, range(5)))
         if (mtype & copy_mtype).is_empty()
         }
@@ -150,7 +150,7 @@ def main():
             size_dist=len(mtype.get_samples(cdata.mtrees[lvl_list])),
             base_mtype=MuType({
                 ('Gene', tuple(mtype.label_iter())[0]): pnt_mtype}),
-            seed=(lvls_seed * (i + 23) + 7391) % (2 ** 22)
+            seed=(lvls_seed * (i + 1021) + 7391) % (2 ** 23)
             )
 
         for i, (mtype, _) in enumerate(product(mtype_list, range(5)))

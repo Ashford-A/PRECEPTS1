@@ -90,8 +90,8 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals, args):
                                    line_dict[auc_tupl]['c'] + (0.29,)],
                            explode=[0.29, 0], startangle=90)
 
-    plt_lims = plt_min, 1 + (1 - plt_min) / 61
-    ax.grid(alpha=0.41, linewidth=0.9)
+    plt_lims = plt_min, 1 + (1 - plt_min) / 181
+    ax.grid(linewidth=0.83, alpha=0.41)
 
     ax.plot(plt_lims, [0.5, 0.5],
             color='black', linewidth=1.3, linestyle=':', alpha=0.71)

@@ -176,6 +176,9 @@ def plot_conf_distributions(auc_vals, conf_dict, pheno_dict, use_clf, args):
                               use_confs[base_mtype])
                     )
 
+    if not coh_dict:
+        return None
+
     ymin = 0.83
     fig, axarr = plt.subplots(figsize=(0.3 + 1.7 * len(coh_dict), 7),
                               nrows=1, ncols=len(coh_dict), sharey=True,
