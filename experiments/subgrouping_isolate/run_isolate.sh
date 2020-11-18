@@ -64,13 +64,6 @@ dvc run -d $COH_DIR -d $GENCODE_DIR -d $ONCOGENE_LIST -d $SUBTYPE_LIST \
 	python -m dryads-research.experiments.subgrouping_isolate.setup_isolate \
 	$expr_source $cohort $mut_levels $search $OUTDIR
 
-# if we are only enumerating, we quit before classification jobs are launched
-if $count_only
-then
-	cp setup/cohort-data.p.gz $FINALDIR/cohort-data__${out_tag}.p.gz
-	exit 0
-fi
-
 if [ -z ${SBATCH_TIMELIMIT+x} ]
 then
 	time_lim=2159
@@ -91,7 +84,15 @@ then
 	merge_max=$(( $time_left - $time_max - 3 ))
 
 	eval "$( python -m dryads-research.experiments.utilities.pipeline_setup \
-		$OUTDIR $time_max --merge_max=$merge_max )"
+		$OUTDIR $time_max --merge_max=$merge_max \
+		--task_size=1.13 --samp_exp=0.5 )"
+fi
+
+# if we are only enumerating, we quit before classification jobs are launched
+if $count_only
+then
+	cp setup/cohort-data.p.gz $FINALDIR/cohort-data__${out_tag}.p.gz
+	exit 0
 fi
 
 eval "$( tail -n 2 setup/tasks.txt | head -n 1 )"

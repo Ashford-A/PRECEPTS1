@@ -25,9 +25,8 @@ def main():
         description="Load datasets and enumerate subgroupings to be tested."
         )
 
-    parser.add_argument('expr_source', type=str,
-                        help="a source of expression data")
-    parser.add_argument('cohort', type=str, help="a tumour cohort")
+    parser.add_argument('expr_source', help="a source of expression datasets")
+    parser.add_argument('cohort', help="a tumour sample -omic dataset")
 
     parser.add_argument(
         'samp_cutoff', type=int,
@@ -39,17 +38,21 @@ def main():
     parser.add_argument('out_dir', type=str,
                         help="the working directory for this experiment")
 
-    # parse command line arguments, figure out where output will be stored
+    # parse command line arguments, figure out where output will be stored,
+    # get the mutation attributes and cancer genes that will be used
     args = parser.parse_args()
     out_path = os.path.join(args.out_dir, 'setup')
     lvl_list = ('Gene', 'Scale', 'Copy') + tuple(args.mut_levels.split('__'))
     use_genes = get_gene_list(min_sources=2)
 
+    # load and process the -omic datasets for this cohort
     cdata = get_cohort_data(args.cohort, args.expr_source, lvl_list,
                             vep_cache_dir, out_path, use_genes)
     with bz2.BZ2File(os.path.join(out_path, "cohort-data.p.gz"), 'w') as f:
         pickle.dump(cdata, f, protocol=-1)
 
+    # get the maximum number of samples allowed per subgrouping, initialize
+    # the list of enumerated subgroupings
     max_samps = len(cdata.get_samples()) - args.samp_cutoff
     use_mtypes = set()
 
@@ -164,7 +167,7 @@ def main():
     with open(os.path.join(out_path, "muts-count.txt"), 'w') as fl:
         fl.write(str(len(use_mtypes)))
 
-    # get list of available cohorts for this source of expression data
+    # get list of available cohorts for transference of classifiers
     coh_list = list_cohorts('Firehose', expr_dir=expr_sources['Firehose'],
                             copy_dir=expr_sources['Firehose'])
     coh_list -= {args.cohort}
@@ -176,9 +179,11 @@ def main():
     use_feats = set(cdata.get_features())
     random.seed()
 
+    # for each cohort used for transferring...
     for coh in random.sample(coh_list, k=len(coh_list)):
         coh_base = coh.split('_')[0]
 
+        # ...choose a default source of expression data
         if coh_base in {'METABRIC', 'CCLE'}:
             use_src = 'microarray'
         elif coh_base in {'beatAML'}:
@@ -186,9 +191,12 @@ def main():
         else:
             use_src = 'Firehose'
 
+        # ...figure out where to store its pickled representation
         coh_tag = "cohort-data__{}__{}.p".format(use_src, coh)
         coh_path = os.path.join(coh_dir, coh_tag)
 
+        # load and process the cohort's -omic datasets, update the list of
+        # expression features common across all cohorts
         trnsf_cdata = load_cohort(coh, use_src, lvl_list, vep_cache_dir,
                                   coh_path, out_path, use_genes)
         use_feats &= set(trnsf_cdata.get_features())

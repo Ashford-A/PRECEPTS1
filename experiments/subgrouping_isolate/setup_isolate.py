@@ -1,22 +1,18 @@
 
 from .param_list import params
 from ..utilities.data_dirs import vep_cache_dir
-from ...features.cohorts import get_input_datasets
 from ...features.data.oncoKB import get_gene_list
-from dryadic.features.data.vep import process_variants
+from ...features.cohorts.utils import get_cohort_data
 
 from ..utilities.mutations import (pnt_mtype, copy_mtype, shal_mtype,
                                    dup_mtype, gains_mtype, loss_mtype,
                                    dels_mtype, Mcomb, ExMcomb)
 from dryadic.features.mutations import MuType
-from ..subgrouping_isolate.utils import IsoMutationCohort
 
 import os
 import argparse
 import bz2
 import dill as pickle
-
-import pandas as pd
 from itertools import combinations as combn
 
 
@@ -35,66 +31,29 @@ def main():
     parser.add_argument('out_dir', type=str,
                         help="the working directory for this experiment")
 
+    # parse command line arguments, figure out where output will be stored
     args = parser.parse_args()
     out_path = os.path.join(args.out_dir, 'setup')
-
-    data_dict = get_input_datasets(
-        args.cohort, args.expr_source,
-        mut_fields=['Sample', 'Gene', 'Chr', 'Start', 'End',
-                    'RefAllele', 'TumorAllele']
-        )
-
-    var_df = pd.DataFrame({'Chr': data_dict['vars'].Chr.astype('int'),
-                           'Start': data_dict['vars'].Start.astype('int'),
-                           'End': data_dict['vars'].End.astype('int'),
-                           'RefAllele': data_dict['vars'].RefAllele,
-                           'VarAllele': data_dict['vars'].TumorAllele,
-                           'Sample': data_dict['vars'].Sample})
 
     # get the combination of mutation attributes and search constraints
     # that will govern the enumeration of subgroupings
     lvl_list = ('Gene', 'Scale', 'Copy') + tuple(args.mut_levels.split('__'))
     search_dict = params[args.search_params]
+    use_genes = get_gene_list(min_sources=2)
 
-    # figure out which mutation attribute fields to request from VEP, starting
-    # with those necessary to uniquely identify any mutation
-    var_fields = ['Gene', 'Canonical', 'Location', 'VarAllele']
-    for lvl in lvl_list[3:]:
-        if '-domain' in lvl and 'Domains' not in var_fields:
-            var_fields += ['Domains']
-        else:
-            var_fields += [lvl]
-
-    # run the VEP command line wrapper to obtain a standardized
-    # set of point mutation calls
-    variants = process_variants(
-        var_df, out_fields=var_fields, cache_dir=vep_cache_dir,
-        temp_dir=out_path, assembly=data_dict['assembly'],
-        distance=0, consequence_choose='pick', forks=4, update_cache=False
-        )
-
-    # remove mutation calls not assigned to a canonical transcript by VEP as
-    # well as those not associated with genes linked to cancer processes
-    use_genes = get_gene_list()
-    variants = variants.loc[(variants.CANONICAL == 'YES')
-                            & variants.Gene.isin(use_genes)]
-    copies = data_dict['copy'].loc[data_dict['copy'].Gene.isin(use_genes)]
-
-    assert not variants.duplicated().any(), (
-        "Variant data contains {} duplicate entries!".format(
-            variants.duplicated().sum())
-        )
-
-    cdata = IsoMutationCohort(data_dict['expr'], variants, [lvl_list], copies,
-                              data_dict['annot'], leaf_annot=None)
+    # load and process the -omic datasets for this cohort
+    cdata = get_cohort_data(args.cohort, args.expr_source, lvl_list,
+                            vep_cache_dir, out_path, use_genes)
     with bz2.BZ2File(os.path.join(out_path, "cohort-data.p.gz"), 'w') as f:
         pickle.dump(cdata, f, protocol=-1)
 
+    # get the maximum number of samples allowed per subgrouping, initialize
+    # the list of enumerated subgroupings
     max_samps = len(cdata.get_samples()) - search_dict['samp_cutoff']
     test_muts = set()
 
     # for each gene with enough point mutations, find all of the combinations
-    # of its mutation subtypes that satisfy the search criteria
+    # of its point mutation subtypes that satisfy the search criteria
     for gene, mtree in cdata.mtrees[lvl_list]:
         if len(pnt_mtype.get_samples(mtree)) >= search_dict['samp_cutoff']:
             comb_types = mtree.combtypes(
@@ -134,6 +93,7 @@ def main():
             if args.mut_levels == 'Consequence__Exon':
                 pnt_types |= {pnt_mtype}
 
+            # add subgroupings composed solely of CNAs where applicable
             if 'Copy' in dict(mtree):
                 copy_types = {dup_mtype, loss_mtype}
 
@@ -145,6 +105,8 @@ def main():
             else:
                 copy_types = set()
 
+            # find the enumerated point mutations for this gene that can be
+            # combined with CNAs to produce a novel set of mutated samples
             copy_dyads = set()
             for copy_type in copy_types:
                 samp_dict[copy_type] = copy_type.get_samples(mtree)
@@ -159,10 +121,13 @@ def main():
                             copy_dyads |= {new_dyad}
                             samp_dict[new_dyad] = dyad_samps
 
+            # add the CNA-only subgroupings if we are using "base" attributes
             test_types = pnt_types | copy_dyads
             if args.mut_levels == 'Consequence__Exon':
                 test_types |= copy_types
 
+            # check that the gene's enumerated subgroupings satisfy recurrence
+            # thresholds before adding them to the final list
             test_muts |= {MuType({('Gene', gene): mtype})
                           for mtype in test_types
                           if (search_dict['samp_cutoff']
@@ -205,6 +170,7 @@ def main():
                          <= len(mcomb.get_samples(mtree)) <= max_samps))
                 }
 
+    # save enumerated subgroupings and number of subgroupings to file
     with open(os.path.join(out_path, "muts-list.p"), 'wb') as f:
         pickle.dump(sorted(test_muts), f, protocol=-1)
     with open(os.path.join(out_path, "muts-count.txt"), 'w') as fl:
