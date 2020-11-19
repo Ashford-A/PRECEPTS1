@@ -7,11 +7,10 @@ from ..utilities.mutations import (pnt_mtype, copy_mtype, shal_mtype,
                                    dels_mtype, gains_mtype, Mcomb, ExMcomb)
 from dryadic.features.mutations import MuType
 
-from ..utilities.labels import get_fancy_label
+from ..subgrouping_isolate import base_dir
+from ..utilities.labels import get_fancy_label, get_cohort_label
 from ..utilities.metrics import calc_auc
-from ..utilities.colour_maps import simil_cmap
-from ..subvariant_test import variant_clrs
-from ..subvariant_test.utils import get_cohort_label
+from ..utilities.colour_maps import simil_cmap, variant_clrs
 
 import os
 import argparse
@@ -35,10 +34,6 @@ plt.style.use('fivethirtyeight')
 plt.rcParams['axes.facecolor'] = 'white'
 plt.rcParams['savefig.facecolor'] = 'white'
 plt.rcParams['axes.edgecolor'] = 'white'
-
-
-base_dir = os.path.join(os.environ['DATADIR'], 'HetMan',
-                        'subgrouping_isolate')
 plot_dir = os.path.join(base_dir, 'plots', 'example')
 
 

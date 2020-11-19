@@ -9,15 +9,12 @@ from ..utilities.mutations import (
     )
 from dryadic.features.mutations import MuType
 
+from ..subgrouping_isolate import base_dir
 from .utils import remove_pheno_dups
 from ..utilities.metrics import calculate_mean_siml, calculate_ks_siml
-from ..subvariant_test import variant_clrs
-from ..subvariant_isolate import mcomb_clrs
-from ..utilities.colour_maps import simil_cmap
-
-from ..utilities.labels import get_fancy_label
-from ..subvariant_test.utils import get_cohort_label
-from ..utilities.label_placement import place_scatterpie_labels
+from ..utilities.colour_maps import simil_cmap, variant_clrs, mcomb_clrs
+from ..utilities.labels import get_fancy_label, get_cohort_label
+from ..utilities.label_placement import place_scatter_labels
 
 import os
 import argparse
@@ -40,16 +37,13 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.markers import MarkerStyle
 from matplotlib import colors
+from matplotlib.lines import Line2D
 
 mpl.use('Agg')
 plt.style.use('fivethirtyeight')
 plt.rcParams['axes.facecolor'] = 'white'
 plt.rcParams['savefig.facecolor'] = 'white'
 plt.rcParams['axes.edgecolor'] = 'white'
-
-
-base_dir = os.path.join(os.environ['DATADIR'], 'HetMan',
-                        'subgrouping_isolate')
 plot_dir = os.path.join(base_dir, 'plots', 'gene')
 
 SIML_FXS = {'mean': calculate_mean_siml, 'ks': calculate_ks_siml}
@@ -78,7 +72,12 @@ def plot_size_comparisons(auc_vals, pheno_dict, conf_vals,
     fig, ax = plt.subplots(figsize=(13, 8))
 
     plot_dict = dict()
-    clr_dict = dict()
+    line_dict = dict()
+
+    clr_dict = {variant_clrs['Point']: 'only point mutations',
+                mcomb_clrs['Point+Gain']: 'point or gains',
+                mcomb_clrs['Point+Loss']: 'point or losses'}
+    lgnd_dict = {clr: 0 for clr in clr_dict}
 
     plt_df = pd.DataFrame({
         mut: {'Size': np.sum(pheno_dict[mut]), 'AUC': auc_val}
@@ -88,7 +87,6 @@ def plot_size_comparisons(auc_vals, pheno_dict, conf_vals,
 
     for mtype, (size_val, auc_val) in plt_df.iterrows():
         sub_mut = tuple(mtype.subtype_iter())[0][1]
-        plt_mrk = 'o'
         plt_clr = choose_subtype_colour(sub_mut)
 
         if (sub_mut.is_supertype(pnt_mtype)
@@ -101,13 +99,15 @@ def plot_size_comparisons(auc_vals, pheno_dict, conf_vals,
             edg_clr = plt_clr
 
         else:
+            lgnd_dict[plt_clr] += 1
+
             plt_lbl = ''
             plt_sz = 31
             lbl_gap = 0.13
             edg_clr = 'none'
 
         if plt_lbl is not None:
-            clr_dict[size_val, auc_val] = plt_clr
+            line_dict[size_val, auc_val] = dict(c=plt_clr)
             plot_dict[size_val, auc_val] = lbl_gap, (plt_lbl, '')
 
         ax.scatter(size_val, auc_val,
@@ -131,34 +131,26 @@ def plot_size_comparisons(auc_vals, pheno_dict, conf_vals,
 
     coh_lbl = get_cohort_label(use_coh)
     ax.set_xlabel("# of Mutated Samples in {}".format(coh_lbl),
-                  size=25, weight='bold')
+                  size=24, weight='bold')
     ax.set_ylabel("Classification Task\nAccuracy in {}".format(coh_lbl),
-                  size=25, weight='bold')
+                  size=24, weight='bold')
+
+    lgnd_lbls = ["{} ({})".format(clr_lbl, lgnd_dict[clr])
+                 for clr, clr_lbl in clr_dict.items()]
+    lgnd_marks = [Line2D([], [], marker='o',
+                         linestyle='None', markersize=11, alpha=0.43,
+                         markerfacecolor=clr, markeredgecolor='none')
+                  for clr in clr_dict]
+
+    ax.legend(lgnd_marks, lgnd_lbls, bbox_to_anchor=(0.995, 0.003),
+              frameon=False, fontsize=16, ncol=1, loc=4, handletextpad=0.07)
+    ax.grid(linewidth=0.83, alpha=0.41)
 
     if plot_dict:
-        lbl_pos = place_scatterpie_labels(plot_dict, fig, ax, seed=args.seed)
-
-        for (pnt_x, pnt_y), pos in lbl_pos.items():
-            ax.text(pos[0][0], pos[0][1] + 700 ** -1,
-                    plot_dict[pnt_x, pnt_y][1][0],
-                    size=11, ha=pos[1], va='bottom')
-
-            x_delta = pnt_x - pos[0][0]
-            y_delta = pnt_y - pos[0][1]
-
-            if abs(x_delta) > x_rng / 23 or abs(y_delta) > y_rng / 23:
-                end_x = pos[0][0] + np.sign(x_delta) * x_rng / 203
-                end_y = pos[0][1] + np.heaviside(y_delta, 0) * y_rng / 29
-
-                ln_x, ln_y = (pnt_x - end_x) / x_rng, (pnt_y - end_y) / y_rng
-                ln_mag = (ln_x ** 2 + ln_y ** 2) ** 0.5
-                ln_cos, ln_sin = ln_x / ln_mag, ln_y / ln_mag
-
-                ax.plot([pnt_x - ln_cos * x_rng / 11
-                         * plot_dict[pnt_x, pnt_y][0], end_x],
-                        [pnt_y - ln_sin * y_rng / 11
-                         * plot_dict[pnt_x, pnt_y][0], end_y],
-                        c=clr_dict[pnt_x, pnt_y], linewidth=1.7, alpha=0.31)
+        lbl_pos = place_scatter_labels(plot_dict, ax,
+                                       plt_type='scatter', font_size=11,
+                                       seed=args.seed, line_dict=line_dict,
+                                       linewidth=0.71, alpha=0.61)
 
     plt.savefig(
         os.path.join(plot_dir, args.gene,
@@ -348,8 +340,10 @@ def plot_dyad_comparisons(auc_vals, pheno_dict, conf_vals, use_coh, args):
             copy_ax.plot([plt_min, 1], [copy_auc, copy_auc], color=copy_clr,
                          linewidth=copy_lw, linestyle=':', alpha=0.83)
 
-    plt_lims = plt_min, 1 + (1 - plt_min) / 91
+    plt_lims = plt_min, 1 + (1 - plt_min) / 131
     for ax in (gain_ax, loss_ax):
+        ax.grid(linewidth=0.83, alpha=0.41)
+
         ax.set_xlim(plt_lims)
         ax.set_ylim(plt_lims)
 

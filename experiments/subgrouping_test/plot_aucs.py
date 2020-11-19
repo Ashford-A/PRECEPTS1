@@ -279,9 +279,7 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals, args, add_lgnd):
             plt_size = 0.07 * base_size ** 0.5
 
             plot_dict[auc_tupl] = [plt_size, ('', '')]
-            plt_min = min(plt_min, auc_vec[base_indx] - 0.03,
-                          auc_vec[best_subtype] - 0.03)
-
+            plt_min = min(plt_min, auc_tupl[0] - 0.03, auc_tupl[1] - 0.03)
             best_prop = np.mean(pheno_dict[best_subtype]) / base_size
             conf_sc = calc_conf(conf_vals[best_subtype],
                                 conf_vals[base_mtype])
@@ -309,8 +307,8 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals, args, add_lgnd):
                                 axes_kwargs=dict(aspect='equal'), borderpad=0)
 
             pie_ax.pie(x=[best_prop, 1 - best_prop],
-                       colors=[line_dict[auc_tupl]['c'] + (0.77,),
-                               line_dict[auc_tupl]['c'] + (0.29,)],
+                       colors=[line_dict[auc_tupl]['c'] + (0.77, ),
+                               line_dict[auc_tupl]['c'] + (0.29, )],
                        explode=[0.29, 0], startangle=90)
 
     plt_lims = plt_min, 1 + (1 - plt_min) / 181
