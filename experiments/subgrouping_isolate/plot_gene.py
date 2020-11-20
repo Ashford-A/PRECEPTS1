@@ -68,7 +68,7 @@ def choose_subtype_colour(mut):
 
 
 def plot_size_comparisons(auc_vals, pheno_dict, conf_vals,
-                          use_coh, args, add_lgnd=False):
+                          use_src, use_coh, args, add_lgnd=False):
     fig, ax = plt.subplots(figsize=(13, 8))
 
     plot_dict = dict()
@@ -121,6 +121,9 @@ def plot_size_comparisons(auc_vals, pheno_dict, conf_vals,
     y_min, y_max = auc_min - (1 - auc_min) / 17, 1 + (1 - auc_min) / 113
     x_rng, y_rng = x_max - x_min, y_max - y_min
 
+    if 0.4 < y_min < 0.48:
+        y_min = 0.389
+
     ax.plot([x_min, x_max], [0.5, 0.5],
             color='black', linewidth=1.3, linestyle=':', alpha=0.71)
     ax.plot([x_min, x_max], [1, 1], color='black', linewidth=1.9, alpha=0.89)
@@ -155,14 +158,14 @@ def plot_size_comparisons(auc_vals, pheno_dict, conf_vals,
     plt.savefig(
         os.path.join(plot_dir, args.gene,
                      "{}__size-comparison_{}_{}.svg".format(
-                         use_coh, args.classif, args.expr_source)),
+                         use_coh, args.classif, use_src)),
         bbox_inches='tight', format='svg'
         )
 
     plt.close()
 
 
-def plot_iso_comparisons(auc_dfs, pheno_dict, use_coh, args):
+def plot_iso_comparisons(auc_dfs, pheno_dict, use_src, use_coh, args):
     fig, axarr = plt.subplots(figsize=(15, 15), nrows=3, ncols=3)
 
     base_aucs = {
@@ -263,14 +266,15 @@ def plot_iso_comparisons(auc_dfs, pheno_dict, use_coh, args):
     plt.savefig(
         os.path.join(plot_dir, args.gene,
                      "{}__iso-comparisons_{}_{}.svg".format(
-                         use_coh, args.classif, args.expr_source)),
+                         use_coh, args.classif, use_src)),
         bbox_inches='tight', format='svg'
         )
 
     plt.close()
 
 
-def plot_dyad_comparisons(auc_vals, pheno_dict, conf_vals, use_coh, args):
+def plot_dyad_comparisons(auc_vals, pheno_dict, conf_vals,
+                          use_src, use_coh, args):
     fig, (gain_ax, loss_ax) = plt.subplots(figsize=(17, 8), nrows=1, ncols=2)
 
     pnt_aucs = auc_vals[[
@@ -369,7 +373,7 @@ def plot_dyad_comparisons(auc_vals, pheno_dict, conf_vals, use_coh, args):
     plt.savefig(
         os.path.join(plot_dir, args.gene,
                      "{}__dyad-comparisons_{}_{}.svg".format(
-                         use_coh, args.classif, args.expr_source)),
+                         use_coh, args.classif, use_src)),
         bbox_inches='tight', format='svg'
         )
 
@@ -377,7 +381,7 @@ def plot_dyad_comparisons(auc_vals, pheno_dict, conf_vals, use_coh, args):
 
 
 def plot_score_symmetry(pred_dfs, pheno_dict, auc_dfs, cdata,
-                        args, use_coh, siml_metric):
+                        args, use_src, use_coh, siml_metric):
     fig, (iso_ax, ish_ax) = plt.subplots(figsize=(15, 8), nrows=1, ncols=2)
 
     use_mtree = tuple(cdata.mtrees.values())[0][args.gene]
@@ -551,14 +555,14 @@ def plot_score_symmetry(pred_dfs, pheno_dict, auc_dfs, cdata,
     plt.tight_layout(w_pad=3.1)
     plt.savefig(os.path.join(
         plot_dir, args.gene, "{}__{}-siml-symmetry_{}_{}.svg".format(
-            use_coh, siml_metric, args.classif, args.expr_source)
+            use_coh, siml_metric, args.classif, use_src)
         ), bbox_inches='tight', format='svg')
 
     plt.close()
 
 
 def plot_subcopy_symmetry(pred_dfs, pheno_dict, auc_dfs, cdata,
-                          args, cna_lbl, use_coh, siml_metric):
+                          args, cna_lbl, use_src, use_coh, siml_metric):
     fig, ax = plt.subplots(figsize=(8.43, 9))
     cna_mtype = cna_mtypes[cna_lbl]
 
@@ -689,7 +693,7 @@ def plot_subcopy_symmetry(pred_dfs, pheno_dict, auc_dfs, cdata,
 
     plt.savefig(os.path.join(
         plot_dir, args.gene, "{}__{}-sub{}-symmetry_{}_{}.svg".format(
-            use_coh, siml_metric, cna_lbl, args.classif, args.expr_source)
+            use_coh, siml_metric, cna_lbl, args.classif, use_src)
         ), bbox_inches='tight', format='svg')
 
     plt.close()
@@ -701,7 +705,6 @@ def main():
         description="Plots gene-specific experiment output across cohorts."
         )
 
-    parser.add_argument('expr_source', help="a source of expression datasets")
     parser.add_argument('gene', help="a mutated gene")
     parser.add_argument('classif', help="a mutation classifier")
 
@@ -717,16 +720,15 @@ def main():
 
     args = parser.parse_args()
     out_list = tuple(Path(base_dir).glob(
-        os.path.join("{}__*".format(args.expr_source),
-                     "out-conf__*__*__{}.p.gz".format(args.classif))
-        ))
+        os.path.join("*__*", "out-conf__*__*__{}.p.gz".format(args.classif))))
 
     if len(out_list) == 0:
         raise ValueError("No completed experiments found for this "
                          "combination of parameters!")
 
     out_df = pd.DataFrame(
-        [{'Cohort': out_file.parts[-2].split('__')[1],
+        [{'Source': out_file.parts[-2].split('__')[0],
+          'Cohort': out_file.parts[-2].split('__')[1],
           'Levels': '__'.join(out_file.parts[-1].split('__')[1:-2]),
           'File': out_file}
          for out_file in out_list]
@@ -740,103 +742,108 @@ def main():
                              "cohort(s) {} !".format(set(args.cohorts)))
 
     os.makedirs(os.path.join(plot_dir, args.gene), exist_ok=True)
-    out_iter = out_df.groupby(['Cohort', 'Levels'])['File']
-    phn_dicts = {coh: dict() for coh in out_df.Cohort.unique()}
+    out_iter = out_df.groupby(['Source', 'Cohort', 'Levels'])['File']
+    phn_dicts = {(src, coh): dict() for src, coh, _ in out_iter.groups}
  
-    out_dirs = {coh: Path(base_dir, '__'.join([args.expr_source, coh]))
-                for coh in out_df.Cohort.values}
+    out_dirs = {(src, coh): Path(base_dir, '__'.join([src, coh]))
+                for src, coh, _ in out_iter.groups}
     out_tags = {fl: '__'.join(fl.parts[-1].split('__')[1:])
                 for fl in out_df.File}
 
-    for (coh, lvls), out_files in out_iter:
+    for (src, coh, lvls), out_files in out_iter:
         for out_file in out_files:
-            with bz2.BZ2File(Path(out_dirs[coh],
+            with bz2.BZ2File(Path(out_dirs[src, coh],
                                   '__'.join(["out-pheno",
                                              out_tags[out_file]])),
                              'r') as f:
                 phn_vals = pickle.load(f)
 
-            phn_dicts[coh].update({
+            phn_dicts[src, coh].update({
                 mut: phns for mut, phns in phn_vals.items()
                 if tuple(mut.label_iter())[0] == args.gene
                 })
 
-    use_cohs = {coh for coh, phn_dict in phn_dicts.items() if phn_dict}
+    use_cohs = {(src, coh) for (src, coh), phn_dict in phn_dicts.items()
+                if phn_dict}
+
     if not use_cohs:
         raise ValueError("No completed experiments found having tested "
                          "mutations of the gene {} for the given "
                          "parameters!".format(args.gene))
 
-    out_use = out_df.loc[out_df.Cohort.isin(use_cohs)]
-    use_iter = out_use.groupby(['Cohort', 'Levels'])['File']
+    out_use = out_df.loc[[
+        (src, coh) in use_cohs
+        for src, coh in out_df[['Source', 'Cohort']].values
+        ]]
+    use_iter = out_use.groupby(['Source', 'Cohort', 'Levels'])['File']
 
-    out_aucs = {(coh, lvls): list() for coh, lvls in use_iter.groups}
-    out_confs = {(coh, lvls): list() for coh, lvls in use_iter.groups}
-    out_preds = {(coh, lvls): list() for coh, lvls in use_iter.groups}
-    cdata_dict = {coh: None for coh, _ in use_iter.groups}
+    out_aucs = {k: list() for k in use_iter.groups}
+    out_confs = {k: list() for k in use_iter.groups}
+    out_preds = {k: list() for k in use_iter.groups}
+    cdata_dict = {(src, coh): None for src, coh, _ in use_iter.groups}
 
-    auc_dfs = {coh: {ex_lbl: pd.DataFrame([])
-                     for ex_lbl in ['All', 'Iso', 'IsoShal']}
-               for coh in use_cohs}
-    conf_dfs = {coh: {ex_lbl: pd.DataFrame([])
-                      for ex_lbl in ['All', 'Iso', 'IsoShal']}
-                for coh in use_cohs}
-    pred_dfs = {coh: {ex_lbl: pd.DataFrame([])
-                      for ex_lbl in ['All', 'Iso', 'IsoShal']}
-                for coh in use_cohs}
+    auc_dfs = {(src, coh): {ex_lbl: pd.DataFrame([])
+                            for ex_lbl in ['All', 'Iso', 'IsoShal']}
+               for src, coh in use_cohs}
+    conf_dfs = {(src, coh): {ex_lbl: pd.DataFrame([])
+                             for ex_lbl in ['All', 'Iso', 'IsoShal']}
+                for src, coh in use_cohs}
+    pred_dfs = {(src, coh): {ex_lbl: pd.DataFrame([])
+                             for ex_lbl in ['All', 'Iso', 'IsoShal']}
+                for src, coh in use_cohs}
 
-    for (coh, lvls), out_files in use_iter:
+    for (src, coh, lvls), out_files in use_iter:
         for out_file in out_files:
-            with bz2.BZ2File(Path(out_dirs[coh],
+            with bz2.BZ2File(Path(out_dirs[src, coh],
                                   '__'.join(["out-aucs",
                                              out_tags[out_file]])),
                              'r') as f:
                 auc_vals = pickle.load(f)
 
-            out_aucs[coh, lvls] += [
+            out_aucs[src, coh, lvls] += [
                 {ex_lbl: auc_df.loc[[mut for mut in auc_df.index
                                      if args.gene in mut.label_iter()]]
                  for ex_lbl, auc_df in auc_vals.items()}
                 ]
 
-            with bz2.BZ2File(Path(out_dirs[coh],
+            with bz2.BZ2File(Path(out_dirs[src, coh],
                                   '__'.join(["out-conf",
                                              out_tags[out_file]])),
                              'r') as f:
                 conf_vals = pickle.load(f)
 
-            out_confs[coh, lvls] += [{
+            out_confs[src, coh, lvls] += [{
                 ex_lbl: pd.DataFrame(conf_dict).loc[
-                    out_aucs[coh, lvls][-1][ex_lbl].index]
+                    out_aucs[src, coh, lvls][-1][ex_lbl].index]
                 for ex_lbl, conf_dict in conf_vals.items()
                 }]
 
-            with bz2.BZ2File(Path(out_dirs[coh],
+            with bz2.BZ2File(Path(out_dirs[src, coh],
                                   '__'.join(["out-pred",
                                              out_tags[out_file]])),
                              'r') as f:
                 pred_vals = pickle.load(f)
 
-            out_preds[coh, lvls] += [{
+            out_preds[src, coh, lvls] += [{
                 ex_lbl: pd.DataFrame(pred_dict).loc[
-                    out_aucs[coh, lvls][-1][ex_lbl].index]
+                    out_aucs[src, coh, lvls][-1][ex_lbl].index]
                 for ex_lbl, pred_dict in pred_vals.items()
                 }]
 
-            with bz2.BZ2File(Path(out_dirs[coh],
+            with bz2.BZ2File(Path(out_dirs[src, coh],
                                   '__'.join(["cohort-data",
                                              out_tags[out_file]])),
                              'r') as f:
                 new_cdata = pickle.load(f)
 
-            if cdata_dict[coh] is None:
-                cdata_dict[coh] = new_cdata
+            if cdata_dict[src, coh] is None:
+                cdata_dict[src, coh] = new_cdata
             else:
-                cdata_dict[coh].merge(new_cdata, use_genes=[args.gene])
+                cdata_dict[src, coh].merge(new_cdata, use_genes=[args.gene])
 
         mtypes_comp = np.greater_equal.outer(
             *([[set(auc_vals['All']['mean'].index)
-                for auc_vals in out_aucs[coh, lvls]]] * 2)
+                for auc_vals in out_aucs[src, coh, lvls]]] * 2)
             )
         super_list = np.apply_along_axis(all, 1, mtypes_comp)
 
@@ -844,47 +851,48 @@ def main():
             super_indx = super_list.argmax()
 
             for ex_lbl in ['All', 'Iso', 'IsoShal']:
-                auc_dfs[coh][ex_lbl] = pd.concat([
-                    auc_dfs[coh][ex_lbl],
-                    out_aucs[coh, lvls][super_indx][ex_lbl]
+                auc_dfs[src, coh][ex_lbl] = pd.concat([
+                    auc_dfs[src, coh][ex_lbl],
+                    out_aucs[src, coh, lvls][super_indx][ex_lbl]
                     ], sort=False)
 
-                conf_dfs[coh][ex_lbl] = pd.concat([
-                    conf_dfs[coh][ex_lbl],
-                    out_confs[coh, lvls][super_indx][ex_lbl]
+                conf_dfs[src, coh][ex_lbl] = pd.concat([
+                    conf_dfs[src, coh][ex_lbl],
+                    out_confs[src, coh, lvls][super_indx][ex_lbl]
                     ], sort=False)
 
-                pred_dfs[coh][ex_lbl] = pd.concat([
-                    pred_dfs[coh][ex_lbl],
-                    out_preds[coh, lvls][super_indx][ex_lbl]
+                pred_dfs[src, coh][ex_lbl] = pd.concat([
+                    pred_dfs[src, coh][ex_lbl],
+                    out_preds[src, coh, lvls][super_indx][ex_lbl]
                     ], sort=False)
 
-    for coh, coh_lvls in out_use.groupby('Cohort')['Levels']:
+    for (src, coh), coh_lvls in out_use.groupby([
+            'Source', 'Cohort'])['Levels']:
         for ex_lbl in ['All', 'Iso', 'IsoShal']:
-            auc_dfs[coh][ex_lbl] = auc_dfs[coh][ex_lbl]['mean'].loc[
-                ~auc_dfs[coh][ex_lbl].index.duplicated()]
-            conf_dfs[coh][ex_lbl] = conf_dfs[coh][ex_lbl]['mean'].loc[
-                ~conf_dfs[coh][ex_lbl].index.duplicated()]
+            auc_dfs[src, coh][ex_lbl] = auc_dfs[src, coh][ex_lbl]['mean'].loc[
+                ~auc_dfs[src, coh][ex_lbl].index.duplicated()]
+            conf_dfs[src, coh][ex_lbl] = conf_dfs[
+                src, coh][ex_lbl]['mean'].loc[
+                    ~conf_dfs[src, coh][ex_lbl].index.duplicated()]
 
-        plot_size_comparisons(auc_dfs[coh]['All'], phn_dicts[coh],
-                              conf_dfs[coh]['All'], coh, args)
+        plot_size_comparisons(auc_dfs[src, coh]['All'], phn_dicts[src, coh],
+                              conf_dfs[src, coh]['All'], src, coh, args)
 
-        plot_iso_comparisons(auc_dfs[coh], phn_dicts[coh], coh, args)
-        plot_dyad_comparisons(auc_dfs[coh]['All'], phn_dicts[coh],
-                              conf_dfs[coh]['All'], coh, args)
+        plot_iso_comparisons(auc_dfs[src, coh], phn_dicts[src, coh],
+                             src, coh, args)
+        plot_dyad_comparisons(auc_dfs[src, coh]['All'], phn_dicts[src, coh],
+                              conf_dfs[src, coh]['All'], src, coh, args)
 
         for siml_metric in args.siml_metrics:
             if args.auc_cutoff < 1:
-                plot_score_symmetry(
-                    pred_dfs[coh], phn_dicts[coh], auc_dfs[coh],
-                    cdata_dict[coh], args, coh, siml_metric
-                    )
+                plot_score_symmetry(pred_dfs[src, coh], phn_dicts[src, coh],
+                                    auc_dfs[src, coh], cdata_dict[src, coh],
+                                    args, src, coh, siml_metric)
 
             for cna_lbl in cna_mtypes:
-                plot_subcopy_symmetry(
-                    pred_dfs[coh], phn_dicts[coh], auc_dfs[coh],
-                    cdata_dict[coh], args, cna_lbl, coh, siml_metric
-                    )
+                plot_subcopy_symmetry(pred_dfs[src, coh], phn_dicts[src, coh],
+                                      auc_dfs[src, coh], cdata_dict[src, coh],
+                                      args, cna_lbl, src, coh, siml_metric)
 
         if 'Consequence__Exon' not in set(coh_lvls.tolist()):
             if args.verbose:

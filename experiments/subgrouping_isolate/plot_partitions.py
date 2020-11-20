@@ -5,12 +5,11 @@ from ..utilities.mutations import (
     )
 from dryadic.features.mutations import MuType
 
-from .utils import calculate_mean_siml, calculate_ks_siml
+from ..subgrouping_isolate import base_dir
+from ..utilities.metrics import calculate_mean_siml, calculate_ks_siml
 from .plot_gene import choose_subtype_colour, remove_pheno_dups
-
 from ..utilities.colour_maps import simil_cmap, auc_cmap
-from ..subvariant_isolate.utils import get_fancy_label
-from ..subvariant_test.utils import get_cohort_label
+from ..utilities.labels import get_fancy_label, get_cohort_label
 
 import os
 import argparse
@@ -31,24 +30,21 @@ from functools import reduce
 from operator import add
 
 import matplotlib as mpl
-mpl.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib import colors
 from matplotlib.colorbar import ColorbarBase
 
+mpl.use('Agg')
 plt.style.use('fivethirtyeight')
 plt.rcParams['axes.facecolor'] = 'white'
 plt.rcParams['savefig.facecolor'] = 'white'
 plt.rcParams['axes.edgecolor'] = 'white'
-
-
-base_dir = os.path.join(os.environ['DATADIR'], 'HetMan',
-                        'subgrouping_isolate')
 plot_dir = os.path.join(base_dir, 'plots', 'partitions')
 
 
 SIML_FXS = {'mean': calculate_mean_siml, 'ks': calculate_ks_siml}
+PLOT_MAX = 25000
 
 
 def classify_mtype(mtype):
@@ -102,6 +98,15 @@ def plot_symmetry_decomposition(pred_df, pheno_dict, auc_vals,
               "mutations for: {}({}) !".format(len(use_combs),
                                                plt_gene, ex_lbl))
         return True
+
+    if len(use_pairs) > PLOT_MAX:
+        print("found {} suitable pairs, only plotting "
+              "the top {} by max AUC!".format(len(use_pairs), PLOT_MAX))
+
+        use_pairs = pd.Series({
+            mcombs: max(auc_vals[mcomb] for mcomb in mcombs)
+            for mcombs in use_pairs
+            }).sort_values()[-(PLOT_MAX):].index.tolist()
 
     mcomb_clx = {mcomb: classify_mcomb(mcomb) for mcomb in use_combs}
     cls_counts = pd.Series(
@@ -235,8 +240,10 @@ def plot_symmetry_decomposition(pred_df, pheno_dict, auc_vals,
 
     clr_ax.set_title("AUC", size=21, fontweight='bold')
     clr_ax.yaxis.set_major_locator(plt.MaxNLocator(7, steps=[1, 2, 4, 5]))
-    clr_bar.ax.set_yticklabels([format(tck, '.2f').lstrip('0')
-                                for tck in clr_ax.get_yticks()],
+    tcks_loc = clr_ax.get_yticks().tolist()
+    clr_ax.yaxis.set_major_locator(mpl.ticker.FixedLocator(tcks_loc))
+    clr_bar.ax.set_yticklabels([format(tick, '.2f').lstrip('0')
+                                for tick in tcks_loc],
                                size=15, fontweight='semibold')
 
     siml_norm = colors.Normalize(vmin=-1, vmax=2)
@@ -355,7 +362,7 @@ def main():
             if args.genes:
                 auc_vals = auc_vals.loc[[
                     mcomb for mcomb in auc_vals.index
-                    if mcomb.get_labels()[0] in set(args.genes)
+                    if mcomb.label_iter()[0] in set(args.genes)
                     ]]
 
             out_aucs[lvls] += [auc_vals]
@@ -400,7 +407,7 @@ def main():
                     sort=False
                     )
 
-    if cdata.muts.shape[0] == 0:
+    if cdata._muts.shape[0] == 0:
         raise ValueError("No mutation calls found in cohort "
                          "`{}` for these genes!".format(args.cohort))
 
@@ -428,7 +435,7 @@ def main():
     assert not (use_mtypes['Iso'] & use_mtypes['IsoShal'])
     for ex_lbl in ['Iso', 'IsoShal']:
         for gene, auc_vals in auc_df.loc[use_mtypes[ex_lbl], ex_lbl].groupby(
-                lambda mcomb: mcomb.get_labels()[0]):
+                lambda mcomb: tuple(mcomb.label_iter())[0]):
 
             pair_stat = None
             for siml_metric in args.siml_metrics:

@@ -1,4 +1,5 @@
 
+from ..subgrouping_isolate import base_dir
 from ..utilities.misc import get_distr_transform, choose_label_colour
 
 import os
@@ -18,10 +19,6 @@ plt.style.use('fivethirtyeight')
 plt.rcParams['axes.facecolor'] = 'white'
 plt.rcParams['savefig.facecolor'] = 'white'
 plt.rcParams['axes.edgecolor'] = 'white'
-
-
-base_dir = os.path.join(os.environ['DATADIR'], 'HetMan',
-                        'subgrouping_isolate')
 plot_dir = os.path.join(base_dir, 'plots', 'tuning')
 
 

@@ -8,11 +8,10 @@ from dryadic.features.mutations import MuType
 from ..subgrouping_isolate import base_dir
 from .utils import remove_pheno_dups
 from ..utilities.metrics import calculate_mean_siml, calculate_ks_siml
-from ..utilities.labels import get_fancy_label
+from ..utilities.labels import get_fancy_label, get_cohort_label
 from ..utilities.misc import choose_label_colour
-from ..subvariant_test.utils import get_cohort_label
 from ..utilities.colour_maps import simil_cmap
-from ..utilities.label_placement import place_scatterpie_labels
+from ..utilities.label_placement import place_scatter_labels
 
 import os
 import argparse
@@ -223,10 +222,10 @@ def plot_copy_interaction(pred_df, pheno_dict, auc_vals,
         for cna_lbl, cna_type in cna_mtypes.items()
         }
 
-    plot_dicts = {'Gain': dict(), 'Loss': dict()}
-    clr_dict = dict()
-    plt_lims = [0.1, 0.9]
     train_samps = cdata.get_train_samples()
+    plot_dicts = {'Gain': dict(), 'Loss': dict()}
+    line_dicts = {'Gain': dict(), 'Loss': dict()}
+    plt_lims = [0.1, 0.9]
 
     for cna_lbl, ax in zip(['Gain', 'Loss'], [gain_ax, loss_ax]):
         for copy_comb in copy_mcombs[cna_lbl]:
@@ -244,8 +243,7 @@ def plot_copy_interaction(pred_df, pheno_dict, auc_vals,
 
             if len(pnt_combs) == 1:
                 pnt_mcomb = tuple(pnt_combs)[0]
-                if cur_gene not in clr_dict:
-                    clr_dict[cur_gene] = choose_label_colour(cur_gene)
+                use_clr = choose_label_colour(cur_gene)
 
                 use_mtree = tuple(cdata.mtrees.values())[0][cur_gene]
                 all_mtype = MuType({('Gene', cur_gene): use_mtree.allkey()})
@@ -271,12 +269,14 @@ def plot_copy_interaction(pred_df, pheno_dict, auc_vals,
 
                 dyad_size = np.mean(pheno_dict[copy_comb]
                                     | pheno_dict[pnt_mcomb])
+
                 plot_dicts[cna_lbl][auc_vals[copy_comb], copy_siml] = (
                     dyad_size ** 0.91, (cur_gene, subt_lbl))
+                line_dicts[cna_lbl][auc_vals[copy_comb], copy_siml] = dict(
+                    c=use_clr)
 
-                ax.scatter(auc_vals[copy_comb], copy_siml,
-                           s=dyad_size * 2039, c=[clr_dict[cur_gene]],
-                           alpha=0.31, edgecolor='none')
+                ax.scatter(auc_vals[copy_comb], copy_siml, s=dyad_size * 2039,
+                           c=[use_clr], alpha=0.31, edgecolor='none')
 
                 plt_lims[0] = min(plt_lims[0], copy_siml - 0.11)
                 plt_lims[1] = max(plt_lims[1], copy_siml + 0.11)
@@ -302,11 +302,14 @@ def plot_copy_interaction(pred_df, pheno_dict, auc_vals,
                     color=simil_cmap(clr_norm(siml_val)),
                     linewidth=4.1, linestyle=':', alpha=0.53)
 
-        lbl_pos = place_scatterpie_labels(plot_dicts[cna_lbl], clr_dict,
-                                          fig, ax, font_adj=5 / 7)
-
         ax.set_xlim(0.59, 1.005)
         ax.set_ylim(*plt_lims)
+
+        lbl_pos = place_scatter_labels(
+            plot_dicts[cna_lbl], ax,
+            plt_type='scatter', font_size=11, seed=args.seed,
+            line_dict=line_dicts[cna_lbl], linewidth=0.71, alpha=0.61
+            )
 
     plt.tight_layout(pad=0, h_pad=1.9)
     plt.savefig(
