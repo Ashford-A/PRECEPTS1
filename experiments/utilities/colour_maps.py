@@ -51,10 +51,13 @@ variant_clrs = {'WT': "0.29", 'Point': "#0D29FF",
                 'Gain': "#6AC500", 'Loss': "#BB0048"}
 mcomb_clrs = {'Point+Loss': "#7C30B0", 'Point+Gain': "#25A497"}
 
-form_clrs = dict(zip(['Frame_Shift', 'Nonsense_Mutation',
-                      'Splice_Site', 'Splice_Region', 'Intron', "3'UTR",
-                      'Missense_Mutation', 'In_Frame'],
-                     sns.hls_palette(8, l=0.43, s=0.95)))
-form_clrs['Silent'] = '0.27'
-form_clrs['Nonstop_Mutation'] = form_clrs['Nonsense_Mutation']
+form_clrs = dict(zip(['frameshift_variant', 'stop_lost', 'stop_gained',
+                      'splice_region_variant', 'missense_variant',
+                      'inframe_deletion'],
+                     sns.hls_palette(6, l=0.43, s=0.95)))
+
+form_clrs['synonymous_variant'] = '0.67'
+form_clrs['inframe_insertion'] = form_clrs['inframe_deletion']
+form_clrs['protein_altering_variant'] = form_clrs['frameshift_variant']
+form_clrs['splice_donor_variant'] = form_clrs['splice_region_variant']
 

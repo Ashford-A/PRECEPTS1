@@ -1,40 +1,37 @@
 
+from ..utilities.mutations import (pnt_mtype, copy_mtype,
+                                   gains_mtype, dels_mtype, ExMcomb)
+from dryadic.features.mutations import MuType
+from dryadic.features.data.domains import get_protein_domains
+
+from ..subgrouping_isolate import base_dir
+from ..utilities.data_dirs import domain_dir
+from ..utilities.colour_maps import form_clrs
+from ..utilities.labels import get_fancy_label, get_cohort_label
+from .plot_gene import choose_subtype_colour
+
 import os
 import argparse
 from pathlib import Path
 import bz2
+import dill as pickle
+
 from operator import itemgetter
 import re
-
-import dill as pickle
 import pandas as pd
+
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 from matplotlib.patches import Patch
 from matplotlib.patches import Rectangle as Rect
 from matplotlib.collections import PatchCollection
 
-from ..utilities.mutations import (
-    pnt_mtype, copy_mtype,
-    gains_mtype, dels_mtype, ExMcomb, )
-from dryadic.features.mutations import MuType
-from dryadic.features.data.domains import get_protein_domains
-from .data_dirs import domain_dir
-from ..utilities.labels import get_fancy_label
-from ..subvariant_test.utils import get_cohort_label
-from ..utilities.colour_maps import form_clrs
-from .plot_gene import choose_subtype_colour
-
 # make plots cleaner by turning off outer box, make background all white
 mpl.use('Agg')
 plt.style.use('fivethirtyeight')
-plt.rcParams['axes.facecolor']='white'
-plt.rcParams['savefig.facecolor']='white'
-plt.rcParams['axes.edgecolor']='white'
-
-
-base_dir = os.path.join(os.environ['DATADIR'], 'HetMan',
-                        'subgrouping_isolate')
+plt.rcParams['axes.facecolor'] = 'white'
+plt.rcParams['savefig.facecolor'] = 'white'
+plt.rcParams['axes.edgecolor'] = 'white'
 plot_dir = os.path.join(base_dir, 'plots', 'mutations')
 
 
@@ -302,12 +299,6 @@ def main():
                 cdata_dict[src, clf] = new_cdata
             else:
                 cdata_dict[src, clf].merge(new_cdata, use_genes=[args.gene])
-
-    assert len({cdata.data_hash()[1]
-                for cdata in cdata_dict.values()}) == 1, (
-                    "Inconsistent mutation data between different iterations "
-                    "of the experiment!"
-                    )
 
     domn_dict = {domn: get_protein_domains(domain_dir, domn)
                  for domn in ['Pfam', 'SMART']}

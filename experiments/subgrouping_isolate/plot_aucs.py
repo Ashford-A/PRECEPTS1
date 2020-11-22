@@ -235,7 +235,7 @@ def plot_copy_comparisons(auc_vals, pheno_dict, conf_vals,
 
         if plot_dicts[copy_type]:
             lbl_pos = place_scatter_labels(plot_dicts[copy_type], ax,
-                                           plt_lims=lbl_lims,
+                                           plt_lims=lbl_lims, font_size=11,
                                            line_dict=line_dicts[copy_type])
 
         ax.set_xlim(plt_lims)
@@ -405,9 +405,14 @@ def plot_dyad_comparisons(auc_vals, pheno_dict, conf_vals, args):
                 gene_clr = choose_label_colour(gene)
 
                 auc_tupl = pnt_aucs[auc_vec.index].mean(), auc_vec.mean()
-                font_dicts[copy_lbl][auc_tupl] = dict(c=gene_clr)
-                plot_dicts[copy_lbl][auc_tupl] = (
-                    0, (gene, "(or {})".format(get_fancy_label(copy_type))))
+                if ((len(auc_vec) / plot_df.shape[0]) >= 0.01
+                        and auc_vec.max() >= 0.7):
+                    font_dicts[copy_lbl][auc_tupl] = dict(c=gene_clr)
+
+                    plot_dicts[copy_lbl][auc_tupl] = (
+                        0, (gene,
+                            "(or {})".format(get_fancy_label(copy_type)))
+                        )
 
                 for pnt_type, copy_auc in auc_vec.iteritems():
                     base_size = np.mean(pheno_dict[pnt_type])
@@ -430,20 +435,20 @@ def plot_dyad_comparisons(auc_vals, pheno_dict, conf_vals, args):
 
     plt_min = min(plot_df.min().min() - 0.02, pnt_aucs.min() - 0.02)
     plt_lims = plt_min, 1 + (1 - plt_min) / 181
-    lbl_lims = [[plt_min + 0.05, 0.91]] * 2
+    lbl_lims = [[plt_min + 0.05, 0.93]] * 2
 
     for ax, copy_lbl in zip([gain_ax, loss_ax], ['gain', 'loss']):
-        ax.grid(linewidth=0.83, alpha=0.41)
+        ax.grid(linewidth=0.71, alpha=0.41)
 
         ax.plot(plt_lims, [0.5, 0.5],
-                color='black', linewidth=1.1, linestyle=':', alpha=0.71)
+                color='black', linewidth=0.9, linestyle=':', alpha=0.71)
         ax.plot([0.5, 0.5], plt_lims,
-                color='black', linewidth=1.1, linestyle=':', alpha=0.71)
+                color='black', linewidth=0.9, linestyle=':', alpha=0.71)
 
-        ax.plot(plt_lims, [1, 1], color='black', linewidth=1.7, alpha=0.89)
-        ax.plot([1, 1], plt_lims, color='black', linewidth=1.7, alpha=0.89)
+        ax.plot(plt_lims, [1, 1], color='black', linewidth=1.1, alpha=0.89)
+        ax.plot([1, 1], plt_lims, color='black', linewidth=1.1, alpha=0.89)
         ax.plot(plt_lims, plt_lims,
-                color='#550000', linewidth=1.9, linestyle='--', alpha=0.41)
+                color='#550000', linewidth=1.7, linestyle='--', alpha=0.41)
 
         ax.set_xlabel("Accuracy of Subgrouping Classifier",
                       size=22, weight='semibold')
@@ -451,11 +456,13 @@ def plot_dyad_comparisons(auc_vals, pheno_dict, conf_vals, args):
                      size=26, weight='semibold')
 
         if plot_dicts[copy_lbl]:
-            lbl_pos = place_scatter_labels(
-                plot_dicts[copy_lbl], ax, plt_lims=[plt_lims] * 2,
-                plc_lims=lbl_lims, plt_type='scatter', font_size=15,
-                font_dict=font_dicts[copy_lbl], linewidth=0
-                )
+            lbl_pos = place_scatter_labels(plot_dicts[copy_lbl], ax,
+                                           plt_lims=[plt_lims] * 2,
+                                           plc_lims=lbl_lims,
+                                           plt_type='scatter', font_size=11,
+                                           line_dict=font_dicts[copy_lbl],
+                                           font_dict=font_dicts[copy_lbl],
+                                           linewidth=1.13, alpha=0.31)
 
         ax.set_xlim(plt_lims)
         ax.set_ylim(plt_lims)
