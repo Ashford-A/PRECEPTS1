@@ -20,9 +20,8 @@ import bz2
 import dill as pickle
 import multiprocessing as mp
 
-import random
 from functools import reduce
-from operator import itemgetter, add
+from operator import add
 from itertools import combinations as combn
 from itertools import permutations as permt
 from itertools import product
@@ -71,10 +70,13 @@ def plot_subcopy_adjacencies(pred_df, pheno_dict, auc_vals, cdata, args,
     plt_gby = pnt_aucs.groupby(lambda mtype: tuple(mtype.label_iter())[0])
     clr_dict = {gene: choose_label_colour(gene)
                 for gene in plt_gby.groups.keys()}
-    lbl_pos = {gene: None for gene in plt_gby.groups.keys()}
+    lbl_pos = [{gene: list() for gene in plt_gby.groups.keys()}
+               for _ in range(2)]
 
-    ylim = 1.03
     train_samps = cdata.get_train_samples()
+    plot_dicts = [dict(), dict()]
+    font_dicts = [dict(), dict()]
+    ylim = 1.03
 
     # TODO: differentiate between genes without CNAs and those
     #  with too much overlap between CNAs and point mutations?
@@ -110,84 +112,66 @@ def plot_subcopy_adjacencies(pred_df, pheno_dict, auc_vals, cdata, args,
                     use_preds.loc[plt_comb][pheno_dict[mcomb]]
                     )
 
+                base_size = np.mean(pheno_dict[mcomb])
                 ylim = max(ylim,
                            abs(copy_siml1) + 0.13, abs(copy_siml2) + 0.13)
 
-                for ax, siml_val in zip(axarr, [copy_siml1, copy_siml2]):
+                for i, (ax, siml_val) in enumerate(
+                        zip(axarr, [copy_siml1, copy_siml2])):
+                    pos_tupl = auc_val, siml_val
+                    lbl_pos[i][cur_gene] += [pos_tupl]
+                    plot_dicts[i][pos_tupl] = [1.41 * base_size, ('', '')]
+
                     ax.scatter(auc_val, siml_val,
-                               s=np.mean(pheno_dict[mcomb]) * 601,
-                               c=[clr_dict[cur_gene]],
+                               c=[clr_dict[cur_gene]], s=601 * base_size,
                                alpha=0.29, edgecolor='none')
 
         else:
-            del(lbl_pos[cur_gene])
-
-    auc_clip = sorted(
-        [(gene, sorted(np.clip(np.clip(auc_list.values,
-                                       *auc_list.quantile(q=[0.13, 0.87])),
-                               0.59, 0.98)))
-         for gene, auc_list in plt_gby if gene in lbl_pos],
-        key=itemgetter(0)
-        )
-
-    random.seed(args.seed)
-    random.shuffle(auc_clip)
-    i = -1
-    while i < 1000 and any(pos is None for pos in lbl_pos.values()):
-        i += 1
-
-        for gene, auc_list in auc_clip:
-            if lbl_pos[gene] is None:
-                collided = False
-
-                new_x = random.choice(auc_list)
-                new_x += random.gauss(0, 0.42 * i / 10000)
-                new_x = np.clip(new_x, 0.61, 0.97)
-
-                for oth_gene, oth_pos in lbl_pos.items():
-                    if oth_gene != gene and oth_pos is not None:
-                        if (abs(oth_pos[0] - new_x)
-                                < ((len(gene) + len(oth_gene)) / 193)):
-                            collided = True
-                            break
-
-                if not collided:
-                    lbl_pos[gene] = new_x, 0
-
-    for gene, pos in lbl_pos.items():
-        if pos is not None:
-            if clr_dict[gene] is None:
-                use_clr = '0.87'
-            else:
-                use_clr = clr_dict[gene]
-
-            axarr[0].text(pos[0], ylim * 1.03, gene,
-                          size=17, color=use_clr, alpha=0.67,
-                          fontweight='bold', ha='center', va='bottom')
+            for i in range(2):
+                del(lbl_pos[i][cur_gene])
 
     clr_norm = colors.Normalize(vmin=-1, vmax=2)
-    for ax in axarr:
-        ax.grid(alpha=0.43, linewidth=0.7)
+    for i, ax in enumerate(axarr):
+        ax.grid(alpha=0.43, linewidth=0.61)
+        ax.tick_params(labelsize=11)
+
+        for siml_val in [-1, 0, 1, 2]:
+            if -ylim <= siml_val <= ylim:
+                for k in np.linspace(0.63, 0.97, 200):
+                    plot_dicts[i][k, siml_val] = [0.1, ('', '')]
+
+        for gene, pos_list in lbl_pos[i].items():
+            if len(pos_list) >= 5:
+                pos_med = tuple(pd.DataFrame(pos_list).mean().tolist())
+                font_dicts[i][pos_med] = dict(c=clr_dict[gene], weight='bold')
+                plot_dicts[i][pos_med] = [0, (gene, '')]
+
+        _ = place_scatter_labels(
+            plot_dicts[i], ax, plt_lims=[[0.59, 1], [-ylim, ylim]],
+            plc_lims=[[0.63, 0.97], [-ylim * 0.83, ylim * 0.83]],
+            plt_type='scatter', font_size=13, font_dict=font_dicts[i],
+            linewidth=0
+            )
 
         ax.plot([1, 1], [-ylim, ylim],
-                color='black', linewidth=1.7, alpha=0.89)
+                color='black', linewidth=1.1, alpha=0.89)
         ax.plot([0.6, 1], [0, 0],
-                color='black', linewidth=1.9, linestyle=':', alpha=0.61)
+                color='black', linewidth=1.7, linestyle=':', alpha=0.61)
 
         for siml_val in [-1, 1, 2]:
             ax.plot([0.6, 1], [siml_val] * 2,
                     color=simil_cmap(clr_norm(siml_val)),
-                    linewidth=4.1, linestyle=':', alpha=0.41)
+                    linewidth=3.7, linestyle=':', alpha=0.41)
 
     axarr[0].set_ylabel("{} Similarity\nto Subgrouping".format(cna_lbl),
-                        size=23, weight='bold')
+                        size=21, weight='bold')
     axarr[1].set_ylabel(
         "Subgrouping Similarity\nto All {} Alterations".format(cna_lbl),
-        size=23, weight='bold'
+        size=21, weight='bold'
         )
 
-    axarr[1].set_xlabel("Accuracy of Isolated\nSubgrouping Classifier",
-                        size=23, weight='bold')
+    axarr[1].set_xlabel("Accuracy of Isolated Subgrouping Classifier",
+                        size=21, weight='bold')
 
     for ax in axarr:
         ax.set_xlim(0.59, 1.005)
