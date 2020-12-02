@@ -3,10 +3,9 @@ from .param_lists import search_params, mut_lvls
 from ..utilities.data_dirs import choose_source, vep_cache_dir
 from ...features.cohorts.utils import get_cohort_data
 
-from ..utilities.mutations import (
-    pnt_mtype, shal_mtype, dup_mtype, gains_mtype, loss_mtype, dels_mtype,
-    Mcomb, ExMcomb
-    )
+from ..utilities.mutations import (pnt_mtype, shal_mtype, dup_mtype,
+                                   gains_mtype, loss_mtype, dels_mtype,
+                                   Mcomb, ExMcomb)
 from dryadic.features.mutations import MuType
 
 import os
@@ -14,6 +13,7 @@ import argparse
 import bz2
 import dill as pickle
 
+import numpy as np
 from itertools import combinations as combn
 from functools import reduce
 from operator import or_
@@ -34,6 +34,9 @@ def main():
 
     args = parser.parse_args()
     out_path = os.path.join(args.out_dir, 'setup')
+
+    # get the combinations of mutation attributes and search constraints
+    # that will govern the enumeration of subgroupings within this gene
     lvl_lists = [('Scale', 'Copy') + lvl_list
                  for lvl_list in mut_lvls[args.mut_lvls]]
     search_dict = search_params[args.search_params]
@@ -101,20 +104,24 @@ def main():
             }
 
     test_mtypes = reduce(or_, lvl_types.values())
-    rmv_mtypes = set()
-    for rmv_mtype in sorted(test_mtypes):
-        rmv_lvls = rmv_mtype.get_levels()
+    lvl_dict = {mtype: mtype.get_levels() for mtype in test_mtypes}
+    lf_dict = {mtype: mtype.leaves() for mtype in test_mtypes}
 
-        # e.g. remove `Missense` in favour of `Missense->5th Exon` if
-        # all of this gene's missense mutations are on the fifth exon
-        for cmp_mtype in test_mtypes - {rmv_mtype} - rmv_mtypes:
-            if (samp_dict[rmv_mtype] == samp_dict[cmp_mtype]
-                    and (rmv_mtype.is_supertype(cmp_mtype)
-                         or len(rmv_mtype.leaves()) > len(cmp_mtype.leaves())
-                         or (len(rmv_lvls) > len(cmp_mtype.get_levels())))):
-                rmv_mtypes |= {rmv_mtype}
-                break
+    test_list = list(test_mtypes)
+    samp_list = np.array([samp_dict[mtype] for mtype in test_list])
+    eq_indx = np.where(np.triu(np.equal.outer(samp_list, samp_list), k=1))
+    dup_indx = set()
 
+    for indx1, indx2 in zip(*eq_indx):
+        for i, j in [[indx1, indx2], [indx2, indx1]]:
+            if (test_list[i].is_supertype(test_list[j])
+                    or (len(lf_dict[test_list[i]])
+                        > len(lf_dict[test_list[j]]))
+                    or (len(lvl_dict[test_list[i]])
+                        > len(lvl_dict[test_list[j]]))):
+                dup_indx |= {i}
+
+    rmv_mtypes = {test_list[i] for i in dup_indx}
     test_mcombs = set()
     mtype_lvls = {mtype: mtype.get_levels() - {'Scale'}
                   for mtype in (test_mtypes | root_types) - rmv_mtypes}

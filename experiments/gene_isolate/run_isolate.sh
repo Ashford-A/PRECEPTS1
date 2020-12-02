@@ -2,6 +2,7 @@
 #SBATCH --job-name=gn-iso
 #SBATCH --verbose
 
+
 start_time=$( date +%s )
 source activate research
 rewrite=false
@@ -46,14 +47,12 @@ fi
 
 # create the directories where intermediate and final output will be stored, move to working directory
 mkdir -p $FINALDIR $OUTDIR/setup $OUTDIR/output $OUTDIR/slurm $OUTDIR/merge
-
-cd $CODEDIR || exit
-eval "$( python -m dryads-research.experiments.utilities.data_dirs $cohort )"
-
 cd $OUTDIR || exit
+
 rm -rf .snakemake
 dvc init --no-scm -f
 export PYTHONPATH="$CODEDIR"
+eval "$( python -m dryads-research.experiments.utilities.data_dirs $cohort )"
 
 # enumerate the mutation types that will be tested in this experiment
 dvc run -d $COH_DIR -d $GENCODE_DIR -d $ONCOGENE_LIST -d $SUBTYPE_LIST \
@@ -62,13 +61,6 @@ dvc run -d $COH_DIR -d $GENCODE_DIR -d $ONCOGENE_LIST -d $SUBTYPE_LIST \
 	-f setup.dvc --overwrite-dvcfile \
 	python -m dryads-research.experiments.gene_isolate.setup_isolate \
 	$gene $cohort $mut_lvls $search $OUTDIR
-
-# if we are only enumerating, we quit before classification jobs are launched
-if $count_only
-then
-	cp setup/cohort-data.p.gz $FINALDIR/cohort-data__${out_tag}.p.gz
-	exit 0
-fi
 
 if [ -z ${SBATCH_TIMELIMIT+x} ]
 then
@@ -82,15 +74,23 @@ time_left=$(( time_lim - (cur_time - start_time) / 60 + 1 ))
 
 if [ -z ${time_max+x} ]
 then
-	time_max=$(( $time_left * 11 / 13 ))
+	time_max=$(( $time_left * 7 / 9 ))
 fi
 
 if [ ! -f setup/tasks.txt ]
 then
-	merge_max=$(( $time_left - $time_max - 3 ))
+	merge_max=$(( $time_left - $time_max - 11 ))
 
 	eval "$( python -m dryads-research.experiments.utilities.pipeline_setup \
-		$OUTDIR $time_max --merge_max=$merge_max )"
+		$OUTDIR $time_max --merge_max=$merge_max \
+		--task_size=1.19 --samp_exp=1 --merge_size=3.41 )"
+fi
+
+# if we are only enumerating, we quit before classification jobs are launched
+if $count_only
+then
+	cp setup/cohort-data.p.gz $FINALDIR/cohort-data__${out_tag}.p.gz
+	exit 0
 fi
 
 eval "$( tail -n 2 setup/tasks.txt | head -n 1 )"
