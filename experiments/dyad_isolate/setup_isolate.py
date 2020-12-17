@@ -1,21 +1,19 @@
 
 from .param_lists import search_params, mut_lvls
 from ..utilities.data_dirs import vep_cache_dir
-from ...features.cohorts import get_input_datasets
 from ...features.data.oncoKB import get_gene_list
-from dryadic.features.data.vep import process_variants
+from ...features.cohorts.utils import get_cohort_data
 
 from ..utilities.mutations import (pnt_mtype, shal_mtype,
                                    dup_mtype, loss_mtype, Mcomb, ExMcomb)
 from dryadic.features.mutations import MuType
-from ..subgrouping_isolate.utils import IsoMutationCohort
 
 import os
 import argparse
 import bz2
 import dill as pickle
+import numpy as np
 
-import pandas as pd
 from itertools import combinations as combn
 from itertools import product
 
@@ -51,49 +49,16 @@ def main():
     args = parser.parse_args()
     out_path = os.path.join(args.out_dir, 'setup')
 
-    data_dict = get_input_datasets(
-        args.cohort, args.expr_source,
-        mut_fields=['Sample', 'Gene', 'Chr', 'Start', 'End',
-                    'RefAllele', 'TumorAllele']
-        )
-
-    var_df = pd.DataFrame({'Chr': data_dict['vars'].Chr.astype('int'),
-                           'Start': data_dict['vars'].Start.astype('int'),
-                           'End': data_dict['vars'].End.astype('int'),
-                           'RefAllele': data_dict['vars'].RefAllele,
-                           'VarAllele': data_dict['vars'].TumorAllele,
-                           'Sample': data_dict['vars'].Sample})
-
+    # get the combination of mutation attributes and search constraints
+    # that will govern the enumeration of subgroupings
     lvl_lists = [('Gene', 'Scale', 'Copy') + lvl_list
                  for lvl_list in mut_lvls[args.mut_lvls]]
     search_dict = search_params[args.search_params]
-
-    var_fields = {'Gene', 'Canonical', 'Location', 'VarAllele'}
-    for lvl_list in lvl_lists:
-        for lvl in lvl_list[3:]:
-            if '-domain' in lvl and 'Domains' not in var_fields:
-                var_fields |= {'Domains'}
-            else:
-                var_fields |= {lvl}
-
-    variants = process_variants(
-        var_df, out_fields=var_fields, cache_dir=vep_cache_dir,
-        temp_dir=out_path, assembly=data_dict['assembly'],
-        distance=0, consequence_choose='pick', forks=4, update_cache=False
-        )
-
     use_genes = get_gene_list(min_sources=4)
-    variants = variants.loc[(variants.CANONICAL == 'YES')
-                            & variants.Gene.isin(use_genes)]
-    copies = data_dict['copy'].loc[data_dict['copy'].Gene.isin(use_genes)]
 
-    assert not variants.duplicated().any(), (
-        "Variant data contains {} duplicate entries!".format(
-            variants.duplicated().sum())
-        )
-
-    cdata = IsoMutationCohort(data_dict['expr'], variants, lvl_lists, copies,
-                              data_dict['annot'], leaf_annot=None)
+    # load and process the -omic datasets for this cohort
+    cdata = get_cohort_data(args.cohort, args.expr_source, lvl_lists,
+                            vep_cache_dir, out_path, use_genes)
     with bz2.BZ2File(os.path.join(out_path, "cohort-data.p.gz"), 'w') as f:
         pickle.dump(cdata, f, protocol=-1)
 
@@ -145,23 +110,25 @@ def main():
 
         gene_types = {mtype for mtype in pnt_types | root_types
                       if samp_dict[mtype] != samp_dict[pnt_mtype]}
-        rmv_mtypes = set()
+        lf_dict = {mtype: mtype.leaves() for mtype in gene_types}
 
-        for rmv_mtype in sorted(gene_types):
-            rmv_lvls = rmv_mtype.get_levels()
-            for cmp_mtype in sorted(gene_types - {rmv_mtype} - rmv_mtypes):
-                cmp_lvls = cmp_mtype.get_levels()
+        test_list = list(gene_types - root_types)
+        samp_list = np.array([samp_dict[mtype] for mtype in test_list])
+        eq_indx = np.where(np.triu(np.equal.outer(samp_list, samp_list), k=1))
+        dup_indx = set()
 
-                if (samp_dict[rmv_mtype] == samp_dict[cmp_mtype]
-                        and (rmv_mtype.is_supertype(cmp_mtype)
-                             or (any('domain' in lvl for lvl in rmv_lvls)
-                                 and all('domain' not in lvl
-                                         for lvl in cmp_lvls))
-                             or len(rmv_lvls) < len(cmp_lvls)
-                             or rmv_mtype > cmp_mtype)):
-                    rmv_mtypes |= {rmv_mtype}
-                    break
+        for indx1, indx2 in zip(*eq_indx):
+            for i, j in [[indx1, indx2], [indx2, indx1]]:
+                if (test_list[i].is_supertype(test_list[j])
+                        or (lvl_lists.index(lvls_dict[test_list[i]])
+                            == lvl_lists.index(lvls_dict[test_list[i]])
+                            and (len(lf_dict[test_list[i]])
+                                 > len(lf_dict[test_list[j]])))
+                        or (lvl_lists.index(lvls_dict[test_list[i]])
+                            > lvl_lists.index(lvls_dict[test_list[j]]))):
+                    dup_indx |= {i}
 
+        rmv_mtypes = {test_list[i] for i in dup_indx}
         gene_mtypes = {MuType({('Gene', gene): mtype})
                        for mtype in gene_types - rmv_mtypes | {pnt_mtype}
                        if (search_dict['samp_cutoff']

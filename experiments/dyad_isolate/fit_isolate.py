@@ -1,14 +1,15 @@
 
+from .classifiers import *
 from ..utilities.handle_input import safe_load
 from ..utilities.mutations import pnt_mtype, shal_mtype, deep_mtype, ExMcomb
 from ..utilities.pipeline_setup import get_task_count
-from ..utilities.classifiers import *
 from dryadic.features.mutations import MuType
 
 import os
 import argparse
 import dill as pickle
 import random
+import numpy as np
 
 from functools import reduce
 from operator import or_
