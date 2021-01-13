@@ -49,6 +49,125 @@ SIML_FXS = {'mean': calculate_mean_siml, 'ks': calculate_ks_siml}
 cna_mtypes = {'Gain': gains_mtype, 'Loss': dels_mtype}
 
 
+def plot_subpoint_divergences(pred_df, pheno_dict, auc_vals, cdata, args,
+                              siml_metric, add_lgnd=False):
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    use_combs = remove_pheno_dups({
+        mcomb for mcomb in auc_vals.index
+        if (isinstance(mcomb, ExMcomb) and len(mcomb.mtypes) == 1
+            and not (mcomb.all_mtype & shal_mtype).is_empty())
+        }, pheno_dict)
+
+    pnt_aucs = auc_vals[[
+        mcomb for mcomb in use_combs
+        if (auc_vals[mcomb] > 0.6
+            and pnt_mtype != tuple(tuple(
+                mcomb.mtypes)[0].subtype_iter())[0][1]
+            and pnt_mtype.is_supertype(
+                tuple(tuple(mcomb.mtypes)[0].subtype_iter())[0][1]))
+        ]]
+
+    plt_gby = pnt_aucs.groupby(lambda mtype: tuple(mtype.label_iter())[0])
+    clr_dict = {gene: choose_label_colour(gene)
+                for gene in plt_gby.groups.keys()}
+    lbl_pos = {gene: list() for gene in plt_gby.groups.keys()}
+
+    train_samps = cdata.get_train_samples()
+    plot_dict = dict()
+    font_dict = dict()
+    line_dict = dict()
+    ylim = 1.03
+
+    # TODO: differentiate between genes without CNAs and those
+    #  with too much overlap between CNAs and point mutations?
+    auc_list: pd.Series
+    for cur_gene, auc_list in plt_gby:
+        use_preds = pred_df.loc[
+            set(auc_list.index), train_samps].applymap(np.mean)
+
+        use_mtree = tuple(cdata.mtrees.values())[0][cur_gene]
+        all_mtype = MuType({('Gene', cur_gene): use_mtree.allkey()})
+        all_phn = np.array(cdata.train_pheno(all_mtype))
+
+        gn_mtype = MuType({('Gene', cur_gene): {
+            ('Scale', 'Point'): use_mtree['Point'].allkey()}})
+        gn_phn = np.array(cdata.train_pheno(gn_mtype))
+
+        for mcomb, auc_val in auc_list.iteritems():
+            use_mtype = tuple(mcomb.mtypes)[0]
+            rst_phn = gn_phn & ~np.array(cdata.train_pheno(use_mtype))
+
+            siml_val = SIML_FXS[siml_metric](
+                use_preds.loc[mcomb][~all_phn],
+                use_preds.loc[mcomb][pheno_dict[mcomb]],
+                use_preds.loc[mcomb][rst_phn]
+                )
+
+            base_size = np.mean(pheno_dict[mcomb])
+            ylim = max(ylim, abs(siml_val) + 0.13)
+
+            pos_tupl = auc_val, siml_val
+            lbl_pos[cur_gene] += [pos_tupl]
+            plot_dict[pos_tupl] = [1.41 * base_size, ('', '')]
+
+            ax.scatter(auc_val, siml_val, c=[clr_dict[cur_gene]],
+                       s=601 * base_size, alpha=0.29, edgecolor='none')
+
+    clr_norm = colors.Normalize(vmin=-1, vmax=2)
+    ax.grid(alpha=0.43, linewidth=0.61)
+    ax.tick_params(labelsize=11)
+
+    for siml_val in [-1, 0, 1, 2]:
+        if -ylim <= siml_val <= ylim:
+            for k in np.linspace(0.63, 0.97, 200):
+                plot_dict[k, siml_val] = [0.1, ('', '')]
+
+    plt_counts = pd.Series({gn: len(pos) for gn, pos in lbl_pos.items()})
+    plt_counts = plt_counts[plt_counts.values > 1].sort_values()
+
+    for gene in plt_counts.index:
+        pos_med = tuple(pd.DataFrame(lbl_pos[gene]).mean().tolist())
+
+        font_dict[pos_med] = dict(c=clr_dict[gene], weight='bold')
+        line_dict[pos_med] = dict(c=clr_dict[gene])
+        plot_dict[pos_med] = [0, (gene, '')]
+
+    _ = place_scatter_labels(
+        plot_dict, ax, plt_lims=[[0.59, 1], [-ylim, ylim]],
+        plc_lims=[[0.63, 0.97], [-ylim * 0.83, ylim * 0.83]],
+        plt_type='scatter', font_size=13, font_dict=font_dict,
+        line_dict=line_dict, linewidth=2.3, alpha=0.23
+        )
+
+    ax.plot([1, 1], [-ylim, ylim],
+            color='black', linewidth=1.1, alpha=0.89)
+    ax.plot([0.6, 1], [0, 0],
+            color='black', linewidth=1.7, linestyle=':', alpha=0.61)
+
+    for siml_val in [-1, 1, 2]:
+        ax.plot([0.6, 1], [siml_val] * 2,
+                color=simil_cmap(clr_norm(siml_val)),
+                linewidth=3.7, linestyle=':', alpha=0.41)
+
+    ax.set_xlabel("Accuracy of Isolated Subgrouping Classifier",
+                  size=21, weight='bold')
+    ax.set_ylabel("Remaining Point Mutations'\nSimilarity to Subgrouping",
+                  size=21, weight='bold')
+
+    ax.set_xlim(0.59, 1.005)
+    ax.set_ylim(-ylim, ylim)
+
+    plt.savefig(
+        os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
+                     "{}-subPoint-divergences_{}.svg".format(
+                         siml_metric, args.classif)),
+        bbox_inches='tight', format='svg'
+        )
+
+    plt.close()
+
+
 def plot_subcopy_adjacencies(pred_df, pheno_dict, auc_vals, cdata, args,
                              cna_lbl, siml_metric, add_lgnd=False):
     fig, axarr = plt.subplots(figsize=(10, 9), nrows=2, ncols=1)
@@ -76,6 +195,7 @@ def plot_subcopy_adjacencies(pred_df, pheno_dict, auc_vals, cdata, args,
     train_samps = cdata.get_train_samples()
     plot_dicts = [dict(), dict()]
     font_dicts = [dict(), dict()]
+    line_dicts = [dict(), dict()]
     ylim = 1.03
 
     # TODO: differentiate between genes without CNAs and those
@@ -144,13 +264,14 @@ def plot_subcopy_adjacencies(pred_df, pheno_dict, auc_vals, cdata, args,
             if len(pos_list) >= 5:
                 pos_med = tuple(pd.DataFrame(pos_list).mean().tolist())
                 font_dicts[i][pos_med] = dict(c=clr_dict[gene], weight='bold')
+                line_dicts[i][pos_med] = dict(c=clr_dict[gene])
                 plot_dicts[i][pos_med] = [0, (gene, '')]
 
         _ = place_scatter_labels(
             plot_dicts[i], ax, plt_lims=[[0.59, 1], [-ylim, ylim]],
             plc_lims=[[0.63, 0.97], [-ylim * 0.83, ylim * 0.83]],
             plt_type='scatter', font_size=13, font_dict=font_dicts[i],
-            linewidth=0
+            line_dict=line_dicts[i], linewidth=2.3, alpha=0.23
             )
 
         ax.plot([1, 1], [-ylim, ylim],
@@ -599,6 +720,10 @@ def main():
 
     if 'Consequence__Exon' in out_iter.groups.keys():
         for siml_metric in args.siml_metrics:
+            plot_subpoint_divergences(pred_dfs['Iso'], phn_dict,
+                                      auc_dfs['Iso']['mean'],
+                                      cdata, args, siml_metric)
+
             for cna_lbl in cna_mtypes:
                 plot_subcopy_adjacencies(
                     pred_dfs['Iso'], phn_dict, auc_dfs['Iso']['mean'],
