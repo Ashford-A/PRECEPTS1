@@ -1,21 +1,12 @@
 
+from ..utilities.mutations import pnt_mtype, copy_mtype, RandomType
+from ..subgrouping_test import base_dir
+from ..utilities.misc import choose_label_colour
+from ...features.cohorts.utils import list_cohort_subtypes
+from ..utilities.labels import get_cohort_label, get_fancy_label
+from ..utilities.transformers import OmicUMAP4
+
 import os
-import sys
-
-base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'subvariant_test')
-sys.path.extend([os.path.join(os.path.dirname(__file__), '..', '..', '..')])
-plot_dir = os.path.join(base_dir, 'plots', 'cohort')
-
-from HetMan.experiments.subvariant_test import (
-    type_file, metabric_dir, pnt_mtype, copy_mtype)
-from HetMan.experiments.subvariant_tour.utils import RandomType
-
-from HetMan.experiments.subvariant_test.merge_test import merge_cohort_data
-from HetMan.experiments.subvariant_test.utils import choose_label_colour
-from HetMan.experiments.utilities.transformers import OmicUMAP4
-from HetMan.features.cohorts.metabric import (
-    load_metabric_samps, choose_subtypes)
-
 import argparse
 from pathlib import Path
 import bz2
@@ -29,43 +20,48 @@ from functools import reduce
 from operator import and_
 
 import matplotlib as mpl
-mpl.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib.lines import Line2D
 
+mpl.use('Agg')
 plt.style.use('fivethirtyeight')
-plt.rcParams['axes.facecolor']='white'
-plt.rcParams['savefig.facecolor']='white'
-plt.rcParams['axes.edgecolor']='white'
+plt.rcParams['axes.facecolor'] = 'white'
+plt.rcParams['savefig.facecolor'] = 'white'
+plt.rcParams['axes.edgecolor'] = 'white'
+plot_dir = os.path.join(base_dir, 'plots', 'cohort')
 
 
-def plot_umap_clustering(trans_expr, type_data, cdata, args):
+def plot_umap_clustering(trans_expr, subt_data, cdata, args):
     fig, axarr = plt.subplots(figsize=(14, 13), nrows=4, ncols=4)
 
+    plt_subts = subt_data.unique()
+    subt_clrs = dict(zip(
+        plt_subts, sns.color_palette('bright', n_colors=len(plt_subts))))
+    subt_clrs['Not Available'] = '0.53'
+
     trans_expr = trans_expr[:, :4]
-    type_stat = np.array([type_data.SUBTYPE[type_data.index.get_loc(samp)]
-                          if samp in type_data.index else 'Not Available'
+    subt_stat = np.array([subt_data[samp]
+                          if samp in subt_data.index else 'Not Available'
                           for samp in cdata.train_data(None)[0].index])
 
-    type_clrs = sns.color_palette('bright', n_colors=len(set(type_stat)))
     lgnd_lbls = []
     lgnd_marks = []
 
-    for sub_type, type_clr in zip(sorted(set(type_stat)), type_clrs):
-        type_indx = type_stat == sub_type
+    for sub_type in sorted(set(subt_stat)):
+        subt_indx = subt_stat == sub_type
 
         for i, j in combn(range(4), 2):
             axarr[i, j].plot(
-                trans_expr[type_indx, i], trans_expr[type_indx, j],
+                trans_expr[subt_indx, i], trans_expr[subt_indx, j],
                 marker='o', linewidth=0, markersize=5, alpha=0.23,
-                mfc=type_clr, mec='none'
+                mfc=subt_clrs[sub_type], mec='none'
                 )
 
-        lgnd_lbls += ["{} ({})".format(sub_type, np.sum(type_indx))]
+        lgnd_lbls += ["{} ({})".format(sub_type, np.sum(subt_indx))]
         lgnd_marks += [Line2D([], [], marker='o', linestyle='None',
                               markersize=19, alpha=0.43,
-                              markerfacecolor=type_clr,
+                              markerfacecolor=subt_clrs[sub_type],
                               markeredgecolor='none')]
 
     for i in range(4):
@@ -74,6 +70,9 @@ def plot_umap_clustering(trans_expr, type_data, cdata, args):
                          size=17, weight='semibold', ha='center', va='center')
 
     for i, j in combn(range(4), 2):
+        axarr[i, j].grid(alpha=0.41, linewidth=0.9)
+        axarr[j, i].grid(alpha=0.41, linewidth=0.9)
+
         axarr[i, j].set_xticklabels([])
         axarr[i, j].set_yticklabels([])
         axarr[j, i].set_xticklabels([])
@@ -95,14 +94,14 @@ def plot_mutation_counts(auc_dict, pheno_dict, cdata, args):
 
     auc_vals = pd.concat(auc_dict.values())
     auc_vals = auc_vals[[(not isinstance(mtype, RandomType)
-                          and (mtype.subtype_list()[0][1] != pnt_mtype)
-                          and (mtype.subtype_list()[0][1]
+                          and (tuple(mtype.subtype_iter())[0][1] != pnt_mtype)
+                          and (tuple(mtype.subtype_iter())[0][1]
                                & copy_mtype).is_empty())
                          for mtype in auc_vals.index]]
 
     mtype_df = pd.DataFrame({
         'AUC': auc_vals, 'Levels': 'Other',
-        'Gene': [mtype.get_labels()[0] for mtype in auc_vals.index]
+        'Gene': [tuple(mtype.label_iter())[0] for mtype in auc_vals.index]
         })
 
     ax.axis('off')
@@ -113,7 +112,7 @@ def plot_mutation_counts(auc_dict, pheno_dict, cdata, args):
     mtype_df.loc[~mtype_df.Gene.isin(gene_counts.index[:10]),
                  'Gene'] = 'Other'
 
-    mtype_df.loc[[mtype.subtype_list()[0][1] == pnt_mtype
+    mtype_df.loc[[tuple(mtype.subtype_iter())[0][1] == pnt_mtype
                   for mtype in mtype_df.index], 'Levels'] = 'Point'
     count_tbl = pd.crosstab(mtype_df.Levels, mtype_df.Gene, margins=True)
 
@@ -206,29 +205,31 @@ def plot_classif_performance(auc_dfs, time_dfs, cdata, args):
 
 def main():
     parser = argparse.ArgumentParser(
-        "Plots the results of the subvariant enumeration experiment "
-        "across all classifiers tested on a given cohort."
+        'plot_cohort',
+        description="Plots results across all classifiers in a cohort."
         )
 
     parser.add_argument('expr_source',
                         help="a source of expression data", type=str)
     parser.add_argument('cohort', help="a TCGA cohort", type=str)
+    parser.add_argument('--verbose', '-v', action='store_true',
+                         help="print info regarding classifier comparisons")
 
     args = parser.parse_args()
     os.makedirs(os.path.join(plot_dir, args.expr_source), exist_ok=True)
     np.random.seed(9087)
 
     out_datas = [
-        out_file.parts[-2:] for out_file in Path(base_dir).glob(
-            "{}__{}__samps-*/trnsf-vals__*__*.p.gz".format(
-                args.expr_source, args.cohort)
-            )
+        out_file.parts[-2:] for out_file in Path(base_dir).glob(os.path.join(
+            "{}__{}__samps-*".format(args.expr_source, args.cohort),
+            "out-trnsf__*__*.p.gz"
+            ))
         ]
  
     out_list = pd.DataFrame([
         {'Samps': int(out_data[0].split('__samps-')[1]),
          'Levels': '__'.join(out_data[1].split(
-             'trnsf-vals__')[1].split('__')[:-1]),
+             'out-trnsf__')[1].split('__')[:-1]),
          'Classif': out_data[1].split('__')[-1].split('.p.gz')[0]}
         for out_data in out_datas
         ])
@@ -239,41 +240,10 @@ def main():
                              args.cohort, args.expr_source))
 
     out_use = out_list.groupby('Classif').filter(
-        lambda outs: ('Exon__Location__Protein' in set(outs.Levels))).groupby(
+        lambda outs: ('Consequence__Exon' in set(outs.Levels))).groupby(
             ['Levels', 'Classif'])['Samps'].min()
 
-    out_dir = os.path.join(base_dir, "{}__{}__samps-{}".format(
-        args.expr_source, args.cohort, out_use.min()))
-    cdata = merge_cohort_data(out_dir, use_seed=8713)
-
-    if args.expr_source == 'Firehose' or 'toil_' in args.expr_source:
-        type_data = pd.read_csv(type_file, sep='\t', index_col=0, comment='#')
-
-        if '_' in cdata.cohort:
-            use_cohort = cdata.cohort.split('_')[0]
-        else:
-            use_cohort = cdata.cohort
-
-        if use_cohort in type_data.DISEASE.values:
-            type_data = type_data[type_data.DISEASE == use_cohort]
-        else:
-            type_data = pd.DataFrame({'SUBTYPE': 'Not Available'},
-                                     index=cdata.get_samples())
-
-    elif args.expr_source == 'microarray':
-        type_data = pd.DataFrame({'SUBTYPE': 'Other'},
-                                 index=cdata.get_samples())
-
-        samp_data = load_metabric_samps(metabric_dir)
-        samp_data = samp_data.loc[samp_data.index.isin(cdata.get_samples())]
-
-        for tp in ['Basal', 'Her2', 'LumA', 'LumB']:
-            type_data.SUBTYPE[samp_data.index.isin(
-                choose_subtypes(samp_data, tp))] = tp
-
-    trans_expr = OmicUMAP4().fit_transform_coh(cdata)
-    plot_umap_clustering(trans_expr.copy(), type_data, cdata, args)
-
+    cdata = None
     use_clfs = set(out_use.index.get_level_values('Classif'))
     phn_dict = dict()
     time_dicts = {clf: dict() for clf in use_clfs}
@@ -282,6 +252,17 @@ def main():
     for (lvls, clf), ctf in out_use.iteritems():
         out_tag = "{}__{}__samps-{}".format(
             args.expr_source, args.cohort, ctf)
+
+        with bz2.BZ2File(os.path.join(
+                base_dir, out_tag,
+                "cohort-data__{}__{}.p.gz".format(lvls, clf)
+                ), 'r') as f:
+            new_cdata = pickle.load(f)
+
+        if cdata is None:
+            cdata = new_cdata
+        else:
+            cdata.merge(new_cdata)
 
         with bz2.BZ2File(os.path.join(
                 base_dir, out_tag, "out-pheno__{}__{}.p.gz".format(lvls, clf)
@@ -298,20 +279,33 @@ def main():
                 ), 'r') as f:
             auc_dicts[clf][lvls] = pickle.load(f)['mean']
 
+    type_dict = list_cohort_subtypes(args.cohort.split('_')[0])
+    if type_dict:
+        subt_data = pd.concat([pd.Series(subt, index=smps)
+                               for subt, smps in type_dict.items()])
+
+    else:
+        subt_data = pd.Series({smp: 'Not Available'
+                               for smp in cdata.get_samples()})
+
+    trans_expr = OmicUMAP4().fit_transform_coh(cdata)
+    plot_umap_clustering(trans_expr.copy(), subt_data, cdata, args)
+
     time_dfs = {clf: pd.concat(time_dict.values())
                 for clf, time_dict in time_dicts.items()}
     auc_dfs = {clf: pd.concat(auc_dict.values())
                for clf, auc_dict in auc_dicts.items()}
 
-    auc_mat = pd.DataFrame({
-        clf: auc_vals[[mtype for mtype in auc_vals.index
-                       if not isinstance(mtype, RandomType)]]
-        for clf, auc_vals in auc_dfs.items()
-        })
-    print(auc_mat.corr(method='spearman').round(3))
+    if args.verbose:
+        auc_mat = pd.DataFrame({
+            clf: auc_vals[[mtype for mtype in auc_vals.index
+                           if not isinstance(mtype, RandomType)]]
+            for clf, auc_vals in auc_dfs.items()
+            })
+        print(auc_mat.corr(method='spearman').round(3))
 
-    plot_mutation_counts(tuple(auc_dicts.values())[0], phn_dict, cdata, args)
     plot_classif_performance(auc_dfs, time_dfs, cdata, args)
+    plot_mutation_counts(tuple(auc_dicts.values())[0], phn_dict, cdata, args)
 
 
 if __name__ == "__main__":
