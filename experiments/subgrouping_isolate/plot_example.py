@@ -721,21 +721,53 @@ def plot_iso_similarities(plt_clf, plt_mtype, plt_mcomb,
                         phrase_link='\n')
         ])
 
-    #TODO: handle case where this doesn't find any mutation types
+    ex_phns = {mcomb: pheno_dict[mcomb] & ~pheno_dict[plt_mcomb]
+               for mcomb in pred_df.index}
+
+    # TODO: handle case where this doesn't find any mutation types
     sim_mcombs = {
         mcomb for mcomb in pred_df.index
         if (isinstance(mcomb, ExMcomb) and mcomb != plt_mcomb
             and (tuple(mcomb.label_iter())[0]
                  == tuple(plt_mtype.label_iter())[0])
-            and len(mcomb.mtypes) == 1
             and not (mcomb.all_mtype & shal_mtype).is_empty()
-            and (copy_mtype.is_supertype(tuple(mcomb.mtypes)[0])
-                 or (len(tuple(mcomb.mtypes)[0].leaves()) == 1
-                     and not any('domain' in lvl for lvl
-                                 in tuple(mcomb.mtypes)[0].get_levels()))))
+            and ex_phns[mcomb].sum() >= 10
+
+            and all(copy_mtype.is_supertype(tuple(mtype.subtype_iter())[0][1])
+                    or (pnt_mtype.is_supertype(
+                            tuple(mtype.subtype_iter())[0][1])
+                        and not any('domain' in lvl
+                                    for lvl in mtype.get_levels())
+                        and not any(plt_mtype.is_supertype(MuType(lf))
+                                    for lf in mtype.leaves()))
+                    for mtype in mcomb.mtypes))
         }
 
-    SIZE_RATIO = 43 / 41
+    if len(sim_mcombs) > 10:
+        sim_info = pd.DataFrame({
+            mcomb: {'Size': ex_phns[mcomb].sum(),
+                    'Leaves': sum(len(mtype.leaves())
+                                  for mtype in mcomb.mtypes)}
+            for mcomb in sim_mcombs
+            }).transpose()
+
+        sim_info['Score'] = sim_info.Size / sim_info.Leaves
+        use_combs = list()
+        jacc_ctf = 0
+
+        while len(use_combs) < 10 and jacc_ctf < 0.8:
+            for mcomb in sim_info.sort_values(by='Score').index[::-1]:
+                if (len(use_combs) < 10 and mcomb not in use_combs):
+                    if all((((ex_phns[mcomb] & ex_phns[use_comb]).sum()
+                             / (ex_phns[mcomb] | ex_phns[use_comb]).sum())
+                            < jacc_ctf) for use_comb in use_combs):
+                        use_combs += [mcomb]
+
+            jacc_ctf += (1 - jacc_ctf) / 13
+
+        sim_mcombs = set(use_combs)
+
+    SIZE_RATIO = (len(sim_mcombs) ** 0.43) / 3.17
     fig, (vio_ax, sim_ax, lgnd_ax) = plt.subplots(
         figsize=(2 + len(sim_mcombs) / SIZE_RATIO, 6), nrows=1, ncols=3,
         gridspec_kw=dict(width_ratios=[1, len(sim_mcombs) / SIZE_RATIO, 1])
@@ -751,8 +783,8 @@ def plot_iso_similarities(plt_clf, plt_mtype, plt_mcomb,
     sim_df = pd.concat([
         pd.DataFrame({
             'Mcomb': mcomb,
-            'Value': pred_df.loc[mcomb, cdata.get_train_samples()][
-                pheno_dict[mcomb]].apply(np.mean)
+            'Value': pred_df.loc[plt_mcomb, cdata.get_train_samples()][
+                pheno_dict[mcomb] & ~pheno_dict[plt_mcomb]].apply(np.mean)
             })
         for mcomb in sim_mcombs
         ])
@@ -775,16 +807,14 @@ def plot_iso_similarities(plt_clf, plt_mtype, plt_mcomb,
     vio_ax.set_zorder(1)
 
     wt_mean = np.mean(vals_df.Value[~vals_df.mStat & ~vals_df.eStat])
-    vio_ax.axhline(y=wt_mean, xmin=-0.079,
-                   xmax=SIZE_RATIO * 1.47 + len(sim_mcombs) / SIZE_RATIO,
-                   color=variant_clrs['WT'], clip_on=False,
-                   linestyle='--', linewidth=1.7, alpha=0.47)
-
     mut_mean = np.mean(vals_df.Value[vals_df.mStat & ~vals_df.eStat])
-    vio_ax.axhline(y=mut_mean, xmin=-0.079,
-                   xmax=SIZE_RATIO * 1.47 + len(sim_mcombs) / SIZE_RATIO,
-                   color=variant_clrs['Point'], clip_on=False,
-                   linestyle='--', linewidth=1.7, alpha=0.47)
+    mn_lngth = 1 + 1.7 / len(sim_mcombs) ** 0.67
+    mn_lngth += len(sim_mcombs) / SIZE_RATIO
+
+    for mean_val, use_lbl in zip([wt_mean, mut_mean], ['WT', 'Point']):
+        vio_ax.axhline(y=mean_val, xmin=-0.079, xmax=mn_lngth,
+                       color=variant_clrs[use_lbl], clip_on=False,
+                       linestyle='--', linewidth=1.7, alpha=0.47)
 
     vals_min, vals_max = pd.concat([vals_df, sim_df],
                                    sort=False).Value.quantile(q=[0, 1])
@@ -816,14 +846,17 @@ def plot_iso_similarities(plt_clf, plt_mtype, plt_mcomb,
     sns.violinplot(
         data=sim_df, x='Mcomb', y='Value', order=mcomb_scores.index,
         palette=simil_cmap(clr_norm(mcomb_scores.values)), saturation=1,
-        width=0.97, linewidth=1.43, cut=0, ax=sim_ax
+        width=0.91, linewidth=1.43, cut=0, ax=sim_ax
         )
 
     for i, (mcomb, scr) in enumerate(mcomb_scores.iteritems()):
         sim_ax.get_children()[i * 2].set_alpha(0.73)
-        mcomb_lbl = get_fancy_label(
-            tuple(tuple(mcomb.mtypes)[0].subtype_iter())[0][1],
-            phrase_link='\n'
+
+        mcomb_lbl = '\n&\n'.join(
+            get_fancy_label(tuple(mtype.subtype_iter())[0][1],
+                            pnt_link='\nor ', phrase_link='\n')
+
+            for mtype in sorted(mcomb.mtypes)
             )
 
         sim_ax.text(i, mcomb_mins[mcomb] - vals_rng,
@@ -859,6 +892,7 @@ def plot_iso_similarities(plt_clf, plt_mtype, plt_mcomb,
         ax.set_ylim(plt_min, plt_max)
         ax.axis('off')
 
+    plt.tight_layout(w_pad=3.1 / len(sim_mcombs) ** 0.5)
     plt.savefig(
         os.path.join(plot_dir, args.expr_source,
                      "{}__iso-similarities_{}.svg".format(
@@ -879,6 +913,8 @@ def main():
     parser.add_argument('cohort', help="a tumour cohort")
     parser.add_argument('--genes', '-g', nargs='+',
                         help="a set of genes from which to draw an example")
+    parser.add_argument('--clfs', nargs='+',
+                        help="a set of models from which to draw an example")
 
     args = parser.parse_args()
     out_dir = Path(base_dir, '__'.join([args.expr_source, args.cohort]))
@@ -896,6 +932,9 @@ def main():
           'File': out_file}
          for out_file in out_list]
         )
+
+    if args.clfs:
+        out_df = out_df.loc[out_df.Classif.isin(set(args.clfs))]
 
     out_iter = out_df.groupby(['Levels', 'Classif'])['File']
     phn_dict = dict()
