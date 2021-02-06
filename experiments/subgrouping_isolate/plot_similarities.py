@@ -181,7 +181,7 @@ def plot_subcopy_adjacencies(pred_df, pheno_dict, auc_vals, cdata, args,
 
     pnt_aucs = auc_vals[[
         mcomb for mcomb in use_combs
-        if (auc_vals[mcomb] > 0.6
+        if (auc_vals[mcomb] > 0.65
             and pnt_mtype.is_supertype(
                 tuple(tuple(mcomb.mtypes)[0].subtype_iter())[0][1]))
         ]]
@@ -220,24 +220,28 @@ def plot_subcopy_adjacencies(pred_df, pheno_dict, auc_vals, cdata, args,
                                     train_samps].applymap(np.mean)
 
             for mcomb, auc_val in auc_list.iteritems():
-                copy_siml1 = SIML_FXS[siml_metric](
-                    use_preds.loc[mcomb][~all_phn],
-                    use_preds.loc[mcomb][pheno_dict[mcomb]],
-                    use_preds.loc[mcomb][pheno_dict[plt_comb]]
-                    )
+                copy_simls = [
+                    SIML_FXS[siml_metric](
+                        use_preds.loc[mcomb][~all_phn],
+                        use_preds.loc[mcomb][pheno_dict[mcomb]],
+                        use_preds.loc[mcomb][pheno_dict[plt_comb]]
+                        )
+                    ]
 
-                copy_siml2 = SIML_FXS[siml_metric](
-                    use_preds.loc[plt_comb][~all_phn],
-                    use_preds.loc[plt_comb][pheno_dict[plt_comb]],
-                    use_preds.loc[plt_comb][pheno_dict[mcomb]]
-                    )
+                if auc_vals[plt_comb] > 0.6:
+                    copy_simls += [
+                        SIML_FXS[siml_metric](
+                            use_preds.loc[plt_comb][~all_phn],
+                            use_preds.loc[plt_comb][pheno_dict[plt_comb]],
+                            use_preds.loc[plt_comb][pheno_dict[mcomb]]
+                            )
+                        ]
 
                 base_size = np.mean(pheno_dict[mcomb])
-                ylim = max(ylim,
-                           abs(copy_siml1) + 0.13, abs(copy_siml2) + 0.13)
+                ylim = max(ylim, np.max(np.abs(np.array(copy_simls))) + 0.13)
 
                 for i, (ax, siml_val) in enumerate(
-                        zip(axarr, [copy_siml1, copy_siml2])):
+                        zip(axarr[:len(copy_simls)], copy_simls)):
                     pos_tupl = auc_val, siml_val
                     lbl_pos[i][cur_gene] += [pos_tupl]
                     plot_dicts[i][pos_tupl] = [1.41 * base_size, ('', '')]
@@ -257,30 +261,30 @@ def plot_subcopy_adjacencies(pred_df, pheno_dict, auc_vals, cdata, args,
 
         for siml_val in [-1, 0, 1, 2]:
             if -ylim <= siml_val <= ylim:
-                for k in np.linspace(0.63, 0.97, 200):
+                for k in np.linspace(0.68, 0.97, 200):
                     plot_dicts[i][k, siml_val] = [0.1, ('', '')]
 
         for gene, pos_list in lbl_pos[i].items():
-            if len(pos_list) >= 5:
+            if pos_list:
                 pos_med = tuple(pd.DataFrame(pos_list).mean().tolist())
                 font_dicts[i][pos_med] = dict(c=clr_dict[gene], weight='bold')
                 line_dicts[i][pos_med] = dict(c=clr_dict[gene])
                 plot_dicts[i][pos_med] = [0, (gene, '')]
 
         _ = place_scatter_labels(
-            plot_dicts[i], ax, plt_lims=[[0.59, 1], [-ylim, ylim]],
-            plc_lims=[[0.63, 0.97], [-ylim * 0.83, ylim * 0.83]],
+            plot_dicts[i], ax, plt_lims=[[0.64, 1], [-ylim, ylim]],
+            plc_lims=[[0.68, 0.97], [-ylim * 0.83, ylim * 0.83]],
             plt_type='scatter', font_size=13, font_dict=font_dicts[i],
             line_dict=line_dicts[i], linewidth=2.3, alpha=0.23
             )
 
         ax.plot([1, 1], [-ylim, ylim],
                 color='black', linewidth=1.1, alpha=0.89)
-        ax.plot([0.6, 1], [0, 0],
+        ax.plot([0.65, 1], [0, 0],
                 color='black', linewidth=1.7, linestyle=':', alpha=0.61)
 
         for siml_val in [-1, 1, 2]:
-            ax.plot([0.6, 1], [siml_val] * 2,
+            ax.plot([0.65, 1], [siml_val] * 2,
                     color=simil_cmap(clr_norm(siml_val)),
                     linewidth=3.7, linestyle=':', alpha=0.41)
 
@@ -295,7 +299,7 @@ def plot_subcopy_adjacencies(pred_df, pheno_dict, auc_vals, cdata, args,
                         size=21, weight='bold')
 
     for ax in axarr:
-        ax.set_xlim(0.59, 1.005)
+        ax.set_xlim(0.64, 1.005)
         ax.set_ylim(-ylim, ylim)
 
     plt.tight_layout(pad=0, h_pad=1.7)
