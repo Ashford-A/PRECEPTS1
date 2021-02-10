@@ -1,8 +1,8 @@
 
+from .classifiers import *
 from ..utilities.handle_input import safe_load
 from ..utilities.mutations import pnt_mtype, shal_mtype, ExMcomb
 from ..utilities.pipeline_setup import get_task_count
-from ..utilities.classifiers import *
 
 import os
 import argparse

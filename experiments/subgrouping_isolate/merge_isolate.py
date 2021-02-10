@@ -4,6 +4,8 @@ import argparse
 import bz2
 from pathlib import Path
 import dill as pickle
+
+import numpy as np
 import pandas as pd
 
 
@@ -17,11 +19,13 @@ def main():
     parser.add_argument('--ex_lbls', type=str, nargs='+',
                         choices=['All', 'Iso', 'IsoShal'],
                         default=['All', 'Iso', 'IsoShal'])
+    parser.add_argument('--mean', action='store_true')
     args = parser.parse_args()
 
     with open(os.path.join(args.use_dir, 'setup', "muts-list.p"), 'rb') as f:
         muts_list = pickle.load(f)
 
+    # TODO: find files explicitly using task manifest?
     pheno_dict = dict()
     for pheno_file in Path(args.use_dir, 'merge').glob("out-pheno_*.p.gz"):
         with bz2.BZ2File(pheno_file, 'r') as fl:
@@ -35,21 +39,26 @@ def main():
     with bz2.BZ2File(os.path.join(args.use_dir, "out-pheno.p.gz"), 'w') as fl:
         pickle.dump(pheno_dict, fl, protocol=-1)
 
-    pred_dfs = {ex_lbl: pd.DataFrame() for ex_lbl in args.ex_lbls}
-    for pred_file in Path(args.use_dir, 'merge').glob("out-pred_*.p.gz"):
-        with bz2.BZ2File(pred_file, 'r') as fl:
-            pred_data = pickle.load(fl)
-
-        for ex_lbl in args.ex_lbls:
-            pred_dfs[ex_lbl] = pd.concat(
-                [pred_dfs[ex_lbl], pred_data[ex_lbl]])
-
     for ex_lbl in args.ex_lbls:
-        assert sorted(muts_list) == sorted(pred_dfs[ex_lbl].index), (
+        pred_df = pd.DataFrame()
+
+        for pred_file in Path(args.use_dir, 'merge').glob(
+                "out-pred_{}_*.p.gz".format(ex_lbl)):
+            with bz2.BZ2File(pred_file, 'r') as fl:
+                pred_data = pickle.load(fl)
+
+            if args.mean:
+                pred_df = pred_df.append(pred_data.applymap(np.mean))
+            else:
+                pred_df = pred_df.append(pred_data)
+
+        assert sorted(muts_list) == sorted(pred_df.index), (
             "Tested mutations missing from merged classifier predictions!")
 
-    with bz2.BZ2File(os.path.join(args.use_dir, "out-pred.p.gz"), 'w') as fl:
-        pickle.dump(pred_dfs, fl, protocol=-1)
+        with bz2.BZ2File(os.path.join(args.use_dir,
+                                      "out-pred_{}.p.gz".format(ex_lbl)),
+                         'w') as fl:
+            pickle.dump(pred_df, fl, protocol=-1)
 
     tune_dfs = [{ex_lbl: pd.DataFrame() for ex_lbl in args.ex_lbls}
                 for _ in range(3)] + [None]

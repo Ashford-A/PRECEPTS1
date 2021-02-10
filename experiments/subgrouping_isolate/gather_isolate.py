@@ -263,10 +263,12 @@ def main():
                 "the list of mutations enumerated during setup!"
                 )
 
-    with bz2.BZ2File(os.path.join(args.use_dir, 'merge',
-                                  "out-pred{}.p.gz".format(out_tag)),
-                     'w') as fl:
-        pickle.dump(pred_dfs, fl, protocol=-1)
+    for ex_lbl in args.ex_lbls:
+        with bz2.BZ2File(os.path.join(args.use_dir, 'merge',
+                                      "out-pred_{}{}.p.gz".format(
+                                          ex_lbl, out_tag)),
+                         'w') as fl:
+            pickle.dump(pred_dfs[ex_lbl], fl, protocol=-1)
 
     with bz2.BZ2File(os.path.join(args.use_dir, 'merge',
                                   "out-tune{}.p.gz".format(out_tag)),
@@ -337,7 +339,7 @@ def main():
 
     random.seed(9903)
     sub_inds = [random.choices([False, True], k=len(cdata.get_samples()))
-                for _ in range(100)]
+                for _ in range(500)]
 
     conf_lists = {
         ex_lbl: {

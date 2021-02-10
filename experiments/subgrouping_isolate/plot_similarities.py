@@ -662,9 +662,6 @@ def main():
         )
 
     out_iter = out_use.groupby('Levels')['File']
-    out_aucs = {lvls: list() for lvls in out_iter.groups}
-    out_preds = {lvls: list() for lvls in out_iter.groups}
-
     phn_dict = dict()
     cdata = None
 
@@ -674,6 +671,9 @@ def main():
                 for ex_lbl in ['All', 'Iso', 'IsoShal']}
 
     for lvls, out_files in out_iter:
+        out_aucs = list()
+        out_preds = {ex_lbl: list() for ex_lbl in ['All', 'Iso', 'IsoShal']}
+
         for out_file in out_files:
             out_tag = '__'.join(out_file.parts[-1].split('__')[1:])
 
@@ -683,11 +683,14 @@ def main():
 
             with bz2.BZ2File(Path(out_dir, '__'.join(["out-aucs", out_tag])),
                              'r') as f:
-                out_aucs[lvls] += [pickle.load(f)]
+                out_aucs += [pickle.load(f)]
 
-            with bz2.BZ2File(Path(out_dir, '__'.join(["out-pred", out_tag])),
-                             'r') as f:
-                out_preds[lvls] += [pickle.load(f)]
+            for ex_lbl in ['All', 'Iso', 'IsoShal']:
+                with bz2.BZ2File(Path(out_dir,
+                                      '__'.join(["out-pred_{}".format(ex_lbl),
+                                                 out_tag])),
+                                 'r') as f:
+                    out_preds[ex_lbl] += [pickle.load(f)]
 
             with bz2.BZ2File(Path(out_dir,
                                   '__'.join(["cohort-data", out_tag])),
@@ -701,7 +704,7 @@ def main():
 
         mtypes_comp = np.greater_equal.outer(
             *([[set(auc_vals['All']['mean'].index)
-                for auc_vals in out_aucs[lvls]]] * 2)
+                for auc_vals in out_aucs]] * 2)
             )
         super_list = np.apply_along_axis(all, 1, mtypes_comp)
 
@@ -709,15 +712,15 @@ def main():
             super_indx = super_list.argmax()
 
             for ex_lbl in ['All', 'Iso', 'IsoShal']:
-                auc_dfs[ex_lbl] = pd.concat([
-                    auc_dfs[ex_lbl],
-                    pd.DataFrame(out_aucs[lvls][super_indx][ex_lbl])
-                    ], sort=False)
-
-                pred_dfs[ex_lbl] = pd.concat([
-                    pred_dfs[ex_lbl], out_preds[lvls][super_indx][ex_lbl]],
+                auc_dfs[ex_lbl] = pd.concat(
+                    [auc_dfs[ex_lbl],
+                     pd.DataFrame(out_aucs[super_indx][ex_lbl])],
                     sort=False
                     )
+
+                pred_dfs[ex_lbl] = pd.concat([pred_dfs[ex_lbl],
+                                              out_preds[ex_lbl][super_indx]],
+                                             sort=False)
 
     auc_dfs = {ex_lbl: auc_df.loc[~auc_df.index.duplicated()]
                for ex_lbl, auc_df in auc_dfs.items()}
