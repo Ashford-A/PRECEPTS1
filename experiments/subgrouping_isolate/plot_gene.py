@@ -437,8 +437,6 @@ def plot_score_symmetry(pred_dfs, pheno_dict, auc_dfs, cdata,
                         ::(len(pairs_dict[ex_lbl]) // (args.verbose * 7) + 1)]
                     ]
 
-            print('\n'.join(pair_strs))
-
     combs_dict = {ex_lbl: set(reduce(add, use_pairs))
                   for ex_lbl, use_pairs in pairs_dict.items() if use_pairs}
 
@@ -450,8 +448,7 @@ def plot_score_symmetry(pred_dfs, pheno_dict, auc_dfs, cdata,
 
     for ex_lbl, pair_combs in combs_dict.items():
         ex_indx += [(ex_lbl, mcombs) for mcombs in pairs_dict[ex_lbl]]
-        use_preds = pred_dfs[ex_lbl].loc[pair_combs, train_samps].applymap(
-            np.mean)
+        use_preds = pred_dfs[ex_lbl].loc[pair_combs, train_samps]
 
         wt_vals = {mcomb: use_preds.loc[mcomb, ~all_phns[ex_lbl]]
                    for mcomb in pair_combs}
@@ -481,7 +478,7 @@ def plot_score_symmetry(pred_dfs, pheno_dict, auc_dfs, cdata,
                          for mcomb1, mcomb2 in permt(mcombs)]
 
     if siml_metric == 'mean':
-        chunk_size = int(len(map_args) / args.cores) + 1
+        chunk_size = int(len(map_args) / (41 * args.cores)) + 1
     elif siml_metric == 'ks':
         chunk_size = int(len(map_args) / (23 * args.cores)) + 1
 
@@ -589,6 +586,10 @@ def plot_subcopy_symmetry(pred_dfs, pheno_dict, auc_dfs, cdata,
             or not (pheno_dict[plt_comb] & pheno_dict[mcomb]).any())
         }, pheno_dict)
 
+    if len(use_combs) == 0:
+        print("No mutation-copy mutual similarity pairs found!")
+        return None
+
     use_mtree = tuple(cdata.mtrees.values())[0][args.gene]
     all_mtype = MuType({('Gene', args.gene): use_mtree.allkey()})
     all_phn = np.array(cdata.train_pheno(all_mtype))
@@ -597,8 +598,7 @@ def plot_subcopy_symmetry(pred_dfs, pheno_dict, auc_dfs, cdata,
     map_args = []
     ex_indx = []
 
-    use_preds = pred_dfs['Iso'].loc[
-        use_combs | plt_combs, train_samps].applymap(np.mean)
+    use_preds = pred_dfs['Iso'].loc[use_combs | plt_combs, train_samps]
     wt_vals = {mcomb: pred_vals[~all_phn]
                for mcomb, pred_vals in use_preds.iterrows()}
     mut_vals = {mcomb: pred_vals[pheno_dict[mcomb]]
@@ -777,10 +777,10 @@ def main():
         ]]
     use_iter = out_use.groupby(['Source', 'Cohort', 'Levels'])['File']
 
-    out_aucs = {k: list() for k in use_iter.groups}
-    out_confs = {k: list() for k in use_iter.groups}
-    out_preds = {k: list() for k in use_iter.groups}
     cdata_dict = {(src, coh): None for src, coh, _ in use_iter.groups}
+    pred_dfs = {(src, coh): {ex_lbl: pd.DataFrame([])
+                             for ex_lbl in ['All', 'Iso', 'IsoShal']}
+                for src, coh in use_cohs}
 
     auc_dfs = {(src, coh): {ex_lbl: pd.DataFrame([])
                             for ex_lbl in ['All', 'Iso', 'IsoShal']}
@@ -788,11 +788,12 @@ def main():
     conf_dfs = {(src, coh): {ex_lbl: pd.DataFrame([])
                              for ex_lbl in ['All', 'Iso', 'IsoShal']}
                 for src, coh in use_cohs}
-    pred_dfs = {(src, coh): {ex_lbl: pd.DataFrame([])
-                             for ex_lbl in ['All', 'Iso', 'IsoShal']}
-                for src, coh in use_cohs}
 
     for (src, coh, lvls), out_files in use_iter:
+        out_aucs = list()
+        out_confs = list()
+        out_preds = {ex_lbl: list() for ex_lbl in ['All', 'Iso', 'IsoShal']}
+
         for out_file in out_files:
             with bz2.BZ2File(Path(out_dirs[src, coh],
                                   '__'.join(["out-aucs",
@@ -800,7 +801,7 @@ def main():
                              'r') as f:
                 auc_vals = pickle.load(f)
 
-            out_aucs[src, coh, lvls] += [
+            out_aucs += [
                 {ex_lbl: auc_df.loc[[mut for mut in auc_df.index
                                      if args.gene in mut.label_iter()]]
                  for ex_lbl, auc_df in auc_vals.items()}
@@ -812,23 +813,24 @@ def main():
                              'r') as f:
                 conf_vals = pickle.load(f)
 
-            out_confs[src, coh, lvls] += [{
+            out_confs += [{
                 ex_lbl: pd.DataFrame(conf_dict).loc[
-                    out_aucs[src, coh, lvls][-1][ex_lbl].index]
+                    out_aucs[-1][ex_lbl].index]
                 for ex_lbl, conf_dict in conf_vals.items()
                 }]
 
-            with bz2.BZ2File(Path(out_dirs[src, coh],
-                                  '__'.join(["out-pred",
-                                             out_tags[out_file]])),
-                             'r') as f:
-                pred_vals = pickle.load(f)
+            for ex_lbl in ['All', 'Iso', 'IsoShal']:
+                pred_tag = '__'.join(["out-pred_{}".format(ex_lbl),
+                                      out_tags[out_file]])
 
-            out_preds[src, coh, lvls] += [{
-                ex_lbl: pd.DataFrame(pred_dict).loc[
-                    out_aucs[src, coh, lvls][-1][ex_lbl].index]
-                for ex_lbl, pred_dict in pred_vals.items()
-                }]
+                with bz2.BZ2File(Path(out_dirs[src, coh], pred_tag),
+                                 'r') as f:
+                    pred_vals = pickle.load(f)
+
+                out_preds[ex_lbl] += [
+                    pred_vals.loc[out_aucs[-1][ex_lbl].index].applymap(
+                        np.mean)
+                    ]
 
             with bz2.BZ2File(Path(out_dirs[src, coh],
                                   '__'.join(["cohort-data",
@@ -843,7 +845,7 @@ def main():
 
         mtypes_comp = np.greater_equal.outer(
             *([[set(auc_vals['All']['mean'].index)
-                for auc_vals in out_aucs[src, coh, lvls]]] * 2)
+                for auc_vals in out_aucs]] * 2)
             )
         super_list = np.apply_along_axis(all, 1, mtypes_comp)
 
@@ -852,19 +854,19 @@ def main():
 
             for ex_lbl in ['All', 'Iso', 'IsoShal']:
                 auc_dfs[src, coh][ex_lbl] = pd.concat([
-                    auc_dfs[src, coh][ex_lbl],
-                    out_aucs[src, coh, lvls][super_indx][ex_lbl]
-                    ], sort=False)
+                    auc_dfs[src, coh][ex_lbl], out_aucs[super_indx][ex_lbl]],
+                    sort=False
+                    )
 
                 conf_dfs[src, coh][ex_lbl] = pd.concat([
                     conf_dfs[src, coh][ex_lbl],
-                    out_confs[src, coh, lvls][super_indx][ex_lbl]
+                    out_confs[super_indx][ex_lbl]
                     ], sort=False)
 
                 pred_dfs[src, coh][ex_lbl] = pd.concat([
-                    pred_dfs[src, coh][ex_lbl],
-                    out_preds[src, coh, lvls][super_indx][ex_lbl]
-                    ], sort=False)
+                    pred_dfs[src, coh][ex_lbl], out_preds[ex_lbl][super_indx]],
+                    sort=False
+                    )
 
     for (src, coh), coh_lvls in out_use.groupby([
             'Source', 'Cohort'])['Levels']:

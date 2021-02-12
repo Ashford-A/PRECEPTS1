@@ -99,8 +99,10 @@ class ExMcomb(MutComb):
         return obj
 
     def __hash__(self):
-        value = 0x981324 ^ (len(self.mtypes) * hash(self.all_mtype))
-        value += hash(tuple(sorted(self.mtypes)))
+        value = len(self.mtypes) * hash(self.all_mtype)
+
+        for mtype in self.mtypes:
+            value += hash(mtype)
 
         if value == -1:
             value = -2

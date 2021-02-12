@@ -998,6 +998,8 @@ def main():
 
     base_muts = {(clf, mtype) for clf, mtype in auc_df.index
                  if (not isinstance(mtype, (Mcomb, ExMcomb))
+                     and auc_df.loc[(clf, mtype), 'All'] >= 0.6
+
                      and 'Copy' not in mtype.get_levels()
                      and not any(lvl == 'Class' or 'domain' in lvl
                                  for lvl in mtype.get_levels())
