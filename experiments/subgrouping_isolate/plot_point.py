@@ -46,6 +46,13 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
     fig, ax = plt.subplots(figsize=(12, 7))
 
     divg_lists = dict()
+    plot_dict = dict()
+    clr_dict = dict()
+    line_dict = dict()
+    size_dict = dict()
+
+    # for each dataset, find the subgroupings meeting the minimum task AUC
+    # that are exclusively defined and subsets of point mutations...
     for (src, coh), auc_list in auc_lists.items():
         use_combs = remove_pheno_dups({
             mut for mut, auc_val in auc_list.iteritems()
@@ -56,6 +63,8 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
                     ))
             }, pheno_dicts[src, coh])
 
+        # ...after removing groupings present in the same samples as another
+        # subgrouping, filter for those matching the given exclusivity method
         if args.ex_lbl == 'Iso':
             use_combs = {mcomb for mcomb in use_combs
                          if not (mcomb.all_mtype & shal_mtype).is_empty()}
@@ -64,6 +73,8 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
             use_combs = {mcomb for mcomb in use_combs
                          if (mcomb.all_mtype & shal_mtype).is_empty()}
 
+        # find all pairs of subgroupings from the same gene that are disjoint
+        # either by construction or by phenotype
         use_pairs = {
             (mcomb1, mcomb2) for mcomb1, mcomb2 in combn(use_combs, 2)
             if ((tuple(mcomb1.label_iter())[0]
@@ -75,6 +86,7 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
                              & pheno_dicts[src, coh][mcomb2]).any()))
             }
 
+        # skip this dataset for plotting if we cannot find any such pairs
         if not use_pairs:
             continue
 
@@ -137,9 +149,9 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
                 ]
 
         if siml_metric == 'mean':
-            chunk_size = int(len(map_args) / (3 * args.cores)) + 1
+            chunk_size = int(len(map_args) / (11 * args.cores)) + 1
         elif siml_metric == 'ks':
-            chunk_size = int(len(map_args) / (7 * args.cores)) + 1
+            chunk_size = int(len(map_args) / (17 * args.cores)) + 1
 
         pool = mp.Pool(args.cores)
         siml_list = pool.starmap(SIML_FXS[siml_metric], map_args, chunk_size)
@@ -160,25 +172,67 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
             if not any(v is None for v in divg_indx.values()):
                 break
 
+        for mcomb1, mcomb2 in divg_pairs:
+            pair_k = src, coh, mcomb1, mcomb2
+
+            size_dict[pair_k] = (np.mean(pheno_dicts[src, coh][mcomb1])
+                                 * np.mean(pheno_dicts[src, coh][mcomb2]))
+            size_dict[pair_k] **= 0.5
+
+            plot_dict[auc_list[[mcomb1, mcomb2]].min(),
+                      divg_list[mcomb1, mcomb2]] = [5.3 * size_dict[pair_k],
+                                                    ('', '')]
+
+        pair_df = pd.DataFrame({
+            'Divg': divg_list.loc[divg_pairs],
+            'AUC': [auc_list[list(mcombs)].min() for mcombs in divg_pairs]
+            })
         divg_lists[src, coh] = divg_list.loc[divg_pairs]
 
-    size_mult = 537 * sum(len(divg_list)
+        lbl_indx = pair_df.groupby(
+            lambda mcombs: tuple(mcombs[0].label_iter())[0]).apply(
+                lambda vals: vals.index[
+                    (vals.Divg * (1 - vals.AUC)).argmin()]
+                )
+
+        for gene, mcombs in lbl_indx.iteritems():
+            if (src, coh, gene) not in clr_dict:
+                clr_dict[src, coh, gene] = choose_label_colour(
+                    '+'.join([gene, coh]))
+
+            mcomb_lbl = '\nvs.\n'.join([
+                '\n& '.join([
+                    get_fancy_label(tuple(mtype.subtype_iter())[0][1])
+                    for mtype in mcomb.mtypes
+                    ])
+                for mcomb in mcombs
+                ])
+
+            plt_tupl = auc_list[list(mcombs)].min(), divg_list[mcombs]
+            line_dict[plt_tupl] = dict(c=clr_dict[src, coh, gene])
+
+            plot_dict[plt_tupl] = [5.3 * size_dict[(src, coh, *mcombs)],
+                                   ("{} in {}".format(gene,
+                                                      get_cohort_label(coh)),
+                                    mcomb_lbl)]
+
+    size_mult = 301 * sum(len(divg_list)
                           for divg_list in divg_lists.values()) ** 0.31
+
+    for k in size_dict:
+        size_dict[k] *= size_mult
 
     for (src, coh), divg_list in divg_lists.items():
         for (mcomb1, mcomb2), divg_val in divg_list.iteritems():
             cur_gene = tuple(mcomb1.label_iter())[0]
 
-            plt_sz = (np.mean(pheno_dicts[src, coh][mcomb1])
-                      * np.mean(pheno_dicts[src, coh][mcomb2])) ** 0.5
-            plt_sz *= size_mult
-            use_clr = choose_label_colour('+'.join([cur_gene, coh]))
-
             ax.scatter(auc_lists[src, coh][[mcomb1, mcomb2]].min(), divg_val,
-                       s=plt_sz, c=[use_clr], alpha=0.17, edgecolor='none')
+                       s=size_dict[src, coh, mcomb1, mcomb2],
+                       c=[clr_dict[src, coh, cur_gene]],
+                       alpha=5 / 19, edgecolor='none')
 
     xlims = [args.auc_cutoff - (1 - args.auc_cutoff) / 47,
-             1 + (1 - args.auc_cutoff) / 181]
+             1 + (1 - args.auc_cutoff) / 277]
     ymax = max(divg_list.max() for divg_list in divg_lists.values()) * 1.13
     ylims = [ymax / -173, ymax]
 
@@ -190,6 +244,12 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
     ax.set_ylabel("Maximum Absolute Similarity", size=21, weight='bold')
     ax.xaxis.set_major_locator(plt.MaxNLocator(5, steps=[1, 2, 5]))
     ax.yaxis.set_major_locator(plt.MaxNLocator(7, steps=[1, 2, 5]))
+
+    if plot_dict:
+        lbl_pos = place_scatter_labels(plot_dict, ax, plt_type='scatter',
+                                       plt_lims=[xlims, [ymax / 31, ymax]],
+                                       font_size=10, line_dict=line_dict,
+                                       linewidth=1.7, alpha=0.41)
 
     ax.set_xlim(xlims)
     ax.set_ylim(ylims)
@@ -204,8 +264,8 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
 
 def main():
     parser = argparse.ArgumentParser(
-        'plot_similarities',
-        description="Compares pairs of genes' subgroupings with a cohort."
+        'plot_point',
+        description="Compares point mutation subgroupings with a cohort."
         )
 
     parser.add_argument('classif', help="a mutation classifier")
@@ -296,6 +356,7 @@ def main():
         pred_dfs[src, coh] = pd.concat([
             pred_dfs[src, coh], out_preds[super_indx]], sort=False)
 
+    # filter out duplicate subgroupings due to overlapping search criteria
     for src, coh, _ in use_iter.groups:
         auc_lists[src, coh].sort_index(inplace=True)
         auc_lists[src, coh] = auc_lists[src, coh].loc[
