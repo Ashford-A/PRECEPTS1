@@ -422,8 +422,9 @@ def plot_copy_comparisons(auc_vals, pheno_dict, conf_vals, args):
                                    line_dict[auc_tupl]['c'] + (0.29, )],
                            explode=[0.29, 0], startangle=90)
 
-    # figure out where to place the labels for each point, and plot them
     plt_lims = plt_min, 1 + (1 - plt_min) / 181
+    ax.grid(linewidth=0.83, alpha=0.41)
+
     ax.plot(plt_lims, [0.5, 0.5],
             color='black', linewidth=1.3, linestyle=':', alpha=0.71)
     ax.plot([0.5, 0.5], plt_lims,

@@ -1,20 +1,32 @@
+"""Algorithms for placing plot labels in an aesthetically pleasing manner."""
 
 import random
 import numpy as np
 
 
 def check_overlap(bx1, bx2):
+    """Determines if two bounding boxes overlap.
+
+    Args:
+        bx1, bx2 (arrays of shape (2, 2))
+
+    """
+
     return not (bx1[0, 0] >= bx2[1, 0] or bx2[0, 0] >= bx1[1, 0]
                 or bx1[0, 1] <= bx2[1, 1] or bx2[0, 1] <= bx1[1, 1])
 
 
+# TODO: consolidate and clean up how these keyword arguments are implemented
 def place_scatter_labels(plot_dict, ax, plt_type='pie', plt_lims=None,
                          plc_lims=None, font_size=13, seed=None,
-                         line_dict=None, **line_args):
+                         font_dict=None, line_dict=None, **line_args):
+
+    # fixes plot limits if they are given
     if plt_lims:
         ax.set_xlim(plt_lims[0])
         ax.set_ylim(plt_lims[1])
 
+    # gets plotting limits, sets limits on where to place labels if not given
     xmin, xmax = ax.get_xlim()
     ymin, ymax = ax.get_ylim()
     if not plc_lims:
@@ -23,17 +35,19 @@ def place_scatter_labels(plot_dict, ax, plt_type='pie', plt_lims=None,
     if seed is not None:
         random.seed(seed)
 
+    # sets default plotting parameters for connecting lines if not given
     if not line_args:
-        line_args = dict(linewidth=1.7, alpha=0.31)
+        line_args = dict(c='black', linewidth=1.61, alpha=0.31)
 
+    # gets constants governing how distances between labels and other plotted
+    # objects are translated into the plot coordinates
     adj_trans = lambda x: ax.transData.inverted().transform(x)
     xadj, yadj = adj_trans([1, 1]) - adj_trans([0, 0])
     xgap, ygap = (xmax - xmin) / 173, (ymax - ymin) / 173
     font_adj = font_size / 13
-    lbl_pos = {pnt: None for pnt, (_, lbls) in plot_dict.items() if lbls[0]}
 
-    # initialize objects storing where each label will be positioned, and how
-    # much space needs to be left around already placed points and labels
+    # initialize object storing how much space needs to be left around already
+    # placed points and labels
     if plt_type == 'pie':
         pnt_gaps = {pnt: (sz / 2 + xgap, sz / 2 + ygap)
                     for pnt, (sz, _) in plot_dict.items()}
@@ -45,6 +59,8 @@ def place_scatter_labels(plot_dict, ax, plt_type='pie', plt_lims=None,
     else:
         raise ValueError("Unrecognized plot type `{}`!".format(plt_type))
 
+    # initialize objects storing where each label will be positioned,
+    lbl_pos = {pnt: None for pnt, (_, lbls) in plot_dict.items() if lbls[0]}
     pnt_bxs = {pnt: [np.array([(pnt[0] - xgap, pnt[1] + ygap),
                                (pnt[0] + xgap, pnt[1] - ygap)])]
                for pnt, (xgap, ygap) in pnt_gaps.items()}
@@ -67,6 +83,7 @@ def place_scatter_labels(plot_dict, ax, plt_type='pie', plt_lims=None,
     for pnt in sorted(set(lbl_pos)):
         if ((plc_lims[1][0] + ygap / 2.3) < pnt[1]
                 < (plc_lims[1][1] - ygap / 2.3)):
+            placed = True
 
             if (pnt[0] > (plc_lims[0][0] + lbl_wdths[pnt] + pnt_gaps[pnt][0])
                     and not any(check_overlap(
@@ -75,13 +92,10 @@ def place_scatter_labels(plot_dict, ax, plt_type='pie', plt_lims=None,
                         pnt_bxs[pnt2][0]
                         ) for pnt2 in plot_dict if pnt2 != pnt)):
 
+                # if there is space, create a label location entry and update
+                # the amount of space needed to be left empty around the point
                 lbl_pos[pnt] = (pnt[0] - pnt_gaps[pnt][0], pnt[1]), 'right'
                 pnt_bxs[pnt][0][0, 0] -= lbl_wdths[pnt] + xgap
-
-                pnt_bxs[pnt][0][0, 1] = pnt[1] + max(
-                    pnt_gaps[pnt][1], lbl_hghts[pnt] / 1.9)
-                pnt_bxs[pnt][0][1, 1] = pnt[1] - max(
-                    pnt_gaps[pnt][1], lbl_hghts[pnt] / 1.9)
 
             # ...if there isn't, check if there is enough space to plot its
             # label to the right of it
@@ -96,13 +110,17 @@ def place_scatter_labels(plot_dict, ax, plt_type='pie', plt_lims=None,
                 lbl_pos[pnt] = (pnt[0] + pnt_gaps[pnt][0], pnt[1]), 'left'
                 pnt_bxs[pnt][0][1, 0] += lbl_wdths[pnt] + xgap
 
-                pnt_bxs[pnt][0][0, 1] = pnt[1] + max(
-                    pnt_gaps[pnt][1], lbl_hghts[pnt] / 1.9)
-                pnt_bxs[pnt][0][1, 1] = pnt[1] - max(
-                    pnt_gaps[pnt][1], lbl_hghts[pnt] / 1.9)
+            else:
+                placed = False
+
+            if placed:
+                pnt_bxs[pnt][0][0, 1] = pnt[1] + max(pnt_gaps[pnt][1],
+                                                     lbl_hghts[pnt] / 1.9)
+                pnt_bxs[pnt][0][1, 1] = pnt[1] - max(pnt_gaps[pnt][1],
+                                                     lbl_hghts[pnt] / 1.9)
 
     # for labels that couldn't be placed right beside their points, look for
-    # empty space in the vicinity
+    # empty space in a vicinity determined using simulated annealing
     i = 0
     while i < 65000 and any(lbl is None for lbl in lbl_pos.values()):
         i += 1
@@ -114,6 +132,8 @@ def place_scatter_labels(plot_dict, ax, plt_type='pie', plt_lims=None,
                 pos_rands = [random.expovariate((i * adj / 1703) ** -1)
                              for adj in [xadj, yadj]]
 
+                # adds padding to the randomly chosen distances and randomly
+                # picks a quadrant relative to the orig point for the label
                 new_pos = [
                     px + (1.9 * pnt_gap + pos_rand) * random.choice([-1, 1])
                     for px, pos_rand, pnt_gap in zip(pnt, pos_rands,
@@ -135,11 +155,14 @@ def place_scatter_labels(plot_dict, ax, plt_type='pie', plt_lims=None,
                 new_pos[1] = np.clip(new_pos[1],
                                      pnt[1] - 331 * yadj, pnt[1] + 331 * yadj)
 
+                # if the label has a bottom text component, account for it
+                # when determining the label's vertical alignment
                 if bot_lbl:
                     top_prop = (4 / 3 + bot_lbl.count('\n')) ** -1
                 else:
                     top_prop = 0.5
 
+                # create a bounding box for the putative label location
                 new_bx = np.array(
                     [[new_pos[0] - lbl_wdths[pnt] / 1.9 - xgap,
                       new_pos[1] + lbl_hghts[pnt] * top_prop + ygap],
@@ -147,6 +170,8 @@ def place_scatter_labels(plot_dict, ax, plt_type='pie', plt_lims=None,
                       new_pos[1] - lbl_hghts[pnt] * (1 - top_prop) - ygap]]
                     )
 
+                # if the putative bounding box does not overlap with any
+                # existing plot elements, choose this as the label's location
                 if not any(check_overlap(new_bx, pnt2_bx)
                            for pnt2_bxs in pnt_bxs.values()
                            for pnt2_bx in pnt2_bxs):
@@ -155,16 +180,23 @@ def place_scatter_labels(plot_dict, ax, plt_type='pie', plt_lims=None,
 
     lbl_pos = {pnt: lbl for pnt, lbl in lbl_pos.items() if lbl}
     for (pnt_x, pnt_y), ((lbl_x, lbl_y), lbl_ha) in lbl_pos.items():
+        text_props = dict()
+
+        if font_dict and (pnt_x, pnt_y) in font_dict:
+            text_props.update(font_dict[pnt_x, pnt_y])
+
+        # create the main (top) part of the label
         if lbl_ha == 'center' and not plot_dict[pnt_x, pnt_y][1][1]:
             ax.text(lbl_x, lbl_y, plot_dict[pnt_x, pnt_y][1][0],
-                    size=font_size, ha=lbl_ha, va='center')
+                    size=font_size, ha=lbl_ha, va='center', **text_props)
         else:
             ax.text(lbl_x, lbl_y + yadj * 2.3, plot_dict[pnt_x, pnt_y][1][0],
-                    size=font_size, ha=lbl_ha, va='bottom')
+                    size=font_size, ha=lbl_ha, va='bottom', **text_props)
 
+        # create the secondary (bottom) part of the label
         if plot_dict[pnt_x, pnt_y][1][1]:
             ax.text(lbl_x, lbl_y - yadj * 2.3, plot_dict[pnt_x, pnt_y][1][1],
-                    size=font_size / 1.61, ha=lbl_ha, va='top')
+                    size=font_size / 1.61, ha=lbl_ha, va='top', **text_props)
 
         lbl_bx = pnt_bxs[pnt_x, pnt_y][-1]
         txt_y = np.clip(pnt_y, *(lbl_bx[::-1, 1]
@@ -187,6 +219,8 @@ def place_scatter_labels(plot_dict, ax, plt_type='pie', plt_lims=None,
         crc_bx = np.array([[crc_x - xgap / 2.9, crc_y + ygap / 2.9],
                            [crc_x + xgap / 2.9, crc_y - ygap / 2.9]])
 
+        # if the label is sufficiently far away from the plot element it
+        # annotates, create a connecting line between the two
         if not check_overlap(lbl_bx, crc_bx):
             line_props = line_args.copy()
 

@@ -1,7 +1,18 @@
 
+from .data_dirs import expr_dir, expr_fl
+from dryadic.features.cohorts.utils import log_norm
+
+import os
 from pathlib import Path
 import numpy as np
 import pandas as pd
+
+
+def load_SMMART_expr():
+    return log_norm(
+        pd.read_csv(os.path.join(expr_dir, expr_fl),
+                    sep='\t', skiprows=[1], index_col=0).transpose()
+        )
 
 
 def load_patient_expression(base_dir):
