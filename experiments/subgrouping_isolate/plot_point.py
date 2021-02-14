@@ -30,6 +30,7 @@ from scipy.stats import ks_2samp
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 mpl.use('Agg')
 plt.style.use('fivethirtyeight')
@@ -50,6 +51,7 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
     clr_dict = dict()
     line_dict = dict()
     size_dict = dict()
+    annt_dict = dict()
 
     # for each dataset, find the subgroupings meeting the minimum task AUC
     # that are exclusively defined and subsets of point mutations...
@@ -187,38 +189,49 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
             'Divg': divg_list.loc[divg_pairs],
             'AUC': [auc_list[list(mcombs)].min() for mcombs in divg_pairs]
             })
+        pair_df['Score'] = pair_df.Divg * (1 - pair_df.AUC ** 2)
+        pair_df = pair_df.sort_values(by='Score')
+
         divg_lists[src, coh] = divg_list.loc[divg_pairs]
+        annt_dict[src, coh] = set()
 
-        lbl_indx = pair_df.groupby(
-            lambda mcombs: tuple(mcombs[0].label_iter())[0]).apply(
-                lambda vals: vals.index[
-                    (vals.Divg * (1 - vals.AUC)).argmin()]
-                )
+        for gene, pair_vals in pair_df.groupby(
+                lambda mcombs: tuple(mcombs[0].label_iter())[0]):
+            clr_dict[src, coh, gene] = None
 
-        for gene, mcombs in lbl_indx.iteritems():
-            if (src, coh, gene) not in clr_dict:
-                clr_dict[src, coh, gene] = choose_label_colour(
-                    '+'.join([gene, coh]))
+            lbl_pair = pair_vals.index[0]
+            annt_dict[src, coh] |= set(pair_vals.index[:5])
 
-            mcomb_lbl = '\nvs.\n'.join([
+            pair_lbl = '\nvs.\n'.join([
                 '\n& '.join([
                     get_fancy_label(tuple(mtype.subtype_iter())[0][1])
                     for mtype in mcomb.mtypes
                     ])
-                for mcomb in mcombs
+                for mcomb in lbl_pair
                 ])
 
-            plt_tupl = auc_list[list(mcombs)].min(), divg_list[mcombs]
-            line_dict[plt_tupl] = dict(c=clr_dict[src, coh, gene])
+            plt_tupl = auc_list[list(lbl_pair)].min(), divg_list[lbl_pair]
+            line_dict[plt_tupl] = src, coh, gene
 
-            plot_dict[plt_tupl] = [5.3 * size_dict[(src, coh, *mcombs)],
+            plot_dict[plt_tupl] = [5.3 * size_dict[(src, coh, *lbl_pair)],
                                    ("{} in {}".format(gene,
                                                       get_cohort_label(coh)),
-                                    mcomb_lbl)]
+                                    pair_lbl)]
 
-    size_mult = 301 * sum(len(divg_list)
+    if len(clr_dict) > 10:
+        for src, coh, gene in clr_dict:
+            clr_dict[src, coh, gene] = choose_label_colour(
+                '+'.join([gene, coh]))
+
+    else:
+        use_clrs = sns.color_palette(palette='Set2', n_colors=len(clr_dict))
+        clr_dict = dict(zip(clr_dict, use_clrs))
+
+    size_mult = 203 * sum(len(divg_list)
                           for divg_list in divg_lists.values()) ** 0.31
 
+    for k in line_dict:
+        line_dict[k] = {'c': clr_dict[line_dict[k]]}
     for k in size_dict:
         size_dict[k] *= size_mult
 
@@ -229,7 +242,7 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
             ax.scatter(auc_lists[src, coh][[mcomb1, mcomb2]].min(), divg_val,
                        s=size_dict[src, coh, mcomb1, mcomb2],
                        c=[clr_dict[src, coh, cur_gene]],
-                       alpha=5 / 19, edgecolor='none')
+                       alpha=0.31, edgecolor='none')
 
     xlims = [args.auc_cutoff - (1 - args.auc_cutoff) / 47,
              1 + (1 - args.auc_cutoff) / 277]
@@ -247,7 +260,7 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
 
     if plot_dict:
         lbl_pos = place_scatter_labels(plot_dict, ax, plt_type='scatter',
-                                       plt_lims=[xlims, [ymax / 31, ymax]],
+                                       plt_lims=[xlims, [ymax / 61, ymax]],
                                        font_size=10, line_dict=line_dict,
                                        linewidth=1.7, alpha=0.41)
 
@@ -260,6 +273,7 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
                 bbox_inches='tight', format='svg')
 
     plt.close()
+    return annt_dict
 
 
 def main():
@@ -280,6 +294,7 @@ def main():
     parser.add_argument('--seed', type=int)
     parser.add_argument('--verbose', '-v', action='count', default=0)
 
+    # parse command line arguments, find completed runs for this classifier
     args = parser.parse_args()
     out_datas = tuple(Path(base_dir).glob(
         os.path.join("*", "out-aucs__*__*__{}.p.gz".format(args.classif))))
@@ -310,7 +325,8 @@ def main():
     phn_dicts = {(src, coh): dict() for src, coh, _ in use_iter.groups}
     cdata_dict = {(src, coh): None for src, coh, _ in use_iter.groups}
 
-    auc_lists = {(src, coh): pd.Series() for src, coh, _ in use_iter.groups}
+    auc_lists = {(src, coh): pd.Series(dtype='float')
+                 for src, coh, _ in use_iter.groups}
     pred_dfs = {(src, coh): pd.DataFrame() for src, coh, _ in use_iter.groups}
 
     for (src, coh, lvls), out_files in use_iter:
@@ -350,23 +366,43 @@ def main():
 
         mtypes_comp = np.greater_equal.outer(
             *([[set(auc_vals.index) for auc_vals in out_aucs]] * 2))
-        super_indx = np.apply_along_axis(all, 1, mtypes_comp).argmax()
+        super_comp = np.apply_along_axis(all, 1, mtypes_comp)
 
-        auc_lists[src, coh] = auc_lists[src, coh].append(out_aucs[super_indx])
-        pred_dfs[src, coh] = pd.concat([
-            pred_dfs[src, coh], out_preds[super_indx]], sort=False)
+        # if there is not a subgrouping set that contains all the others,
+        # concatenate the output of all sets...
+        if not super_comp.any():
+            auc_lists[src, coh] = auc_lists[src, coh].append(
+                pd.concat(out_aucs, sort=False))
+            pred_dfs[src, coh] = pd.concat(
+                [pred_dfs[src, coh], *out_preds], sort=False)
+
+        # ...otherwise, use the "superset"
+        else:
+            super_indx = super_comp.argmax()
+
+            auc_lists[src, coh] = auc_lists[src, coh].append(
+                out_aucs[super_indx])
+            pred_dfs[src, coh] = pd.concat(
+                [pred_dfs[src, coh], out_preds[super_indx]], sort=False)
 
     # filter out duplicate subgroupings due to overlapping search criteria
     for src, coh, _ in use_iter.groups:
         auc_lists[src, coh].sort_index(inplace=True)
+        pred_dfs[src, coh].sort_index(inplace=True)
+        assert (auc_lists[src, coh].index == pred_dfs[src, coh].index).all()
+
         auc_lists[src, coh] = auc_lists[src, coh].loc[
             ~auc_lists[src, coh].index.duplicated()]
-        pred_dfs[src, coh] = pred_dfs[src, coh].loc[auc_lists[src, coh].index]
+        pred_dfs[src, coh] = pred_dfs[src, coh].loc[
+            ~pred_dfs[src, coh].index.duplicated()]
 
     for siml_metric in args.siml_metrics:
         if args.auc_cutoff < 1:
-            plot_divergent_pairs(pred_dfs, phn_dicts, auc_lists,
-                                 cdata_dict, args, siml_metric)
+            annt_pairs = plot_divergent_pairs(pred_dfs, phn_dicts, auc_lists,
+                                              cdata_dict, args, siml_metric)
+
+            for (src, coh), pair_list in annt_pairs:
+                pass
 
 
 if __name__ == '__main__':
