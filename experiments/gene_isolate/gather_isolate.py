@@ -82,7 +82,7 @@ def main():
 
     # initialize object that will store raw experiment output data
     out_dfs = {k: {ex_lbl: [None for cv_id in range(40)]
-                   for ex_lbl in ['All', 'Iso', 'IsoShal']}
+                   for ex_lbl in ['Iso', 'IsoShal']}
                for k in ['Pars', 'Time', 'Acc']}
     out_clf = None
     out_tune = None
@@ -102,7 +102,7 @@ def main():
                          columns=cdata.get_samples()).applymap(lambda x: [])
             for cv_id in range(40)
             ]
-        for ex_lbl in ['All', 'Iso', 'IsoShal']
+        for ex_lbl in ['Iso', 'IsoShal']
         }
 
     for cv_id, out_fls in file_sets.items():
@@ -141,7 +141,7 @@ def main():
         samps_dict = {'train': cdata.get_train_samples(),
                       'test': cdata.get_test_samples()}
 
-        for ex_lbl in ['All', 'Iso', 'IsoShal']:
+        for ex_lbl in ['Iso', 'IsoShal']:
             out_preds = pd.DataFrame({
                 mut: out_vals[ex_lbl] for out_dicts in out_list
                 for mut, out_vals in out_dicts['Pred'].items()
@@ -172,7 +172,7 @@ def main():
                         [x] for x in train_preds]
 
         for k in out_dfs:
-            for ex_lbl in ['All', 'Iso', 'IsoShal']:
+            for ex_lbl in ['Iso', 'IsoShal']:
                 out_dfs[k][ex_lbl][cv_id] = pd.DataFrame({
                     mut: out_vals[ex_lbl] for out_dicts in out_list
                     for mut, out_vals in out_dicts[k].items()
@@ -181,10 +181,7 @@ def main():
     pred_dfs = {ex_lbl: reduce(add, pred_mats)
                 for ex_lbl, pred_mats in pred_lists.items()}
 
-    assert (pred_dfs['All'].applymap(len) == 10).values.all(), (
-        "Incorrect number of testing CV scores!")
-
-    for mut in pred_dfs['All'].index:
+    for mut in pred_dfs['Iso'].index:
         hld_samps = gene_samps - mut_samps[mut]
 
         assert (pred_dfs['Iso'].loc[
@@ -206,14 +203,14 @@ def main():
             "Incorrect number of testing CV scores!")
 
     pars_dfs = {ex_lbl: pd.concat(out_dfs['Pars'][ex_lbl], axis=1, sort=True)
-                for ex_lbl in ['All', 'Iso', 'IsoShal']}
+                for ex_lbl in ['Iso', 'IsoShal']}
 
     for pars_df in pars_dfs.values():
         assert pars_df.shape[1] == (40 * len(out_clf.tune_priors)), (
             "Tuned parameter values missing for some CVs!")
 
     time_dfs = {ex_lbl: pd.concat(out_dfs['Time'][ex_lbl], axis=1, sort=True)
-                for ex_lbl in ['All', 'Iso', 'IsoShal']}
+                for ex_lbl in ['Iso', 'IsoShal']}
 
     for time_df in time_dfs.values():
         assert time_df.shape[1] == 80, (
@@ -222,7 +219,7 @@ def main():
             "Algorithm fit times missing for some hyper-parameter values!")
 
     acc_dfs = {ex_lbl: pd.concat(out_dfs['Acc'][ex_lbl], axis=1, sort=True)
-               for ex_lbl in ['All', 'Iso', 'IsoShal']}
+               for ex_lbl in ['Iso', 'IsoShal']}
 
     for acc_df in acc_dfs.values():
         assert acc_df.shape[1] == 120, (
@@ -237,10 +234,12 @@ def main():
                 "the list of mutations enumerated during setup!"
                 )
 
-    with bz2.BZ2File(os.path.join(args.use_dir, 'merge',
-                                  "out-pred{}.p.gz".format(out_tag)),
-                     'w') as fl:
-        pickle.dump(pred_dfs, fl, protocol=-1)
+    for ex_lbl in ['Iso', 'IsoShal']:
+        with bz2.BZ2File(os.path.join(args.use_dir, 'merge',
+                                      "out-pred_{}{}.p.gz".format(
+                                          ex_lbl, out_tag)),
+                         'w') as fl:
+            pickle.dump(pred_dfs[ex_lbl], fl, protocol=-1)
 
     with bz2.BZ2File(os.path.join(args.use_dir, 'merge',
                                   "out-tune{}.p.gz".format(out_tag)),
@@ -297,10 +296,10 @@ def main():
                     )
                 )))
             }
-        for ex_lbl in ['All', 'Iso', 'IsoShal']
+        for ex_lbl in ['Iso', 'IsoShal']
         }
 
-    for ex_lbl in ['All', 'Iso', 'IsoShal']:
+    for ex_lbl in ['Iso', 'IsoShal']:
         auc_dicts[ex_lbl]['CV'].name = None
         auc_dicts[ex_lbl]['CV'].index.name = None
 
@@ -328,10 +327,10 @@ def main():
                     ))
                 ).pivot_table(index=0, values=1, aggfunc=list).iloc[:, 0]
             }
-        for ex_lbl in ['All', 'Iso', 'IsoShal']
+        for ex_lbl in ['Iso', 'IsoShal']
         }
 
-    for ex_lbl in ['All', 'Iso', 'IsoShal']:
+    for ex_lbl in ['Iso', 'IsoShal']:
         conf_lists[ex_lbl]['mean'].name = None
         conf_lists[ex_lbl]['mean'].index.name = None
 

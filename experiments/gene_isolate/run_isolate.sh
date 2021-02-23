@@ -54,7 +54,7 @@ dvc init --no-scm -f
 export PYTHONPATH="$CODEDIR"
 eval "$( python -m dryads-research.experiments.utilities.data_dirs $cohort )"
 
-# enumerate the mutation types that will be tested in this experiment
+ enumerate the mutation types that will be tested in this experiment
 dvc run -d $COH_DIR -d $GENCODE_DIR -d $ONCOGENE_LIST -d $SUBTYPE_LIST \
 	-d $RUNDIR/setup_isolate.py -d $CODEDIR/dryads-research/environment.yml \
 	-o setup/muts-list.p -m setup/muts-count.txt \
@@ -83,7 +83,7 @@ then
 
 	eval "$( python -m dryads-research.experiments.utilities.pipeline_setup \
 		$OUTDIR $time_max --merge_max=$merge_max \
-		--task_size=1.19 --samp_exp=1 --merge_size=3.41 )"
+		--task_size=0.43 --samp_exp=1 --merge_size=1.91 )"
 fi
 
 # if we are only enumerating, we quit before classification jobs are launched
@@ -99,7 +99,7 @@ eval "$( tail -n 1 setup/tasks.txt )"
 dvc run -d setup/muts-list.p -d $RUNDIR/fit_isolate.py -O out-conf.p.gz \
 	-f output.dvc --overwrite-dvcfile --ignore-build-cache \
 	'snakemake -s $RUNDIR/Snakefile \
-	-j 400 --latency-wait 120 --cluster-config $RUNDIR/cluster.json \
+	-j 1200 --latency-wait 120 --cluster-config $RUNDIR/cluster.json \
 	--cluster "sbatch -p {cluster.partition} -J {cluster.job-name} \
 	-t {cluster.time} -o {cluster.output} -e {cluster.error} \
 	-n {cluster.ntasks} -c {cluster.cpus-per-task} \

@@ -53,14 +53,14 @@ def main():
     cdata.update_split(use_seed, test_samps=cdata_samps[(args.cv_id % 4)::4])
 
     out_pars = {mut: {smps: {par: None for par, _ in mut_clf.tune_priors}
-                      for smps in ['All', 'Iso', 'IsoShal']}
+                      for smps in ['Iso', 'IsoShal']}
                 for mut in muts_list}
 
-    out_time = {mut: {smps: dict() for smps in ['All', 'Iso', 'IsoShal']}
+    out_time = {mut: {smps: dict() for smps in ['Iso', 'IsoShal']}
                 for mut in muts_list}
-    out_acc = {mut: {smps: dict() for smps in ['All', 'Iso', 'IsoShal']}
+    out_acc = {mut: {smps: dict() for smps in ['Iso', 'IsoShal']}
                for mut in muts_list}
-    out_pred = {mut: {smps: None for smps in ['All', 'Iso', 'IsoShal']}
+    out_pred = {mut: {smps: None for smps in ['Iso', 'IsoShal']}
                 for mut in muts_list}
 
     random.seed(10301)
@@ -72,7 +72,7 @@ def main():
             print("Isolating {} ...".format(mut))
 
             mut_samps = mut.get_samples(*cdata.mtrees.values())
-            ex_dict = {'All': set(), 'Iso': gene_samps - mut_samps,
+            ex_dict = {'Iso': gene_samps - mut_samps,
                        'IsoShal': gene_samps - (mut_samps | shal_samps)}
 
             for ex_lbl, ex_samps in ex_dict.items():

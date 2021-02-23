@@ -85,19 +85,8 @@ def main():
         samp_dict.update({mtype: mtype.get_samples(cdata.mtrees[lvls])
                           for mtype in test_types})
 
-        copy_dyads = set()
-        for copy_type in copy_types:
-            for pnt_type in test_types - copy_types:
-                new_dyad = pnt_type | copy_type
-                dyad_samps = new_dyad.get_samples(cdata.mtrees[lvls])
-
-                if (dyad_samps > samp_dict[pnt_type]
-                        and dyad_samps > samp_dict[copy_type]):
-                    copy_dyads |= {new_dyad}
-                    samp_dict[new_dyad] = dyad_samps
-
         lvl_types[lvls] = {
-            mtype for mtype in test_types | copy_dyads
+            mtype for mtype in test_types
             if ((search_dict['samp_cutoff']
                  <= len(samp_dict[mtype]) <= max_samps)
                 and samp_dict[mtype] != samp_dict[pnt_mtype])
@@ -188,11 +177,25 @@ def main():
                 samp_dict[expair] = expair_samps
                 test_combs |= {expair}
 
-                expair_shal = ExMcomb(all_mtype - shal_mtype, mtype1, mtype2)
-                exshal_samps = expair_shal.get_samples(cdata.mtrees[lvls])
-                if exshal_samps != samp_dict[expair]:
-                    samp_dict[expair_shal] = exshal_samps
-                    test_combs |= {expair_shal}
+            bshl_samps1 = ExMcomb(
+                all_mtype - shal_mtype, mtype1).get_samples(
+                cdata.mtrees[lvls])
+            bshl_samps2 = ExMcomb(
+                all_mtype - shal_mtype, mtype2).get_samples(
+                cdata.mtrees[lvls])
+
+            expair_shal = ExMcomb(all_mtype - shal_mtype, mtype1, mtype2)
+            exshal_samps = expair_shal.get_samples(cdata.mtrees[lvls])
+
+            if (exshal_samps != expair_samps
+                    and (exshal_samps != bshl_samps1
+                         or exshal_samps != bshl_samps2)
+                    and not any(exshal_samps == smps
+                                for mcb, smps in samp_dict.items()
+                                if (isinstance(mcb, ExMcomb)
+                                    and len(mcb.mtypes) == 2))):
+                samp_dict[expair_shal] = exshal_samps
+                test_combs |= {expair_shal}
 
         test_mcombs |= {mcomb for mcomb in test_combs
                         if (search_dict['samp_cutoff']
