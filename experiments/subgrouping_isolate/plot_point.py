@@ -59,6 +59,7 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
         use_combs = remove_pheno_dups({
             mut for mut, auc_val in auc_list.iteritems()
             if (isinstance(mut, ExMcomb) and auc_val >= args.auc_cutoff
+                and len(mut.mtypes) == 1
                 and all(
                     pnt_mtype.is_supertype(tuple(mtype.subtype_iter())[0][1])
                     for mtype in mut.mtypes
@@ -78,7 +79,8 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
         # find all pairs of subgroupings from the same gene that are disjoint
         # either by construction or by phenotype
         use_pairs = {
-            (mcomb1, mcomb2) for mcomb1, mcomb2 in combn(use_combs, 2)
+            tuple(sorted([mcomb1, mcomb2]))
+            for mcomb1, mcomb2 in combn(use_combs, 2)
             if ((tuple(mcomb1.label_iter())[0]
                  == tuple(mcomb2.label_iter())[0])
                 and (all((mtp1 & mtp2).is_empty()
@@ -161,7 +163,7 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
         siml_df = pd.DataFrame(dict(
             zip(use_pairs, zip(siml_list[::2], siml_list[1::2])))).transpose()
 
-        divg_list = siml_df.abs().max(axis=1).sort_values()
+        divg_list = siml_df.max(axis=1).sort_values()
         divg_indx = {mcomb: None for mcomb in pair_combs}
         divg_pairs = set()
 
@@ -182,7 +184,7 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
             size_dict[pair_k] **= 0.5
 
             plot_dict[auc_list[[mcomb1, mcomb2]].min(),
-                      divg_list[mcomb1, mcomb2]] = [5.3 * size_dict[pair_k],
+                      divg_list[mcomb1, mcomb2]] = [3.1 * size_dict[pair_k],
                                                     ('', '')]
 
         pair_df = pd.DataFrame({
@@ -197,7 +199,7 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
 
         for gene, pair_vals in pair_df.groupby(
                 lambda mcombs: tuple(mcombs[0].label_iter())[0]):
-            clr_dict[src, coh, gene] = None
+            clr_dict[gene] = None
 
             lbl_pair = pair_vals.index[0]
             annt_dict[src, coh] |= set(pair_vals.index[:5])
@@ -213,25 +215,24 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
             plt_tupl = auc_list[list(lbl_pair)].min(), divg_list[lbl_pair]
             line_dict[plt_tupl] = src, coh, gene
 
-            plot_dict[plt_tupl] = [5.3 * size_dict[(src, coh, *lbl_pair)],
+            plot_dict[plt_tupl] = [3.1 * size_dict[(src, coh, *lbl_pair)],
                                    ("{} in {}".format(gene,
                                                       get_cohort_label(coh)),
                                     pair_lbl)]
 
     if len(clr_dict) > 8:
-        for src, coh, gene in clr_dict:
-            clr_dict[src, coh, gene] = choose_label_colour(
-                '+'.join([gene, coh]))
+        for gene in clr_dict:
+            clr_dict[gene] = choose_label_colour(gene)
 
     else:
-        use_clrs = sns.color_palette(palette='Set1', n_colors=len(clr_dict))
+        use_clrs = sns.color_palette(palette='bright', n_colors=len(clr_dict))
         clr_dict = dict(zip(clr_dict, use_clrs))
 
-    size_mult = 203 * sum(len(divg_list)
-                          for divg_list in divg_lists.values()) ** 0.31
+    size_mult = 6107 * sum(
+        len(divg_list) for divg_list in divg_lists.values()) ** -0.31
 
     for k in line_dict:
-        line_dict[k] = {'c': clr_dict[line_dict[k]]}
+        line_dict[k] = {'c': clr_dict[line_dict[k][-1]]}
     for k in size_dict:
         size_dict[k] *= size_mult
 
@@ -241,20 +242,24 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
 
             ax.scatter(auc_lists[src, coh][[mcomb1, mcomb2]].min(), divg_val,
                        s=size_dict[src, coh, mcomb1, mcomb2],
-                       c=[clr_dict[src, coh, cur_gene]],
+                       c=[clr_dict[cur_gene]],
                        alpha=0.31, edgecolor='none')
 
     xlims = [args.auc_cutoff - (1 - args.auc_cutoff) / 47,
              1 + (1 - args.auc_cutoff) / 277]
-    ymax = max(divg_list.max() for divg_list in divg_lists.values()) * 1.13
-    ylims = [ymax / -173, ymax]
+
+    ymin = min(divg_list.min() for divg_list in divg_lists.values())
+    ymax = max(divg_list.max() for divg_list in divg_lists.values())
+    yrng = ymax - ymin
+    ylims = [ymin - yrng / 11, ymax + yrng / 41]
 
     ax.grid(alpha=0.47, linewidth=0.9)
-    ax.plot(xlims, [0, 0], color='black', linewidth=1.7, alpha=0.83)
+    ax.plot(xlims, [0, 0],
+            color='black', linewidth=1.11, linestyle='--', alpha=0.67)
     ax.plot([1, 1], ylims, color='black', linewidth=1.7, alpha=0.83)
 
     ax.set_xlabel("Minimum Classification Accuracy", size=21, weight='bold')
-    ax.set_ylabel("Maximum Absolute Similarity", size=21, weight='bold')
+    ax.set_ylabel("Maximum Inferred Similarity", size=21, weight='bold')
     ax.xaxis.set_major_locator(plt.MaxNLocator(5, steps=[1, 2, 5]))
     ax.yaxis.set_major_locator(plt.MaxNLocator(7, steps=[1, 2, 5]))
 
@@ -268,7 +273,7 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
     ax.set_ylim(ylims)
 
     plt.savefig(os.path.join(plot_dir,
-                             "{}_{}-siml-symmetry_{}.svg".format(
+                             "{}_{}-divergent-pairs_{}.svg".format(
                                  args.ex_lbl, siml_metric, args.classif)),
                 bbox_inches='tight', format='svg')
 
@@ -280,7 +285,7 @@ def plot_orthogonal_scores(plt_mcomb1, plt_mcomb2, pred_df, auc_vals,
                            pheno_dict, cdata, data_tag, args, siml_metric):
     fig, ((mcomb2_ax, sctr_ax), (crnr_ax, mcomb1_ax)) = plt.subplots(
         figsize=(13, 12), nrows=2, ncols=2,
-        gridspec_kw=dict(height_ratios=[5, 1], width_ratios=[1, 5])
+        gridspec_kw=dict(height_ratios=[4, 1], width_ratios=[1, 4])
         )
 
     use_gene = {tuple(mtype.label_iter())[0]
@@ -301,33 +306,33 @@ def plot_orthogonal_scores(plt_mcomb1, plt_mcomb2, pred_df, auc_vals,
     x_min, y_min = use_preds.min()
     x_max, y_max = use_preds.max()
     x_rng, y_rng = x_max - x_min, y_max - y_min
-    xlims = x_min - x_rng / 13, x_max + x_rng / 13
-    ylims = y_min - y_rng / 13, y_max + y_rng / 13
+    xlims = x_min - x_rng / 31, x_max + x_rng / 31
+    ylims = y_min - y_rng / 31, y_max + y_rng / 31
 
     all_phn = np.array(cdata.train_pheno(all_mtype))
     use_preds['Phn'] = np.array(['Other' if phn else 'WT' for phn in all_phn])
-    use_preds.loc[pheno_dict[plt_mcomb1], 'Phn'] = 'Mut1'
-    use_preds.loc[pheno_dict[plt_mcomb2], 'Phn'] = 'Mut2'
+    use_preds.loc[pheno_dict[plt_mcomb1], 'Phn'] = 'Subg1'
+    use_preds.loc[pheno_dict[plt_mcomb2], 'Phn'] = 'Subg2'
 
     for ax in sctr_ax, mcomb1_ax, mcomb2_ax:
         ax.grid(alpha=0.47, linewidth=0.9)
     use_clrs = {'WT': variant_clrs['WT'],
-                'Mut1': '#080097', 'Mut2': '#00847F', 'Other': 'black'}
+                'Subg1': '#080097', 'Subg2': '#00847F', 'Other': 'black'}
 
     sctr_ax.plot(use_preds.loc[use_preds.Phn == 'WT', 'Subg1'],
                  use_preds.loc[use_preds.Phn == 'WT', 'Subg2'],
                  marker='o', markersize=6, linewidth=0, alpha=0.19,
                  mfc=use_clrs['WT'], mec='none')
 
-    sctr_ax.plot(use_preds.loc[use_preds.Phn == 'Mut1', 'Subg1'],
-                 use_preds.loc[use_preds.Phn == 'Mut1', 'Subg2'],
+    sctr_ax.plot(use_preds.loc[use_preds.Phn == 'Subg1', 'Subg1'],
+                 use_preds.loc[use_preds.Phn == 'Subg1', 'Subg2'],
                  marker='o', markersize=9, linewidth=0, alpha=0.23,
-                 mfc=use_clrs['Mut1'], mec='none')
+                 mfc=use_clrs['Subg1'], mec='none')
 
-    sctr_ax.plot(use_preds.loc[use_preds.Phn == 'Mut2', 'Subg1'],
-                 use_preds.loc[use_preds.Phn == 'Mut2', 'Subg2'],
+    sctr_ax.plot(use_preds.loc[use_preds.Phn == 'Subg2', 'Subg1'],
+                 use_preds.loc[use_preds.Phn == 'Subg2', 'Subg2'],
                  marker='o', markersize=9, linewidth=0, alpha=0.23,
-                 mfc=use_clrs['Mut2'], mec='none')
+                 mfc=use_clrs['Subg2'], mec='none')
 
     sctr_ax.plot(use_preds.loc[use_preds.Phn == 'Other', 'Subg1'],
                  use_preds.loc[use_preds.Phn == 'Other', 'Subg2'],
@@ -340,19 +345,23 @@ def plot_orthogonal_scores(plt_mcomb1, plt_mcomb2, pred_df, auc_vals,
         for mcomb in [plt_mcomb1, plt_mcomb2]
         ]
 
-    sctr_ax.text(0.98, 0.03, "{}\nmutants".format(mcomb_lbls[0]),
-                 size=13, c=use_clrs['Mut1'], ha='right', va='bottom',
+    sctr_ax.text(0.98, 0.03,
+                 "Subgrouping 1:\n{} mutants\n{}".format(use_gene,
+                                                         mcomb_lbls[0]),
+                 size=15, c=use_clrs['Subg1'], ha='right', va='bottom',
                  transform=sctr_ax.transAxes)
-    sctr_ax.text(0.03, 0.98, "{}\nmutants".format(mcomb_lbls[1]),
-                 size=13, c=use_clrs['Mut2'], ha='left', va='top',
+    sctr_ax.text(0.03, 0.98,
+                 "Subgrouping 2:\n{} mutants\n{}".format(use_gene,
+                                                         mcomb_lbls[1]),
+                 size=15, c=use_clrs['Subg2'], ha='left', va='top',
                  transform=sctr_ax.transAxes)
 
     sns.violinplot(data=use_preds, y='Phn', x='Subg1', ax=mcomb1_ax,
-                   order=['WT', 'Mut1', 'Mut2', 'Other'],
+                   order=['WT', 'Subg1', 'Subg2', 'Other'],
                    palette=use_clrs, orient='h', linewidth=0, cut=0)
 
     sns.violinplot(data=use_preds, x='Phn', y='Subg2', ax=mcomb2_ax,
-                   order=['WT', 'Mut2', 'Mut1', 'Other'],
+                   order=['WT', 'Subg2', 'Subg1', 'Other'],
                    palette=use_clrs, orient='v', linewidth=0, cut=0)
 
     for mcomb_ax in mcomb1_ax, mcomb2_ax:
@@ -368,17 +377,81 @@ def plot_orthogonal_scores(plt_mcomb1, plt_mcomb2, pred_df, auc_vals,
     sctr_ax.set_xticklabels([])
     sctr_ax.set_yticklabels([])
 
-    mcomb1_ax.set_xlabel("Subgrouping Task 1\nMean Scores",
-                         size=21, weight='semibold')
+    mcomb1_ax.set_xlabel("Subgrouping Task 1\nPredicted Scores",
+                         size=23, weight='semibold')
     mcomb1_ax.yaxis.label.set_visible(False)
+    mcomb1_ax.set_yticklabels([
+        "Wild-Type", "Subg1", "Subg2", "Other\n{}\nMuts".format(use_gene)])
 
-    mcomb2_ax.set_ylabel("Subgrouping Task 2\nMean Scores",
-                         size=21, weight='semibold')
+    mcomb2_ax.set_ylabel("Subgrouping Task 2\nPredicted Scores",
+                         size=23, weight='semibold')
     mcomb2_ax.xaxis.label.set_visible(False)
+    mcomb2_ax.set_xticklabels(mcomb2_ax.get_xticklabels(),
+                              rotation=31, ha='right')
 
-    crnr_ax.text(1.05, 0.75, "AUC: {:.3f}".format(auc_vals[plt_mcomb1]),
+    mcomb1_ax.text(1, 0.83, "n={}".format((use_preds.Phn == 'WT').sum()),
+                   size=13, ha='left', transform=mcomb1_ax.transAxes,
+                   clip_on=False)
+    mcomb1_ax.text(1, 0.58, "n={}".format((use_preds.Phn == 'Subg1').sum()),
+                   size=13, ha='left', transform=mcomb1_ax.transAxes,
+                   clip_on=False)
+    mcomb1_ax.text(1, 0.33, "n={}".format((use_preds.Phn == 'Subg2').sum()),
+                   size=13, ha='left', transform=mcomb1_ax.transAxes,
+                   clip_on=False)
+    mcomb1_ax.text(1, 0.08, "n={}".format((use_preds.Phn == 'Other').sum()),
+                   size=13, ha='left', transform=mcomb1_ax.transAxes,
+                   clip_on=False)
+
+    mcomb2_ax.text(1 / 8, 1, "n={}".format((use_preds.Phn == 'WT').sum()),
+                   size=13, rotation=31, ha='left',
+                   transform=mcomb2_ax.transAxes, clip_on=False)
+    mcomb2_ax.text(3 / 8, 1, "n={}".format((use_preds.Phn == 'Subg2').sum()),
+                   size=13, rotation=31, ha='left',
+                   transform=mcomb2_ax.transAxes, clip_on=False)
+    mcomb2_ax.text(5 / 8, 1, "n={}".format((use_preds.Phn == 'Subg1').sum()),
+                   size=13, rotation=31, ha='left',
+                   transform=mcomb2_ax.transAxes, clip_on=False)
+    mcomb2_ax.text(7 / 8, 1, "n={}".format((use_preds.Phn == 'Other').sum()),
+                   size=13, rotation=31, ha='left',
+                   transform=mcomb2_ax.transAxes, clip_on=False)
+
+    crnr_ax.text(0.95, 0.59, "(AUC1: {:.3f})".format(auc_vals[plt_mcomb1]),
                  size=11, ha='right', transform=crnr_ax.transAxes,
                  clip_on=False)
+    crnr_ax.text(0, 0.55, "(AUC2: {:.3f})".format(auc_vals[plt_mcomb2]),
+                 size=11, rotation=31, ha='right',
+                 transform=crnr_ax.transAxes, clip_on=False)
+
+    wt_vals = use_preds.loc[use_preds.Phn == 'WT', ['Subg1', 'Subg2']]
+    mut_simls = {
+        subg: SIML_FXS[siml_metric](
+            wt_vals[subg], use_preds.loc[use_preds.Phn == subg, subg],
+            use_preds.loc[use_preds.Phn == oth_subg, subg]
+            )
+        for subg, oth_subg in permt(['Subg1', 'Subg2'])
+        }
+
+    oth_simls = {
+        subg: SIML_FXS[siml_metric](
+            wt_vals[subg], use_preds.loc[use_preds.Phn == subg, subg],
+            use_preds.loc[use_preds.Phn == 'Other', subg]
+            )
+        for subg in ['Subg1', 'Subg2']
+        }
+
+    crnr_ax.text(0.95, 0.34, "(Siml1: {:.3f})".format(mut_simls['Subg1']),
+                 size=11, ha='right', transform=crnr_ax.transAxes,
+                 clip_on=False)
+    crnr_ax.text(0.95, 0.09, "(Siml1: {:.3f})".format(oth_simls['Subg1']),
+                 size=11, ha='right', transform=crnr_ax.transAxes,
+                 clip_on=False)
+
+    crnr_ax.text(0.25, 0.55, "(Siml2: {:.3f})".format(mut_simls['Subg2']),
+                 size=11, rotation=31, ha='right',
+                 transform=crnr_ax.transAxes, clip_on=False)
+    crnr_ax.text(0.5, 0.55, "(Siml2: {:.3f})".format(oth_simls['Subg2']),
+                 size=11, rotation=31, ha='right',
+                 transform=crnr_ax.transAxes, clip_on=False)
 
     crnr_ax.axis('off')
 
@@ -391,6 +464,7 @@ def plot_orthogonal_scores(plt_mcomb1, plt_mcomb2, pred_df, auc_vals,
                                      for mtype in mcomb.mtypes])
                           for mcomb in [plt_mcomb1, plt_mcomb2]])
 
+    fig.tight_layout(w_pad=-1.3, h_pad=-1.3)
     plt.savefig(os.path.join(
         plot_dir, data_tag, "{}_{}-ortho-scores_{}__{}.svg".format(
             args.ex_lbl, siml_metric, args.classif, file_lbl)
