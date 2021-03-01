@@ -1,5 +1,6 @@
 
-from ..utilities.mutations import pnt_mtype, shal_mtype, ExMcomb
+from ..utilities.mutations import (pnt_mtype, shal_mtype, deep_mtype,
+                                   copy_mtype, ExMcomb)
 from dryadic.features.mutations import MuType
 
 from ..subgrouping_isolate import base_dir
@@ -31,6 +32,7 @@ from scipy.stats import ks_2samp
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import seaborn as sns
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 mpl.use('Agg')
 plt.style.use('fivethirtyeight')
@@ -40,6 +42,226 @@ plt.rcParams['axes.edgecolor'] = 'white'
 plot_dir = os.path.join(base_dir, 'plots', 'point')
 
 SIML_FXS = {'mean': calculate_mean_siml, 'ks': calculate_ks_siml}
+
+
+def plot_divergent_types(pred_dfs, pheno_dicts, auc_lists,
+                         cdata_dict, args, siml_metric):
+    fig, ax = plt.subplots(figsize=(12, 7))
+
+    divg_dfs = dict()
+    gn_dict = dict()
+    rst_dict = dict()
+    plot_dict = dict()
+    clr_dict = dict()
+    line_dict = dict()
+    size_dict = dict()
+    annt_dict = dict()
+
+    # for each dataset, find the subgroupings meeting the minimum task AUC
+    # that are exclusively defined and subsets of point mutations...
+    for (src, coh), auc_list in auc_lists.items():
+        use_combs = remove_pheno_dups({
+            mut for mut, auc_val in auc_list.iteritems()
+            if (isinstance(mut, ExMcomb) and auc_val >= args.auc_cutoff
+                and len(mut.mtypes) == 1
+                and all(pnt_mtype != tuple(mtype.subtype_iter())[0][1]
+                        for mtype in mut.mtypes)
+                and all(
+                    pnt_mtype.is_supertype(tuple(mtype.subtype_iter())[0][1])
+                    for mtype in mut.mtypes
+                    ))
+            }, pheno_dicts[src, coh])
+
+        # ...after removing groupings present in the same samples as another
+        # subgrouping, filter for those matching the given exclusivity method
+        if args.ex_lbl == 'Iso':
+            use_combs = {mcomb for mcomb in use_combs
+                         if not (mcomb.all_mtype & shal_mtype).is_empty()}
+
+        else:
+            use_combs = {mcomb for mcomb in use_combs
+                         if (mcomb.all_mtype & shal_mtype).is_empty()}
+
+        if not use_combs:
+            continue
+
+        base_mtree = tuple(cdata_dict[src, coh].mtrees.values())[0]
+        use_genes = {tuple(mcomb.label_iter())[0] for mcomb in use_combs}
+        train_samps = cdata_dict[src, coh].get_train_samples()
+        siml_vals = dict()
+
+        all_mtypes = {
+            gene: MuType({('Gene', gene): base_mtree[gene].allkey()})
+            for gene in use_genes
+            }
+
+        if args.ex_lbl == 'IsoShal':
+            for gene in use_genes:
+                all_mtypes[gene] -= MuType({('Gene', gene): shal_mtype})
+
+        all_phns = {
+            gene: np.array(cdata_dict[src, coh].train_pheno(all_mtype))
+            for gene, all_mtype in all_mtypes.items()
+            }
+
+        for mcomb in use_combs:
+            use_mtype = tuple(mcomb.mtypes)[0]
+            cur_gene = tuple(use_mtype.label_iter())[0]
+            use_preds = pred_dfs[src, coh].loc[mcomb, train_samps]
+
+            if args.ex_lbl == 'Iso':
+                ex_all = ExMcomb(MuType({('Gene', cur_gene): copy_mtype}),
+                                 MuType({('Gene', cur_gene): pnt_mtype}))
+
+            else:
+                ex_all = ExMcomb(MuType({('Gene', cur_gene): deep_mtype}),
+                                 MuType({('Gene', cur_gene): pnt_mtype}))
+
+            if (src, coh, cur_gene) not in gn_dict:
+                gn_dict[src, coh, cur_gene] = np.array(
+                    cdata_dict[src, coh].train_pheno(ex_all))
+
+            rst_dict[src, coh, mcomb] = ~np.array(
+                cdata_dict[src, coh].train_pheno(use_mtype))
+            rst_dict[src, coh, mcomb] &= gn_dict[src, coh, cur_gene]
+            assert not (pheno_dicts[src, coh][mcomb]
+                        & rst_dict[src, coh, mcomb]).any()
+
+            if rst_dict[src, coh, mcomb].sum() >= 5:
+                siml_vals[mcomb] = SIML_FXS[siml_metric](
+                    use_preds.loc[~all_phns[cur_gene]],
+                    use_preds.loc[pheno_dicts[src, coh][mcomb]],
+                    use_preds.loc[rst_dict[src, coh, mcomb]]
+                    )
+
+        divg_df = pd.DataFrame({'Divg': siml_vals})
+        divg_df['AUC'] = auc_list[divg_df.index]
+        divg_df = divg_df.sort_values(by='Divg')
+        divg_mcombs = set()
+        coh_lbl = get_cohort_label(coh)
+
+        for cur_gene, divg_vals in divg_df.groupby(
+                lambda mcomb: tuple(mcomb.label_iter())[0]):
+            clr_dict[cur_gene] = None
+            plt_size = np.mean(gn_dict[src, coh, cur_gene]) ** 0.5
+            divg_stat = (divg_vals.Divg < 0.5).any()
+
+            for i, (mcomb, (divg_val, auc_val)) in enumerate(
+                    divg_vals.iterrows()):
+                line_dict[auc_val, divg_val] = cur_gene
+
+                if not (divg_vals[:i].AUC > auc_val).any():
+                    divg_mcombs |= {mcomb}
+
+                    mcomb_lbl = '\n& '.join([
+                        get_fancy_label(tuple(mtype.subtype_iter())[0][1])
+                        for mtype in mcomb.mtypes
+                        ])
+
+                    if divg_val < 0.5:
+                        plot_dict[auc_val, divg_val] = [
+                            plt_size,
+                            ("{} in {}".format(cur_gene, coh_lbl), mcomb_lbl)
+                            ]
+
+                    else:
+                        plot_dict[auc_val, divg_val] = [plt_size, ('', '')]
+
+                else:
+                    plot_dict[auc_val, divg_val] = [plt_size, ('', '')]
+
+            if not divg_stat:
+                line_dict[divg_vals.AUC[0], divg_vals.Divg[0]] = cur_gene
+
+                plot_dict[divg_vals.AUC[0], divg_vals.Divg[0]] = [
+                    plt_size, ("{} in {}".format(cur_gene, coh_lbl), '')]
+
+        divg_dfs[src, coh] = divg_df.loc[divg_mcombs]
+
+    if len(clr_dict) > 8:
+        for gene in clr_dict:
+            clr_dict[gene] = choose_label_colour(gene)
+
+    else:
+        use_clrs = sns.color_palette(palette='bright', n_colors=len(clr_dict))
+        clr_dict = dict(zip(clr_dict, use_clrs))
+
+    #TODO: make this scale better for smaller number of points?
+    size_mult = 4.7 * sum(divg_df.shape[0]
+                          for divg_df in divg_dfs.values()) ** -0.47
+    for k in plot_dict:
+        plot_dict[k][0] *= size_mult
+
+    for k in line_dict:
+        line_dict[k] = {'c': clr_dict[line_dict[k]]}
+
+    adj_trans = lambda x: ax.transData.inverted().transform(x)
+    xadj, yadj = adj_trans([1, 1]) - adj_trans([0, 0])
+    xy_adj = xadj / yadj
+
+    for (src, coh), divg_df in divg_dfs.items():
+        for mcomb, (divg_val, auc_val) in divg_df.iterrows():
+            cur_gene = tuple(mcomb.label_iter())[0]
+            plt_size = plot_dict[auc_val, divg_val][0] / 3.1
+
+            plt_prop = np.mean(pheno_dicts[src, coh][mcomb])
+            plt_prop /= np.mean(gn_dict[src, coh, cur_gene])
+            rst_prop = np.mean(rst_dict[src, coh, mcomb])
+            rst_prop /= np.mean(gn_dict[src, coh, cur_gene])
+
+            pie_bbox = (auc_val - plt_size * xy_adj / 2,
+                        divg_val - plt_size / 2, plt_size * xy_adj, plt_size)
+
+            pie_ax = inset_axes(ax, width='100%', height='100%',
+                                bbox_to_anchor=pie_bbox,
+                                bbox_transform=ax.transData,
+                                axes_kwargs=dict(aspect='equal'), borderpad=0)
+
+            pie_ax.pie(x=[plt_prop, round(1 - plt_prop - rst_prop, 3),
+                          rst_prop],
+                       colors=[clr_dict[cur_gene] + (0.67,),
+                               clr_dict[cur_gene] + (0,),
+                               clr_dict[cur_gene] + (0.11,)],
+                       explode=[0.29, 0, 0], startangle=270, normalize=True)
+
+    xlims = [args.auc_cutoff - (1 - args.auc_cutoff) / 47,
+             1 + (1 - args.auc_cutoff) / 277]
+
+    ymin = min(divg_df.Divg.min() for divg_df in divg_dfs.values())
+    ymax = max(divg_df.Divg.max() for divg_df in divg_dfs.values())
+    yrng = ymax - ymin
+    ylims = [ymin - yrng / 9.1, ymax + yrng / 29]
+
+    ax.grid(alpha=0.47, linewidth=0.9)
+    ax.plot(xlims, [0, 0],
+            color='black', linewidth=1.11, linestyle='--', alpha=0.67)
+    ax.plot([1, 1], ylims, color='black', linewidth=1.7, alpha=0.83)
+
+    ax.set_xlabel("Isolated Classification Accuracy", size=21, weight='bold')
+    ax.set_ylabel("Inferred Similarity to\nRemaining Point Mutations",
+                  size=21, weight='bold')
+
+    for k in np.linspace(args.auc_cutoff, 0.99, 200):
+        if (k, 0) not in plot_dict:
+            plot_dict[k, 0] = [1 / 11, ('', '')]
+
+    if plot_dict:
+        lbl_pos = place_scatter_labels(plot_dict, ax, plt_lims=[xlims, ylims],
+                                       font_size=9, line_dict=line_dict,
+                                       linewidth=1.23, alpha=0.37)
+
+    ax.xaxis.set_major_locator(plt.MaxNLocator(5, steps=[1, 2, 5]))
+    ax.yaxis.set_major_locator(plt.MaxNLocator(7, steps=[1, 2, 5]))
+    ax.set_xlim(xlims)
+    ax.set_ylim(ylims)
+
+    plt.savefig(os.path.join(plot_dir,
+                             "{}_{}-divergent-types_{}.svg".format(
+                                 args.ex_lbl, siml_metric, args.classif)),
+                bbox_inches='tight', format='svg')
+
+    plt.close()
+    return annt_dict
 
 
 def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
@@ -264,8 +486,8 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
     ax.yaxis.set_major_locator(plt.MaxNLocator(7, steps=[1, 2, 5]))
 
     if plot_dict:
-        lbl_pos = place_scatter_labels(plot_dict, ax, plt_type='scatter',
-                                       plt_lims=[xlims, [ymax / 61, ymax]],
+        lbl_pos = place_scatter_labels(plot_dict, ax,
+                                       plt_lims=[xlims, ylims],
                                        font_size=10, line_dict=line_dict,
                                        linewidth=1.7, alpha=0.41)
 
@@ -595,6 +817,9 @@ def main():
 
     for siml_metric in args.siml_metrics:
         if args.auc_cutoff < 1:
+            annt_types = plot_divergent_types(pred_dfs, phn_dicts, auc_lists,
+                                              cdata_dict, args, siml_metric)
+
             annt_pairs = plot_divergent_pairs(pred_dfs, phn_dicts, auc_lists,
                                               cdata_dict, args, siml_metric)
 
