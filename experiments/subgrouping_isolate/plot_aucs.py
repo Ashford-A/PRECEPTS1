@@ -6,6 +6,7 @@ from ..utilities.mutations import (
 from dryadic.features.mutations import MuType
 
 from ..subgrouping_isolate import base_dir
+from .utils import get_mut_ex, get_mcomb_lbl
 from ..utilities.metrics import calc_conf
 from ..utilities.labels import get_fancy_label
 from ..utilities.label_placement import place_scatter_labels
@@ -39,25 +40,71 @@ plot_dir = os.path.join(base_dir, 'plots', 'aucs')
 
 
 def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals,
-                         args, add_lgnd=False):
-    fig, ax = plt.subplots(figsize=(11, 11))
+                         cdata, args, ex_lbl, add_lgnd=False):
+    fig, ax = plt.subplots(figsize=(10.3, 11))
 
     plot_dict = dict()
     line_dict = dict()
     plt_min = 0.57
+    use_aucs = auc_vals[[get_mut_ex(mut) == ex_lbl for mut in auc_vals.index]]
 
-    use_aucs = auc_vals[[
-        not isinstance(mtype, (Mcomb, ExMcomb))
-        and (tuple(mtype.subtype_iter())[0][1] & copy_mtype).is_empty()
-        for mtype in auc_vals.index
-        ]]
+    if ex_lbl == 'All':
+        use_aucs = use_aucs[[
+            (isinstance(mut, Mcomb) and
+             any((tuple(mtype.subtype_iter())[0][1] & copy_mtype).is_empty()
+                 for mtype in mut.mtypes))
+            or (not isinstance(mut, Mcomb)
+                and (tuple(mut.subtype_iter())[0][1] & copy_mtype).is_empty())
+            for mut in use_aucs.index
+            ]]
 
+    else:
+        use_aucs = use_aucs[[any((tuple(mtype.subtype_iter())[0][1]
+                                  & copy_mtype).is_empty()
+                                 for mtype in mut.mtypes)
+                             for mut in use_aucs.index]]
+
+    #TODO: find a better way of dealing with these edge cases
     for gene, auc_vec in use_aucs.groupby(
-            lambda mtype: tuple(mtype.label_iter())[0]):
+            lambda mut: tuple(mut.label_iter())[0]):
         if len(auc_vec) > 1:
             base_mtype = MuType({('Gene', gene): pnt_mtype})
 
-            base_indx = auc_vec.index.get_loc(base_mtype)
+            if ex_lbl == 'All':
+                base_indx = auc_vec.index.get_loc(base_mtype)
+            else:
+                base_indx = [i for i, mcomb in enumerate(auc_vec.index)
+                             if (len(mcomb.mtypes) == 1
+                                 and tuple(mcomb.mtypes)[0] == base_mtype)]
+
+                if len(base_indx) == 1:
+                    base_indx = base_indx[0]
+                    base_mtype = auc_vec.index[base_indx]
+
+                elif len(base_indx) == 0:
+                    base_mcomb = ExMcomb(auc_vec.index[0].all_mtype,
+                                         base_mtype)
+                    base_phn = np.array(cdata.train_pheno(base_mcomb))
+
+                    if base_phn.sum() < 20:
+                        continue
+
+                    else:
+                        mtch_phn = {mut for mut, phn in pheno_dict.items()
+                                    if (phn == base_phn).all()}
+
+                        if len(mtch_phn) == 1:
+                            base_mtype = tuple(mtch_phn)[0]
+
+                            base_indx = len(auc_vec)
+                            auc_vec = auc_vec.append(pd.Series({
+                                base_mtype: auc_vals[base_mtype]}))
+
+                        else:
+                            continue
+                else:
+                    raise ValueError
+
             best_subtype = auc_vec[:base_indx].append(
                 auc_vec[(base_indx + 1):]).idxmax()
 
@@ -66,17 +113,20 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals,
             base_size = np.mean(pheno_dict[base_mtype])
             plt_size = 0.07 * base_size ** 0.5
 
-            plot_dict[auc_tupl] = [plt_size, ('', '')]
+            plot_dict[auc_tupl] = [13 * plt_size, ('', '')]
             plt_min = min(plt_min, auc_tupl[0] - 0.03, auc_tupl[1] - 0.029)
-            best_prop = np.mean(pheno_dict[best_subtype]) / base_size
+            best_prop = min(np.mean(pheno_dict[best_subtype]) / base_size, 1)
             conf_sc = calc_conf(conf_vals[best_subtype],
                                 conf_vals[base_mtype])
 
             if auc_tupl[1] > 0.7 and conf_sc > 0.8:
-                plot_dict[auc_tupl][1] = gene, get_fancy_label(
-                    tuple(best_subtype.subtype_iter())[0][1],
-                    pnt_link='\nor ', phrase_link=' '
-                    )
+                if isinstance(best_subtype, MuType):
+                    plot_dict[auc_tupl][1] = gene, get_fancy_label(
+                        tuple(best_subtype.subtype_iter())[0][1],
+                        pnt_link='\nor ', phrase_link=' '
+                        )
+                else:
+                    plot_dict[auc_tupl][1] = gene, get_mcomb_lbl(best_subtype)
 
             # ...if we are not sure but the respective AUCs are still
             # pretty great then add a label with just the gene name...
@@ -127,7 +177,8 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals,
 
     plt.savefig(
         os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
-                     "sub-comparisons_{}.svg".format(args.classif)),
+                     "{}-sub-comparisons_{}.svg".format(
+                         ex_lbl, args.classif)),
         bbox_inches='tight', format='svg'
         )
 
@@ -459,7 +510,7 @@ def plot_dyad_comparisons(auc_vals, pheno_dict, conf_vals, args):
             lbl_pos = place_scatter_labels(plot_dicts[copy_lbl], ax,
                                            plt_lims=[plt_lims] * 2,
                                            plc_lims=lbl_lims,
-                                           plt_type='scatter', font_size=11,
+                                           font_size=11,
                                            line_dict=font_dicts[copy_lbl],
                                            font_dict=font_dicts[copy_lbl],
                                            linewidth=1.13, alpha=0.31)
@@ -517,6 +568,7 @@ def main():
     out_aucs = {lvls: list() for lvls, _ in out_iter}
     out_confs = {lvls: list() for lvls, _ in out_iter}
     phn_dict = dict()
+    cdata = None
 
     auc_dfs = {ex_lbl: pd.DataFrame([])
                for ex_lbl in ['All', 'Iso', 'IsoShal']}
@@ -539,6 +591,16 @@ def main():
                              'r') as f:
                 out_confs[lvls] += [pickle.load(f)]
 
+            with bz2.BZ2File(Path(out_dir,
+                                  '__'.join(["cohort-data", out_tag])),
+                             'r') as f:
+                new_cdata = pickle.load(f)
+
+            if cdata is None:
+                cdata = new_cdata
+            else:
+                cdata.merge(new_cdata)
+
         mtypes_comp = np.greater_equal.outer(
             *([[set(auc_vals['All']['mean'].index)
                 for auc_vals in out_aucs[lvls]]] * 2)
@@ -559,8 +621,10 @@ def main():
     conf_dfs = {ex_lbl: conf_df.loc[~conf_df.index.duplicated()]
                 for ex_lbl, conf_df in conf_dfs.items()}
 
-    plot_sub_comparisons(auc_dfs['All']['mean'], phn_dict,
-                         conf_dfs['All']['mean'], args)
+    for ex_lbl in ['All', 'Iso', 'IsoShal']:
+        plot_sub_comparisons(auc_dfs[ex_lbl]['mean'], phn_dict,
+                             conf_dfs[ex_lbl]['mean'], cdata, args, ex_lbl)
+
     plot_copy_comparisons(auc_dfs['All']['mean'], phn_dict,
                           conf_dfs['All']['mean'], args)
 
