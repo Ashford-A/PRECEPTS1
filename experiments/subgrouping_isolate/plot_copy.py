@@ -4,8 +4,10 @@ from ..utilities.mutations import (pnt_mtype, shal_mtype, deep_mtype,
 from dryadic.features.mutations import MuType
 
 from ..subgrouping_isolate import base_dir, train_cohorts
-from .utils import siml_fxs, cna_mtypes, remove_pheno_dups, get_mut_ex
-from ..utilities.labels import get_cohort_label
+from .utils import (siml_fxs, cna_mtypes, remove_pheno_dups,
+                    get_mut_ex, choose_subtype_colour)
+from ..utilities.colour_maps import variant_clrs
+from ..utilities.labels import get_cohort_label, get_fancy_label
 from ..utilities.misc import choose_label_colour
 from ..utilities.label_placement import place_scatter_labels
 
@@ -14,6 +16,7 @@ import argparse
 from pathlib import Path
 import bz2
 import dill as pickle
+from itertools import permutations as permt
 
 import numpy as np
 import pandas as pd
@@ -39,8 +42,7 @@ def plot_point_similarity(pred_dfs, pheno_dicts, auc_lists,
     gn_dict = dict()
     siml_dicts = {k: {(src, coh): dict() for src, coh in auc_lists}
                   for k in ['Pnt', 'Cpy']}
-    annt_lists = {k: {(src, coh): set() for src, coh in auc_lists}
-                  for k in ['Pnt', 'Cpy']}
+    annt_lists = {(src, coh): set() for src, coh in auc_lists}
 
     plot_dicts = {'Pnt': dict(), 'Cpy': dict()}
     line_dicts = {'Pnt': dict(), 'Cpy': dict()}
@@ -77,7 +79,7 @@ def plot_point_similarity(pred_dfs, pheno_dicts, auc_lists,
         all_phns = {
             gene: np.array(cdata_dict[src, coh].train_pheno(all_mtype))
             for gene, all_mtype in all_mtypes.items()
-        }
+            }
 
         for gene, auc_vals in use_aucs.groupby(
                 lambda mcomb: tuple(mcomb.label_iter())[0]):
@@ -145,8 +147,6 @@ def plot_point_similarity(pred_dfs, pheno_dicts, auc_lists,
 
                     if (siml_dicts['Pnt'][src, coh][pnt_comb] >= 0.5
                             or gene in {'TP53', 'PIK3CA', 'GATA3'}):
-                        annt_lists['Pnt'][src, coh] |= {pnt_comb}
-
                         plot_dicts['Pnt'][plt_tupl] = [
                             None, ("{} in {}".format(gene, coh_lbl), '')]
                         line_dicts['Pnt'][plt_tupl] = gene
@@ -173,14 +173,16 @@ def plot_point_similarity(pred_dfs, pheno_dicts, auc_lists,
 
                     if (siml_dicts['Cpy'][src, coh][cpy_comb] >= 0.75
                             or gene in {'TP53', 'PIK3CA', 'GATA3'}):
-                        annt_lists['Cpy'][src, coh] |= {cpy_comb}
-
                         plot_dicts['Cpy'][plt_tupl] = [
                             None, ("{} in {}".format(gene, coh_lbl), '')]
                         line_dicts['Cpy'][plt_tupl] = gene
 
                     else:
                         plot_dicts['Cpy'][plt_tupl] = [None, ('', '')]
+
+                    if (isinstance(pnt_comb, ExMcomb)
+                            and gn_dict[src, coh, gene].sum() >= 20):
+                        annt_lists[src, coh] |= {(cpy_comb, pnt_comb)}
 
     if len(clr_dict) > 8:
         for gene in clr_dict:
@@ -215,12 +217,12 @@ def plot_point_similarity(pred_dfs, pheno_dicts, auc_lists,
 
                 auc_val = auc_lists[src, coh][mcomb]
                 plt_size = size_mult * np.mean(pheno_dicts[src, coh][mcomb])
-                plot_dicts[k][auc_val, siml_val][0] = plt_size * 2.1
+                plot_dicts[k][auc_val, siml_val][0] = plt_size * 3.1
 
                 ax.scatter(auc_val, siml_val,
                            c=[clr_dict[cur_gene]], s=1473 * plt_size,
                            alpha=0.37, edgecolor='none')
-                
+
         ax.grid(alpha=0.47, linewidth=0.9)
         ax.plot(xlims, [0, 0],
                 color='black', linewidth=1.11, linestyle='--', alpha=0.67)
@@ -258,6 +260,199 @@ def plot_point_similarity(pred_dfs, pheno_dicts, auc_lists,
 
     plt.close()
     return annt_lists
+
+
+def plot_pair_scores(cpy_mcomb, pnt_mcomb, pred_df, auc_vals, pheno_dict,
+                     cdata, data_tag, args, cna_lbl, siml_metric):
+    fig, ((mcomb2_ax, sctr_ax), (crnr_ax, mcomb1_ax)) = plt.subplots(
+        figsize=(13, 12), nrows=2, ncols=2,
+        gridspec_kw=dict(height_ratios=[4, 1], width_ratios=[1, 4])
+        )
+
+    use_gene = tuple(cpy_mcomb.label_iter())[0]
+    assert tuple(pnt_mcomb.label_iter())[0] == use_gene
+    cna_mtype = cna_mtypes[cna_lbl]
+    if args.ex_lbl == 'IsoShal':
+        cna_mtype -= shal_mtype
+
+    assert len(cpy_mcomb.mtypes) == len(pnt_mcomb.mtypes) == 1
+    cpy_type = tuple(tuple(cpy_mcomb.mtypes)[0].subtype_iter())[0][1]
+    pnt_type = tuple(tuple(pnt_mcomb.mtypes)[0].subtype_iter())[0][1]
+
+    base_mtree = tuple(cdata.mtrees.values())[0]
+    all_mtype = MuType({('Gene', use_gene): base_mtree[use_gene].allkey()})
+    if args.ex_lbl == 'IsoShal':
+        all_mtype -= MuType({('Gene', use_gene): shal_mtype})
+
+    use_preds = pred_df.loc[[cpy_mcomb, pnt_mcomb],
+                            cdata.get_train_samples()].T
+    use_preds.columns = ['Subg1', 'Subg2']
+
+    x_min, y_min = use_preds.min()
+    x_max, y_max = use_preds.max()
+    x_rng, y_rng = x_max - x_min, y_max - y_min
+    xlims = x_min - x_rng / 31, x_max + x_rng / 31
+    ylims = y_min - y_rng / 31, y_max + y_rng / 31
+
+    all_phn = np.array(cdata.train_pheno(all_mtype))
+    use_preds['Phn'] = np.array(['Other' if phn else 'WT' for phn in all_phn])
+    use_preds.loc[pheno_dict[cpy_mcomb], 'Phn'] = 'Subg1'
+    use_preds.loc[pheno_dict[pnt_mcomb], 'Phn'] = 'Subg2'
+
+    use_clrs = {'WT': variant_clrs['WT'],
+                'Subg1': choose_subtype_colour(cpy_type),
+                'Subg2': choose_subtype_colour(pnt_type),
+                'Other': 'black'}
+
+    sctr_ax.plot(use_preds.loc[use_preds.Phn == 'WT', 'Subg1'],
+                 use_preds.loc[use_preds.Phn == 'WT', 'Subg2'],
+                 marker='o', markersize=6, linewidth=0, alpha=0.19,
+                 mfc=use_clrs['WT'], mec='none')
+
+    sctr_ax.plot(use_preds.loc[use_preds.Phn == 'Subg1', 'Subg1'],
+                 use_preds.loc[use_preds.Phn == 'Subg1', 'Subg2'],
+                 marker='o', markersize=9, linewidth=0, alpha=0.23,
+                 mfc=use_clrs['Subg1'], mec='none')
+
+    sctr_ax.plot(use_preds.loc[use_preds.Phn == 'Subg2', 'Subg1'],
+                 use_preds.loc[use_preds.Phn == 'Subg2', 'Subg2'],
+                 marker='o', markersize=9, linewidth=0, alpha=0.23,
+                 mfc=use_clrs['Subg2'], mec='none')
+
+    sctr_ax.plot(use_preds.loc[use_preds.Phn == 'Other', 'Subg1'],
+                 use_preds.loc[use_preds.Phn == 'Other', 'Subg2'],
+                 marker='o', markersize=8, linewidth=0, alpha=0.31,
+                 mfc='none', mec=use_clrs['Other'])
+
+    mtype_lbls = [get_fancy_label(mtype) for mtype in [cpy_type, pnt_type]]
+    subg_lbls = [
+        "Subgrouping {}:\nonly {} mutation is\n{}".format(
+            i + 1, use_gene, mtype_lbl)
+        for i, mtype_lbl in enumerate(mtype_lbls)
+        ]
+
+    sctr_ax.text(0.98, 0.03, subg_lbls[0], size=15, c=use_clrs['Subg1'],
+                 ha='right', va='bottom', transform=sctr_ax.transAxes)
+    sctr_ax.text(0.03, 0.98, subg_lbls[1], size=15, c=use_clrs['Subg2'],
+                 ha='left', va='top', transform=sctr_ax.transAxes)
+
+    sns.violinplot(data=use_preds, y='Phn', x='Subg1', ax=mcomb1_ax,
+                   order=['WT', 'Subg1', 'Subg2', 'Other'],
+                   palette=use_clrs, orient='h', linewidth=0, cut=0)
+
+    sns.violinplot(data=use_preds, x='Phn', y='Subg2', ax=mcomb2_ax,
+                   order=['WT', 'Subg2', 'Subg1', 'Other'],
+                   palette=use_clrs, orient='v', linewidth=0, cut=0)
+
+    for ax in sctr_ax, mcomb1_ax, mcomb2_ax:
+        ax.grid(alpha=0.47, linewidth=0.9)
+
+    for mcomb_ax in mcomb1_ax, mcomb2_ax:
+        for i in range(3):
+            mcomb_ax.get_children()[i * 2].set_alpha(0.61)
+            mcomb_ax.get_children()[i * 2].set_linewidth(0)
+
+        if (use_preds.Phn == 'Other').sum() > 1:
+            mcomb_ax.get_children()[6].set_edgecolor('black')
+            mcomb_ax.get_children()[6].set_facecolor('white')
+            mcomb_ax.get_children()[6].set_linewidth(1.3)
+            mcomb_ax.get_children()[6].set_alpha(0.61)
+
+    sctr_ax.set_xticklabels([])
+    sctr_ax.set_yticklabels([])
+
+    mcomb1_ax.set_xlabel("Subgrouping Task 1\nPredicted Scores",
+                         size=23, weight='semibold')
+    mcomb1_ax.yaxis.label.set_visible(False)
+    mcomb1_ax.set_yticklabels([
+        "Wild-Type", "Subg1", "Subg2", "Other\n{}\nMuts".format(use_gene)])
+
+    mcomb2_ax.set_ylabel("Subgrouping Task 2\nPredicted Scores",
+                         size=23, weight='semibold')
+    mcomb2_ax.xaxis.label.set_visible(False)
+    mcomb2_ax.set_xticklabels(mcomb2_ax.get_xticklabels(),
+                              rotation=31, ha='right')
+
+    mcomb1_ax.text(1, 0.83, "n={}".format((use_preds.Phn == 'WT').sum()),
+                   size=13, ha='left', transform=mcomb1_ax.transAxes,
+                   clip_on=False)
+    mcomb1_ax.text(1, 0.58, "n={}".format((use_preds.Phn == 'Subg1').sum()),
+                   size=13, ha='left', transform=mcomb1_ax.transAxes,
+                   clip_on=False)
+    mcomb1_ax.text(1, 0.33, "n={}".format((use_preds.Phn == 'Subg2').sum()),
+                   size=13, ha='left', transform=mcomb1_ax.transAxes,
+                   clip_on=False)
+    mcomb1_ax.text(1, 0.08, "n={}".format((use_preds.Phn == 'Other').sum()),
+                   size=13, ha='left', transform=mcomb1_ax.transAxes,
+                   clip_on=False)
+
+    mcomb2_ax.text(1 / 8, 1, "n={}".format((use_preds.Phn == 'WT').sum()),
+                   size=13, rotation=31, ha='left',
+                   transform=mcomb2_ax.transAxes, clip_on=False)
+    mcomb2_ax.text(3 / 8, 1, "n={}".format((use_preds.Phn == 'Subg2').sum()),
+                   size=13, rotation=31, ha='left',
+                   transform=mcomb2_ax.transAxes, clip_on=False)
+    mcomb2_ax.text(5 / 8, 1, "n={}".format((use_preds.Phn == 'Subg1').sum()),
+                   size=13, rotation=31, ha='left',
+                   transform=mcomb2_ax.transAxes, clip_on=False)
+    mcomb2_ax.text(7 / 8, 1, "n={}".format((use_preds.Phn == 'Other').sum()),
+                   size=13, rotation=31, ha='left',
+                   transform=mcomb2_ax.transAxes, clip_on=False)
+
+    crnr_ax.text(0.95, 0.59, "(AUC1: {:.3f})".format(auc_vals[cpy_mcomb]),
+                 size=11, ha='right', transform=crnr_ax.transAxes,
+                 clip_on=False)
+    crnr_ax.text(0, 0.55, "(AUC2: {:.3f})".format(auc_vals[pnt_mcomb]),
+                 size=11, rotation=31, ha='right',
+                 transform=crnr_ax.transAxes, clip_on=False)
+
+    wt_vals = use_preds.loc[use_preds.Phn == 'WT', ['Subg1', 'Subg2']]
+    mut_simls = {
+        subg: siml_fxs[siml_metric](
+            wt_vals[subg], use_preds.loc[use_preds.Phn == subg, subg],
+            use_preds.loc[use_preds.Phn == oth_subg, subg]
+            )
+        for subg, oth_subg in permt(['Subg1', 'Subg2'])
+        }
+
+    oth_simls = {
+        subg: siml_fxs[siml_metric](
+            wt_vals[subg], use_preds.loc[use_preds.Phn == subg, subg],
+            use_preds.loc[use_preds.Phn == 'Other', subg]
+            )
+        for subg in ['Subg1', 'Subg2']
+        }
+
+    crnr_ax.text(0.95, 0.34, "(Siml1: {:.3f})".format(mut_simls['Subg1']),
+                 size=11, ha='right', transform=crnr_ax.transAxes,
+                 clip_on=False)
+    crnr_ax.text(0.95, 0.09, "(Siml1: {:.3f})".format(oth_simls['Subg1']),
+                 size=11, ha='right', transform=crnr_ax.transAxes,
+                 clip_on=False)
+
+    crnr_ax.text(0.25, 0.55, "(Siml2: {:.3f})".format(mut_simls['Subg2']),
+                 size=11, rotation=31, ha='right',
+                 transform=crnr_ax.transAxes, clip_on=False)
+    crnr_ax.text(0.5, 0.55, "(Siml2: {:.3f})".format(oth_simls['Subg2']),
+                 size=11, rotation=31, ha='right',
+                 transform=crnr_ax.transAxes, clip_on=False)
+
+    crnr_ax.axis('off')
+
+    sctr_ax.set_xlim(xlims)
+    sctr_ax.set_ylim(ylims)
+    mcomb1_ax.set_xlim(xlims)
+    mcomb2_ax.set_ylim(ylims)
+
+    fig.tight_layout(w_pad=-1.3, h_pad=-1.3)
+    plt.savefig(os.path.join(
+        plot_dir, data_tag, "{}_{}-ortho-scores_{}__{}_{}.svg".format(
+            args.ex_lbl, siml_metric, args.classif,
+            use_gene, mtype_lbls[0].replace(' ', '-')
+            )
+        ), bbox_inches='tight', format='svg')
+
+    plt.close()
 
 
 def main():
@@ -298,7 +493,6 @@ def main():
                          "combination of parameters!")
 
     out_list = out_list[out_list.Cohort.isin(train_cohorts)]
-    #out_list = out_list[out_list.Cohort.isin({'METABRIC_LumA'})]
     use_iter = out_list.groupby(['Source', 'Cohort', 'Levels'])['File']
 
     out_dirs = {(src, coh): Path(base_dir, '__'.join([src, coh]))
@@ -388,6 +582,21 @@ def main():
                     pred_dfs, phn_dicts, auc_lists,
                     cdata_dict, args, cna_lbl, siml_metric
                     )
+
+                for (src, coh), annt_list in annt_types.items():
+                    if annt_list:
+                        os.makedirs(
+                            os.path.join(plot_dir, '__'.join([src, coh])),
+                            exist_ok=True
+                            )
+
+                    for cpy_mcomb, pnt_mcomb in annt_list:
+                        plot_pair_scores(
+                            cpy_mcomb, pnt_mcomb, pred_dfs[src, coh],
+                            auc_lists[src, coh], phn_dicts[src, coh],
+                            cdata_dict[src, coh], '__'.join([src, coh]),
+                            args, cna_lbl, siml_metric
+                            )
 
 
 if __name__ == '__main__':
