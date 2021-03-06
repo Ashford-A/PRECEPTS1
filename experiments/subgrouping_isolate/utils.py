@@ -1,9 +1,15 @@
 
-from dryadic.features.cohorts.mut import BaseMutationCohort
-from dryadic.features.mutations import MuTree
-import numpy as np
+from ..utilities.mutations import (
+    MuType, Mcomb, ExMcomb, shal_mtype, copy_mtype, gains_mtype, dels_mtype)
+from ..utilities.metrics import calculate_mean_siml, calculate_ks_siml
+from ..utilities.colour_maps import variant_clrs, mcomb_clrs
+from ..utilities.labels import get_fancy_label
+
+siml_fxs = {'mean': calculate_mean_siml, 'ks': calculate_ks_siml}
+cna_mtypes = {'Gain': gains_mtype, 'Loss': dels_mtype}
 
 
+# TODO: is this still useful without pre-computed similarities?
 def search_siml_pair(siml_dicts, mut, other_mut):
     simls = dict()
 
@@ -14,43 +20,6 @@ def search_siml_pair(siml_dicts, mut, other_mut):
                 break
 
     return simls
-
-# TODO: clean this up / find another use for it
-def calculate_pair_siml(mcomb1, mcomb2, siml_dicts, all_phn=None,
-                        pheno_dict=None, pred_vals=None, mean_dict=None):
-
-    run_tests = False
-    pair_simls = []
-
-    if len(pair_simls) == 0 or (run_tests and len(pair_simls) == 1):
-        if mean_dict is None:
-            none_mean = np.concatenate(pred_vals[~all_phn].values).mean()
-            base_mean = np.concatenate(
-                pred_vals[pheno_dict[mcomb1]].values).mean()
-        else:
-            none_mean, base_mean = mean_dict['none'], mean_dict['base']
-
-        pair_siml = np.concatenate(
-            pred_vals[pheno_dict[mcomb2]].values).mean() - none_mean
-        pair_siml /= (base_mean - none_mean)
-
-        if run_tests and len(pair_simls) == 1:
-            test_list = mcomb1, mcomb2
-
-            assert (
-                pair_siml == tuple(pair_simls.values())[0]), (
-                    "Similarity values are internally inconsistent!")
-
-    elif len(pair_simls) == 1:
-        pair_siml = tuple(pair_simls.values())[0]
-
-    else:
-        raise ValueError("Multiple similarity values found!")
-
-    if run_tests:
-        return pair_siml, test_list
-    else:
-        return pair_siml
 
 
 def remove_pheno_dups(muts, pheno_dict):
@@ -65,4 +34,45 @@ def remove_pheno_dups(muts, pheno_dict):
             mut_list |= {mut}
 
     return mut_list
+
+
+def get_mut_ex(mut):
+    if isinstance(mut, ExMcomb):
+        if (mut.all_mtype & shal_mtype).is_empty():
+            mut_ex = 'IsoShal'
+        else:
+            mut_ex = 'Iso'
+
+    elif isinstance(mut, (MuType, Mcomb)):
+        mut_ex = 'All'
+
+    else:
+        raise TypeError(
+            "Unrecognized type of mutation <{}>!".format(type(mut)))
+
+    return mut_ex
+
+
+def choose_subtype_colour(mut):
+    if (copy_mtype & mut).is_empty():
+        mut_clr = variant_clrs['Point']
+
+    elif gains_mtype.is_supertype(mut):
+        mut_clr = variant_clrs['Gain']
+    elif dels_mtype.is_supertype(mut):
+        mut_clr = variant_clrs['Loss']
+
+    elif not (gains_mtype & mut).is_empty():
+        mut_clr = mcomb_clrs['Point+Gain']
+    elif not (dels_mtype & mut).is_empty():
+        mut_clr = mcomb_clrs['Point+Loss']
+
+    return mut_clr
+
+
+def get_mcomb_lbl(mcomb):
+    return '\n& '.join([
+        get_fancy_label(tuple(mtype.subtype_iter())[0][1])
+        for mtype in mcomb.mtypes
+        ])
 
