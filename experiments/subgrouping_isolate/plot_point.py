@@ -5,10 +5,9 @@ from dryadic.features.mutations import MuType
 
 from ..subgrouping_isolate import base_dir
 from ..subgrouping_test import train_cohorts
-from .utils import remove_pheno_dups
-from ..utilities.metrics import calculate_mean_siml, calculate_ks_siml
+from .utils import siml_fxs, remove_pheno_dups, get_mut_ex, get_mcomb_lbl
 from ..utilities.labels import get_fancy_label, get_cohort_label
-from ..utilities.misc import choose_label_colour
+from ..utilities.misc import get_label, get_subtype, choose_label_colour
 from ..utilities.colour_maps import simil_cmap, variant_clrs
 from ..utilities.label_placement import place_scatter_labels
 
@@ -41,8 +40,6 @@ plt.rcParams['savefig.facecolor'] = 'white'
 plt.rcParams['axes.edgecolor'] = 'white'
 plot_dir = os.path.join(base_dir, 'plots', 'point')
 
-SIML_FXS = {'mean': calculate_mean_siml, 'ks': calculate_ks_siml}
-
 
 def plot_divergent_types(pred_dfs, pheno_dicts, auc_lists,
                          cdata_dict, args, siml_metric):
@@ -54,39 +51,26 @@ def plot_divergent_types(pred_dfs, pheno_dicts, auc_lists,
     plot_dict = dict()
     clr_dict = dict()
     line_dict = dict()
-    size_dict = dict()
     annt_dict = dict()
 
     # for each dataset, find the subgroupings meeting the minimum task AUC
-    # that are exclusively defined and subsets of point mutations...
+    # that are exclusively defined subsets of single point mutations...
     for (src, coh), auc_list in auc_lists.items():
         use_combs = remove_pheno_dups({
             mut for mut, auc_val in auc_list.iteritems()
             if (isinstance(mut, ExMcomb) and auc_val >= args.auc_cutoff
-                and len(mut.mtypes) == 1
-                and all(pnt_mtype != tuple(mtype.subtype_iter())[0][1]
+                and len(mut.mtypes) == 1 and get_mut_ex(mut) == args.ex_lbl
+                and all(pnt_mtype != get_subtype(mtype)
                         for mtype in mut.mtypes)
-                and all(
-                    pnt_mtype.is_supertype(tuple(mtype.subtype_iter())[0][1])
-                    for mtype in mut.mtypes
-                    ))
+                and all(pnt_mtype.is_supertype(get_subtype(mtype))
+                        for mtype in mut.mtypes))
             }, pheno_dicts[src, coh])
-
-        # ...after removing groupings present in the same samples as another
-        # subgrouping, filter for those matching the given exclusivity method
-        if args.ex_lbl == 'Iso':
-            use_combs = {mcomb for mcomb in use_combs
-                         if not (mcomb.all_mtype & shal_mtype).is_empty()}
-
-        else:
-            use_combs = {mcomb for mcomb in use_combs
-                         if (mcomb.all_mtype & shal_mtype).is_empty()}
 
         if not use_combs:
             continue
 
         base_mtree = tuple(cdata_dict[src, coh].mtrees.values())[0]
-        use_genes = {tuple(mcomb.label_iter())[0] for mcomb in use_combs}
+        use_genes = {get_label(mcomb) for mcomb in use_combs}
         train_samps = cdata_dict[src, coh].get_train_samples()
         siml_vals = dict()
 
@@ -106,29 +90,27 @@ def plot_divergent_types(pred_dfs, pheno_dicts, auc_lists,
 
         for mcomb in use_combs:
             use_mtype = tuple(mcomb.mtypes)[0]
-            cur_gene = tuple(use_mtype.label_iter())[0]
+            cur_gene = get_label(mcomb)
             use_preds = pred_dfs[src, coh].loc[mcomb, train_samps]
-
-            if args.ex_lbl == 'Iso':
-                ex_all = ExMcomb(MuType({('Gene', cur_gene): copy_mtype}),
-                                 MuType({('Gene', cur_gene): pnt_mtype}))
-
-            else:
-                ex_all = ExMcomb(MuType({('Gene', cur_gene): deep_mtype}),
-                                 MuType({('Gene', cur_gene): pnt_mtype}))
 
             if (src, coh, cur_gene) not in gn_dict:
                 gn_dict[src, coh, cur_gene] = np.array(
-                    cdata_dict[src, coh].train_pheno(ex_all))
+                    cdata_dict[src, coh].train_pheno(
+                        MuType({('Gene', cur_gene): pnt_mtype}))
+                    )
 
-            rst_dict[src, coh, mcomb] = ~np.array(
-                cdata_dict[src, coh].train_pheno(use_mtype))
-            rst_dict[src, coh, mcomb] &= gn_dict[src, coh, cur_gene]
+            rst_dict[src, coh, mcomb] = np.array(
+                cdata_dict[src, coh].train_pheno(
+                    ExMcomb(mcomb.all_mtype,
+                            (mcomb.all_mtype & pnt_mtype) - use_mtype)
+                    )
+                )
+
             assert not (pheno_dicts[src, coh][mcomb]
                         & rst_dict[src, coh, mcomb]).any()
 
-            if rst_dict[src, coh, mcomb].sum() >= 5:
-                siml_vals[mcomb] = SIML_FXS[siml_metric](
+            if rst_dict[src, coh, mcomb].sum() >= 10:
+                siml_vals[mcomb] = siml_fxs[siml_metric](
                     use_preds.loc[~all_phns[cur_gene]],
                     use_preds.loc[pheno_dicts[src, coh][mcomb]],
                     use_preds.loc[rst_dict[src, coh, mcomb]]
@@ -140,8 +122,7 @@ def plot_divergent_types(pred_dfs, pheno_dicts, auc_lists,
         divg_mcombs = set()
         coh_lbl = get_cohort_label(coh)
 
-        for cur_gene, divg_vals in divg_df.groupby(
-                lambda mcomb: tuple(mcomb.label_iter())[0]):
+        for cur_gene, divg_vals in divg_df.groupby(get_label):
             clr_dict[cur_gene] = None
             plt_size = np.mean(gn_dict[src, coh, cur_gene]) ** 0.5
             divg_stat = (divg_vals.Divg < 0.5).any()
@@ -153,15 +134,10 @@ def plot_divergent_types(pred_dfs, pheno_dicts, auc_lists,
                 if not (divg_vals[:i].AUC > auc_val).any():
                     divg_mcombs |= {mcomb}
 
-                    mcomb_lbl = '\n& '.join([
-                        get_fancy_label(tuple(mtype.subtype_iter())[0][1])
-                        for mtype in mcomb.mtypes
-                        ])
-
                     if divg_val < 0.5:
                         plot_dict[auc_val, divg_val] = [
-                            plt_size,
-                            ("{} in {}".format(cur_gene, coh_lbl), mcomb_lbl)
+                            plt_size, ("{} in {}".format(cur_gene, coh_lbl),
+                                       get_mcomb_lbl(mcomb))
                             ]
 
                     else:
@@ -201,7 +177,7 @@ def plot_divergent_types(pred_dfs, pheno_dicts, auc_lists,
 
     for (src, coh), divg_df in divg_dfs.items():
         for mcomb, (divg_val, auc_val) in divg_df.iterrows():
-            cur_gene = tuple(mcomb.label_iter())[0]
+            cur_gene = get_label(mcomb)
             plt_size = plot_dict[auc_val, divg_val][0] / 3.1
 
             plt_prop = np.mean(pheno_dicts[src, coh][mcomb])
@@ -281,30 +257,17 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
         use_combs = remove_pheno_dups({
             mut for mut, auc_val in auc_list.iteritems()
             if (isinstance(mut, ExMcomb) and auc_val >= args.auc_cutoff
-                and len(mut.mtypes) == 1
-                and all(
-                    pnt_mtype.is_supertype(tuple(mtype.subtype_iter())[0][1])
-                    for mtype in mut.mtypes
-                    ))
+                and len(mut.mtypes) == 1 and get_mut_ex(mut) == args.ex_lbl
+                and all(pnt_mtype.is_supertype(get_subtype(mtype))
+                        for mtype in mut.mtypes))
             }, pheno_dicts[src, coh])
-
-        # ...after removing groupings present in the same samples as another
-        # subgrouping, filter for those matching the given exclusivity method
-        if args.ex_lbl == 'Iso':
-            use_combs = {mcomb for mcomb in use_combs
-                         if not (mcomb.all_mtype & shal_mtype).is_empty()}
-
-        else:
-            use_combs = {mcomb for mcomb in use_combs
-                         if (mcomb.all_mtype & shal_mtype).is_empty()}
 
         # find all pairs of subgroupings from the same gene that are disjoint
         # either by construction or by phenotype
         use_pairs = {
             tuple(sorted([mcomb1, mcomb2]))
             for mcomb1, mcomb2 in combn(use_combs, 2)
-            if ((tuple(mcomb1.label_iter())[0]
-                 == tuple(mcomb2.label_iter())[0])
+            if (get_label(mcomb1) == get_label(mcomb2)
                 and (all((mtp1 & mtp2).is_empty()
                          for mtp1, mtp2 in product(mcomb1.mtypes,
                                                    mcomb2.mtypes))
@@ -317,7 +280,7 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
             continue
 
         base_mtree = tuple(cdata_dict[src, coh].mtrees.values())[0]
-        use_genes = {tuple(mcomb.label_iter())[0]
+        use_genes = {get_label(mcomb)
                      for comb_pair in use_pairs for mcomb in comb_pair}
 
         all_mtypes = {
@@ -339,12 +302,8 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
         use_preds = pred_dfs[src, coh].loc[pair_combs, train_samps]
         map_args = []
 
-        wt_vals = {
-            mcomb: use_preds.loc[mcomb][~all_phns[
-                tuple(mcomb.label_iter())[0]]]
-            for mcomb in pair_combs
-            }
-
+        wt_vals = {mcomb: use_preds.loc[mcomb][~all_phns[get_label(mcomb)]]
+                   for mcomb in pair_combs}
         mut_vals = {mcomb: use_preds.loc[mcomb, pheno_dicts[src, coh][mcomb]]
                     for mcomb in pair_combs}
 
@@ -380,7 +339,7 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
             chunk_size = int(len(map_args) / (17 * args.cores)) + 1
 
         pool = mp.Pool(args.cores)
-        siml_list = pool.starmap(SIML_FXS[siml_metric], map_args, chunk_size)
+        siml_list = pool.starmap(siml_fxs[siml_metric], map_args, chunk_size)
         pool.close()
         siml_df = pd.DataFrame(dict(
             zip(use_pairs, zip(siml_list[::2], siml_list[1::2])))).transpose()
@@ -420,19 +379,13 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
         annt_dict[src, coh] = set()
 
         for gene, pair_vals in pair_df.groupby(
-                lambda mcombs: tuple(mcombs[0].label_iter())[0]):
+                lambda mcombs: get_label(mcombs[0])):
             clr_dict[gene] = None
 
             lbl_pair = pair_vals.index[0]
             annt_dict[src, coh] |= set(pair_vals.index[:5])
-
-            pair_lbl = '\nvs.\n'.join([
-                '\n& '.join([
-                    get_fancy_label(tuple(mtype.subtype_iter())[0][1])
-                    for mtype in mcomb.mtypes
-                    ])
-                for mcomb in lbl_pair
-                ])
+            pair_lbl = '\nvs.\n'.join([get_mcomb_lbl(mcomb)
+                                       for mcomb in lbl_pair])
 
             plt_tupl = auc_list[list(lbl_pair)].min(), divg_list[lbl_pair]
             line_dict[plt_tupl] = src, coh, gene
@@ -460,7 +413,7 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
 
     for (src, coh), divg_list in divg_lists.items():
         for (mcomb1, mcomb2), divg_val in divg_list.iteritems():
-            cur_gene = tuple(mcomb1.label_iter())[0]
+            cur_gene = get_label(mcomb1)
 
             ax.scatter(auc_lists[src, coh][[mcomb1, mcomb2]].min(), divg_val,
                        s=size_dict[src, coh, mcomb1, mcomb2],
@@ -510,8 +463,7 @@ def plot_orthogonal_scores(plt_mcomb1, plt_mcomb2, pred_df, auc_vals,
         gridspec_kw=dict(height_ratios=[4, 1], width_ratios=[1, 4])
         )
 
-    use_gene = {tuple(mtype.label_iter())[0]
-                for mcomb in [plt_mcomb1, plt_mcomb2]
+    use_gene = {get_label(mtype) for mcomb in [plt_mcomb1, plt_mcomb2]
                 for mtype in mcomb.mtypes}
     assert len(use_gene) == 1
     use_gene = tuple(use_gene)[0]
@@ -538,8 +490,10 @@ def plot_orthogonal_scores(plt_mcomb1, plt_mcomb2, pred_df, auc_vals,
 
     for ax in sctr_ax, mcomb1_ax, mcomb2_ax:
         ax.grid(alpha=0.47, linewidth=0.9)
+
     use_clrs = {'WT': variant_clrs['WT'],
                 'Subg1': '#080097', 'Subg2': '#00847F', 'Other': 'black'}
+    mcomb_lbls = [get_mcomb_lbl(mcomb) for mcomb in [plt_mcomb1, plt_mcomb2]]
 
     sctr_ax.plot(use_preds.loc[use_preds.Phn == 'WT', 'Subg1'],
                  use_preds.loc[use_preds.Phn == 'WT', 'Subg2'],
@@ -560,12 +514,6 @@ def plot_orthogonal_scores(plt_mcomb1, plt_mcomb2, pred_df, auc_vals,
                  use_preds.loc[use_preds.Phn == 'Other', 'Subg2'],
                  marker='o', markersize=8, linewidth=0, alpha=0.31,
                  mfc='none', mec=use_clrs['Other'])
-
-    mcomb_lbls = [
-        '\n& '.join([get_fancy_label(tuple(mtype.subtype_iter())[0][1])
-                     for mtype in mcomb.mtypes])
-        for mcomb in [plt_mcomb1, plt_mcomb2]
-        ]
 
     sctr_ax.text(0.98, 0.03,
                  "Subgrouping 1:\n{} mutants\n{}".format(use_gene,
@@ -646,7 +594,7 @@ def plot_orthogonal_scores(plt_mcomb1, plt_mcomb2, pred_df, auc_vals,
 
     wt_vals = use_preds.loc[use_preds.Phn == 'WT', ['Subg1', 'Subg2']]
     mut_simls = {
-        subg: SIML_FXS[siml_metric](
+        subg: siml_fxs[siml_metric](
             wt_vals[subg], use_preds.loc[use_preds.Phn == subg, subg],
             use_preds.loc[use_preds.Phn == oth_subg, subg]
             )
@@ -654,7 +602,7 @@ def plot_orthogonal_scores(plt_mcomb1, plt_mcomb2, pred_df, auc_vals,
         }
 
     oth_simls = {
-        subg: SIML_FXS[siml_metric](
+        subg: siml_fxs[siml_metric](
             wt_vals[subg], use_preds.loc[use_preds.Phn == subg, subg],
             use_preds.loc[use_preds.Phn == 'Other', subg]
             )
@@ -713,12 +661,15 @@ def main():
     parser.add_argument('--seed', type=int)
     parser.add_argument('--verbose', '-v', action='count', default=0)
 
-    # parse command line arguments, find completed runs for this classifier
+    # parse command line arguments, find completed runs for this classifier,
+    # create directory where plots will be saved
     args = parser.parse_args()
     out_datas = tuple(Path(base_dir).glob(
         os.path.join("*", "out-aucs__*__*__{}.p.gz".format(args.classif))))
-
     os.makedirs(plot_dir, exist_ok=True)
+
+    # get info on completed runs and group them by tumor cohort, filtering out
+    # cohorts where the `base` set of mutation levels has not been tested
     out_list = pd.DataFrame(
         [{'Source': '__'.join(out_data.parts[-2].split('__')[:-1]),
           'Cohort': out_data.parts[-2].split('__')[-1],
@@ -815,6 +766,7 @@ def main():
         pred_dfs[src, coh] = pred_dfs[src, coh].loc[
             ~pred_dfs[src, coh].index.duplicated()]
 
+    # create the plots
     for siml_metric in args.siml_metrics:
         if args.auc_cutoff < 1:
             annt_types = plot_divergent_types(pred_dfs, phn_dicts, auc_lists,
