@@ -1,3 +1,4 @@
+"""Utilities for loading and consolidating cohort data from any source."""
 
 from ...experiments.utilities.data_dirs import (
     firehose_dir, syn_root, metabric_dir, baml_dir, ccle_dir,
@@ -26,12 +27,31 @@ import dill as pickle
 
 
 def get_input_datasets(cohort, expr_source, mut_fields=None):
+    """Loads normalized (but not cleaned) data for an instance of a cohort.
+
+    Arguments:
+        cohort (str): A cancer cohort, eg. 'METABRIC', 'HNSC_HPV-', etc.
+        expr_source (str): A place or method such as 'Firehose' or
+                           'microarray' that describes how the expression
+                           calls were made or stored.
+        mut_fields (:obj: `iterable` of :obj: `str`, optional)
+            Which mutation annotation fields to load for the cohort.
+
+    Returns:
+        data_dict (dict): The data for the cohort, which includes expression,
+                          variant calls, gene annotations, copy number
+                          alteration calls where available, and the genome
+                          assembly used to create the above.
+
+    """
     data_dict = {data_k: None
                  for data_k in ('expr', 'vars', 'copy', 'annot', 'assembly')}
 
+    # instantiate Synapse client, find where locally saved credentials are
     syn = synapseclient.Synapse()
     syn.cache.cache_root_dir = syn_root
 
+    # if loading the beatAML cohort, we pull the datasets from Synapse
     if cohort == 'beatAML':
         syn.login()
         data_dict['assembly'] = 'GRCh37'
@@ -50,6 +70,8 @@ def get_input_datasets(cohort, expr_source, mut_fields=None):
                 )
             })
 
+    # if loading the METABRIC cohort, we pull the datasets from where they
+    # were locally downloaded to from cBioPortal
     elif cohort.split('_')[0] == 'METABRIC':
         data_dict['assembly'] = 'GRCh37'
 
@@ -73,6 +95,8 @@ def get_input_datasets(cohort, expr_source, mut_fields=None):
                 )
             })
 
+    # if we are loading the CCLE cohort, we also pull the datasets from where
+    # they were locally downloaded
     elif cohort.split('_')[0] == 'CCLE':
         data_dict['assembly'] = 'GRCh37'
 
@@ -84,7 +108,8 @@ def get_input_datasets(cohort, expr_source, mut_fields=None):
                 )
             })
 
-    # ...otherwise, assume we are dealing with a TCGA dataset
+    # ...otherwise, assume we are dealing with a TCGA dataset; data can come
+    # from Firehose, or other sources such as locally-stored Kallisto calls
     else:
         syn.login()
         data_dict['assembly'] = 'GRCh37'
@@ -222,7 +247,7 @@ def load_cohort(cohort, expr_source, mut_lvls, vep_cache_dir, use_path=None,
             with open(use_path, 'rb') as f:
                 cdata = pickle.load(f)
 
-        except:
+        except IOError:
             cdata = get_cohort_data(cohort, expr_source, mut_lvls,
                                     vep_cache_dir, temp_path, use_genes,
                                     leaf_annot=leaf_annot)

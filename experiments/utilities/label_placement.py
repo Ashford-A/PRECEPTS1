@@ -17,7 +17,7 @@ def check_overlap(bx1, bx2):
 
 
 # TODO: consolidate and clean up how these keyword arguments are implemented
-def place_scatter_labels(plot_dict, ax, plt_type='pie', plt_lims=None,
+def place_scatter_labels(plot_dict, ax, plt_lims=None,
                          plc_lims=None, font_size=13, seed=None,
                          font_dict=None, line_dict=None, **line_args):
 
@@ -48,16 +48,8 @@ def place_scatter_labels(plot_dict, ax, plt_type='pie', plt_lims=None,
 
     # initialize object storing how much space needs to be left around already
     # placed points and labels
-    if plt_type == 'pie':
-        pnt_gaps = {pnt: (sz / 2 + xgap, sz / 2 + ygap)
-                    for pnt, (sz, _) in plot_dict.items()}
-
-    elif plt_type == 'scatter':
-        pnt_gaps = {pnt: (sz * 41 * xadj + xgap, sz * 41 * yadj + ygap)
-                    for pnt, (sz, _) in plot_dict.items()}
-
-    else:
-        raise ValueError("Unrecognized plot type `{}`!".format(plt_type))
+    pnt_gaps = {pnt: (sz * 41 * xadj + xgap, sz * 41 * yadj + ygap)
+                for pnt, (sz, _) in plot_dict.items()}
 
     # initialize objects storing where each label will be positioned,
     lbl_pos = {pnt: None for pnt, (_, lbls) in plot_dict.items() if lbls[0]}
@@ -67,15 +59,16 @@ def place_scatter_labels(plot_dict, ax, plt_type='pie', plt_lims=None,
 
     # calculate how much space each label to plot will occupy once placed
     lbl_wdths = {
-        pnt: (5.83 * font_adj * xadj * max(len(ln)
-                                           for ln in lbls[1].split('\n'))
-              if lbls[1] else 11 * font_adj * xadj * len(lbls[0]))
+        pnt: (font_adj * xadj
+              * max(5.83 * max(len(ln) for ln in lbls[1].split('\n')),
+                    11 * max(len(ln) for ln in lbls[0].split('\n'))))
         for pnt, (_, lbls) in plot_dict.items() if lbls[0]
         }
 
     lbl_hghts = {pnt: (19 * font_adj * yadj
                        * (2.3 + 11 / 19 * lbls[1].count('\n'))
-                       if lbls[1] else 17 * font_adj * yadj)
+                       if lbls[1] else (17 * font_adj * yadj
+                                        * (1.1 + lbls[0].count('\n'))))
                  for pnt, (_, lbls) in plot_dict.items() if lbls[0]}
 
     # for each point, check if there is enough space to plot its label

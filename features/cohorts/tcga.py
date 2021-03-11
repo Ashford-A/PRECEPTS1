@@ -25,6 +25,7 @@ from sklearn.preprocessing import scale
 cohort_subtypes = {
     'nonbasal': ['LumA', 'LumB', 'Her2', 'Normal'],
     'luminal': ['LumA', 'LumB'],
+    'nHM': ['CIN', 'EBV', 'GS'],
     }
 
 tcga_subtypes = {

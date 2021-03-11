@@ -10,8 +10,8 @@ from ..utilities.mutations import (
 from dryadic.features.mutations import MuType
 
 from ..subgrouping_isolate import base_dir
-from .utils import remove_pheno_dups
-from ..utilities.metrics import calculate_mean_siml, calculate_ks_siml
+from .utils import (siml_fxs, cna_mtypes,
+                    remove_pheno_dups, choose_subtype_colour)
 from ..utilities.colour_maps import simil_cmap, variant_clrs, mcomb_clrs
 from ..utilities.labels import get_fancy_label, get_cohort_label
 from ..utilities.label_placement import place_scatter_labels
@@ -45,26 +45,6 @@ plt.rcParams['axes.facecolor'] = 'white'
 plt.rcParams['savefig.facecolor'] = 'white'
 plt.rcParams['axes.edgecolor'] = 'white'
 plot_dir = os.path.join(base_dir, 'plots', 'gene')
-
-SIML_FXS = {'mean': calculate_mean_siml, 'ks': calculate_ks_siml}
-cna_mtypes = {'Gain': gains_mtype, 'Loss': dels_mtype}
-
-
-def choose_subtype_colour(mut):
-    if (copy_mtype & mut).is_empty():
-        mut_clr = variant_clrs['Point']
-
-    elif gains_mtype.is_supertype(mut):
-        mut_clr = variant_clrs['Gain']
-    elif dels_mtype.is_supertype(mut):
-        mut_clr = variant_clrs['Loss']
-
-    elif not (gains_mtype & mut).is_empty():
-        mut_clr = mcomb_clrs['Point+Gain']
-    elif not (dels_mtype & mut).is_empty():
-        mut_clr = mcomb_clrs['Point+Loss']
-
-    return mut_clr
 
 
 def plot_size_comparisons(auc_vals, pheno_dict, conf_vals,
@@ -150,8 +130,7 @@ def plot_size_comparisons(auc_vals, pheno_dict, conf_vals,
     ax.grid(linewidth=0.83, alpha=0.41)
 
     if plot_dict:
-        lbl_pos = place_scatter_labels(plot_dict, ax,
-                                       plt_type='scatter', font_size=11,
+        lbl_pos = place_scatter_labels(plot_dict, ax, font_size=11,
                                        seed=args.seed, line_dict=line_dict,
                                        linewidth=0.71, alpha=0.61)
 
@@ -483,7 +462,7 @@ def plot_score_symmetry(pred_dfs, pheno_dict, auc_dfs, cdata,
         chunk_size = int(len(map_args) / (23 * args.cores)) + 1
 
     pool = mp.Pool(args.cores)
-    siml_list = pool.starmap(SIML_FXS[siml_metric], map_args, chunk_size)
+    siml_list = pool.starmap(siml_fxs[siml_metric], map_args, chunk_size)
     pool.close()
     siml_vals = dict(zip(ex_indx, zip(siml_list[::2], siml_list[1::2])))
 
@@ -631,7 +610,7 @@ def plot_subcopy_symmetry(pred_dfs, pheno_dict, auc_dfs, cdata,
         chunk_size = int(len(map_args) / (23 * args.cores)) + 1
 
     pool = mp.Pool(args.cores)
-    siml_list = pool.starmap(SIML_FXS[siml_metric], map_args, chunk_size)
+    siml_list = pool.starmap(siml_fxs[siml_metric], map_args, chunk_size)
     pool.close()
     siml_vals = dict(zip(use_combs, zip(siml_list[::2], siml_list[1::2])))
 

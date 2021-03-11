@@ -5,6 +5,14 @@ import dill as pickle
 from importlib import import_module
 
 
+def get_label(mut):
+    return next(mut.label_iter())
+
+
+def get_subtype(mtype):
+    return next(mtype.subtype_iter())[1]
+
+
 def compare_muts(*muts_lists):
     return len(set(tuple(sorted(muts_list))
                    for muts_list in muts_lists)) == 1
