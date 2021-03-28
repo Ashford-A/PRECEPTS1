@@ -2,6 +2,7 @@
 from ..utilities.mutations import copy_mtype, RandomType
 from ..utilities.pipeline_setup import get_task_count
 from ..utilities.misc import compare_muts
+from ..utilities.metrics import calc_auc
 from ...features.cohorts.utils import get_cohort_subtypes
 
 import os
@@ -18,21 +19,14 @@ import random
 from itertools import cycle
 
 
-def calculate_auc(phn_vec, pred_mat):
-    if phn_vec.all() or not phn_vec.any():
-        auc_val = 0.5
-
-    else:
-        auc_val = np.greater.outer(pred_mat[phn_vec],
-                                   pred_mat[~phn_vec]).mean()
-        auc_val += 0.5 * np.equal.outer(pred_mat[phn_vec],
-                                        pred_mat[~phn_vec]).mean()
-
-    return auc_val
-
-
 def transfer_signatures(trnsf_cdata, orig_samps,
                         pred_df, mtype_list, subt_smps=None):
+    """
+    Utility function for getting phenotypic data and calculating AUCs for a
+    "transfer" cohort to which trained subgrouping classifiers were applied
+    after being trained on the primary cohort used in this experiment.
+
+    """
     use_muts = {mtype for mtype in mtype_list
                 if not isinstance(mtype, RandomType)}
 
@@ -44,23 +38,29 @@ def transfer_signatures(trnsf_cdata, orig_samps,
             if (tuple(mtype.subtype_iter())[0][1] & copy_mtype).is_empty()
             }
 
+    # finds if any of the transfer cohort's samples overlap with the original
+    # cohort's samples so that they can be excluded
     sub_stat = np.array([smp in orig_samps
                          for smp in trnsf_cdata.get_train_samples()])
     if subt_smps:
         sub_stat |= np.array([smp not in subt_smps
                               for smp in trnsf_cdata.get_train_samples()])
 
+    # gets the phenotypic data for the subgroupings enumerated for this
+    # experiment in the context of the transfer cohort
     pheno_dict = {mtype: np.array(trnsf_cdata.train_pheno(mtype))[~sub_stat]
                   for mtype in use_muts}
     use_muts = {mtype for mtype in use_muts if pheno_dict[mtype].sum() >= 20}
     auc_dict = dict()
 
+    # if any of this experiment's subgroupings are mutated in enough samples
+    # in the transfer cohort, calculate transfer AUCs
     if use_muts:
         auc_dict = {
             'all': pd.Series(dict(zip(use_muts, Parallel(
                 n_jobs=12, prefer='threads', pre_dispatch=120)(
-                    delayed(calculate_auc)(pheno_dict[mtype],
-                                           pred_df.loc[mtype].T[~sub_stat])
+                    delayed(calc_auc)(pred_df.loc[mtype].T[~sub_stat],
+                                      pheno_dict[mtype])
                     for mtype in use_muts
                     )
                 ))),
@@ -68,9 +68,9 @@ def transfer_signatures(trnsf_cdata, orig_samps,
             'CV': pd.DataFrame.from_records(
                 tuple(zip(cycle(use_muts), Parallel(
                     n_jobs=12, prefer='threads', pre_dispatch=120)(
-                        delayed(calculate_auc)(
-                            pheno_dict[mtype],
-                            pred_df.loc[mtype].T[~sub_stat, cv_id]
+                        delayed(calc_auc)(
+                            pred_df.loc[mtype].T[~sub_stat, cv_id],
+                            pheno_dict[mtype]
                             )
                         for cv_id in range(40) for mtype in use_muts
                         )
@@ -79,9 +79,9 @@ def transfer_signatures(trnsf_cdata, orig_samps,
 
             'mean': pd.Series(dict(zip(use_muts, Parallel(
                 n_jobs=12, prefer='threads', pre_dispatch=120)(
-                    delayed(calculate_auc)(
-                        pheno_dict[mtype],
-                        pred_df.loc[mtype].T[~sub_stat].mean(axis=1)
+                    delayed(calc_auc)(
+                        pred_df.loc[mtype].T[~sub_stat].mean(axis=1),
+                        pheno_dict[mtype]
                         )
                     for mtype in use_muts
                     )
@@ -95,7 +95,12 @@ def transfer_signatures(trnsf_cdata, orig_samps,
 
 
 def main():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        'gather_test',
+        description="Consolidates experiment output and computes task AUCs."
+        )
+
+    # define and collect command line arguments
     parser.add_argument('use_dir', type=str)
     parser.add_argument('--task_ids', type=int, nargs='+')
     args = parser.parse_args()
@@ -107,7 +112,6 @@ def main():
 
     # load the mutations present in the cohort sorted into the attribute
     # hierarchy used in this experiment as well as the subgroupings tested
-    use_mtree = tuple(cdata.mtrees.values())[0]
     with open(os.path.join(args.use_dir, 'setup', "muts-list.p"), 'rb') as f:
         muts_list = pickle.load(f)
     with open(os.path.join(args.use_dir, 'setup', "feat-list.p"), 'rb') as f:
@@ -118,7 +122,7 @@ def main():
     file_dict = dict()
 
     # filter output files according to whether they came from one of the
-    # parallelized tasks assigned to this gather task
+    # parallelized tasks assigned to this consolidation task
     for out_fl in file_list:
         fl_info = out_fl.stem.split("out__")[1]
         out_task = int(fl_info.split("task-")[1])
@@ -156,15 +160,17 @@ def main():
     out_clf = None
     out_tune = None
 
+    # figure out which experiment subgroupings were assigned to these tasks
     random.seed(10301)
     random.shuffle(muts_list)
-
     use_muts = [mut for i, mut in enumerate(muts_list)
                 if i % task_count in use_tasks]
 
+    # for the output files corresponding to each cross-validation ID...
     for cv_id, out_fls in file_sets.items():
         out_list = []
 
+        # ...read in the data from each file
         for out_fl in out_fls:
             with open(out_fl, 'rb') as f:
                 out_list += [pickle.load(f)]
@@ -191,6 +197,8 @@ def main():
             for mut, out_vals in out_dicts['Coef'].items()
             }).transpose().fillna(0.0)
 
+        # accounts for gene features which could have been included in a
+        # subgrouping model but were not included in any
         out_dfs['Coef'][cv_id] = out_dfs['Coef'][cv_id].assign(
             **{gene: 0
                for gene in use_feats - set(out_dfs['Coef'][cv_id].columns)}
@@ -293,9 +301,9 @@ def main():
     auc_dict = {
         'all': pd.Series(dict(zip(use_muts, Parallel(
             n_jobs=12, prefer='threads', pre_dispatch=120)(
-                delayed(calculate_auc)(
-                    pheno_dict[mtype],
-                    np.vstack(pred_df.loc[mtype][train_samps].values)
+                delayed(calc_auc)(
+                    np.vstack(pred_df.loc[mtype][train_samps].values),
+                    pheno_dict[mtype]
                     )
                 for mtype in use_muts
                 )
@@ -305,10 +313,10 @@ def main():
         'CV': pd.DataFrame.from_records(
             tuple(zip(cycle(use_muts), Parallel(
                 n_jobs=12, prefer='threads', pre_dispatch=120)(
-                    delayed(calculate_auc)(
-                        pheno_dict[mtype],
+                    delayed(calc_auc)(
                         np.vstack(pred_df.loc[
-                            mtype][train_samps].values)[:, cv_id]
+                            mtype][train_samps].values)[:, cv_id],
+                        pheno_dict[mtype]
                         )
                     for cv_id in range(10) for mtype in use_muts
                     )
@@ -319,10 +327,10 @@ def main():
         # sample across CV runs
         'mean': pd.Series(dict(zip(use_muts, Parallel(
             n_jobs=12, prefer='threads', pre_dispatch=120)(
-                delayed(calculate_auc)(
-                    pheno_dict[mtype],
+                delayed(calc_auc)(
                     np.vstack(pred_df.loc[
-                        mtype][train_samps].values).mean(axis=1)
+                        mtype][train_samps].values).mean(axis=1),
+                    pheno_dict[mtype]
                     )
                 for mtype in use_muts
                 )
@@ -337,17 +345,19 @@ def main():
                      'w') as fl:
         pickle.dump(auc_dict, fl, protocol=-1)
 
+    # creates down-sampled sets of cohort tumor samples
     random.seed(7609)
     sub_inds = [random.choices([False, True], k=len(cdata.get_samples()))
                 for _ in range(1000)]
 
+    # calculates down-sampled AUCs
     conf_df = pd.DataFrame.from_records(
         tuple(zip(cycle(use_muts), Parallel(
             n_jobs=12, prefer='threads', pre_dispatch=120)(
-                delayed(calculate_auc)(
-                    pheno_dict[mtype][sub_indx],
+                delayed(calc_auc)(
                     np.vstack(pred_df.loc[
-                        mtype][train_samps[sub_indx]].values).mean(axis=1)
+                        mtype][train_samps[sub_indx]].values).mean(axis=1),
+                    pheno_dict[mtype][sub_indx]
                     )
                 for sub_indx in sub_inds for mtype in use_muts
                 )
@@ -362,26 +372,32 @@ def main():
                      'w') as fl:
         pickle.dump(conf_df, fl, protocol=-1)
 
+    # consolidates predictions made by subgrouping models on other cohorts
     trnsf_df = pd.DataFrame(
         {coh: {mtype: np.vstack(vals) for mtype, vals in trnsf_mat.iterrows()}
          for coh, trnsf_mat in trnsf_df.groupby(level=0, axis=1)}
         )
 
+    # finds -omic datasets for the other cohorts
     coh_files = Path(os.path.join(args.use_dir, 'setup')).glob(
         "cohort-data__*.p")
     coh_dict = {coh_fl.stem.split('__')[-1]: coh_fl for coh_fl in coh_files}
 
+    # for each other cohort, loads the cohort's -omic datasets
     trnsf_dict = dict()
     for coh, coh_fl in coh_dict.items():
         with open(coh_fl, 'rb') as f:
             trnsf_cdata = pickle.load(f)
 
+        # if this isn't the same cohort as the one the experiment used, and
+        # this cohort had any mutations in the genes used in the experiment...
         trnsf_smps = trnsf_cdata.get_train_samples()
         if (set(trnsf_smps) != set(cdata_samps)
                 and any(mtree != dict()
                         for mtree in trnsf_cdata.mtrees.values())):
             trnsf_dict[coh] = {'Samps': trnsf_smps}
 
+            # ...get phenotypic data and transfer AUCs for each subgrouping
             if coh != 'CCLE':
                 trnsf_dict[coh].update(
                     zip(['Pheno', 'AUC'],
@@ -389,6 +405,8 @@ def main():
                                             trnsf_df[coh], use_muts))
                     )
 
+            # where applicable, get phenotypes and transfer AUCs using the
+            # molecular subtypes identified for the other cohort
             for subt, smps in get_cohort_subtypes(coh).items():
                 subt_smps = smps & set(trnsf_dict[coh]['Samps'])
 
@@ -405,6 +423,7 @@ def main():
                             ))
                         }
 
+    # make predicted labels for transfer cohorts more space-efficient
     trnsf_vals = pd.DataFrame({
         coh: trnsf_mat.apply(lambda vals: np.round(np.mean(vals, axis=0), 7))
         for coh, trnsf_mat in trnsf_df.items()

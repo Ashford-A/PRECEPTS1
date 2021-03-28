@@ -95,8 +95,14 @@ def compare_scores(iso_df, samps, muts_dict,
 
 
 def calc_auc(vals, stat):
-    return (np.greater.outer(vals[stat], vals[~stat]).mean()
-            + 0.5 * np.equal.outer(vals[stat], vals[~stat]).mean())
+    if stat.all() or not stat.any():
+        auc_val = 0.5
+
+    else:
+        auc_val = np.greater.outer(vals[stat], vals[~stat]).mean()
+        auc_val += 0.5 * np.equal.outer(vals[stat], vals[~stat]).mean()
+
+    return auc_val
 
 
 def calc_conf(auc_vals1, auc_vals2):
