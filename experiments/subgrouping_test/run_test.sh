@@ -3,6 +3,7 @@
 #SBATCH --verbose
 
 
+# get current time, load conda environment, set default values for arguments
 start_time=$( date +%s )
 source activate research
 rewrite=false
@@ -66,6 +67,7 @@ dvc run -d $COH_DIR -d $GENCODE_DIR -d $ONCOGENE_LIST \
 	python -m dryads-research.experiments.subgrouping_test.setup_test \
 	$expr_source $cohort $samp_cutoff $mut_levels $OUTDIR
 
+# how long is this pipeline allowed to run for?
 if [ -z ${SBATCH_TIMELIMIT+x} ]
 then
 	time_lim=2159
@@ -73,6 +75,8 @@ else
 	time_lim=$SBATCH_TIMELIMIT
 fi
 
+# figure out how long it took to run the setup stages and how much time is
+# left to run the remainder of the pipeline
 cur_time=$( date +%s )
 time_left=$(( time_lim - (cur_time - start_time) / 60 + 1 ))
 
@@ -81,10 +85,13 @@ then
 	time_max=$(( $time_left * 11 / 13 ))
 fi
 
+# figure out the time left for the consolidation stage of the pipeline
 if [ ! -f setup/tasks.txt ]
 then
 	merge_max=$(( $time_left - $time_max - 3 ))
 
+  # based on the classifier used, set parameters for calculating the runtime
+  # of a single classification task using the sample size of the cohort
 	if [ $classif == 'Ridge' ]
 	then
 		task_size=1
@@ -104,6 +111,7 @@ then
 		samp_exp=0.75
 	fi
 
+  # calculate the runtime of a single classification task
 	eval "$( python -m dryads-research.experiments.utilities.pipeline_setup \
 		$OUTDIR $time_max --merge_max=$merge_max \
 		--task_size=$task_size --samp_exp=$samp_exp )"
@@ -116,9 +124,12 @@ then
 	exit 0
 fi
 
+# get the `run_time` and `merge_time` parameters from the task manifest
 eval "$( tail -n 2 setup/tasks.txt | head -n 1 )"
 eval "$( tail -n 1 setup/tasks.txt )"
 
+# launch the Snakemake pipeline for the classification and output
+# consolidation stages of this experiment
 dvc run -d setup/muts-list.p -d $RUNDIR/fit_test.py -O out-conf.p.gz \
 	-O $FINALDIR/out-trnsf__${mut_levels}__${classif}.p.gz -f output.dvc \
 	--overwrite-dvcfile --ignore-build-cache 'snakemake -s $RUNDIR/Snakefile \
@@ -131,6 +142,7 @@ dvc run -d setup/muts-list.p -d $RUNDIR/fit_test.py -O out-conf.p.gz \
 	samp_cutoff='"$samp_cutoff"' mut_levels='"$mut_levels"' \
 	classif='"$classif"' time_max='"$run_time"' merge_max='"$merge_time"
 
-cp output.dvc $FINALDIR/output__${mut_levels}__${classif}.dvc
+# final cleanup duties
 rm $OUTDIR/setup/cohort-data__*
+cp output.dvc $FINALDIR/output__${mut_levels}__${classif}.dvc
 

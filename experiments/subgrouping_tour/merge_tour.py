@@ -77,16 +77,21 @@ def main():
     with bz2.BZ2File(os.path.join(args.use_dir, "out-tune.p.gz"), 'w') as fl:
         pickle.dump(tune_dfs, fl, protocol=-1)
 
-    auc_df = pd.DataFrame()
+    auc_dfs = {cis_lbl: pd.DataFrame() for cis_lbl in cis_lbls}
     for auc_file in Path(args.use_dir, 'merge').glob("out-aucs_*.p.gz"):
         with bz2.BZ2File(auc_file, 'r') as fl:
             auc_data = pickle.load(fl)
-        auc_df = auc_df.append(auc_data)
 
-    assert sorted(muts_list) == sorted(auc_df.index), (
-        "Tested mutations missing from merged classifier accuracies!")
+        for cis_lbl in cis_lbls:
+            auc_dfs[cis_lbl] = auc_dfs[cis_lbl].append(pd.DataFrame(
+                auc_data[cis_lbl]))
+
+    for cis_lbl, auc_df in auc_dfs.items():
+        assert sorted(muts_list) == sorted(auc_df.index), (
+            "Tested mutations missing from merged classifier accuracies!")
+
     with bz2.BZ2File(os.path.join(args.use_dir, "out-aucs.p.gz"), 'w') as fl:
-        pickle.dump(auc_df, fl, protocol=-1)
+        pickle.dump(auc_dfs, fl, protocol=-1)
 
     conf_df = pd.DataFrame()
     for conf_file in Path(args.use_dir, 'merge').glob("out-conf_*.p.gz"):

@@ -2,7 +2,7 @@
 from ..subgrouping_tour import cis_lbls
 from ..utilities.pipeline_setup import get_task_count
 from ..utilities.misc import compare_muts
-from ..subgrouping_test.gather_test import calculate_auc
+from ..utilities.metrics import calc_auc
 
 import os
 import argparse
@@ -224,19 +224,48 @@ def main():
                      'w') as fl:
         pickle.dump(pheno_dict, fl, protocol=-1)
 
-    auc_vals = pd.DataFrame({
-        cis_lbl: pd.Series(dict(zip(use_muts, Parallel(
-            n_jobs=12, prefer='threads', pre_dispatch=120)(
-                delayed(calculate_auc)(
-                    pheno_dict[mtype],
+    auc_vals = {
+        cis_lbl: {
+            'all': pd.Series(dict(zip(use_muts, Parallel(
+                n_jobs=12, prefer='threads', pre_dispatch=120)(
+                delayed(calc_auc)(
+                    np.vstack(pred_df.loc[mtype][train_samps].values),
+                    pheno_dict[mtype]
+                    )
+                for mtype in use_muts
+                )
+            ))),
+
+            # ...and for each cross-validation run considered separately...
+            'CV': pd.DataFrame.from_records(
+                tuple(zip(cycle(use_muts), Parallel(
+                    n_jobs=12, prefer='threads', pre_dispatch=120)(
+                    delayed(calc_auc)(
+                        np.vstack(pred_df.loc[
+                            mtype][train_samps].values)[:, cv_id],
+                        pheno_dict[mtype]
+                        )
+                    for cv_id in range(10) for mtype in use_muts
+                    )
+                ))
+            ).pivot_table(index=0, values=1, aggfunc=list).iloc[:, 0],
+
+            # ...and finally using the average of predicted scores for each
+            # sample across CV runs
+            'mean': pd.Series(dict(zip(use_muts, Parallel(
+                n_jobs=12, prefer='threads', pre_dispatch=120)(
+                delayed(calc_auc)(
                     np.vstack(pred_df.loc[
-                        mtype][train_samps].values).mean(axis=1)
+                        mtype][train_samps].values).mean(axis=1),
+                    pheno_dict[mtype]
                     )
                 for mtype in use_muts
                 )
             )))
+            }
+
         for cis_lbl, pred_df in pred_dfs.items()
-        })
+        }
 
     with bz2.BZ2File(os.path.join(args.use_dir, 'merge',
                                   "out-aucs{}.p.gz".format(out_tag)),
@@ -251,10 +280,10 @@ def main():
         cis_lbl: pd.DataFrame.from_records(
             tuple(zip(cycle(use_muts), Parallel(
                 n_jobs=12, prefer='threads', pre_dispatch=120)(
-                    delayed(calculate_auc)(
-                        pheno_dict[mtype][sub_indx],
-                        np.vstack(pred_df.loc[
-                            mtype][train_samps[sub_indx]].values).mean(axis=1)
+                    delayed(calc_auc)(
+                        np.vstack(pred_df.loc[mtype][
+                            train_samps[sub_indx]].values).mean(axis=1),
+                        pheno_dict[mtype][sub_indx]
                         )
                     for sub_indx in sub_inds for mtype in use_muts
                     )

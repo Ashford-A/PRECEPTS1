@@ -27,6 +27,8 @@ def main():
     parser.add_argument('--cv_id', type=int, default=0,
                         help='the subset of subtypes to assign to this task')
 
+    # collect command line arguments, get directory where enumeration output
+    # was stored, get the number of experiment tasks from task manifest
     args = parser.parse_args()
     setup_dir = os.path.join(args.use_dir, 'setup')
     task_count = get_task_count(args.use_dir)
@@ -38,12 +40,13 @@ def main():
     with open(os.path.join(setup_dir, "feat-list.p"), 'rb') as fl:
         feat_list = pickle.load(fl)
 
+    # load cohort expression and mutation data and the mutation classifier
     coh_path = os.path.join(setup_dir, "cohort-data.p.gz")
     cdata = safe_load(coh_path, retry_pause=41)
     clf = eval(args.classif)
     mut_clf = clf()
 
-    # figure out which cohort samples will be used for tuning and testing the
+    # figure out which cohort samples will be used for tuning and training the
     # classifier and which samples will be used for testing
     use_seed = 9073 + 97 * args.cv_id
     cdata_samps = sorted(cdata.get_samples())
@@ -51,9 +54,11 @@ def main():
     random.shuffle(cdata_samps)
     cdata.update_split(use_seed, test_samps=cdata_samps[(args.cv_id % 4)::4])
 
+    # get the gene associated with each mutation subgrouping where applicable
     mtype_genes = {mtype: tuple(mtype.label_iter())[0] for mtype in mtype_list
                    if not isinstance(mtype, RandomType)}
 
+    # initialize objects for storing experiment output
     out_pars = {mtype: {par: None for par, _ in mut_clf.tune_priors}
                 for mtype in mtype_list}
     out_time = {mtype: dict() for mtype in mtype_list}
@@ -74,14 +79,19 @@ def main():
         if (i % task_count) == args.task_id:
             print("Testing {} ...".format(mtype))
 
+            # get the gene associated with this subgrouping...
             if not isinstance(mtype, RandomType):
                 use_gene = mtype_genes[mtype]
-
             elif mtype.base_mtype is not None:
                 use_gene = tuple(mtype.label_iter())[0]
+
+            # picking one at random from those associated with non-random
+            # subgroupings for random subgroupings not associated with a gene
             else:
                 use_gene = random.choice(list(mtype_genes.values()))
 
+            # get the expression features on the same chromosome as the gene
+            # of the mutation, remove them from features used in classifying
             ex_genes = cdata.get_cis_genes('Chrm', cur_genes=[use_gene])
             use_feats = feat_list - ex_genes
 
@@ -112,6 +122,7 @@ def main():
                                      include_feats=use_feats)
                 ), 7)
 
+            # apply the fit model to the entirety of each other cohort
             out_trnsf[mtype] = {
                 coh: np.round(mut_clf.parse_preds(
                     transfer_model(trnsf_fl, mut_clf, use_feats)), 7)
@@ -126,6 +137,7 @@ def main():
             del(out_coef[mtype])
             del(out_trnsf[mtype])
 
+    # save experiment results to file
     with open(os.path.join(args.use_dir, 'output',
                            "out__cv-{}_task-{}.p".format(
                                args.cv_id, args.task_id)),
