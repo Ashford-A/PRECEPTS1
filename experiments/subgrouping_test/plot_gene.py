@@ -1,3 +1,12 @@
+"""
+This module produces plots of experiment output for a specific mutated gene,
+using all of the canonical cohorts listed in .__init__.py.
+
+Example usages:
+    python -m dryads-research.experiments.subgrouping_test.plot_gene TP53
+    python -m dryads-research.experiments.subgrouping_test.plot_gene FGFR3
+
+"""
 
 from ..utilities.mutations import pnt_mtype, copy_mtype, RandomType
 from dryadic.features.mutations import MuType
@@ -8,6 +17,7 @@ from ..utilities.labels import get_cohort_label, get_fancy_label
 from ..utilities.label_placement import place_scatter_labels
 from ..utilities.colour_maps import auc_cmap
 from ..utilities.metrics import calc_conf
+from ..utilities.misc import get_label, get_subtype
 
 import os
 import argparse
@@ -32,79 +42,81 @@ plt.rcParams['axes.edgecolor'] = 'white'
 plot_dir = os.path.join(base_dir, 'plots', 'gene')
 
 
-def plot_sub_comparisons(auc_dict, conf_dict, pheno_dict, use_clf, args,
+def plot_sub_comparisons(auc_dict, pheno_dict, use_clf, args,
                          include_copy=False):
-    fig, ax = plt.subplots(figsize=(11, 11))
+    fig, ax = plt.subplots(figsize=(10.3, 11))
 
     gene_mtype = MuType({('Gene', args.gene): pnt_mtype})
     plot_dict = dict()
+    clr_dict = dict()
     plt_min = 0.89
 
     # for each cohort, check if the given gene had subgroupings that were
     # tested, and get the results for all the gene's point mutations...
-    for (src, coh), auc_vals in auc_dict.items():
-        use_aucs = auc_vals[[mtype for mtype in auc_vals.index
-                             if not isinstance(mtype, RandomType)]]
+    for (src, coh), auc_df in auc_dict.items():
+        use_aucs = auc_df.loc[[mtype for mtype in auc_df.index
+                               if not isinstance(mtype, RandomType)]]
 
         if not include_copy:
-            use_aucs = use_aucs[[
-                mtype for mtype in use_aucs.index
-                if (tuple(mtype.subtype_iter())[0][1] & copy_mtype).is_empty()
-                ]]
+            use_aucs = use_aucs.loc[[mtype for mtype in use_aucs.index
+                                     if (get_subtype(mtype)
+                                         & copy_mtype).is_empty()]]
 
-        sub_aucs = use_aucs[[
+        sub_aucs = use_aucs['mean'][[
             mtype for mtype in use_aucs.index
-            if not ((tuple(mtype.subtype_iter())[0][1] & pnt_mtype).is_empty()
-                    or tuple(mtype.subtype_iter())[0][1].is_supertype(
-                        pnt_mtype))
+            if not ((get_subtype(mtype) & pnt_mtype).is_empty()
+                    or get_subtype(mtype).is_supertype(pnt_mtype))
             ]]
 
         if len(sub_aucs) > 0:
             best_subtype = sub_aucs.idxmax()
 
-            if (tuple(best_subtype.subtype_iter())[0][1]
-                    & copy_mtype).is_empty():
+            if (get_subtype(best_subtype) & copy_mtype).is_empty():
                 base_mtype = gene_mtype
             else:
                 base_mtype = (best_subtype - gene_mtype) | gene_mtype
 
-            auc_tupl = use_aucs[base_mtype], use_aucs[best_subtype]
+            auc_tupl = use_aucs['mean'][base_mtype], sub_aucs[best_subtype]
             base_size = np.mean(pheno_dict[src, coh][base_mtype])
-            plt_size = 0.07 * base_size ** 0.5
+            plot_dict[auc_tupl] = [base_size ** 0.5, ('', '')]
+            clr_dict[auc_tupl] = choose_cohort_colour(coh)
 
-            plot_dict[auc_tupl] = [plt_size, ('', '')]
             coh_lbl = get_cohort_label(coh)
-            plt_min = min(plt_min, use_aucs[base_mtype] - 0.05,
-                          use_aucs[best_subtype] - 0.07)
-
+            plt_min = min(plt_min, auc_tupl[0] - 0.05, auc_tupl[1] - 0.07)
             best_prop = np.mean(pheno_dict[src, coh][best_subtype])
             best_prop /= base_size
-            conf_sc = calc_conf(conf_dict[src, coh][best_subtype],
-                                conf_dict[src, coh][base_mtype])
 
-            if conf_sc > 0.8:
+            cv_sig = (np.array(use_aucs['CV'][best_subtype])
+                      > np.array(use_aucs['CV'][base_mtype])).all()
+
+            if cv_sig:
                 plot_dict[auc_tupl][1] = coh_lbl, get_fancy_label(
-                    tuple(best_subtype.subtype_iter())[0][1],
+                    get_subtype(best_subtype),
                     pnt_link='\nor ', phrase_link=' '
                     )
 
             else:
                 plot_dict[auc_tupl][1] = coh_lbl, ''
 
-            auc_bbox = (auc_tupl[0] - plt_size / 2,
-                        auc_tupl[1] - plt_size / 2, plt_size, plt_size)
+    for aucs in tuple(plot_dict):
+        plt_size = 0.53 * plot_dict[aucs][0] * (1 - plt_min)
+        plt_size *= 1.13 ** -len(plot_dict)
+        plot_dict[aucs][0] = plt_size
 
-            # create the axis in which the pie chart will be plotted
-            pie_ax = inset_axes(ax, width='100%', height='100%',
-                                bbox_to_anchor=auc_bbox,
-                                bbox_transform=ax.transData,
-                                axes_kwargs=dict(aspect='equal'), borderpad=0)
+        pie_bbox = (aucs[0] - plt_size / 2, aucs[1] - plt_size / 2,
+                    plt_size, plt_size)
 
-            # plot the pie chart for the AUCs of the gene in this cohort
-            pie_ax.pie(x=[best_prop, 1 - best_prop], explode=[0.29, 0],
-                       colors=[choose_cohort_colour(coh) + (0.83, ),
-                               choose_cohort_colour(coh) + (0.23, )],
-                       wedgeprops=dict(edgecolor='black', linewidth=10 / 11))
+        # create the axis in which the pie chart will be plotted
+        pie_ax = inset_axes(ax, width='100%', height='100%',
+                            bbox_to_anchor=pie_bbox,
+                            bbox_transform=ax.transData,
+                            axes_kwargs=dict(aspect='equal'), borderpad=0)
+
+        # plot the pie chart for the AUCs of the gene in this cohort
+        pie_ax.pie(x=[best_prop, 1 - best_prop], explode=[0.29, 0],
+                   colors=[clr_dict[aucs] + (0.83, ),
+                           clr_dict[aucs] + (0.23, )],
+                   wedgeprops=dict(edgecolor='black', linewidth=10 / 11))
 
     plt_lims = plt_min, 1 + (1 - plt_min) / 113
     ax.grid(linewidth=0.83, alpha=0.41)
@@ -130,7 +142,8 @@ def plot_sub_comparisons(auc_dict, conf_dict, pheno_dict, use_clf, args,
     # they don't overlap with one another or the pie charts
     if plot_dict:
         lbl_pos = place_scatter_labels(plot_dict, ax,
-                                       plt_lims=[[plt_min + 0.01, 0.99]] * 2,
+                                       plt_lims=[[plt_min, 1]] * 2,
+                                       plc_lims=[[plt_min + 0.01, 0.99]] * 2,
                                        font_size=19, seed=args.seed,
                                        c='black', linewidth=0.83, alpha=0.61)
 
@@ -457,6 +470,8 @@ def main():
 
     out_use = out_use[out_use.index.get_level_values('Cohort').isin(
         train_cohorts)]
+    out_use = out_use[[src != 'toil__gns' or coh == 'beatAML'
+                       for src, coh, _, _ in out_use.index]]
 
     # ensure gene-wide classifier input is read in first for each experiment
     out_lvls = set(out_use.index.get_level_values('Levels'))
@@ -491,10 +506,10 @@ def main():
                                           "out-aucs__{}__{}.p.gz".format(
                                               lvls, clf)),
                              'r') as f:
-                auc_vals = pickle.load(f)['mean']
+                auc_vals = pickle.load(f)
 
-            auc_vals = auc_vals[[mtype for mtype in auc_vals.index
-                                 if filter_mtype(mtype, args.gene)]]
+            auc_vals = auc_vals.loc[[mtype for mtype in auc_vals.index
+                                     if filter_mtype(mtype, args.gene)]]
 
             if (src, coh, clf) in auc_dict:
                 auc_dict[src, coh, clf] = auc_dict[src, coh, clf].append(
@@ -561,10 +576,9 @@ def main():
             if out_clf == clf
             }
 
-        plot_sub_comparisons(clf_aucs, clf_confs, phn_dict, clf, args,
+        plot_sub_comparisons(clf_aucs, phn_dict, clf, args,
                              include_copy=False)
-        plot_sub_comparisons(clf_aucs, clf_confs, phn_dict, clf, args,
-                             include_copy=True)
+        plot_sub_comparisons(clf_aucs, phn_dict, clf, args, include_copy=True)
         plot_conf_distributions(clf_aucs, clf_confs, phn_dict, clf, args)
 
         plot_transfer_aucs(clf_trnsf, clf_aucs, clf_confs, phn_dict,
