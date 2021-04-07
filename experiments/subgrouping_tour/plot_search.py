@@ -4,8 +4,8 @@ from dryadic.features.mutations import MuType
 
 from ..subgrouping_tour import base_dir
 from ..utilities.metrics import calc_conf
-from ..utilities.misc import choose_label_colour
-from ..utilities.labels import get_fancy_label
+from ..utilities.misc import get_label, get_subtype, choose_label_colour
+from ..utilities.labels import get_cohort_label
 
 import os
 import argparse
@@ -28,18 +28,17 @@ plt.rcParams['axes.edgecolor'] = 'white'
 plot_dir = os.path.join(base_dir, 'plots', 'search')
 
 
-def plot_original_concordance(auc_vals, orig_aucs, conf_vals, orig_confs,
+def plot_original_concordance(auc_df, orig_aucs, conf_vals, orig_confs,
                               pheno_dict, args):
     fig, (auc_ax, conf_ax) = plt.subplots(figsize=(17, 8), nrows=1, ncols=2)
 
-    use_aucs = orig_aucs[[
-        not isinstance(mtype, RandomType)
-        and (tuple(mtype.subtype_iter())[0][1] & copy_mtype).is_empty()
-        for mtype in orig_aucs.index
-        ]]
+    use_aucs = orig_aucs['mean'][[not isinstance(mtype, RandomType)
+                                  and (get_subtype(mtype)
+                                       & copy_mtype).is_empty()
+                                  for mtype in orig_aucs.index]]
 
     auc_min = 0.47
-    for mtype, auc_val in auc_vals.iteritems():
+    for mtype, auc_val in auc_df['mean'].iteritems():
         cur_gene, cur_subt = tuple(mtype.subtype_iter())[0]
 
         orig_mtype = MuType({
@@ -108,23 +107,18 @@ def plot_original_concordance(auc_vals, orig_aucs, conf_vals, orig_confs,
     plt.close()
 
 
-def plot_original_comparison(auc_vals, orig_aucs, conf_vals, orig_confs,
-                             pheno_dict, args):
-    use_aucs = orig_aucs[[
+def plot_original_comparison(auc_df, orig_aucs, pheno_dict, args):
+    use_aucs = orig_aucs['mean'][[
         not isinstance(mtype, RandomType)
-        and (tuple(mtype.subtype_iter())[0][1] & copy_mtype).is_empty()
+        and (get_subtype(mtype) & copy_mtype).is_empty()
         for mtype in orig_aucs.index
         ]]
 
-    orig_dict = dict()
     new_dict = dict()
-    plt_min = auc_vals.min()
+    plt_min = use_aucs.min()
+    orig_gby = use_aucs.groupby(get_label)
 
-    for gene, auc_vec in auc_vals.groupby(
-            lambda mtype: tuple(mtype.label_iter())[0]):
-        orig_dict[gene] = use_aucs[[tuple(mtype.label_iter())[0] == gene
-                                    for mtype in use_aucs.index]]
-
+    for gene, auc_vec in auc_df['mean'].groupby(get_label):
         orig_indx = {
             mtype: MuType({('Gene', gene): {
                 ('Scale', 'Point'): tuple(mtype.subtype_iter())[0][1]}})
@@ -132,27 +126,41 @@ def plot_original_comparison(auc_vals, orig_aucs, conf_vals, orig_confs,
             }
 
         new_mtypes = {mtype for mtype, orig_mtype in orig_indx.items()
-                      if orig_mtype not in orig_dict[gene].index}
+                      if orig_mtype not in orig_gby.get_group(gene).index}
 
         if len(new_mtypes) >= 20:
             new_dict[gene] = new_mtypes
 
     fig, axarr = plt.subplots(figsize=(0.5 + 1.5 * len(new_dict), 7),
                               nrows=1, ncols=len(new_dict))
-    plt_min = auc_vals.min()
 
     for i, (gene, new_mtypes) in enumerate(tuple(sorted(
             new_dict.items(),
-            key=lambda x: auc_vals[list(x[1])].max(), reverse=True
+            key=lambda x: auc_df['mean'][list(x[1])].max(), reverse=True
             ))[:15]):
         axarr[i].set_title(gene, size=19, weight='bold')
         plt_clr = choose_label_colour(gene)
 
-        plt_df = pd.concat([
-            pd.DataFrame({'AUC': orig_dict[gene], 'Type': 'Orig'}),
-            pd.DataFrame({'AUC': auc_vals[list(new_mtypes)], 'Type': 'Tour'})
-            ])
+        base_mtypes = {'Orig': MuType({('Gene', gene): pnt_mtype}),
+                       'Tour': MuType({('Gene', gene): None})}
+        orig_df = pd.DataFrame({'AUC': orig_gby.get_group(gene),
+                                'Type': 'Orig'})
 
+        orig_df['SigCV'] = [
+            (np.array(orig_aucs['CV'][mtype])
+             > np.array(orig_aucs['CV'][base_mtypes['Orig']])).all()
+            for mtype in orig_df.index
+            ]
+
+        tour_df = pd.DataFrame({'AUC': auc_df['mean'][list(new_mtypes)],
+                                'Type': 'Tour'})
+        tour_df['SigCV'] = [
+            (np.array(auc_df['CV'][mtype])
+             > np.array(auc_df['CV'][base_mtypes['Tour']])).all()
+            for mtype in tour_df.index
+            ]
+
+        plt_df = pd.concat([orig_df, tour_df])
         if (plt_df.Type == 'Orig').sum() > 10:
             sns.violinplot(x=plt_df.Type, y=plt_df.AUC, ax=axarr[i],
                            palette=[plt_clr], cut=0, order=['Orig', 'Tour'],
@@ -188,20 +196,26 @@ def plot_original_comparison(auc_vals, orig_aucs, conf_vals, orig_confs,
                       size=12, rotation=45, ha='right', va='center',
                       transform=axarr[i].transAxes)
 
-        conf_sc = calc_conf(
-            conf_vals[plt_df.loc[plt_df.Type == 'Tour'].AUC.idxmax()],
-            orig_confs[plt_df.loc[plt_df.Type == 'Orig'].AUC.idxmax()]
-            )
+        best_aucs = plt_df.groupby('Type')['AUC'].max()
+        best_types = plt_df.groupby('Type')['AUC'].idxmax()
+        sig_stats = plt_df.groupby('Type')['SigCV'].any()
 
-        if conf_sc == 1:
-            conf_lbl = "1.0"
-        elif 0.9995 < conf_sc < 1:
-            conf_lbl = ">0.999"
-        else:
-            conf_lbl = "{:.3f}".format(conf_sc)
+        for j, (type_lbl, sig_stat) in enumerate(sig_stats.iteritems()):
+            if sig_stat:
+                lbl_pos = min(0.963, best_aucs[type_lbl] - (1 - plt_min) / 83)
+                axarr[i].text(j, lbl_pos, '*', size=19,
+                              ha='center', va='bottom', weight='semibold')
 
-        axarr[i].text(0.5, -0.06, conf_lbl, size=17, ha='center', va='top',
-                      transform=axarr[i].transAxes)
+        tour_stat = np.array([
+            (np.array(orig_aucs['CV'][best_types['Orig']])
+             < np.array(auc_df['CV'][tour_mtype])).all()
+            for tour_mtype in tour_df.index
+            ]).any()
+
+        if tour_stat:
+            axarr[i].text(0.5, 0.977, '*',
+                          size=27, ha='center', va='top', weight='semibold',
+                          transform=axarr[i].transAxes)
 
         if i == 0:
             axarr[i].set_ylabel('AUC', size=21, weight='semibold')
@@ -210,9 +224,12 @@ def plot_original_comparison(auc_vals, orig_aucs, conf_vals, orig_confs,
             axarr[i].set_ylabel('')
 
         axarr[i].set_xlim([-0.6, 1.6])
-        axarr[i].set_ylim([plt_min - 0.041, 1.007])
+        axarr[i].set_ylim([plt_min - 0.07, 1.007])
 
-    fig.tight_layout(w_pad=1.1)
+    axarr[-1].text(0.9, 0.07, get_cohort_label(args.cohort),
+                   size=20, style='italic', ha='right', va='bottom',
+                   transform=axarr[-1].transAxes)
+
     plt.savefig(
         os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
                      "original-comparison_{}.svg".format(args.classif)),
@@ -270,7 +287,7 @@ def main():
 
     orig_use = orig_list.groupby('Levels')['Samps'].min()
     orig_phns = dict()
-    orig_aucs = pd.Series(dtype=float)
+    orig_aucs = pd.DataFrame(dtype=float)
     orig_confs = pd.Series(dtype=object)
 
     for lvls, ctf in orig_use.iteritems():
@@ -287,7 +304,7 @@ def main():
                                       "out-aucs__{}__{}.p.gz".format(
                                           lvls, args.classif)),
                          'r') as f:
-            orig_aucs = orig_aucs.append(pickle.load(f)['mean'])
+            orig_aucs = orig_aucs.append(pickle.load(f))
 
         with bz2.BZ2File(os.path.join(orig_dir, out_tag,
                                       "out-conf__{}__{}.p.gz".format(
@@ -304,13 +321,13 @@ def main():
         with bz2.BZ2File(out_files[out_lbl], 'r') as f:
             out_list += [pickle.load(f)]
 
-    phn_dict, auc_df, conf_df = out_list
-    assert auc_df.index.isin(phn_dict).all()
+    phn_dict, auc_dfs, conf_df = out_list
+    for auc_df in auc_dfs.values():
+        assert auc_df.index.isin(phn_dict).all()
 
-    plot_original_concordance(auc_df.Chrm, orig_aucs,
+    plot_original_concordance(auc_dfs['Chrm'], orig_aucs,
                               conf_df.Chrm, orig_confs, phn_dict, args)
-    plot_original_comparison(auc_df.Chrm, orig_aucs,
-                             conf_df.Chrm, orig_confs, phn_dict, args)
+    plot_original_comparison(auc_dfs['Chrm'], orig_aucs, phn_dict, args)
 
 
 if __name__ == '__main__':
