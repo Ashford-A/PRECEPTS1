@@ -60,7 +60,7 @@ def add_scatterpie_legend(ax, plot_dict, plt_min, args):
     pie_ax.pie(x=[0.43, 0.57], explode=[0.19, 0], startangle=90,
                colors=[lgnd_clr + (0.77, ), lgnd_clr + (0.29, )])
 
-    coh_lbl = "% of {} samples with\npoint mutations in gene".format(
+    coh_lbl = "% of {} samples\nwith point mutations in gene".format(
         get_cohort_label(args.cohort))
     ax.text(lgnd_x - lgnd_sz / 103, lgnd_y + lgnd_sz * 0.71, coh_lbl,
             size=15, style='italic', ha='center', va='bottom')
@@ -286,12 +286,12 @@ def plot_sub_comparisons(auc_df, pheno_dict, args, add_lgnd):
         auc_tupl = auc_vec[base_mtype], auc_vec[best_subtype]
         line_dict[auc_tupl] = dict(c=choose_label_colour(gene))
         base_size = np.mean(pheno_dict[base_mtype])
-        plt_size = 0.07 * base_size ** 0.5
         best_prop = np.mean(pheno_dict[best_subtype]) / base_size
 
         # add an entry to the list of labels to be placed, adjust size of
         # plotting region, find if best subgrouping is cv-significantly better
-        plot_dict[auc_tupl] = [29 * plt_size ** 1.17, ('', '')]
+        plt_size = 0.07 * base_size ** 0.5
+        plot_dict[auc_tupl] = [plt_size, ('', '')]
         plt_min = min(plt_min, auc_tupl[0] - 0.03, auc_tupl[1] - 0.03)
         cv_sig = (np.array(use_aucs['CV'][best_subtype])
                   > np.array(use_aucs['CV'][base_mtype])).all()
@@ -299,17 +299,21 @@ def plot_sub_comparisons(auc_df, pheno_dict, args, add_lgnd):
         # ...and if we are sure that the optimal subgrouping AUC is
         # better than the point mutation AUC then add a label with the
         # gene name and a description of the best found subgrouping...
-        if cv_sig:
-            plot_dict[auc_tupl][1] = gene, get_fancy_label(
-                get_subtype(best_subtype), pnt_link='\nor ', phrase_link=' ')
+        if auc_vec.max() >= 0.7:
+            if cv_sig:
+                plot_dict[auc_tupl][1] = gene, get_fancy_label(
+                    get_subtype(best_subtype),
+                    pnt_link='\nor ', phrase_link=' '
+                    )
 
-        # ...if we are not sure but the respective AUCs are still
-        # pretty great then add a label with just the gene name...
-        elif auc_vec.max() > 0.7:
-            plot_dict[auc_tupl][1] = gene, ''
+            # ...if we are not sure but the respective AUCs are still
+            # pretty great then add a label with just the gene name...
+            else:
+                plot_dict[auc_tupl][1] = gene, ''
 
-        pie_bbox = (auc_tupl[0] - plt_size / 2,
-                    auc_tupl[1] - plt_size / 2, plt_size, plt_size)
+        # draw the scatter-piechart for this gene's results
+        pie_bbox = (auc_tupl[0] - plt_size / 2, auc_tupl[1] - plt_size / 2,
+                    plt_size, plt_size)
 
         pie_ax = inset_axes(ax, width='100%', height='100%',
                             bbox_to_anchor=pie_bbox,
@@ -341,6 +345,11 @@ def plot_sub_comparisons(auc_df, pheno_dict, args, add_lgnd):
 
     if add_lgnd:
         ax, plot_dict = add_scatterpie_legend(ax, plot_dict, plt_min, args)
+
+    else:
+        ax.text(0.97, 0.02, get_cohort_label(args.cohort), size=21,
+                style='italic', ha='right', va='bottom',
+                transform=ax.transAxes)
 
     if plot_dict:
         lbl_pos = place_scatter_labels(plot_dict, ax,
@@ -438,6 +447,8 @@ def plot_copy_comparisons(auc_df, pheno_dict, args):
     ax.plot(plt_lims, plt_lims,
             color='#550000', linewidth=2.1, linestyle='--', alpha=0.41)
 
+    ax.text(0.97, 0.02, get_cohort_label(args.cohort), size=21,
+            style='italic', ha='right', va='bottom', transform=ax.transAxes)
     ax.set_xlabel("AUC using all point mutations", size=23, weight='semibold')
     ax.set_ylabel("AUC of best found CNA subgrouping",
                   size=23, weight='semibold')

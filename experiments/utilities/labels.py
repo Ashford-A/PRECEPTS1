@@ -21,6 +21,9 @@ def get_cohort_label(coh):
     else:
         coh_lbl = str(coh)
 
+    if coh_lbl[:8] != 'METABRIC' and coh_lbl[:7] != 'beatAML':
+        coh_lbl = "TCGA-{}".format(coh_lbl)
+
     return coh_lbl
 
 

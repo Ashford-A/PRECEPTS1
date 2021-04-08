@@ -27,18 +27,18 @@ plt.rcParams['axes.edgecolor'] = 'white'
 plot_dir = os.path.join(base_dir, 'plots', 'copy')
 
 
-def plot_sub_comparison(auc_vals, pheno_dict, use_gene, args):
+def plot_sub_comparison(auc_df, pheno_dict, use_gene, args):
     fig, ax = plt.subplots(figsize=(11, 11))
 
     mtype_dict = {mtype: (mtype | MuType({('Gene', use_gene): dup_mtype}),
                           mtype | MuType({('Gene', use_gene): loss_mtype}))
-                  for mtype in auc_vals.index
+                  for mtype in auc_df.index
                   if (tuple(mtype.subtype_iter())[0][1]
                       & copy_mtype).is_empty()}
 
     plt_min = 0.83
     for base_mtype, (gain_dyad, loss_dyad) in mtype_dict.items():
-        plt_min = min(plt_min, auc_vals[base_mtype] - 0.02)
+        plt_min = min(plt_min, auc_df['mean'][base_mtype] - 0.02)
 
         if tuple(base_mtype.subtype_iter())[0][1] == pnt_mtype:
             use_mrk = 'X'
@@ -50,15 +50,15 @@ def plot_sub_comparison(auc_vals, pheno_dict, use_gene, args):
             use_sz = 1751 * np.mean(pheno_dict[base_mtype])
             use_alpha = 0.29
 
-        if gain_dyad in auc_vals.index:
-            plt_min = min(plt_min, auc_vals[gain_dyad] - 0.02)
-            ax.scatter(auc_vals[base_mtype], auc_vals[gain_dyad],
+        if gain_dyad in auc_df.index:
+            plt_min = min(plt_min, auc_df['mean'][gain_dyad] - 0.02)
+            ax.scatter(auc_df['mean'][base_mtype], auc_df['mean'][gain_dyad],
                        marker=use_mrk, s=use_sz, alpha=use_alpha,
                        facecolor=variant_clrs['Gain'], edgecolor='none')
 
-        if loss_dyad in auc_vals.index:
-            plt_min = min(plt_min, auc_vals[loss_dyad] - 0.02)
-            ax.scatter(auc_vals[base_mtype], auc_vals[loss_dyad],
+        if loss_dyad in auc_df.index:
+            plt_min = min(plt_min, auc_df['mean'][loss_dyad] - 0.02)
+            ax.scatter(auc_df['mean'][base_mtype], auc_df['mean'][loss_dyad],
                        marker=use_mrk, s=use_sz, alpha=use_alpha,
                        facecolor=variant_clrs['Gain'], edgecolor='none')
 
@@ -125,7 +125,7 @@ def main():
     cdata = None
     pred_dict = dict()
     phn_dict = dict()
-    auc_vals = pd.Series()
+    auc_df = pd.DataFrame()
 
     for lvls, ctf in out_use.iteritems():
         out_tag = "{}__{}__samps-{}".format(
@@ -152,17 +152,17 @@ def main():
                                       "out-aucs__{}__{}.p.gz".format(
                                           lvls, args.classif)),
                          'r') as f:
-            auc_vals = auc_vals.append(pickle.load(f)['mean'])
+            auc_df = auc_df.append(pickle.load(f))
 
-    assert auc_vals.index.isin(phn_dict).all()
+    assert auc_df.index.isin(phn_dict).all()
     os.makedirs(os.path.join(plot_dir,
                              '__'.join([args.expr_source, args.cohort])),
                 exist_ok=True)
 
-    use_aucs = auc_vals[[not isinstance(mtype, RandomType)
-                         for mtype in auc_vals.index]]
+    use_aucs = auc_df[[not isinstance(mtype, RandomType)
+                       for mtype in auc_df.index]]
 
-    for gene, auc_vec in use_aucs.groupby(
+    for gene, auc_vec in use_aucs['mean'].groupby(
             lambda mtype: tuple(mtype.label_iter())[0]):
         copy_mtypes = {
             mtype for mtype in auc_vec.index
@@ -170,7 +170,8 @@ def main():
             }
 
         if copy_mtypes:
-            plot_sub_comparison(auc_vec, phn_dict, gene, args)
+            plot_sub_comparison(auc_df.loc[auc_vec.index],
+                                phn_dict, gene, args)
 
 
 if __name__ == '__main__':

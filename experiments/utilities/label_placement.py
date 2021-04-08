@@ -171,9 +171,10 @@ def place_scatter_labels(plot_dict, ax, plt_lims=None,
                 # create a bounding box for the putative label location
                 new_bx = np.array(
                     [[new_pos[0] - lbl_wdths[pnt] / 1.9 - xgap,
-                      new_pos[1] - lbl_hghts[pnt] * top_prop - ygap],
+                      new_pos[1] - lbl_hghts[pnt]
+                      * (1 - top_prop) / 1.9 - ygap],
                      [new_pos[0] + lbl_wdths[pnt] / 1.9 + xgap,
-                      new_pos[1] + lbl_hghts[pnt] * (1 - top_prop) + ygap]]
+                      new_pos[1] + lbl_hghts[pnt] * top_prop / 1.9 + ygap]]
                     )
 
                 # if the putative bounding box does not overlap with any
@@ -209,7 +210,7 @@ def place_scatter_labels(plot_dict, ax, plt_lims=None,
         # figure out where the end of the line corresponding to the label is
         lbl_bx = pnt_bxs[pnt_x, pnt_y][-1]
         txt_y = np.clip(pnt_y,
-                        *(lbl_bx[:, 1] + np.array([ygap, -ygap]) / 2.1))
+                        *(lbl_bx[:, 1] + np.array([-ygap, ygap]) / 2.1))
 
         if pnt_x <= lbl_bx[0, 0]:
             txt_x = lbl_bx[0, 0] + 0.19 * np.diff(lbl_bx[:, 0])[0]
@@ -226,8 +227,8 @@ def place_scatter_labels(plot_dict, ax, plt_lims=None,
 
         crc_x = pnt_x - (pnt_gaps[pnt_x, pnt_y][0] * ln_cos)
         crc_y = pnt_y - (pnt_gaps[pnt_x, pnt_y][1] * ln_sin)
-        crc_bx = np.array([[crc_x - xgap / 2.9, crc_y - ygap / 2.9],
-                           [crc_x + xgap / 2.9, crc_y + ygap / 2.9]])
+        crc_bx = np.array([[crc_x - xgap / 7, crc_y - ygap / 7],
+                           [crc_x + xgap / 7, crc_y + ygap / 7]])
 
         # if the label is sufficiently far away from the plot element it
         # annotates, create a connecting line between the two
