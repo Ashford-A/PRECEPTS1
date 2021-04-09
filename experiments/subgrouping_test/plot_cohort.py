@@ -1,7 +1,19 @@
+"""
+This module produces plots specific to a particular tumour cohort, such as
+comparing the performances of all classifiers used to predict subgrouping
+tasks enumerated within it.
+
+Example usages:
+    python -m dryads-research.experiments.subgrouping_test.plot_cohort \
+        microarray METABRIC_LumA
+    python -m dryads-research.experiments.subgrouping_test.plot_cohort \
+        Firehose BRCA_LumA
+
+"""
 
 from ..utilities.mutations import pnt_mtype, copy_mtype, RandomType
 from ..subgrouping_test import base_dir
-from ..utilities.misc import choose_label_colour
+from ..utilities.misc import get_label, get_subtype, choose_label_colour
 from ...features.cohorts.utils import list_cohort_subtypes
 from ..utilities.labels import get_cohort_label, get_fancy_label
 from ..utilities.transformers import OmicUMAP4
@@ -94,15 +106,13 @@ def plot_mutation_counts(auc_dict, pheno_dict, cdata, args):
 
     auc_vals = pd.concat(auc_dict.values())
     auc_vals = auc_vals[[(not isinstance(mtype, RandomType)
-                          and (tuple(mtype.subtype_iter())[0][1] != pnt_mtype)
-                          and (tuple(mtype.subtype_iter())[0][1]
-                               & copy_mtype).is_empty())
+                          and get_subtype(mtype) != pnt_mtype
+                          and (get_subtype(mtype) & copy_mtype).is_empty())
                          for mtype in auc_vals.index]]
 
-    mtype_df = pd.DataFrame({
-        'AUC': auc_vals, 'Levels': 'Other',
-        'Gene': [tuple(mtype.label_iter())[0] for mtype in auc_vals.index]
-        })
+    mtype_df = pd.DataFrame({'AUC': auc_vals, 'Levels': 'Other',
+                             'Gene': [get_label(mtype)
+                                      for mtype in auc_vals.index]})
 
     ax.axis('off')
     for lvls, auc_list in auc_dict.items():
@@ -112,7 +122,7 @@ def plot_mutation_counts(auc_dict, pheno_dict, cdata, args):
     mtype_df.loc[~mtype_df.Gene.isin(gene_counts.index[:10]),
                  'Gene'] = 'Other'
 
-    mtype_df.loc[[tuple(mtype.subtype_iter())[0][1] == pnt_mtype
+    mtype_df.loc[[get_subtype(mtype) == pnt_mtype
                   for mtype in mtype_df.index], 'Levels'] = 'Point'
     count_tbl = pd.crosstab(mtype_df.Levels, mtype_df.Gene, margins=True)
 
@@ -190,6 +200,7 @@ def plot_classif_performance(auc_dfs, time_dfs, cdata, args):
                         for clf, clf_time in plt_times], size=23)
     ax.tick_params(axis='y', labelsize=23)
 
+    ax.grid(axis='y', linewidth=0.83, alpha=0.53)
     ax.axhline(y=0.5, c='black', linewidth=2.7, linestyle=':', alpha=0.71)
     ax.axhline(y=1, c='black', linewidth=2.3, alpha=0.89)
     ax.set_xlabel('')

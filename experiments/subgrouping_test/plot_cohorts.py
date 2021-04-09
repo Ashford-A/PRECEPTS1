@@ -5,7 +5,7 @@ from dryadic.features.mutations import MuType
 from ..subgrouping_test import base_dir
 from ..utilities.data_dirs import choose_source
 from ..utilities.metrics import calc_conf
-from ..utilities.misc import choose_label_colour
+from ..utilities.misc import get_label, get_subtype, choose_label_colour
 from ..utilities.labels import get_cohort_label, get_fancy_label
 from ..utilities.label_placement import place_scatter_labels
 from .plot_ccle import load_response_data
@@ -39,8 +39,7 @@ def plot_auc_comparison(auc_dfs, pheno_dicts, args):
     use_mtypes = {mtype for mtype in (auc_dfs[args.cohorts[0]].index
                                       & auc_dfs[args.cohorts[1]].index)
                   if (not isinstance(mtype, RandomType)
-                      and (tuple(mtype.subtype_iter())[0][1]
-                           & copy_mtype).is_empty())}
+                      and (get_subtype(mtype) & copy_mtype).is_empty())}
 
     plt_min = 0.83
     for mtype in use_mtypes:
@@ -52,7 +51,7 @@ def plot_auc_comparison(auc_dfs, pheno_dicts, args):
         plt_min = min(plt_min, auc_val1 - 0.01, auc_val2 - 0.01)
 
         ax.scatter(auc_val1, auc_val2,
-                   c=[choose_label_colour(tuple(mtype.label_iter())[0])],
+                   c=[choose_label_colour(get_label(mtype))],
                    s=1003 * mtype_sz, alpha=0.23, edgecolor='none')
 
     plt_lims = plt_min, 1 + (1 - plt_min) / 181
@@ -90,7 +89,7 @@ def plot_coh_comparison(auc_dfs, conf_dfs, pheno_dicts, args):
     use_aucs = {
         coh: auc_df['mean'][[mtype for mtype in auc_df.index
                              if (not isinstance(mtype, RandomType)
-                                 and (tuple(mtype.subtype_iter())[0][1]
+                                 and (get_subtype(mtype)
                                       & copy_mtype).is_empty())]]
         for coh, auc_df in auc_dfs.items()
         }
@@ -100,13 +99,10 @@ def plot_coh_comparison(auc_dfs, conf_dfs, pheno_dicts, args):
     plt_min = 0.83
     coh1, coh2 = args.cohorts
 
-    for gene, auc_vec1 in use_aucs[coh1].groupby(
-            lambda mtype: tuple(mtype.label_iter())[0]):
+    for gene, auc_vec1 in use_aucs[coh1].groupby(get_label):
         if len(auc_vec1) > 1:
-            auc_vec2 = use_aucs[coh2][[
-                mtype for mtype in use_aucs[coh2].index
-                if tuple(mtype.label_iter())[0] == gene
-                ]]
+            auc_vec2 = use_aucs[coh2][[mtype for mtype in use_aucs[coh2].index
+                                       if get_label(mtype) == gene]]
 
             if len(auc_vec2) > 1:
                 base_mtype = MuType({('Gene', gene): pnt_mtype})
@@ -121,10 +117,10 @@ def plot_coh_comparison(auc_dfs, conf_dfs, pheno_dicts, args):
                     line_dict[auc_tupl] = dict(c=use_clr)
 
                     base_size = np.mean(pheno_dicts[coh][base_mtype])
-                    plt_size = 0.07 * base_size ** 0.5
+                    plt_size = 0.04 * base_size ** 0.5
                     plot_dict[auc_tupl] = [plt_size,
                                            (gene, get_cohort_label(coh))]
-                    plt_min = min(plt_min, min(auc_tupl) - 0.03)
+                    plt_min = min(plt_min, min(auc_tupl) - 0.061)
 
                     best_prop = np.mean(
                         pheno_dicts[coh][best_subtype]) / base_size
@@ -145,7 +141,7 @@ def plot_coh_comparison(auc_dfs, conf_dfs, pheno_dicts, args):
                     else:
                         pie_args = dict(colors=['none', 'none'],
                                         wedgeprops=dict(edgecolor=use_clr,
-                                                        linewidth=7 / 3,
+                                                        linewidth=1.9,
                                                         alpha=0.37))
 
                     pie_ax.pie(x=[best_prop, 1 - best_prop],
@@ -191,8 +187,7 @@ def plot_sub_comparison(auc_dfs, trnsf_dicts, pheno_dicts, conf_dfs, args):
     use_mtypes = {mtype for mtype in (auc_dfs[args.cohorts[0]].index
                                       & auc_dfs[args.cohorts[1]].index)
                   if (not isinstance(mtype, RandomType)
-                      and (tuple(mtype.subtype_iter())[0][1]
-                           & copy_mtype).is_empty())}
+                      and (get_subtype(mtype) & copy_mtype).is_empty())}
 
     auc_dicts = {
         train_coh: {
@@ -212,7 +207,7 @@ def plot_sub_comparison(auc_dfs, trnsf_dicts, pheno_dicts, conf_dfs, args):
     for i, coh in enumerate(args.cohorts):
         for j, auc_lbl in enumerate(['Wthn', 'Trnsf']):
             for gene, auc_vec in auc_dicts[coh][auc_lbl][use_mtypes].groupby(
-                    lambda mtype: tuple(mtype.label_iter())[0]):
+                    get_label):
 
                 if len(auc_vec) > 1:
                     base_mtype = MuType({('Gene', gene): pnt_mtype})
@@ -239,7 +234,7 @@ def plot_sub_comparison(auc_dfs, trnsf_dicts, pheno_dicts, conf_dfs, args):
                         if conf_sc > 0.6:
                             plot_dicts[i, j][auc_tupl][1] = (
                                 gene, get_fancy_label(
-                                    tuple(best_subtype.subtype_iter())[0][1],
+                                    get_subtype(best_subtype),
                                     pnt_link='\n', phrase_link=' '
                                     )
                                 )
@@ -327,8 +322,7 @@ def plot_cross_sub_comparison(auc_dfs, pheno_dicts, conf_dfs, args):
     use_mtypes = {mtype for mtype in (auc_dfs[args.cohorts[0]].index
                                       & auc_dfs[args.cohorts[1]].index)
                   if (not isinstance(mtype, RandomType)
-                      and (tuple(mtype.subtype_iter())[0][1]
-                           & copy_mtype).is_empty())}
+                      and (get_subtype(mtype) & copy_mtype).is_empty())}
     plt_min = 0.83
 
     for i, (base_coh, other_coh) in enumerate(permutations(args.cohorts)):
@@ -336,8 +330,7 @@ def plot_cross_sub_comparison(auc_dfs, pheno_dicts, conf_dfs, args):
         line_dict = dict()
 
         for gene, auc_vec in auc_dfs[base_coh].loc[
-                use_mtypes, 'mean'].groupby(
-                    lambda mtype: tuple(mtype.label_iter())[0]):
+                use_mtypes, 'mean'].groupby(get_label):
 
             if len(auc_vec) > 1:
                 base_mtype = MuType({('Gene', gene): pnt_mtype})
@@ -365,7 +358,7 @@ def plot_cross_sub_comparison(auc_dfs, pheno_dicts, conf_dfs, args):
 
                     if conf_sc > 0.8:
                         plot_dict[plt_x, plt_y][1] = gene, get_fancy_label(
-                            tuple(best_subtype.subtype_iter())[0][1],
+                            get_subtype(best_subtype),
                             pnt_link='\n', phrase_link=' '
                             )
 
@@ -448,7 +441,7 @@ def plot_metrics_comparison(auc_dfs, pheno_dicts, args):
             auc_vals2 = auc_dfs[args.cohorts[1]][auc_lbl]
 
         for mtype in use_mtypes:
-            use_gene = tuple(mtype.label_iter())[0]
+            use_gene = get_label(mtype)
             gene_clr = choose_label_colour(use_gene)
 
             plt_min = min(plt_min,
@@ -537,7 +530,7 @@ def plot_transfer_aucs(trnsf_dicts, auc_dfs, pheno_dicts, args):
                     )
 
             for mtype in use_mtypes:
-                use_gene = tuple(mtype.label_iter())[0]
+                use_gene = get_label(mtype)
                 gene_clr = choose_label_colour(use_gene)
 
                 train_auc = auc_dfs[train_coh].loc[mtype, 'mean']
@@ -724,9 +717,8 @@ def plot_subtype_comparison(auc_dfs, pheno_dicts, conf_dfs, plt_gene, args):
     use_mtypes = {mtype for mtype in (auc_dfs[args.cohorts[0]].index
                                       & auc_dfs[args.cohorts[1]].index)
                   if (not isinstance(mtype, RandomType)
-                      and (tuple(mtype.subtype_iter())[0][1]
-                           & copy_mtype).is_empty()
-                      and tuple(mtype.label_iter())[0] == plt_gene)}
+                      and (get_subtype(mtype) & copy_mtype).is_empty()
+                      and get_label(mtype) == plt_gene)}
 
     base_mtype = MuType({('Gene', plt_gene): pnt_mtype})
     auc_min = -0.005
@@ -797,9 +789,8 @@ def plot_subtype_transfer(auc_dfs, trnsf_dicts, pheno_dicts, conf_dfs,
             ])
 
         use_mtypes = {mtype for mtype in trnsf_aucs.index
-                      if ((tuple(mtype.subtype_iter())[0][1]
-                           & copy_mtype).is_empty()
-                          and tuple(mtype.label_iter())[0] == plt_gene)}
+                      if ((get_subtype(mtype) & copy_mtype).is_empty()
+                          and get_label(mtype) == plt_gene)}
 
         for mtype in use_mtypes:
             train_auc = auc_dfs[train_coh].loc[mtype, 'mean']
@@ -865,12 +856,9 @@ def plot_subtype_response(auc_dicts, ccle_dfs, resp_vals,
     base_mtype = MuType({('Gene', plt_gene): pnt_mtype})
 
     auc_df = pd.DataFrame({
-        coh: auc_data.loc[
-            [mtype for mtype in auc_data.index
-             if (not isinstance(mtype, RandomType)
-                 and tuple(mtype.label_iter())[0] == plt_gene)],
-            'mean'
-            ]
+        coh: auc_data.loc[[mtype for mtype in auc_data.index
+                           if (not isinstance(mtype, RandomType)
+                               and get_label(mtype) == plt_gene)], 'mean']
         for coh, auc_data in auc_dicts.items()
         })
 
@@ -903,7 +891,7 @@ def plot_subtype_response(auc_dicts, ccle_dfs, resp_vals,
         plt_sz = np.prod([np.mean(phn_dict[mtype])
                           for phn_dict in pheno_dicts.values()])
 
-        mtype_lbl = get_fancy_label(tuple(mtype.subtype_iter())[0][1],
+        mtype_lbl = get_fancy_label(get_subtype(mtype),
                                     pnt_link='\n', phrase_link=' ')
         plot_dict[corr_x, corr_y] = (0.07 * plt_sz ** 0.5, ('', mtype_lbl))
         clr_dict[corr_x, corr_y] = choose_label_colour(mtype_lbl)

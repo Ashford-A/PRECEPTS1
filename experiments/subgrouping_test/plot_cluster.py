@@ -1,3 +1,16 @@
+"""
+This module produces plots of unsupervised clusterings of the expression data
+of a particular tumour cohort.
+
+Example usages:
+    python -m dryads-research.experiments.subgrouping_test.plot_cluster \
+        Firehose STAD UMAP
+    python -m dryads-research.experiments.subgrouping_test.plot_cluster \
+        microarray METABRIC_LumA UMAP
+    python -m dryads-research.experiments.subgrouping_test.plot_cluster \
+        Firehose BLCA tSNE
+
+"""
 
 from ..subgrouping_test import base_dir
 from ..utilities.transformers import OmicPCA, OmicTSNE, OmicUMAP
@@ -32,10 +45,12 @@ clust_algs = {'PCA': OmicPCA(), 'tSNE': OmicTSNE(), 'UMAP': OmicUMAP()}
 def plot_clustering(trans_expr, subt_data, cdata, args, pca_comps=(0, 1)):
     fig, ax = plt.subplots(figsize=(9, 8))
 
+    # get list of molecular subtypes in this cohort, assign each a colour
     plt_subts = subt_data.unique()
     subt_clrs = dict(zip(
         plt_subts, sns.color_palette('bright', n_colors=len(plt_subts))))
 
+    # get the clustering components and vector of sample subtypes
     trans_expr = trans_expr[:, np.array(pca_comps)]
     subt_stat = np.array([subt_data[samp]
                           if samp in subt_data.index else 'Not Available'
@@ -44,6 +59,8 @@ def plot_clustering(trans_expr, subt_data, cdata, args, pca_comps=(0, 1)):
     lgnd_lbls = []
     lgnd_marks = []
 
+    # for each subtype, plot the projection of its samples' expression into
+    # the lower-dimensional space and create the corresponding legend entry
     for sub_type in sorted(set(subt_stat)):
         subt_indx = subt_stat == sub_type
 
@@ -101,11 +118,13 @@ def main():
     parser.add_argument('transform', type=str,
                         choices=list(clust_algs.keys()),
                         help='an unsupervised learning method')
-
     parser.add_argument('--seed', type=int, default=9087)
+
+    # parse command line arguments, set random seed if given
     args = parser.parse_args()
     np.random.seed(args.seed)
 
+    # find the experiments that have been run using this cohort
     out_datas = [
         out_file.parts[-2:] for out_file in Path(base_dir).glob(os.path.join(
             "{}__{}__samps-*".format(args.expr_source, args.cohort),
@@ -113,6 +132,7 @@ def main():
             ))
         ]
 
+    # parse the experiment parameters used for each finished run
     out_list = pd.DataFrame([
         {'Samps': int(out_data[0].split('__samps-')[1]),
          'Levels': '__'.join(out_data[1].split(
@@ -121,6 +141,7 @@ def main():
         for out_data in out_datas
         ])
 
+    # consolidate the cohort -omic datasets used across experiments
     if out_list.shape[0] > 0:
         out_use = out_list.groupby(['Levels', 'Classif'])['Samps'].min()
         cdata = None
@@ -135,19 +156,25 @@ def main():
                     ), 'r') as f:
                 new_cdata = pickle.load(f)
 
+            # makes sure expression data is consistent across all experiments
             if cdata is None:
                 cdata = new_cdata
             else:
                 cdata.merge(new_cdata)
 
+    # if there are no finished experiments for this cohort, load the cohort
+    # -omic data from scratch as you would in experiment setup
     else:
         cdata = load_cohort(args.cohort, args.expr_source,
-                            ('Consequence', 'Exon'), vep_cache_dir)
+                            ('Gene', 'Consequence', 'Exon'), vep_cache_dir)
 
+    # cluster the cohort's expression using the unsupervised learning method,
+    # create directory where plots will be saved, load molecular subtype data
     trans_expr = clust_algs[args.transform].fit_transform_coh(cdata)
     os.makedirs(plot_dir, exist_ok=True)
     type_dict = list_cohort_subtypes(args.cohort.split('_')[0])
 
+    # get the molecular subtype each sample in the cohort was assigned
     if type_dict:
         subt_data = pd.concat([pd.Series(subt, index=smps)
                                for subt, smps in type_dict.items()])
@@ -155,6 +182,7 @@ def main():
         subt_data = pd.Series({smp: 'Not Available'
                                for smp in cdata.get_samples()})
 
+    # create the plots
     plot_clustering(trans_expr.copy(), subt_data, cdata, args)
 
 
