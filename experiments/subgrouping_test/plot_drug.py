@@ -17,10 +17,11 @@ import dill as pickle
 import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
+import random
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+import seaborn as sns
 
 mpl.use('Agg')
 plt.style.use('fivethirtyeight')
@@ -39,6 +40,7 @@ def plot_sub_comparisons(infr_vals, resp_df, auc_df, pheno_dict, args):
 
     line_dict = dict()
     plot_dict = dict()
+    sig_drugs = set()
     plt_min = -0.17
     plt_max = 0.17
 
@@ -60,7 +62,9 @@ def plot_sub_comparisons(infr_vals, resp_df, auc_df, pheno_dict, args):
             plt_max = max(plt_max, max(corr_tupl) + 0.07)
 
             if base_corr.pvalue > 0.001 and subt_corr.pvalue < 0.001:
+                sig_drugs |= {drug}
                 plot_dict[corr_tupl] = [plt_size, (str(drug), '')]
+
             else:
                 plot_dict[corr_tupl] = [plt_size, ('', '')]
 
@@ -89,8 +93,11 @@ def plot_sub_comparisons(infr_vals, resp_df, auc_df, pheno_dict, args):
         mtype_lbl = mtype_lbl.replace('\n', ' ').replace(
             ' or ', '\nor ').replace(' are ', ' are\n')
 
-    ax.text(0.99, 0.03, get_cohort_label(args.cohort), size=23,
-            style='italic', ha='right', va='bottom', transform=ax.transAxes)
+    ax.text(0.98, 0.03,
+            "{} in\n{}".format(args.gene, get_cohort_label(args.cohort)),
+            size=21, style='italic', ha='right', va='bottom',
+            transform=ax.transAxes)
+
     ax.set_xlabel("correlation with drug response\nusing all point mutations",
                   size=21, weight='semibold')
     ax.set_ylabel("correlation with response using\n{}".format(mtype_lbl),
@@ -100,14 +107,95 @@ def plot_sub_comparisons(infr_vals, resp_df, auc_df, pheno_dict, args):
         lbl_pos = place_scatter_labels(plot_dict, ax,
                                        plt_lims=[(plt_min, plt_max),
                                                  (plt_min, plt_max)],
-                                       font_size=12, line_dict=line_dict)
+                                       font_size=11, line_dict=line_dict)
 
     ax.set_xlim([plt_min, plt_max])
     ax.set_ylim([plt_min, plt_max])
 
     plt.savefig(os.path.join(
-        plot_dir, '__'.join([args.expr_source, args.cohort]),
+        plot_dir, '__'.join([args.expr_source, args.cohort]), args.gene,
         "{}__sub-comparisons__{}__{}.svg".format(
+            args.gene, infr_vals.index[1].get_filelabel(), args.classif)
+        ), bbox_inches='tight', format='svg')
+
+    plt.close()
+    return sig_drugs
+
+
+def plot_null_distributions(infr_vals, resp_df, args):
+    fig, ax = plt.subplots(figsize=(2 + resp_df.shape[1], 11))
+
+    use_samps = set(infr_vals.columns) & set(resp_df.index)
+    use_infr = infr_vals[use_samps]
+    use_resp = resp_df.loc[use_samps]
+
+    plt_df = pd.DataFrame(columns=['Drug', 'Corr'])
+    subt_corrs = pd.Series(index=use_resp.columns)
+
+    for drug, resp_vals in use_resp.iteritems():
+        resp_samps = resp_vals.index[~resp_vals.isna()].tolist()
+
+        infrs = use_infr.iloc[1][resp_samps]
+        samp_k = len(resp_samps)
+
+        shuf_corrs = [
+            spearmanr(infrs,
+                      resp_vals[random.sample(resp_samps,
+                                              samp_k)]).correlation
+            for _ in range(1000)
+            ]
+
+        plt_df = plt_df.append(pd.DataFrame({'Drug': drug,
+                                             'Corr': shuf_corrs}),
+                               ignore_index=True)
+
+        subt_corrs[drug] = spearmanr(use_infr.iloc[1][resp_samps],
+                                     resp_vals[resp_samps]).correlation
+
+    drug_order = subt_corrs.sort_values()[::-1].index
+    drug_clrs = [choose_label_colour(str(drug)) for drug in drug_order]
+
+    sns.violinplot(data=plt_df, x='Drug', y='Corr',
+                   order=drug_order, palette=drug_clrs,
+                   saturation=1, width=0.91, linewidth=1.73, cut=0, ax=ax)
+
+    for i, drug in enumerate(drug_order):
+        ax.get_children()[i * 2].set_alpha(0.61)
+
+        ax.scatter(i, subt_corrs[drug],
+                   s=143, c=[drug_clrs[i]], alpha=0.83, edgecolor='none')
+
+    ax.grid(axis='y', linewidth=0.83, alpha=0.41)
+    ax.plot([-0.5, resp_df.shape[1] - 0.5], [0, 0],
+            color='black', linewidth=2.3, linestyle=':', alpha=0.61)
+
+    mtype_lbl = get_fancy_label(get_subtype(infr_vals.index[1]))
+    lbl_len = sum(len(lbl) for lbl in mtype_lbl)
+
+    if lbl_len < 50:
+        mtype_lbl = mtype_lbl.replace('\n', ' ')
+    else:
+        mtype_lbl = mtype_lbl.replace('\n', ' ').replace(
+            ' or ', '\nor ').replace(' are ', ' are\n')
+
+    ax.text(0.99, 0.99,
+            "{} in\n{}".format(args.gene, get_cohort_label(args.cohort)),
+            size=21, style='italic', ha='right', va='top',
+            transform=ax.transAxes)
+
+    ax.set_ylabel("correlation with response using\n{}".format(mtype_lbl),
+                  size=21, weight='semibold')
+
+    ax.set_xticklabels(drug_order, rotation=31, ha='right', size=19)
+    ax.set_xlabel('')
+
+    ylims = ax.get_ylim()
+    ygap = (ylims[1] - ylims[0]) / 19
+    ax.set_ylim(ylims[0], ylims[1] + ygap)
+
+    plt.savefig(os.path.join(
+        plot_dir, '__'.join([args.expr_source, args.cohort]), args.gene,
+        "{}__null-distributions__{}__{}.svg".format(
             args.gene, infr_vals.index[1].get_filelabel(), args.classif)
         ), bbox_inches='tight', format='svg')
 
@@ -201,20 +289,30 @@ def main():
         raise ValueError("No experiment output found for "
                          "gene `{}` !".format(args.gene))
 
-    os.makedirs(os.path.join(plot_dir,
-                             '__'.join([args.expr_source, args.cohort])),
-                exist_ok=True)
+    os.makedirs(
+        os.path.join(plot_dir,
+                     '__'.join([args.expr_source, args.cohort]), args.gene),
+        exist_ok=True
+        )
 
     auc_df = pd.concat(auc_dict.values())
     trnsf_vals = pd.concat(trnsf_vals.values())
 
     base_mtype = MuType({('Gene', args.gene): pnt_mtype})
     base_aucs = np.array(auc_df.CV[base_mtype])
+    use_aucs = auc_df[[(copy_mtype & get_subtype(mtype)).is_empty()
+                       for mtype in auc_df.index]]
 
-    for mtype, aucs in auc_df.CV.iteritems():
+    for mtype, aucs in use_aucs.CV.iteritems():
         if (np.array(aucs) > base_aucs).all():
-            plot_sub_comparisons(trnsf_vals.loc[[base_mtype, mtype]],
-                                 resp_data, auc_df, phn_dict, args)
+            sig_drugs = plot_sub_comparisons(
+                trnsf_vals.loc[[base_mtype, mtype]], resp_data, auc_df,
+                phn_dict, args
+                )
+
+            if sig_drugs:
+                plot_null_distributions(trnsf_vals.loc[[base_mtype, mtype]],
+                                        resp_data[sig_drugs], args)
 
 
 if __name__ == '__main__':
