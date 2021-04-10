@@ -4,7 +4,8 @@ from dryadic.features.mutations import MuType
 
 from ..subgrouping_test import base_dir
 from ..utilities.misc import get_label, get_subtype
-from ..utilities.labels import get_fancy_label
+from ..utilities.labels import get_fancy_label, get_cohort_label
+from ..utilities.label_placement import place_scatter_labels
 
 import os
 import argparse
@@ -258,7 +259,15 @@ def plot_auto_heatmap(coef_mat, auc_df, pheno_dict, args):
                      size=12, style='italic', ha='left', va='center',
                      transform=heat_ax.transAxes)
 
-    heat_ax.text(-0.07 / plot_df.shape[1], 1.007, 'samp\ncount',
+    heat_ax.text(
+        -0.29 / plot_df.shape[1], 1.007,
+        "subgroupings of {}       \nin {}       ".format(
+            use_gene, get_cohort_label(args.cohort)),
+        size=16, weight='bold', ha='right', va='bottom',
+        transform=heat_ax.transAxes
+        )
+
+    heat_ax.text(-0.1 / plot_df.shape[1], 1.007, 'samp\ncount',
                  size=13, weight='bold',
                  ha='right', va='bottom', transform=heat_ax.transAxes)
     heat_ax.text(1, 1.007, 'AUC', size=17, weight='bold',
@@ -283,11 +292,8 @@ def plot_auto_heatmap(coef_mat, auc_df, pheno_dict, args):
                       ha='right', va='center', size=15, style='italic')
 
     for i, gene in enumerate(plot_df.columns):
-        heat_ax.text(
-            (i + 0.5) / plot_df.shape[1], -0.29 / plot_df.shape[0], gene,
-            size=12, ha='right', va='top', rotation=47,
-            transform=heat_ax.transAxes, clip_on=False
-            )
+        heat_ax.text(i + 0.67, plot_df.shape[0] + 0.23, gene, size=12,
+                     ha='right', va='top', rotation=47, clip_on=False)
 
     clr_ax = lgnd_ax.inset_axes(bounds=(0, 0.17, 1, 0.66),
                                 clip_on=False)
@@ -312,6 +318,82 @@ def plot_auto_heatmap(coef_mat, auc_df, pheno_dict, args):
     plt.close()
 
 
+def plot_divergence_scatter(coef_vals, args):
+    assert get_label(coef_vals.index[0]) == get_label(coef_vals.index[1])
+    fig, ax = plt.subplots(figsize=(10, 9))
+
+    ax.scatter(coef_vals.iloc[0, :], coef_vals.iloc[1, :],
+               facecolor='0.41', s=7, alpha=0.19, edgecolors='none')
+
+    x_lims = ax.get_xlim()
+    y_lims = ax.get_ylim()
+
+    ax.plot(x_lims, [0, 0],
+            color='black', linewidth=1.6, linestyle=':', alpha=0.53)
+    ax.plot([0, 0], y_lims,
+            color='black', linewidth=1.6, linestyle=':', alpha=0.53)
+
+    ax.tick_params(axis='both', which='major', labelsize=13)
+    plt.grid(alpha=0.37, linewidth=0.9)
+
+    mtype_lbls = [get_fancy_label(get_subtype(mtype),
+                                  pnt_link='\nor ', phrase_link=' ')
+                  for mtype in coef_vals.index]
+
+    top_genes = set(coef_vals.iloc[0, :].abs().sort_values()[-10:].index)
+    top_genes |= set(coef_vals.iloc[1, :].abs().sort_values()[-10:].index)
+    top_genes |= set(coef_vals.iloc[0, :].sort_values()[-10:].index)
+    top_genes |= set(coef_vals.iloc[1, :].sort_values()[-10:].index)
+    top_genes |= set(coef_vals.iloc[0, :].sort_values()[:10].index)
+    top_genes |= set(coef_vals.iloc[1, :].sort_values()[:10].index)
+
+    top_genes |= set((coef_vals.iloc[0, :]
+                      - coef_vals.iloc[1, :]).abs().sort_values()[-25:].index)
+
+    if args.genes:
+        txt_genes = set(args.genes)
+    else:
+        txt_genes = set()
+
+    plot_dict = dict()
+    font_dict = dict()
+
+    for gene, (coef_val1, coef_val2) in coef_vals.iteritems():
+        if gene in top_genes or gene in txt_genes:
+            plot_dict[coef_val1, coef_val2] = [175034 ** -1, (gene, '')]
+        if gene in txt_genes:
+            font_dict[coef_val1, coef_val2] = dict(weight='bold')
+
+    lbl_pos = place_scatter_labels(plot_dict, ax,
+                                   font_size=11, font_dict=font_dict,
+                                   c='black', linewidth=0.47, alpha=0.43)
+
+    use_gene = get_label(coef_vals.index[0])
+    ax.text(0.99, 0.03,
+            "{} in\n{}".format(use_gene, get_cohort_label(args.cohort)),
+            size=22, style='italic', ha='right', va='bottom',
+            transform=ax.transAxes)
+
+    plt.xlabel('\n'.join(["Coefficients for:", mtype_lbls[0]]),
+               fontsize=21, weight='semibold')
+    plt.ylabel('\n'.join(["Coefficients for:", mtype_lbls[1]]),
+               fontsize=21, weight='semibold')
+
+    ax.set_xlim(x_lims)
+    ax.set_ylim(y_lims)
+
+    plt.savefig(
+        os.path.join(
+            plot_dir, '__'.join([args.expr_source, args.cohort]),
+            "{}__{}__divergence-scatter_{}.svg".format(
+                use_gene, coef_vals.index[1].get_filelabel(), args.classif)
+            ),
+        bbox_inches='tight', format='svg'
+        )
+
+    plt.close()
+
+
 def main():
     parser = argparse.ArgumentParser(
         'plot_aucs',
@@ -325,8 +407,11 @@ def main():
     parser.add_argument('--auc_cutoff', '-a', type=float,
                         help="min AUC for tasks shown in heatmaps",
                         nargs='?', default=0.7, const=-1)
+
     parser.add_argument('--plot_all', action='store_true',
                         help="create plot using all genes? (time-costly)")
+    parser.add_argument('--genes', '-g', nargs='+',
+                        help="genes to create special annotations for")
 
     # parse command line arguments, create directory where plots will be saved
     args = parser.parse_args()
@@ -411,6 +496,16 @@ def main():
 
             plot_top_heatmap(use_coefs, auc_vals['mean'], phn_dict, args)
             plot_auto_heatmap(use_coefs, auc_vals, phn_dict, args)
+
+            base_mtype = MuType({('Gene', gene): pnt_mtype})
+            base_coefs = use_coefs.loc[base_mtype]
+
+            for mtype, coefs in use_coefs.iterrows():
+                if (np.array(auc_df['CV'][mtype])
+                        > np.array(auc_df['CV'][base_mtype])).all():
+                    coef_vals = pd.concat(
+                        [base_coefs, coefs], axis=1).transpose()
+                    plot_divergence_scatter(coef_vals, args)
 
 
 if __name__ == '__main__':
