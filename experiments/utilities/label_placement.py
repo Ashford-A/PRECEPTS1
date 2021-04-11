@@ -73,15 +73,15 @@ def place_scatter_labels(plot_dict, ax, plt_lims=None,
     # calculate how much space each label to plot will occupy once placed
     lbl_wdths = {
         pnt: (font_adj * xadj
-              * max(5.83 * max(len(ln) for ln in lbls[1].split('\n')),
-                    11 * max(len(ln) for ln in lbls[0].split('\n'))))
+              * max(6 * max(len(ln) for ln in lbls[1].split('\n')),
+                    13 * max(len(ln) for ln in lbls[0].split('\n'))))
         for pnt, (_, lbls) in plot_dict.items() if lbls[0]
         }
 
-    lbl_hghts = {pnt: (19 * font_adj * yadj
-                       * (2.3 + 11 / 19 * lbls[1].count('\n'))
-                       if lbls[1] else (17 * font_adj * yadj
-                                        * (1.1 + lbls[0].count('\n'))))
+    lbl_hghts = {pnt: (23 * font_adj * yadj
+                       * (2.3 + 13 / 19 * lbls[1].count('\n'))
+                       if lbls[1] else (19 * font_adj * yadj
+                                        * (1.3 + lbls[0].count('\n'))))
                  for pnt, (_, lbls) in plot_dict.items() if lbls[0]}
 
     # for each point, check if there is enough space to plot its label

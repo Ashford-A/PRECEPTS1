@@ -99,8 +99,8 @@ def plot_sub_comparisons(auc_dict, pheno_dict, use_clf, args,
                 plot_dict[auc_tupl][1] = coh_lbl, ''
 
     for aucs in tuple(plot_dict):
-        plt_size = 0.53 * plot_dict[aucs][0] * (1 - plt_min)
-        plt_size *= 1.13 ** -len(plot_dict)
+        plt_size = 0.31 * plot_dict[aucs][0] * (1 - plt_min)
+        plt_size *= 1.07 ** -(2 + len(plot_dict))
         plot_dict[aucs][0] = plt_size
 
         pie_bbox = (aucs[0] - plt_size / 2, aucs[1] - plt_size / 2,
@@ -143,7 +143,7 @@ def plot_sub_comparisons(auc_dict, pheno_dict, use_clf, args,
     if plot_dict:
         lbl_pos = place_scatter_labels(plot_dict, ax,
                                        plt_lims=[[plt_min, 1]] * 2,
-                                       plc_lims=[[plt_min + 0.01, 0.99]] * 2,
+                                       plc_lims=[[plt_min + 0.02, 0.98]] * 2,
                                        font_size=19, seed=args.seed,
                                        c='black', linewidth=0.83, alpha=0.61)
 
@@ -164,7 +164,7 @@ def plot_sub_comparisons(auc_dict, pheno_dict, use_clf, args,
     plt.close()
 
 
-def plot_conf_distributions(auc_vals, conf_dict, pheno_dict, use_clf, args):
+def plot_conf_distributions(auc_dict, conf_dict, pheno_dict, use_clf, args):
     base_mtype = MuType({('Gene', args.gene): pnt_mtype})
 
     coh_dict = dict()
@@ -199,7 +199,8 @@ def plot_conf_distributions(auc_vals, conf_dict, pheno_dict, use_clf, args):
 
     for i, ((src, coh), (coh_clr, best_subtype, conf_sc)) in enumerate(
             sorted(coh_dict.items(),
-                   key=lambda x: auc_vals[x[0]][x[1][1]], reverse=True)
+                   key=lambda x: auc_dict[x[0]]['mean'][x[1][1]],
+                   reverse=True)
             ):
         coh_lbl = get_cohort_label(coh).replace('(', '\n(')
 
@@ -214,9 +215,9 @@ def plot_conf_distributions(auc_vals, conf_dict, pheno_dict, use_clf, args):
                        order=['Subg', 'Base'], palette=[coh_clr, coh_clr],
                        cut=0, linewidth=1.3, width=0.93, inner=None)
 
-        axarr[0, i].scatter(0, auc_vals[src, coh][best_subtype], 
+        axarr[0, i].scatter(0, auc_dict[src, coh]['mean'][best_subtype], 
                          s=41, c=[coh_clr], edgecolor='0.23', alpha=0.97)
-        axarr[0, i].scatter(1, auc_vals[src, coh][base_mtype],
+        axarr[0, i].scatter(1, auc_dict[src, coh]['mean'][base_mtype],
                             s=41, c=[coh_clr], edgecolor='0.23', alpha=0.53)
 
         axarr[0, i].set_title(coh_lbl, size=17, weight='semibold')
@@ -258,35 +259,40 @@ def plot_conf_distributions(auc_vals, conf_dict, pheno_dict, use_clf, args):
     plt.close()
 
 
-def plot_transfer_aucs(trnsf_dict, auc_dict, conf_dict, pheno_dict,
-                       use_clf, args):
-    fig, axarr = plt.subplots(figsize=(13, 7), nrows=2, ncols=1)
-
+def plot_transfer_aucs(trnsf_dict, auc_dict, pheno_dict, use_clf, args):
     base_mtype = MuType({('Gene', args.gene): pnt_mtype})
-    conf_agg = dict()
+    use_mtypes = {
+        (src, coh): {mtype for mtype in auc_df.index
+                     if (not isinstance(mtype, RandomType)
+                         and mtype != base_mtype
+                         and (get_subtype(mtype) & copy_mtype).is_empty())}
+        for (src, coh), auc_df in auc_dict.items()
+        }
 
-    for (src, coh), conf_vals in conf_dict.items():
-        if base_mtype in conf_vals.index:
-            use_confs = conf_vals[[
-                mtype for mtype in conf_vals.index
-                if (mtype != base_mtype and not isinstance(mtype, RandomType)
-                    and (tuple(mtype.subtype_iter())[0][1]
-                         & copy_mtype).is_empty()
-                    and any(mtype in auc_df.index
-                            for auc_df in trnsf_dict.values()))
-                ]]
+    sig_stats = pd.DataFrame({
+        (src, coh): {mtype: (np.array(auc_df['CV'][mtype])
+                             > np.array(auc_df['CV'][base_mtype])).all()
+                     for mtype in use_mtypes[src, coh]}
+        for (src, coh), auc_df in auc_dict.items()
+        }).fillna(False).sum(axis=1)
 
-            for mtype, conf_list in use_confs.iteritems():
-                conf_sc = np.sum(pheno_dict[src, coh][mtype])
-                conf_sc *= calc_conf(conf_list, conf_vals[base_mtype]) - 0.5
+    trnsf_counts = pd.Series({
+        mtype: len({cohs for cohs, auc_vals in trnsf_dict.items()
+                    if mtype in auc_vals.index})
+        for mtype in sig_stats.index
+        })
+    sig_stats = sig_stats[trnsf_counts.index[trnsf_counts > 0]]
 
-                if mtype in conf_agg:
-                    conf_agg[mtype] += conf_sc
-                else:
-                    conf_agg[mtype] = conf_sc
+    if max(sig_stats) > 0:
+        fig, axs = plt.subplots(figsize=(13, 7), nrows=2, ncols=1)
+        mtype_list = [base_mtype, sig_stats.idxmax()]
 
-    best_subtype = sorted(conf_agg.items(), key=lambda x: x[1])[-1][0]
-    for ax, mtype in zip(axarr, [base_mtype, best_subtype]):
+    else:
+        fig, ax = plt.subplots(figsize=(13, 5))
+        axs = [ax]
+        mtype_list = [base_mtype]
+
+    for ax, mtype in zip(axs, mtype_list):
         trnsf_mat = pd.Series({cohs: auc_vals[mtype]
                                for cohs, auc_vals in trnsf_dict.items()
                                if mtype in auc_vals.index}).unstack()
@@ -306,6 +312,7 @@ def plot_transfer_aucs(trnsf_dict, auc_dict, conf_dict, pheno_dict,
                      size=19)
         ax.set_xticklabels(xlabs, size=12, ha='right', rotation=37)
         ax.set_yticklabels(ylabs, size=12, ha='right', rotation=0)
+        ax.set_ylabel('')
 
         ax.collections = [ax.collections[-1]]
         cbar = ax.collections[-1].colorbar
@@ -581,8 +588,7 @@ def main():
         plot_sub_comparisons(clf_aucs, phn_dict, clf, args, include_copy=True)
         plot_conf_distributions(clf_aucs, clf_confs, phn_dict, clf, args)
 
-        plot_transfer_aucs(clf_trnsf, clf_aucs, clf_confs, phn_dict,
-                           clf, args)
+        plot_transfer_aucs(clf_trnsf, clf_aucs, phn_dict, clf, args)
         plot_transfer_comparisons(clf_trnsf, clf_confs, phn_dict,
                                   clf, args)
 
