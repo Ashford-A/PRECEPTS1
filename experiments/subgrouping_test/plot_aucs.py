@@ -18,7 +18,6 @@ from dryadic.features.mutations import MuType
 
 from ..subgrouping_test import base_dir
 from ..utilities.misc import get_label, get_subtype, choose_label_colour
-from ..utilities.colour_maps import variant_clrs
 from ..utilities.labels import get_cohort_label, get_fancy_label
 from ..utilities.label_placement import place_scatter_labels
 
@@ -34,7 +33,6 @@ import statsmodels.formula.api as smf
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-import seaborn as sns
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 mpl.use('Agg')
@@ -93,130 +91,6 @@ def add_scatterpie_legend(ax, plot_dict, plt_min, base_mtype, args):
             c='black', linewidth=1.1)
 
     return ax, plot_dict
-
-
-def plot_random_comparison(auc_vals, pheno_dict, args):
-    fig, (viol_ax, sctr_ax) = plt.subplots(
-        figsize=(11, 7), nrows=1, ncols=2,
-        gridspec_kw=dict(width_ratios=[1, 1.51])
-        )
-
-    mtype_genes = pd.Series([
-        tuple(mtype.label_iter())[0] for mtype in auc_vals.index
-        if (not isinstance(mtype, RandomType)
-            and (tuple(mtype.subtype_iter())[0][1] & copy_mtype).is_empty())
-        ])
-
-    sbgp_genes = mtype_genes.value_counts()[
-        mtype_genes.value_counts() > 1].index
-    lbl_order = ['Random', 'Point w/o Sub', 'Point w/ Sub', 'Subgroupings']
-
-    gene_stat = pd.Series({
-        mtype: ('Random' if (isinstance(mtype, RandomType)
-                             and mtype.base_mtype is None)
-                else 'RandomGene' if isinstance(mtype, RandomType)
-                else 'Point w/ Sub'
-                if (tuple(mtype.subtype_iter())[0][1] == pnt_mtype
-                    and tuple(mtype.label_iter())[0] in sbgp_genes)
-                else 'Point w/o Sub'
-                if (tuple(mtype.subtype_iter())[0][1] == pnt_mtype
-                    and not tuple(mtype.label_iter())[0] in sbgp_genes)
-                else 'Copy' if not (tuple(mtype.subtype_iter())[0][1]
-                                    & copy_mtype).is_empty()
-                else 'Subgroupings')
-        for mtype in auc_vals.index
-        })
-
-    use_aucs = auc_vals[~gene_stat.isin(['Copy', 'RandomGene'])]
-    gene_stat = gene_stat[~gene_stat.isin(['Copy', 'RandomGene'])]
-
-    sns.violinplot(x=gene_stat, y=use_aucs, ax=viol_ax, order=lbl_order,
-                   palette=['0.61', *[variant_clrs['Point']] * 3],
-                   cut=0, linewidth=0, width=0.93)
-
-    viol_ax.set_xlabel('')
-    viol_ax.set_ylabel('AUC', size=23, weight='semibold')
-    viol_ax.set_xticklabels(lbl_order, rotation=37, ha='right', size=18)
-
-    viol_ax.get_children()[2].set_linewidth(3.1)
-    viol_ax.get_children()[4].set_linewidth(1.7)
-    viol_ax.get_children()[2].set_facecolor('white')
-    viol_ax.get_children()[2].set_edgecolor(variant_clrs['Point'])
-
-    viol_xlims = viol_ax.get_xlim()
-    viol_ylims = viol_ax.get_ylim()
-
-    if 'Point w/o Sub' in gene_stat:
-        viol_ax.get_children()[4].set_edgecolor(variant_clrs['Point'])
-
-    for i, lbl in enumerate(lbl_order):
-        viol_ax.get_children()[i * 2].set_alpha(0.41)
-
-        viol_ax.text(i - 0.13, viol_ax.get_ylim()[1],
-                     "n={}".format((gene_stat == lbl).sum()),
-                     size=15, rotation=37, ha='left', va='bottom')
-
-    plt.text(0.91, -0.17, get_cohort_label(args.cohort), size=23,
-             style='italic', ha='left', va='top',
-             transform=viol_ax.transAxes)
-
-    viol_ax.grid(axis='y', linewidth=0.83, alpha=0.41)
-    viol_ax.plot(viol_xlims, [0.5, 0.5],
-                 color='black', linewidth=1.3, linestyle=':', alpha=0.71)
-    viol_ax.plot(viol_xlims, [1, 1], color='black', linewidth=1.9, alpha=0.89)
-    viol_ax.set_ylim(viol_ylims)
-
-    size_dict = dict()
-    for mtype in use_aucs.index:
-        if isinstance(mtype, RandomType):
-            if mtype.size_dist in size_dict:
-                size_dict[mtype.size_dist] += [mtype]
-            else:
-                size_dict[mtype.size_dist] = [mtype]
-
-    for mtype_stat, face_clr, edge_clr, ln_wdth in zip(
-            lbl_order[1:],
-            ['none', variant_clrs['Point'], variant_clrs['Point']],
-            [variant_clrs['Point'], variant_clrs['Point'], 'none'],
-            [1.7, 1.7, 0]
-            ):
-
-        plt_mtypes = gene_stat.index[gene_stat == mtype_stat]
-        size_rtypes = [size_dict[np.sum(pheno_dict[mtype])]
-                       for mtype in plt_mtypes]
-        mean_vals = [701 * np.mean(pheno_dict[mtype]) for mtype in plt_mtypes]
-
-        sctr_ax.scatter([use_aucs[plt_mtype] for plt_mtype in plt_mtypes],
-                        [use_aucs[rtype].max() for rtype in size_rtypes],
-                        s=mean_vals, alpha=0.11, facecolor=face_clr,
-                        edgecolor=edge_clr, linewidth=ln_wdth)
-
-    sctr_ax.grid(linewidth=0.83, alpha=0.41)
-    sctr_ax.plot(viol_ylims, [0.5, 0.5],
-            color='black', linewidth=1.3, linestyle=':', alpha=0.71)
-    sctr_ax.plot([0.5, 0.5], viol_ylims,
-            color='black', linewidth=1.3, linestyle=':', alpha=0.71)
-
-    sctr_ax.plot(viol_ylims, [1, 1], color='black', linewidth=1.9, alpha=0.89)
-    sctr_ax.plot([1, 1], viol_ylims, color='black', linewidth=1.9, alpha=0.89)
-    sctr_ax.plot(viol_ylims, viol_ylims,
-            color='#550000', linewidth=1.7, linestyle='--', alpha=0.41)
-
-    sctr_ax.set_xlabel("AUC of Oncogene Mutation", size=19, weight='semibold')
-    sctr_ax.set_ylabel("Best AUC of\nSize-Matched Randoms",
-                       size=19, weight='semibold')
-
-    sctr_ax.set_xlim(viol_ylims)
-    sctr_ax.set_ylim(viol_ylims)
-
-    plt.tight_layout(w_pad=2.7)
-    plt.savefig(
-        os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
-                     "random-comparison_{}.svg".format(args.classif)),
-        bbox_inches='tight', format='svg'
-        )
-
-    plt.close()
 
 
 def plot_size_comparison(auc_vals, pheno_dict, args):
@@ -589,7 +463,6 @@ def main():
     assert auc_df.index.isin(phn_dict).all()
 
     # create the plots
-    plot_random_comparison(auc_df['mean'], phn_dict, args)
     plot_size_comparison(auc_df['mean'], phn_dict, args)
     plot_sub_comparisons(auc_df, phn_dict, args)
     plot_copy_comparisons(auc_df, phn_dict, args)
