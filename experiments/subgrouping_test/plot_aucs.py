@@ -13,7 +13,7 @@ Example usages:
 """
 
 from ..utilities.mutations import (
-    pnt_mtype, copy_mtype, dup_mtype, loss_mtype, RandomType)
+    pnt_mtype, copy_mtype, deep_mtype, dup_mtype, loss_mtype, RandomType)
 from dryadic.features.mutations import MuType
 
 from ..subgrouping_test import base_dir
@@ -45,7 +45,7 @@ plt.rcParams['axes.edgecolor'] = 'white'
 plot_dir = os.path.join(base_dir, 'plots', 'aucs')
 
 
-def add_scatterpie_legend(ax, plot_dict, plt_min, args):
+def add_scatterpie_legend(ax, plot_dict, plt_min, base_mtype, args):
     lgnd_x, lgnd_y = 0.77 + 0.23 * plt_min, 0.07 + 0.93 * plt_min
 
     lgnd_sz = (1 - plt_min) / 8.3
@@ -60,13 +60,25 @@ def add_scatterpie_legend(ax, plot_dict, plt_min, args):
     pie_ax.pie(x=[0.43, 0.57], explode=[0.19, 0], startangle=90,
                colors=[lgnd_clr + (0.77, ), lgnd_clr + (0.29, )])
 
-    coh_lbl = "% of {} samples\nwith point mutations in gene".format(
-        get_cohort_label(args.cohort))
+    if base_mtype == pnt_mtype:
+        base_lbl = 'any point mutation'
+        all_lbl = 'point-mutated'
+
+    elif base_mtype == (pnt_mtype | deep_mtype):
+        base_lbl = 'any point mutation\nor deep loss/gain'
+        all_lbl = 'mutated'
+
+    else:
+        raise ValueError(
+            "Unrecognized `base_mtype` argument: {}".format(base_mtype))
+
+    coh_lbl = "% of {} samples\nwith {} in gene".format(
+        get_cohort_label(args.cohort), base_lbl)
     ax.text(lgnd_x - lgnd_sz / 103, lgnd_y + lgnd_sz * 0.71, coh_lbl,
             size=15, style='italic', ha='center', va='bottom')
 
     ax.text(lgnd_x - lgnd_sz * 0.7, lgnd_y - lgnd_sz * 0.13,
-            "% of gene's point-mutated\nsamples with best subgrouping",
+            "% of gene's {}\nsamples with best subgrouping".format(all_lbl),
             size=15, style='italic', ha='right', va='center')
 
     ax.plot([lgnd_x - lgnd_sz / 1.87, lgnd_x - lgnd_sz / 23],
@@ -130,6 +142,8 @@ def plot_random_comparison(auc_vals, pheno_dict, args):
     viol_ax.get_children()[4].set_linewidth(1.7)
     viol_ax.get_children()[2].set_facecolor('white')
     viol_ax.get_children()[2].set_edgecolor(variant_clrs['Point'])
+
+    viol_xlims = viol_ax.get_xlim()
     viol_ylims = viol_ax.get_ylim()
 
     if 'Point w/o Sub' in gene_stat:
@@ -142,7 +156,11 @@ def plot_random_comparison(auc_vals, pheno_dict, args):
                      "n={}".format((gene_stat == lbl).sum()),
                      size=15, rotation=37, ha='left', va='bottom')
 
-    viol_xlims = viol_ax.get_xlim()
+    plt.text(0.91, -0.17, get_cohort_label(args.cohort), size=23,
+             style='italic', ha='left', va='top',
+             transform=viol_ax.transAxes)
+
+    viol_ax.grid(axis='y', linewidth=0.83, alpha=0.41)
     viol_ax.plot(viol_xlims, [0.5, 0.5],
                  color='black', linewidth=1.3, linestyle=':', alpha=0.71)
     viol_ax.plot(viol_xlims, [1, 1], color='black', linewidth=1.9, alpha=0.89)
@@ -173,6 +191,7 @@ def plot_random_comparison(auc_vals, pheno_dict, args):
                         s=mean_vals, alpha=0.11, facecolor=face_clr,
                         edgecolor=edge_clr, linewidth=ln_wdth)
 
+    sctr_ax.grid(linewidth=0.83, alpha=0.41)
     sctr_ax.plot(viol_ylims, [0.5, 0.5],
             color='black', linewidth=1.3, linestyle=':', alpha=0.71)
     sctr_ax.plot([0.5, 0.5], viol_ylims,
@@ -254,7 +273,7 @@ def plot_size_comparison(auc_vals, pheno_dict, args):
     plt.close()
 
 
-def plot_sub_comparisons(auc_df, pheno_dict, args, add_lgnd):
+def plot_sub_comparisons(auc_df, pheno_dict, args):
     fig, ax = plt.subplots(figsize=(10.3, 11))
 
     plot_dict = dict()
@@ -325,6 +344,10 @@ def plot_sub_comparisons(auc_df, pheno_dict, args, add_lgnd):
                            line_dict[auc_tupl]['c'] + (0.29, )],
                    explode=[0.29, 0], startangle=90)
 
+    # makes sure plot labels don't overlap with equal-AUC diagonal line
+    for k in np.linspace(plt_min, 1, 400):
+        plot_dict[k, k] = [(1 - plt_min) / 387, ('', '')]
+
     plt_lims = plt_min, 1 + (1 - plt_min) / 181
     ax.grid(linewidth=0.83, alpha=0.41)
 
@@ -343,8 +366,9 @@ def plot_sub_comparisons(auc_df, pheno_dict, args, add_lgnd):
     ax.set_ylabel("Accuracy of Best Subgrouping Classifier",
                   size=23, weight='semibold')
 
-    if add_lgnd:
-        ax, plot_dict = add_scatterpie_legend(ax, plot_dict, plt_min, args)
+    if args.legends:
+        ax, plot_dict = add_scatterpie_legend(ax, plot_dict, plt_min,
+                                              pnt_mtype, args)
 
     else:
         ax.text(0.97, 0.02, get_cohort_label(args.cohort), size=21,
@@ -376,27 +400,33 @@ def plot_copy_comparisons(auc_df, pheno_dict, args):
     line_dict = dict()
     plt_min = 0.47
 
+    # filter out subgroupings that are neither the gene-wide task nor one of
+    # the subgroupings containing copy number alterations
     use_aucs = auc_df[[not isinstance(mtype, RandomType)
                        and (get_subtype(mtype) == pnt_mtype
                             or not (get_subtype(mtype)
                                     & copy_mtype).is_empty())
                        for mtype in auc_df.index]]
 
+    # filter out results for genes which did not have any subgrouping tasks,
+    # and group results according to the gene each subgrouping came from
     auc_gby = use_aucs['mean'].groupby(get_label).filter(
         lambda aucs: len(aucs) > 1).groupby(get_label)
 
+    # for each gene, get the gene-wide subgrouping
     for gene, auc_vec in auc_gby:
         base_mtype = MuType({('Gene', gene): pnt_mtype})
 
+        # find the results of the gene-wide subgrouping as well
+        # as of the best-performing subgrouping
         base_indx = auc_vec.index.get_loc(base_mtype)
-        base_gain = base_mtype | MuType({('Gene', gene): dup_mtype})
-        base_loss = base_mtype | MuType({('Gene', gene): loss_mtype})
-
         best_subtype = auc_vec[:base_indx].append(
             auc_vec[(base_indx + 1):]).idxmax()
 
         auc_tupl = auc_vec[base_mtype], auc_vec[best_subtype]
         line_dict[auc_tupl] = dict(c=choose_label_colour(gene))
+        base_gain = base_mtype | MuType({('Gene', gene): dup_mtype})
+        base_loss = base_mtype | MuType({('Gene', gene): loss_mtype})
 
         if not (best_subtype & dup_mtype).is_empty():
             cnv_size = np.mean(pheno_dict[base_gain])
@@ -404,7 +434,7 @@ def plot_copy_comparisons(auc_df, pheno_dict, args):
             cnv_size = np.mean(pheno_dict[base_loss])
 
         plt_size = 0.07 * cnv_size ** 0.5
-        plot_dict[auc_tupl] = [29 * plt_size ** 1.17, ('', '')]
+        plot_dict[auc_tupl] = [plt_size, ('', '')]
         plt_min = min(plt_min, auc_vec[base_indx] - 0.03,
                       auc_vec[best_subtype] - 0.03)
         best_prop = np.mean(pheno_dict[best_subtype]) / cnv_size
@@ -412,12 +442,20 @@ def plot_copy_comparisons(auc_df, pheno_dict, args):
         cv_sig = (np.array(use_aucs['CV'][best_subtype])
                   > np.array(use_aucs['CV'][base_mtype])).all()
 
-        if cv_sig:
-            plot_dict[auc_tupl][1] = gene, get_fancy_label(
-                get_subtype(best_subtype), pnt_link='\nor ', phrase_link=' ')
+        # ...and if we are sure that the optimal subgrouping AUC is
+        # better than the point mutation AUC then add a label with the
+        # gene name and a description of the best found subgrouping...
+        if auc_vec.max() >= 0.7:
+            if cv_sig:
+                plot_dict[auc_tupl][1] = gene, get_fancy_label(
+                    get_subtype(best_subtype),
+                    pnt_link='\nor ', phrase_link=' '
+                )
 
-        elif auc_vec[best_subtype] > 0.7:
-            plot_dict[auc_tupl][1] = gene, ''
+            # ...if we are not sure but the respective AUCs are still
+            # pretty great then add a label with just the gene name...
+            else:
+                plot_dict[auc_tupl][1] = gene, ''
 
         pie_bbox = (auc_tupl[0] - plt_size / 2,
                     auc_tupl[1] - plt_size / 2, plt_size, plt_size)
@@ -431,6 +469,10 @@ def plot_copy_comparisons(auc_df, pheno_dict, args):
                    colors=[line_dict[auc_tupl]['c'] + (0.77, ),
                            line_dict[auc_tupl]['c'] + (0.29, )],
                    explode=[0.29, 0], startangle=90)
+
+    # makes sure plot labels don't overlap with equal-AUC diagonal line
+    for k in np.linspace(plt_min, 1, 400):
+        plot_dict[k, k] = [(1 - plt_min) / 387, ('', '')]
 
     plt_lims = plt_min, 1 + (1 - plt_min) / 181
     ax.grid(linewidth=0.83, alpha=0.41)
@@ -447,8 +489,6 @@ def plot_copy_comparisons(auc_df, pheno_dict, args):
     ax.plot(plt_lims, plt_lims,
             color='#550000', linewidth=2.1, linestyle='--', alpha=0.41)
 
-    ax.text(0.97, 0.02, get_cohort_label(args.cohort), size=21,
-            style='italic', ha='right', va='bottom', transform=ax.transAxes)
     ax.set_xlabel("AUC using all point mutations", size=23, weight='semibold')
     ax.set_ylabel("AUC of best found CNA subgrouping",
                   size=23, weight='semibold')
@@ -458,6 +498,15 @@ def plot_copy_comparisons(auc_df, pheno_dict, args):
                                        plt_lims=[plt_lims, plt_lims],
                                        plc_lims=[[plt_min + 0.01, 0.98]] * 2,
                                        seed=args.seed, line_dict=line_dict)
+
+    if args.legends:
+        ax, plot_dict = add_scatterpie_legend(ax, plot_dict, plt_min,
+                                              pnt_mtype | deep_mtype, args)
+
+    else:
+        ax.text(0.97, 0.02, get_cohort_label(args.cohort), size=21,
+                style='italic', ha='right', va='bottom',
+                transform=ax.transAxes)
 
     ax.set_xlim(plt_lims)
     ax.set_ylim(plt_lims)
@@ -542,7 +591,7 @@ def main():
     # create the plots
     plot_random_comparison(auc_df['mean'], phn_dict, args)
     plot_size_comparison(auc_df['mean'], phn_dict, args)
-    plot_sub_comparisons(auc_df, phn_dict, args, add_lgnd=args.legends)
+    plot_sub_comparisons(auc_df, phn_dict, args)
     plot_copy_comparisons(auc_df, phn_dict, args)
 
 
