@@ -1,3 +1,15 @@
+"""
+This script collects a portion of the experiment output and 1) parses it to
+make it easier for downstream analyses to use and 2) computes basic measures
+of subgrouping task performance such as AUCs.
+
+See .Snakefile for how this script is invoked in the run_test pipeline.
+
+Example usage:
+    python -m dryads-research.experiments.subgrouping_test.gather_test \
+        temp/Firehose__BRCA_LumA/Consq__Exon --task_ids 0 1 3
+
+"""
 
 from ..utilities.mutations import copy_mtype, RandomType
 from ..utilities.pipeline_setup import get_task_count

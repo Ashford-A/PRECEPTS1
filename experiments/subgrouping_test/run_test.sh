@@ -2,6 +2,14 @@
 #SBATCH --job-name=subg-test
 #SBATCH --verbose
 
+# Example usage:
+#	  export SBATCH_TIMELIMIT=500;
+#	  sbatch --mem-per-cpu=8000 --account='compbio' -c 4 --exclude=$ex_nodes \
+#	  --output=$slurm_dir/subg-test.out --error=$slurm_dir/subg-test.err \
+#	  dryads-research/experiments/subgrouping_test/run_tour.sh \
+#	  -e microarray -t METABRIC_LumA \
+#	  -s 20 -l Consequence__Exon -c Ridge -m 250 -r
+
 
 # get current time, load conda environment, set default values for arguments
 start_time=$( date +%s )

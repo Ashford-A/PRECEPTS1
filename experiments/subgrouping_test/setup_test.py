@@ -1,3 +1,23 @@
+"""
+This script loads and pre-processes the input datasets that will be used for a
+given run of the subgrouping testing experiment and uses the genomic data to
+enumerate the subgrouping tasks to be tested.
+
+See .run_test for how this script is invoked in the experiment pipeline.
+
+Example usages:
+    python -m dryads-research.experiments.subgrouping_test.setup_test \
+        microarray METABRIC_LumA 20 Consequence__Exon temp/
+
+    python -m dryads-research.experiments.subgrouping_test.setup_test \
+        Firehose BRCA_LumA 20 Exon__HGVSp \
+        /usr/bobby/temp/Firehose/BRCA_LumA__samps-20/Exon__HGVSp
+
+    python -m dryads-research.experiments.subgrouping_test.setup_test \
+        Firehose STAD 20 Pfam-domain__Consequence \
+        /tmp/users/timmy/Firehose__STAD/Pfam-domain__Consequence
+
+"""
 
 from ..utilities.mutations import (pnt_mtype, copy_mtype,
                                    dup_mtype, loss_mtype, RandomType)

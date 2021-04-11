@@ -1,3 +1,15 @@
+"""
+This script collects the intermediate output files produced by .gather_test
+and merges them into a single file for each output type for easier access by
+downstream analyses.
+
+See .Snakefile for how this script is invoked in the run_test pipeline.
+
+Example usage:
+    python -m dryads-research.experiments.subgrouping_test.merge_test \
+        temp/Firehose__BRCA_LumA/Consq__Exon
+
+"""
 
 import os
 import argparse
@@ -9,16 +21,19 @@ import pandas as pd
 
 def main():
     parser = argparse.ArgumentParser(
-        "Concatenates the distributed output of an iteration "
-        "of the subgrouping testing experiment for use in further analyses."
+        'merge_test',
+        description="Concatenates all of the output of an experiment."
         )
 
+    # collect command line arguments
     parser.add_argument('use_dir', type=str)
     args = parser.parse_args()
 
+    # load list of subgrouping tasks for this experiment
     with open(os.path.join(args.use_dir, 'setup', "muts-list.p"), 'rb') as f:
         muts_list = pickle.load(f)
 
+    # concatenate cohort mutated statuses for each subgrouping
     pheno_dict = dict()
     for pheno_file in Path(args.use_dir, 'merge').glob("out-pheno_*.p.gz"):
         with bz2.BZ2File(pheno_file, 'r') as fl:
@@ -32,6 +47,7 @@ def main():
     with bz2.BZ2File(os.path.join(args.use_dir, "out-pheno.p.gz"), 'w') as fl:
         pickle.dump(pheno_dict, fl, protocol=-1)
 
+    # concatenate coefficient values for each subgrouping classification model
     coef_df = pd.DataFrame()
     for coef_file in Path(args.use_dir, 'merge').glob("out-coef_*.p.gz"):
         with bz2.BZ2File(coef_file, 'r') as fl:
@@ -43,6 +59,7 @@ def main():
     with bz2.BZ2File(os.path.join(args.use_dir, "out-coef.p.gz"), 'w') as fl:
         pickle.dump(coef_df, fl, protocol=-1)
 
+    # concatenate predicted labels made by each subgrouping model
     pred_df = pd.DataFrame()
     for pred_file in Path(args.use_dir, 'merge').glob("out-pred_*.p.gz"):
         with bz2.BZ2File(pred_file, 'r') as fl:
@@ -54,6 +71,7 @@ def main():
     with bz2.BZ2File(os.path.join(args.use_dir, "out-pred.p.gz"), 'w') as fl:
         pickle.dump(pred_df, fl, protocol=-1)
 
+    # concatenate subgrouping model tuning performances
     tune_dfs = [pd.DataFrame() for _ in range(3)] + [None]
     for tune_file in Path(args.use_dir, 'merge').glob("out-tune_*.p.gz"):
         with bz2.BZ2File(tune_file, 'r') as fl:
@@ -74,6 +92,7 @@ def main():
     with bz2.BZ2File(os.path.join(args.use_dir, "out-tune.p.gz"), 'w') as fl:
         pickle.dump(tune_dfs, fl, protocol=-1)
 
+    # concatenate subgrouping model testing performances
     auc_df = pd.DataFrame()
     for auc_file in Path(args.use_dir, 'merge').glob("out-aucs_*.p.gz"):
         with bz2.BZ2File(auc_file, 'r') as fl:
@@ -85,6 +104,7 @@ def main():
     with bz2.BZ2File(os.path.join(args.use_dir, "out-aucs.p.gz"), 'w') as fl:
         pickle.dump(auc_df, fl, protocol=-1)
 
+    # concatenate subgrouping model sub-sampled testing performances
     conf_list = pd.Series(dtype='object')
     for conf_file in Path(args.use_dir, 'merge').glob("out-conf_*.p.gz"):
         with bz2.BZ2File(conf_file, 'r') as fl:
@@ -96,6 +116,7 @@ def main():
     with bz2.BZ2File(os.path.join(args.use_dir, "out-conf.p.gz"), 'w') as fl:
         pickle.dump(conf_list, fl, protocol=-1)
 
+    # concatenate model performances when transferred to other cohorts
     trnsf_preds = pd.DataFrame()
     for trnsf_file in Path(args.use_dir, 'merge').glob("trnsf-vals_*.p.gz"):
         with bz2.BZ2File(trnsf_file, 'r') as fl:

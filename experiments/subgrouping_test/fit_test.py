@@ -1,3 +1,16 @@
+"""
+This script runs a portion of the subgrouping classification tasks for a given
+experiment. This portion is determined by `task_id` (which of the subgrouping
+tasks have been assigned to this parallelized job) and `cv_id` (which of the
+cross-validation fold iterations have been assigned to this job).
+
+See .Snakefile for how this script is invoked in the run_test pipeline.
+
+Example usage:
+    python -m dryads-research.experiments.subgrouping_test.fit_test \
+        Ridge temp/Firehose__BRCA_LumA/Consq__Exon --task_id 2 --cv_id 5
+
+"""
 
 from .classifiers import *
 from ..utilities.handle_input import safe_load
@@ -23,9 +36,9 @@ def main():
     parser.add_argument('use_dir', type=str)
 
     parser.add_argument('--task_id', type=int, default=0,
-                        help='the subset of subtypes to assign to this task')
+                        help='the subset of subtypes to assign to this job')
     parser.add_argument('--cv_id', type=int, default=0,
-                        help='the subset of subtypes to assign to this task')
+                        help='the subset of cv-folds to assign to this job')
 
     # collect command line arguments, get directory where enumeration output
     # was stored, get the number of experiment tasks from task manifest
@@ -74,7 +87,7 @@ def main():
     random.seed(10301)
     random.shuffle(mtype_list)
 
-    # for each subtype, check if it has been assigned to this task
+    # for each subgrouping, check if it has been assigned to this task
     for i, mtype in enumerate(mtype_list):
         if (i % task_count) == args.task_id:
             print("Testing {} ...".format(mtype))
@@ -117,6 +130,7 @@ def main():
             mut_clf.fit_coh(cdata, mtype, include_feats=use_feats)
             out_coef[mtype] = mut_clf.get_coef()
 
+            # apply the model to the testing subcohort to get predicted labels
             out_pred[mtype] = np.round(mut_clf.parse_preds(
                 mut_clf.predict_test(cdata, lbl_type='raw',
                                      include_feats=use_feats)
