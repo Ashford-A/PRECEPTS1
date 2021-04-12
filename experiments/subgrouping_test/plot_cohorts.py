@@ -41,18 +41,33 @@ def plot_auc_comparison(auc_dfs, pheno_dicts, args):
                   if (not isinstance(mtype, RandomType)
                       and (get_subtype(mtype) & copy_mtype).is_empty())}
 
+    plt_aucs = pd.DataFrame({coh: auc_df.loc[use_mtypes, 'mean']
+                             for coh, auc_df in auc_dfs.items()})
+
+    plot_dict = dict()
+    line_dict = dict()
+    font_dict = dict()
     plt_min = 0.83
-    for mtype in use_mtypes:
-        auc_val1 = auc_dfs[args.cohorts[0]].loc[mtype, 'mean']
-        auc_val2 = auc_dfs[args.cohorts[1]].loc[mtype, 'mean']
 
-        mtype_sz = (np.mean(pheno_dicts[args.cohorts[0]][mtype])
-                    * np.mean(pheno_dicts[args.cohorts[1]][mtype])) ** 0.5
-        plt_min = min(plt_min, auc_val1 - 0.01, auc_val2 - 0.01)
+    for gene, aucs in plt_aucs.groupby(get_label):
+        use_clr = choose_label_colour(gene)
 
-        ax.scatter(auc_val1, auc_val2,
-                   c=[choose_label_colour(get_label(mtype))],
-                   s=1003 * mtype_sz, alpha=0.23, edgecolor='none')
+        plot_dict[tuple(aucs.mean())] = [0.01, (gene, '')]
+        line_dict[tuple(aucs.mean())] = dict(c=use_clr)
+        font_dict[tuple(aucs.mean())] = dict(c=use_clr, weight='bold')
+
+        for mtype, (auc_val1, auc_val2) in aucs.iterrows():
+            plt_min = min(plt_min, auc_val1 - 0.01, auc_val2 - 0.01)
+
+            mtype_sz = (np.mean(pheno_dicts[args.cohorts[0]][mtype])
+                        * np.mean(pheno_dicts[args.cohorts[1]][mtype])) ** 0.5
+            plot_dict[auc_val1, auc_val2] = [mtype_sz, ('', '')]
+
+            ax.scatter(auc_val1, auc_val2, c=[use_clr], s=1003 * mtype_sz,
+                       alpha=0.23, edgecolor='none')
+
+    for auc_vals in tuple(plot_dict):
+        plot_dict[auc_vals][0] /= 23 * (1 - plt_min)
 
     plt_lims = plt_min, 1 + (1 - plt_min) / 181
     ax.grid(linewidth=0.83, alpha=0.41)
@@ -72,6 +87,12 @@ def plot_auc_comparison(auc_dfs, pheno_dicts, args):
     ylbl = lbl_base.format(get_cohort_label(args.cohorts[1]))
     ax.set_xlabel(xlbl, size=27, weight='semibold')
     ax.set_ylabel(ylbl, size=27, weight='semibold')
+
+    if plot_dict:
+        lbl_pos = place_scatter_labels(
+            plot_dict, ax, plt_lims=[plt_lims, plt_lims],
+            line_dict=line_dict, font_dict=font_dict, font_size=19
+            )
 
     ax.set_xlim(plt_lims)
     ax.set_ylim(plt_lims)
@@ -139,13 +160,16 @@ def plot_coh_comparison(auc_dfs, conf_dfs, pheno_dicts, args):
                                                 use_clr + (0.29, )])
 
                     else:
-                        pie_args = dict(colors=['none', 'none'],
+                        pie_args = dict(colors=[use_clr + (0.11, ), 'none'],
                                         wedgeprops=dict(edgecolor=use_clr,
-                                                        linewidth=1.9,
+                                                        linewidth=1.1,
                                                         alpha=0.37))
 
                     pie_ax.pie(x=[best_prop, 1 - best_prop],
                                explode=[0.37, 0], startangle=90, **pie_args)
+
+    for k in np.linspace(plt_min, 1, 400):
+        plot_dict[k, k] = [(1 - plt_min) / 387, ('', '')]
 
     plt_lims = plt_min, 1 + (1 - plt_min) / 181
     ax.grid(linewidth=0.83, alpha=0.41)
@@ -164,6 +188,57 @@ def plot_coh_comparison(auc_dfs, conf_dfs, pheno_dicts, args):
                   size=27, weight='semibold')
     ax.set_ylabel("Accuracy of Best Subgrouping Classifier",
                   size=27, weight='semibold')
+
+    lgnd1_x, lgnd2_x = 1 - 0.37 * (1 - plt_min), 1 - 0.13 * (1 - plt_min)
+    lgnd_y = 1 - 0.89 * (1 - plt_min)
+    lgnd_sz = (1 - plt_min) / 9.1
+    lgnd_clr = choose_label_colour('GENE')
+
+    plot_dict[lgnd1_x, lgnd_y] = lgnd_sz, ('', '')
+    plot_dict[lgnd2_x, lgnd_y] = lgnd_sz, ('', '')
+    lgnd1_bbox = lgnd1_x - lgnd_sz / 2, lgnd_y - lgnd_sz / 2, lgnd_sz, lgnd_sz
+    lgnd2_bbox = lgnd2_x - lgnd_sz / 2, lgnd_y - lgnd_sz / 2, lgnd_sz, lgnd_sz
+
+    pie_ax1 = inset_axes(ax, width='100%', height='100%',
+                         bbox_to_anchor=lgnd1_bbox,
+                         bbox_transform=ax.transData,
+                         axes_kwargs=dict(aspect='equal'), borderpad=0)
+    pie_ax2 = inset_axes(ax, width='100%', height='100%',
+                         bbox_to_anchor=lgnd2_bbox,
+                         bbox_transform=ax.transData,
+                         axes_kwargs=dict(aspect='equal'), borderpad=0)
+
+    pie_ax1.pie(x=[0.43, 0.57], explode=[0.19, 0], startangle=90,
+                colors=[lgnd_clr + (0.77,), lgnd_clr + (0.29,)])
+    pie_ax2.pie(x=[0.71, 0.29], explode=[0.19, 0], startangle=90,
+                colors=[lgnd_clr + (0.11,), 'none'],
+                wedgeprops=dict(edgecolor=use_clr, linewidth=1.1, alpha=0.37))
+
+    coh1_lbl = "% of {}\nsamples with any\npoint mutation in gene".format(
+        get_cohort_label(args.cohorts[0]))
+    coh2_lbl = "% of {}\nsamples with any\npoint mutation in gene".format(
+        get_cohort_label(args.cohorts[1]))
+
+    ax.text(lgnd1_x - lgnd_sz / 103, lgnd_y + lgnd_sz * 0.71, coh1_lbl,
+            size=12, style='italic', ha='center', va='bottom')
+    ax.text(lgnd2_x - lgnd_sz / 103, lgnd_y + lgnd_sz * 0.71, coh2_lbl,
+            size=12, style='italic', ha='center', va='bottom')
+
+    ax.text(lgnd1_x - lgnd_sz * 0.7, lgnd_y - lgnd_sz * 0.53,
+            "% of gene's point-mutated\nsamples with best subgrouping",
+            size=12, style='italic', ha='right', va='center')
+
+    for lgnd_x in lgnd1_x, lgnd2_x:
+        ax.plot([lgnd_x - lgnd_sz / 1.87, lgnd_x - lgnd_sz / 23],
+                [lgnd_y + lgnd_sz / 5.3, lgnd_y + lgnd_sz * 0.67],
+                c='black', linewidth=1.1)
+        ax.plot([lgnd_x - lgnd_sz / 23, lgnd_x + lgnd_sz / 2.21],
+                [lgnd_y + lgnd_sz * 0.67, lgnd_y + lgnd_sz / 5.3],
+                c='black', linewidth=1.1)
+
+        ax.plot([lgnd1_x - lgnd_sz * 0.63, lgnd_x - lgnd_sz / 3.1],
+                [lgnd_y - lgnd_sz / 3.1, lgnd_y - lgnd_sz / 18.3],
+                c='black', linewidth=1.1)
 
     #TODO: have one label per gene, with lines to both cohort pies?
     if plot_dict:
