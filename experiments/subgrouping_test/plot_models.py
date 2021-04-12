@@ -1,3 +1,19 @@
+"""
+This module produces plots of mutation classification models' feature
+coefficients, that is, the weights each classifier assigned to individual
+genes whose expression it was using to predict the presence of a mutation.
+
+Example usages:
+    python -m dryads-research.experiments.subgrouping_test.plot_models \
+        microarray METABRIC_LumA Ridge
+    python -m dryads-research.experiments.subgrouping_test.plot_models \
+        microarray METABRIC_LumA Ridge -a 0.75
+    python -m dryads-research.experiments.subgrouping_test.plot_models \
+        Firehose LUSC Ridge --plot_all
+    python -m dryads-research.experiments.subgrouping_test.plot_models \
+        toil__gns beatAML Ridge -g FLT3 TP53 IDH1 MEGF10
+
+"""
 
 from ..utilities.mutations import pnt_mtype, copy_mtype, RandomType
 from dryadic.features.mutations import MuType
@@ -386,7 +402,9 @@ def plot_divergence_scatter(coef_vals, args):
         os.path.join(
             plot_dir, '__'.join([args.expr_source, args.cohort]),
             "{}__{}__divergence-scatter_{}.svg".format(
-                use_gene, coef_vals.index[1].get_filelabel(), args.classif)
+                use_gene, get_subtype(coef_vals.index[1]).get_filelabel(),
+                args.classif
+                )
             ),
         bbox_inches='tight', format='svg'
         )

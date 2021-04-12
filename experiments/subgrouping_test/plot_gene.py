@@ -49,6 +49,7 @@ def plot_sub_comparisons(auc_dict, pheno_dict, use_clf, args,
     gene_mtype = MuType({('Gene', args.gene): pnt_mtype})
     plot_dict = dict()
     clr_dict = dict()
+    prop_dict = dict()
     plt_min = 0.89
 
     # for each cohort, check if the given gene had subgroupings that were
@@ -83,8 +84,8 @@ def plot_sub_comparisons(auc_dict, pheno_dict, use_clf, args,
 
             coh_lbl = get_cohort_label(coh)
             plt_min = min(plt_min, auc_tupl[0] - 0.05, auc_tupl[1] - 0.07)
-            best_prop = np.mean(pheno_dict[src, coh][best_subtype])
-            best_prop /= base_size
+            prop_dict[auc_tupl] = np.mean(pheno_dict[src, coh][best_subtype])
+            prop_dict[auc_tupl] /= base_size
 
             cv_sig = (np.array(use_aucs['CV'][best_subtype])
                       > np.array(use_aucs['CV'][base_mtype])).all()
@@ -113,9 +114,9 @@ def plot_sub_comparisons(auc_dict, pheno_dict, use_clf, args,
                             axes_kwargs=dict(aspect='equal'), borderpad=0)
 
         # plot the pie chart for the AUCs of the gene in this cohort
-        pie_ax.pie(x=[best_prop, 1 - best_prop], explode=[0.29, 0],
-                   colors=[clr_dict[aucs] + (0.83, ),
-                           clr_dict[aucs] + (0.23, )],
+        pie_ax.pie(x=[prop_dict[aucs], 1 - prop_dict[aucs]],
+                   explode=[0.29, 0], colors=[clr_dict[aucs] + (0.83, ),
+                                              clr_dict[aucs] + (0.23, )],
                    wedgeprops=dict(edgecolor='black', linewidth=10 / 11))
 
     plt_lims = plt_min, 1 + (1 - plt_min) / 113
@@ -137,6 +138,9 @@ def plot_sub_comparisons(auc_dict, pheno_dict, use_clf, args,
                   size=27, weight='semibold')
     ax.set_ylabel("Accuracy of Best Subgrouping Classifier",
                   size=27, weight='semibold')
+
+    ax.text(0.97, 0.03, args.gene, size=27,
+            style='italic', ha='right', va='bottom', transform=ax.transAxes)
 
     # figure out where to place the annotation labels for each cohort so that
     # they don't overlap with one another or the pie charts
@@ -319,10 +323,12 @@ def plot_transfer_aucs(trnsf_dict, auc_dict, pheno_dict, use_clf, args):
         cbar.ax.tick_params(labelsize=13)
         cbar.ax.set_title('AUC', size=17, weight='semibold')
 
-    fig.text(0.5, -0.02, "Testing Cohort", fontsize=23, weight='semibold',
-             ha='center', va='top')
-    fig.text(0, 0.5, "Training Cohort", fontsize=23, weight='semibold',
-             rotation=90, ha='right', va='center')
+    fig.text(0.93, 0.02, args.gene, size=27,
+             style='italic', ha='right', va='bottom')
+    fig.text(0.5, -0.01, "Testing Cohort", size=23,
+             weight='semibold', ha='center', va='top')
+    fig.text(-0.01, 0.5, "Training Cohort", size=23,
+             weight='semibold', rotation=90, ha='right', va='center')
 
     fig.tight_layout(h_pad=1.7)
     plt.savefig(
@@ -334,32 +340,36 @@ def plot_transfer_aucs(trnsf_dict, auc_dict, pheno_dict, use_clf, args):
     plt.close()
 
 
-def plot_transfer_comparisons(trnsf_dict, conf_dict, pheno_dict,
-                              use_clf, args):
-    fig, ax = plt.subplots(figsize=(11, 11))
-
+def plot_transfer_comparisons(trnsf_dict, auc_dict,
+                              pheno_dict, use_clf, args):
     base_mtype = MuType({('Gene', args.gene): pnt_mtype})
-    conf_agg = dict()
+    use_mtypes = {
+        (src, coh): {mtype for mtype in auc_df.index
+                     if (not isinstance(mtype, RandomType)
+                         and mtype != base_mtype
+                         and (get_subtype(mtype) & copy_mtype).is_empty())}
+        for (src, coh), auc_df in auc_dict.items()
+        }
 
-    for (src, coh), conf_vals in conf_dict.items():
-        if base_mtype in conf_vals.index:
-            use_confs = conf_vals[[
-                mtype for mtype in conf_vals.index
-                if (mtype != base_mtype and not isinstance(mtype, RandomType)
-                    and (tuple(mtype.subtype_iter())[0][1]
-                         & copy_mtype).is_empty())
-                ]]
+    sig_stats = pd.DataFrame({
+        (src, coh): {mtype: (np.array(auc_df['CV'][mtype])
+                             > np.array(auc_df['CV'][base_mtype])).all()
+                     for mtype in use_mtypes[src, coh]}
+        for (src, coh), auc_df in auc_dict.items()
+        }).fillna(False).sum(axis=1)
 
-            for mtype, conf_list in use_confs.iteritems():
-                conf_sc = np.sum(pheno_dict[src, coh][mtype])
-                conf_sc *= calc_conf(conf_list, conf_vals[base_mtype]) - 0.5
+    trnsf_counts = pd.Series({
+        mtype: len({cohs for cohs, auc_vals in trnsf_dict.items()
+                    if mtype in auc_vals.index})
+        for mtype in sig_stats.index
+        })
+    sig_stats = sig_stats[trnsf_counts.index[trnsf_counts > 0]]
 
-                if mtype in conf_agg:
-                    conf_agg[mtype] += conf_sc
-                else:
-                    conf_agg[mtype] = conf_sc
+    if max(sig_stats) == 0:
+        return None
 
-    best_subtype = sorted(conf_agg.items(), key=lambda x: x[1])[-1][0]
+    fig, ax = plt.subplots(figsize=(10.3, 11))
+    best_subtype = sig_stats.idxmax()
     plot_dict = dict()
     plt_min = 0.83
 
@@ -414,6 +424,12 @@ def plot_transfer_comparisons(trnsf_dict, conf_dict, pheno_dict,
                   size=27, weight='semibold')
     ax.set_ylabel("Transfer AUC\nusing best found subgrouping",
                   size=27, weight='semibold')
+
+    ax.text(0.95, 0.04,
+            '\n'.join([args.gene,
+                       get_fancy_label(get_subtype(best_subtype))]),
+            size=15, style='italic', ha='right', va='bottom',
+            transform=ax.transAxes)
 
     # figure out where to place the labels for each point, and plot them
     if plot_dict:
@@ -589,8 +605,7 @@ def main():
         plot_conf_distributions(clf_aucs, clf_confs, phn_dict, clf, args)
 
         plot_transfer_aucs(clf_trnsf, clf_aucs, phn_dict, clf, args)
-        plot_transfer_comparisons(clf_trnsf, clf_confs, phn_dict,
-                                  clf, args)
+        plot_transfer_comparisons(clf_trnsf, clf_aucs, phn_dict, clf, args)
 
 
 if __name__ == '__main__':
