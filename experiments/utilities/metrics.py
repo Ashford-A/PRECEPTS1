@@ -2,7 +2,7 @@
 from dryadic.features.mutations import MuType
 import numpy as np
 import pandas as pd
-from scipy.stats import ks_2samp
+from scipy.stats import ks_2samp, norm
 
 
 def calculate_mean_siml(wt_vals, mut_vals, other_vals,
@@ -108,4 +108,32 @@ def calc_auc(vals, stat):
 def calc_conf(auc_vals1, auc_vals2):
     return (np.greater.outer(auc_vals1, auc_vals2).mean()
             + 0.5 * np.equal.outer(auc_vals1, auc_vals2).mean())
+
+
+def calc_delong(preds1, preds2, stat, auc1=None, auc2=None):
+    strc1 = np.greater.outer(preds1[stat], preds1[~stat]).astype(float)
+    strc1 += 0.5 * np.equal.outer(preds1[stat], preds1[~stat]).astype(float)
+    strc2 = np.greater.outer(preds2[stat], preds2[~stat]).astype(float)
+    strc2 += 0.5 * np.equal.outer(preds2[stat], preds2[~stat]).astype(float)
+
+    if auc1 is None:
+        auc1 = strc1.mean()
+    if auc2 is None:
+        auc2 = strc2.mean()
+
+    mut_n, wt_n = strc1.shape
+    vvecs1 = strc1.mean(axis=1), strc1.mean(axis=0)
+    vvecs2 = strc2.mean(axis=1), strc2.mean(axis=0)
+
+    smat1 = [[((vv_i[0] - auc_i) * (vv_j[0] - auc_j)).sum() / (mut_n - 1)
+              for vv_j, auc_j in zip([vvecs1, vvecs2], [auc1, auc2])]
+             for vv_i, auc_i in zip([vvecs1, vvecs2], [auc1, auc2])]
+    smat2 = [[((vv_i[1] - auc_i) * (vv_j[1] - auc_j)).sum() / (wt_n - 1)
+              for vv_j, auc_j in zip([vvecs1, vvecs2], [auc1, auc2])]
+             for vv_i, auc_i in zip([vvecs1, vvecs2], [auc1, auc2])]
+
+    smat = np.array(smat1) / strc1.shape[0] + np.array(smat2) / strc1.shape[1]
+    z_scr = (auc1 - auc2) / np.sqrt(smat[0, 0] + smat[1, 1] - 2 * smat[1, 0])
+
+    return norm.sf(z_scr)
 
