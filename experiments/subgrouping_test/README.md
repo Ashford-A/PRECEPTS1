@@ -13,7 +13,7 @@ expression programs within key cancer genes"_
 **(MR Grzadkowski, HD Holly, J Somers, and E Demir)** 
 
 currently under review for publication at BMC Bioinformatics. See also
-`./subgrouping_tour` and `../subgrouping_thresholds` for other experiments
+`../subgrouping_tour` and `../subgrouping_thresholds` for other experiments
 used in this manuscript.
 
 
