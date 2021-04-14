@@ -1,3 +1,14 @@
+"""
+This module produces plots comparing AUCs of classification tasks common
+across a pair of cohorts, especially cohorts from the same disease context.
+
+Example usages:
+    python -m dryads-research.experiments.subgrouping_test.plot_cohorts \
+        METABRIC_LumA BRCA_LumA Ridge
+    python -m dryads-research.experiments.subgrouping_test.plot_cohorts \
+        METABRIC_LumA BRCA_LumA Ridge -g TP53 PIK3CA GATA3
+
+"""
 
 from ..utilities.mutations import pnt_mtype, copy_mtype, RandomType
 from dryadic.features.mutations import MuType
@@ -256,7 +267,7 @@ def plot_coh_comparison(auc_dfs, conf_dfs, pheno_dicts, args):
     plt.close()
 
 
-def plot_sub_comparison(auc_dfs, trnsf_dicts, pheno_dicts, conf_dfs, args):
+def plot_sub_comparison(auc_dfs, trnsf_dicts, pheno_dicts, args):
     fig, axarr = plt.subplots(figsize=(15, 14), nrows=2, ncols=2)
 
     use_mtypes = {mtype for mtype in (auc_dfs[args.cohorts[0]].index
@@ -303,35 +314,44 @@ def plot_sub_comparison(auc_dfs, trnsf_dicts, pheno_dicts, conf_dfs, args):
 
                         best_prop = np.mean(pheno_dicts[coh][best_subtype])
                         best_prop /= base_size
-                        conf_sc = calc_conf(conf_dfs[coh].loc[best_subtype],
-                                            conf_dfs[coh].loc[base_mtype])
 
-                        if conf_sc > 0.6:
-                            plot_dicts[i, j][auc_tupl][1] = (
-                                gene, get_fancy_label(
-                                    get_subtype(best_subtype),
-                                    pnt_link='\n', phrase_link=' '
+                        cv_sig = (
+                            np.array(auc_dfs[coh].loc[best_subtype, 'CV'])
+                            > np.array(auc_dfs[coh].loc[base_mtype, 'CV'])
+                            ).all()
+
+                        if auc_vec.max() >= 0.7:
+                            if cv_sig:
+                                plot_dicts[i, j][auc_tupl][1] = (
+                                    gene,
+                                    get_fancy_label(get_subtype(best_subtype),
+                                                    pnt_link='\nor ',
+                                                    phrase_link=' ')
                                     )
-                                )
 
-                        else:
-                            plot_dicts[i, j][auc_tupl][1] = gene, ''
+                            else:
+                                plot_dicts[i, j][auc_tupl][1] = gene, ''
 
-                        auc_bbox = (auc_tupl[0] - plt_size / 2,
+                        # draw the scatter-piechart for this gene's results
+                        pie_bbox = (auc_tupl[0] - plt_size / 2,
                                     auc_tupl[1] - plt_size / 2,
                                     plt_size, plt_size)
 
                         pie_ax = inset_axes(
                             axarr[i, j], width='100%', height='100%',
-                            bbox_to_anchor=auc_bbox,
+                            bbox_to_anchor=pie_bbox,
                             bbox_transform=axarr[i, j].transData,
                             axes_kwargs=dict(aspect='equal'), borderpad=0
                             )
 
-                        pie_ax.pie(x=[best_prop, 1 - best_prop],
-                                   colors=[use_clr + (0.77, ),
-                                           use_clr + (0.29, )],
-                                   explode=[0.29, 0], startangle=90)
+                        pie_ax.pie(
+                            x=[best_prop, 1 - best_prop],
+                            colors=[
+                                line_dicts[i, j][auc_tupl]['c'] + (0.77, ),
+                                line_dicts[i, j][auc_tupl]['c'] + (0.29,)
+                                ],
+                            explode=[0.29, 0], startangle=90
+                            )
 
     plt_lims = plt_min, 1 + (1 - plt_min) / 151
     for i, j in product(range(2), repeat=2):
@@ -1118,7 +1138,7 @@ def main():
 
     plot_auc_comparison(auc_dfs, phn_dicts, args)
     plot_coh_comparison(auc_dfs, conf_dfs, phn_dicts, args)
-    plot_sub_comparison(auc_dfs, trnsf_dicts, phn_dicts, conf_dfs, args)
+    plot_sub_comparison(auc_dfs, trnsf_dicts, phn_dicts, args)
 
     plot_cross_sub_comparison(auc_dfs, phn_dicts, conf_dfs, args)
     plot_metrics_comparison(auc_dfs, phn_dicts, args)
