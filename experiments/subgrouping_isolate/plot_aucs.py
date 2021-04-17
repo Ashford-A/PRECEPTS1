@@ -7,12 +7,11 @@ from dryadic.features.mutations import MuType
 
 from ..subgrouping_isolate import base_dir
 from .utils import get_mut_ex, get_mcomb_lbl
-from ..utilities.metrics import calc_conf
 from ..utilities.labels import get_fancy_label
 from ..utilities.label_placement import place_scatter_labels
 from ..subgrouping_test.plot_aucs import add_scatterpie_legend
 from ..utilities.labels import get_cohort_label
-from ..utilities.misc import choose_label_colour
+from ..utilities.misc import get_label, get_subtype, choose_label_colour
 
 import os
 import argparse
@@ -39,105 +38,73 @@ plt.rcParams['axes.edgecolor'] = 'white'
 plot_dir = os.path.join(base_dir, 'plots', 'aucs')
 
 
-def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals,
-                         cdata, args, ex_lbl, add_lgnd=False):
+def plot_sub_comparisons(auc_df, pheno_dict, args, ex_lbl, add_lgnd=False):
     fig, ax = plt.subplots(figsize=(10.3, 11))
 
     plot_dict = dict()
     line_dict = dict()
     plt_min = 0.57
-    use_aucs = auc_vals[[get_mut_ex(mut) == ex_lbl for mut in auc_vals.index]]
+    use_aucs = auc_df[[get_mut_ex(mut) == ex_lbl for mut in auc_df.index]]
 
     if ex_lbl == 'All':
         use_aucs = use_aucs[[
             (isinstance(mut, Mcomb) and
-             any((tuple(mtype.subtype_iter())[0][1] & copy_mtype).is_empty()
+             any((get_subtype(mtype) & copy_mtype).is_empty()
                  for mtype in mut.mtypes))
             or (not isinstance(mut, Mcomb)
-                and (tuple(mut.subtype_iter())[0][1] & copy_mtype).is_empty())
+                and (get_subtype(mut) & copy_mtype).is_empty())
             for mut in use_aucs.index
-            ]]
+            ]]['mean']
 
     else:
-        use_aucs = use_aucs[[any((tuple(mtype.subtype_iter())[0][1]
-                                  & copy_mtype).is_empty()
+        use_aucs = use_aucs[[any((get_subtype(mtype) & copy_mtype).is_empty()
                                  for mtype in mut.mtypes)
-                             for mut in use_aucs.index]]
+                             for mut in use_aucs.index]]['mean']
 
-    #TODO: find a better way of dealing with these edge cases
     for gene, auc_vec in use_aucs.groupby(
             lambda mut: tuple(mut.label_iter())[0]):
         if len(auc_vec) > 1:
             base_mtype = MuType({('Gene', gene): pnt_mtype})
 
-            if ex_lbl == 'All':
-                base_indx = auc_vec.index.get_loc(base_mtype)
-            else:
-                base_indx = [i for i, mcomb in enumerate(auc_vec.index)
-                             if (len(mcomb.mtypes) == 1
-                                 and tuple(mcomb.mtypes)[0] == base_mtype)]
+            sub_aucs = auc_vec[[mut != base_mtype for mut in auc_vec.index]]
+            best_subtype = sub_aucs.idxmax()
+            auc_tupl = auc_df.loc[base_mtype, 'mean'], auc_vec[best_subtype]
+            plt_min = min(plt_min, auc_tupl[0] - 0.03, auc_tupl[1] - 0.029)
 
-                if len(base_indx) == 1:
-                    base_indx = base_indx[0]
-                    base_mtype = auc_vec.index[base_indx]
+            base_size = np.mean(pheno_dict[base_mtype])
+            best_prop = np.mean(pheno_dict[best_subtype]) / base_size
+            plt_size = 0.07 * base_size ** 0.5
+            plot_dict[auc_tupl] = [plt_size, ('', '')]
+            line_dict[auc_tupl] = dict(c=choose_label_colour(gene))
 
-                elif len(base_indx) == 0:
-                    base_mcomb = ExMcomb(auc_vec.index[0].all_mtype,
-                                         base_mtype)
-                    base_phn = np.array(cdata.train_pheno(base_mcomb))
+            cv_sig = (np.array(auc_df['CV'][best_subtype])
+                      > np.array(auc_df['CV'][base_mtype])).all()
 
-                    if base_phn.sum() < 20:
-                        continue
+            # ...and if we are sure that the optimal subgrouping AUC is
+            # better than the point mutation AUC then add a label with the
+            # gene name and a description of the best found subgrouping...
+            if auc_vec.max() >= 0.7:
+                if cv_sig:
+                    if isinstance(best_subtype, MuType):
+                        plot_dict[auc_tupl][1] = gene, get_fancy_label(
+                            get_subtype(best_subtype),
+                            pnt_link='\nor ', phrase_link=' '
+                            )
 
                     else:
-                        mtch_phn = {mut for mut, phn in pheno_dict.items()
-                                    if (phn == base_phn).all()}
+                        plot_dict[auc_tupl][1] = gene, get_mcomb_lbl(
+                            best_subtype)
 
-                        if len(mtch_phn) == 1:
-                            base_mtype = tuple(mtch_phn)[0]
-
-                            base_indx = len(auc_vec)
-                            auc_vec = auc_vec.append(pd.Series({
-                                base_mtype: auc_vals[base_mtype]}))
-
-                        else:
-                            continue
+                # ...if we are not sure but the respective AUCs are still
+                # pretty great then add a label with just the gene name...
                 else:
-                    raise ValueError
+                    plot_dict[auc_tupl][1] = gene, ''
 
-            best_subtype = auc_vec[:base_indx].append(
-                auc_vec[(base_indx + 1):]).idxmax()
-
-            auc_tupl = auc_vec[base_mtype], auc_vec[best_subtype]
-            line_dict[auc_tupl] = dict(c=choose_label_colour(gene))
-            base_size = np.mean(pheno_dict[base_mtype])
-            plt_size = 0.07 * base_size ** 0.5
-
-            plot_dict[auc_tupl] = [13 * plt_size, ('', '')]
-            plt_min = min(plt_min, auc_tupl[0] - 0.03, auc_tupl[1] - 0.029)
-            best_prop = min(np.mean(pheno_dict[best_subtype]) / base_size, 1)
-            conf_sc = calc_conf(conf_vals[best_subtype],
-                                conf_vals[base_mtype])
-
-            if auc_tupl[1] > 0.7 and conf_sc > 0.8:
-                if isinstance(best_subtype, MuType):
-                    plot_dict[auc_tupl][1] = gene, get_fancy_label(
-                        tuple(best_subtype.subtype_iter())[0][1],
-                        pnt_link='\nor ', phrase_link=' '
-                        )
-                else:
-                    plot_dict[auc_tupl][1] = gene, get_mcomb_lbl(best_subtype)
-
-            # ...if we are not sure but the respective AUCs are still
-            # pretty great then add a label with just the gene name...
-            elif auc_tupl[0] > 0.7 or auc_tupl[1] > 0.7:
-                plot_dict[auc_tupl][1] = gene, ''
-
-            auc_bbox = (auc_tupl[0] - plt_size / 2,
+            pie_bbox = (auc_tupl[0] - plt_size / 2,
                         auc_tupl[1] - plt_size / 2, plt_size, plt_size)
 
             pie_ax = inset_axes(ax, width='100%', height='100%',
-                                bbox_to_anchor=auc_bbox,
+                                bbox_to_anchor=pie_bbox,
                                 bbox_transform=ax.transData,
                                 axes_kwargs=dict(aspect='equal'), borderpad=0)
 
@@ -167,6 +134,11 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals,
     if add_lgnd:
         ax, plot_dict = add_scatterpie_legend(ax, plot_dict, plt_min, args)
 
+    else:
+        ax.text(0.97, 0.02, get_cohort_label(args.cohort), size=21,
+                style='italic', ha='right', va='bottom',
+                transform=ax.transAxes)
+
     if plot_dict:
         lbl_pos = place_scatter_labels(plot_dict, ax,
                                        plt_lims=[[plt_min + 0.01, 0.99]] * 2,
@@ -185,12 +157,11 @@ def plot_sub_comparisons(auc_vals, pheno_dict, conf_vals,
     plt.close()
 
 
-def plot_copy_comparisons(auc_vals, pheno_dict, conf_vals,
-                          args, add_lgnd=False):
+def plot_copy_comparisons(auc_df, pheno_dict, args, add_lgnd=False):
     fig, (gain_ax, loss_ax) = plt.subplots(figsize=(15, 7), nrows=1, ncols=2)
 
-    use_aucs = auc_vals[[not isinstance(mtype, (Mcomb, ExMcomb))
-                         for mtype in auc_vals.index]]
+    use_aucs = auc_df[[not isinstance(mtype, (Mcomb, ExMcomb))
+                       for mtype in auc_df.index]]['mean']
     subt_dict = {mtype: tuple(mtype.subtype_iter())[0][1]
                  for mtype in use_aucs.index}
 
@@ -222,32 +193,38 @@ def plot_copy_comparisons(auc_vals, pheno_dict, conf_vals,
                 plt_size = 0.07 * base_size ** 0.5
                 plot_dicts[copy_type][auc_tupl] = [plt_size, ('', '')]
                 plt_min = min(plt_min, auc_tupl[0] - 0.03, auc_tupl[1] - 0.03)
-
                 best_prop = np.mean(pheno_dict[best_subtype]) / base_size
-                conf_sc = calc_conf(conf_vals[best_subtype],
-                                    conf_vals[base_mtype])
+
+                cv_sig = (np.array(auc_df['CV'][best_subtype])
+                          > np.array(auc_df['CV'][base_mtype])).all()
 
                 # ...and if we are sure that the optimal subgrouping AUC is
                 # better than the point mutation AUC then add a label with the
                 # gene name and a description of the best found subgrouping...
-                if auc_tupl[1] > 0.7 and conf_sc > 0.8:
-                    plot_dicts[copy_type][auc_tupl][1] = (
-                        gene, get_fancy_label(
-                            tuple(best_subtype.subtype_iter())[0][1],
-                            pnt_link='\nor ', phrase_link=' '
-                            )
-                        )
+                if auc_vec.max() >= 0.7:
+                    if cv_sig:
+                        if isinstance(best_subtype, MuType):
+                            plot_dicts[copy_type][auc_tupl][1] = (
+                                gene, get_fancy_label(
+                                    get_subtype(best_subtype),
+                                    pnt_link='\nor ', phrase_link=' '
+                                    )
+                                )
 
-                # ...if we are not sure but the respective AUCs are still
-                # pretty great then add a label with just the gene name...
-                elif auc_tupl[0] > 0.7 or auc_tupl[1] > 0.7:
-                    plot_dicts[copy_type][auc_tupl][1] = gene, ''
+                        else:
+                            plot_dicts[copy_type][auc_tupl][1] = (
+                                gene, get_mcomb_lbl(best_subtype))
 
-                auc_bbox = (auc_tupl[0] - plt_size / 2,
+                    # ...if we are not sure but the respective AUCs are still
+                    # pretty great then add a label with just the gene name...
+                    else:
+                        plot_dicts[copy_type][auc_tupl][1] = gene, ''
+
+                pie_bbox = (auc_tupl[0] - plt_size / 2,
                             auc_tupl[1] - plt_size / 2, plt_size, plt_size)
 
                 pie_ax = inset_axes(ax, width='100%', height='100%',
-                                    bbox_to_anchor=auc_bbox,
+                                    bbox_to_anchor=pie_bbox,
                                     bbox_transform=ax.transData,
                                     axes_kwargs=dict(aspect='equal'),
                                     borderpad=0)
@@ -418,14 +395,12 @@ def plot_iso_comparisons(auc_dfs, pheno_dict, args):
     plt.close()
 
 
-def plot_dyad_comparisons(auc_vals, pheno_dict, conf_vals, args):
+def plot_dyad_comparisons(auc_vals, pheno_dict, args):
     fig, (gain_ax, loss_ax) = plt.subplots(figsize=(17, 8), nrows=1, ncols=2)
 
-    pnt_aucs = auc_vals[[
-        not isinstance(mtype, (Mcomb, ExMcomb))
-        and (tuple(mtype.subtype_iter())[0][1] & copy_mtype).is_empty()
-        for mtype in auc_vals.index
-        ]]
+    pnt_aucs = auc_vals[[not isinstance(mtype, (Mcomb, ExMcomb))
+                         and (get_subtype(mtype) & copy_mtype).is_empty()
+                         for mtype in auc_vals.index]]
 
     plot_df = pd.DataFrame(
         index=pnt_aucs.index,
@@ -438,8 +413,7 @@ def plot_dyad_comparisons(auc_vals, pheno_dict, conf_vals, args):
             ).transpose()
 
     for pnt_type, copy_indx in product(pnt_aucs.index, plot_df.columns):
-        dyad_type = MuType({
-            ('Gene', tuple(pnt_type.label_iter())[0]): copy_indx[-1]})
+        dyad_type = MuType({('Gene', get_label(pnt_type)): copy_indx[-1]})
         dyad_type |= pnt_type
 
         if dyad_type in auc_vals.index:
@@ -451,8 +425,7 @@ def plot_dyad_comparisons(auc_vals, pheno_dict, conf_vals, args):
         for (dpth_lbl, copy_type), plot_aucs in plot_df[copy_lbl].iteritems():
             copy_aucs = plot_aucs[~plot_aucs.isnull()]
 
-            for gene, auc_vec in copy_aucs.groupby(
-                    lambda mtype: tuple(mtype.label_iter())[0]):
+            for gene, auc_vec in copy_aucs.groupby(get_label):
                 gene_clr = choose_label_colour(gene)
 
                 auc_tupl = pnt_aucs[auc_vec.index].mean(), auc_vec.mean()
@@ -467,7 +440,7 @@ def plot_dyad_comparisons(auc_vals, pheno_dict, conf_vals, args):
 
                 for pnt_type, copy_auc in auc_vec.iteritems():
                     base_size = np.mean(pheno_dict[pnt_type])
-                    pnt_size = 1.41 * base_size ** 0.5
+                    pnt_size = 0.07 * base_size ** 0.5
 
                     if dpth_lbl == 'all':
                         dpth_clr = gene_clr
@@ -568,7 +541,6 @@ def main():
     out_aucs = {lvls: list() for lvls, _ in out_iter}
     out_confs = {lvls: list() for lvls, _ in out_iter}
     phn_dict = dict()
-    cdata = None
 
     auc_dfs = {ex_lbl: pd.DataFrame([])
                for ex_lbl in ['All', 'Iso', 'IsoShal']}
@@ -587,20 +559,6 @@ def main():
                              'r') as f:
                 out_aucs[lvls] += [pickle.load(f)]
 
-            with bz2.BZ2File(Path(out_dir, '__'.join(["out-conf", out_tag])),
-                             'r') as f:
-                out_confs[lvls] += [pickle.load(f)]
-
-            with bz2.BZ2File(Path(out_dir,
-                                  '__'.join(["cohort-data", out_tag])),
-                             'r') as f:
-                new_cdata = pickle.load(f)
-
-            if cdata is None:
-                cdata = new_cdata
-            else:
-                cdata.merge(new_cdata)
-
         mtypes_comp = np.greater_equal.outer(
             *([[set(auc_vals['All']['mean'].index)
                 for auc_vals in out_aucs[lvls]]] * 2)
@@ -613,24 +571,16 @@ def main():
             for ex_lbl in ['All', 'Iso', 'IsoShal']:
                 auc_dfs[ex_lbl] = pd.concat([
                     auc_dfs[ex_lbl], out_aucs[lvls][super_indx][ex_lbl]])
-                conf_dfs[ex_lbl] = pd.concat([
-                    conf_dfs[ex_lbl], out_confs[lvls][super_indx][ex_lbl]])
 
     auc_dfs = {ex_lbl: auc_df.loc[~auc_df.index.duplicated()]
                for ex_lbl, auc_df in auc_dfs.items()}
-    conf_dfs = {ex_lbl: conf_df.loc[~conf_df.index.duplicated()]
-                for ex_lbl, conf_df in conf_dfs.items()}
 
-    for ex_lbl in ['All', 'Iso', 'IsoShal']:
-        plot_sub_comparisons(auc_dfs[ex_lbl]['mean'], phn_dict,
-                             conf_dfs[ex_lbl]['mean'], cdata, args, ex_lbl)
+    for ex_lbl, auc_df in auc_dfs.items():
+        plot_sub_comparisons(auc_df, phn_dict, args, ex_lbl)
 
-    plot_copy_comparisons(auc_dfs['All']['mean'], phn_dict,
-                          conf_dfs['All']['mean'], args)
-
+    plot_copy_comparisons(auc_dfs['All'], phn_dict, args)
     plot_iso_comparisons(auc_dfs, phn_dict, args)
-    plot_dyad_comparisons(auc_dfs['All']['mean'], phn_dict,
-                          conf_dfs['All']['mean'], args)
+    plot_dyad_comparisons(auc_dfs['All']['mean'], phn_dict, args)
 
 
 if __name__ == '__main__':
