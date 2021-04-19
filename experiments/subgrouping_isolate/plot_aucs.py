@@ -1,3 +1,15 @@
+"""
+This module produces plots comparing AUCs of different classification tasks.
+
+Example usages:
+    python -m dryads-research.experiments.subgrouping_isolate.plot_aucs \
+        microarray METABRIC_LumA Ridge
+    python -m dryads-research.experiments.subgrouping_isolate.plot_aucs \
+        Firehose HNSC_HPV- Ridge
+    python -m dryads-research.experiments.subgrouping_isolate.plot_aucs \
+        Firehose BRCA_LumA Ridge
+
+"""
 
 from ..utilities.mutations import (
     pnt_mtype, copy_mtype, shal_mtype,
@@ -27,7 +39,6 @@ from itertools import permutations, product
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-import seaborn as sns
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 mpl.use('Agg')
@@ -61,8 +72,7 @@ def plot_sub_comparisons(auc_df, pheno_dict, args, ex_lbl, add_lgnd=False):
                                  for mtype in mut.mtypes)
                              for mut in use_aucs.index]]['mean']
 
-    for gene, auc_vec in use_aucs.groupby(
-            lambda mut: tuple(mut.label_iter())[0]):
+    for gene, auc_vec in use_aucs.groupby(get_label):
         if len(auc_vec) > 1:
             base_mtype = MuType({('Gene', gene): pnt_mtype})
 
@@ -162,8 +172,7 @@ def plot_copy_comparisons(auc_df, pheno_dict, args, add_lgnd=False):
 
     use_aucs = auc_df[[not isinstance(mtype, (Mcomb, ExMcomb))
                        for mtype in auc_df.index]]['mean']
-    subt_dict = {mtype: tuple(mtype.subtype_iter())[0][1]
-                 for mtype in use_aucs.index}
+    subt_dict = {mtype: get_subtype(mtype) for mtype in use_aucs.index}
 
     plot_dicts = {gains_mtype: dict(), dels_mtype: dict()}
     line_dicts = {gains_mtype: dict(), dels_mtype: dict()}
@@ -176,8 +185,7 @@ def plot_copy_comparisons(auc_df, pheno_dict, args, add_lgnd=False):
             for mtype in use_aucs.index
             ]]
 
-        for gene, auc_vec in copy_aucs.groupby(
-                lambda mtype: tuple(mtype.label_iter())[0]):
+        for gene, auc_vec in copy_aucs.groupby(get_label):
             if len(auc_vec) > 1:
                 base_mtype = MuType({('Gene', gene): copy_type | pnt_mtype})
 
@@ -282,11 +290,9 @@ def plot_iso_comparisons(auc_dfs, pheno_dict, args):
     fig, axarr = plt.subplots(figsize=(15, 15), nrows=3, ncols=3)
 
     base_aucs = {
-        ex_lbl: auc_df.loc[[
-            not isinstance(mtype, (Mcomb, ExMcomb))
-            and (tuple(mtype.subtype_iter())[0][1] & copy_mtype).is_empty()
-            for mtype in auc_df.index
-            ], 'mean']
+        ex_lbl: auc_df.loc[[not isinstance(mtype, (Mcomb, ExMcomb))
+                            and (get_subtype(mtype) & copy_mtype).is_empty()
+                            for mtype in auc_df.index], 'mean']
         for ex_lbl, auc_df in auc_dfs.items()
         }
 
@@ -326,7 +332,7 @@ def plot_iso_comparisons(auc_dfs, pheno_dict, args):
                           base_aucs[ex_lbl2][mtype] - 0.013)
             mtype_sz = 301 * np.mean(pheno_dict[mtype])
 
-            cur_gene = tuple(mtype.label_iter())[0]
+            cur_gene = get_label(mtype)
             if cur_gene not in clr_dict:
                 clr_dict[cur_gene] = choose_label_colour(cur_gene)
 
@@ -341,7 +347,7 @@ def plot_iso_comparisons(auc_dfs, pheno_dict, args):
             plt_min = min(plt_min, plt_x - 0.013, plt_y - 0.013)
             mtype_sz = 301 * np.mean(pheno_dict[mtype])
 
-            cur_gene = tuple(mtype.label_iter())[0]
+            cur_gene = get_label(mtype)
             if cur_gene not in clr_dict:
                 clr_dict[cur_gene] = choose_label_colour(cur_gene)
 
@@ -539,13 +545,8 @@ def main():
 
     out_iter = out_use.groupby('Levels')['File']
     out_aucs = {lvls: list() for lvls, _ in out_iter}
-    out_confs = {lvls: list() for lvls, _ in out_iter}
     phn_dict = dict()
-
-    auc_dfs = {ex_lbl: pd.DataFrame([])
-               for ex_lbl in ['All', 'Iso', 'IsoShal']}
-    conf_dfs = {ex_lbl: pd.DataFrame([])
-                for ex_lbl in ['All', 'Iso', 'IsoShal']}
+    auc_dfs = {ex_lbl: pd.DataFrame() for ex_lbl in ['All', 'Iso', 'IsoShal']}
 
     for lvls, out_files in out_iter:
         for out_file in out_files:

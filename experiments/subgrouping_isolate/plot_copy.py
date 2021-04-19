@@ -80,25 +80,20 @@ def plot_point_similarity(pred_dfs, pheno_dicts, auc_lists,
 
         for gene, auc_vals in use_aucs.groupby(get_label):
             pnt_comb = {mcomb for mcomb in auc_vals.index
-                        if all(pnt_mtype == tuple(mtype.subtype_iter())[0][1]
+                        if all(pnt_mtype == get_subtype(mtype)
                                for mtype in mcomb.mtypes)}
 
             cpy_combs = {
                 mcomb for mcomb in auc_vals.index
-                if all(
-                    cna_mtype.is_supertype(tuple(mtype.subtype_iter())[0][1])
-                    for mtype in mcomb.mtypes
-                    )
+                if all(cna_mtype.is_supertype(get_subtype(mtype))
+                       for mtype in mcomb.mtypes)
                 }
 
             if args.ex_lbl == 'IsoShal':
                 cpy_combs = {
                     mcomb for mcomb in cpy_combs
-                    if all(
-                        deep_mtype.is_supertype(
-                            tuple(mtype.subtype_iter())[0][1])
-                        for mtype in mcomb.mtypes
-                        )
+                    if all(deep_mtype.is_supertype(get_subtype(mtype))
+                           for mtype in mcomb.mtypes)
                     }
 
             if len(pnt_comb) == 1 or len(cpy_combs) > 0:
@@ -205,11 +200,11 @@ def plot_point_similarity(pred_dfs, pheno_dicts, auc_lists,
     for k, ax in zip(['Pnt', 'Cpy'], [pnt_ax, cpy_ax]):
         for (src, coh), siml_vals in siml_dicts[k].items():
             for mcomb, siml_val in siml_vals.items():
-                cur_gene = tuple(mcomb.label_iter())[0]
+                cur_gene = get_label(mcomb)
 
                 auc_val = auc_lists[src, coh][mcomb]
                 plt_size = size_mult * np.mean(pheno_dicts[src, coh][mcomb])
-                plot_dicts[k][auc_val, siml_val][0] = plt_size * 3.1
+                plot_dicts[k][auc_val, siml_val][0] = plt_size
 
                 ax.scatter(auc_val, siml_val,
                            c=[clr_dict[cur_gene]], s=1473 * plt_size,
@@ -279,7 +274,7 @@ def plot_similarity_symmetry(pred_dfs, pheno_dicts, auc_lists,
             continue
 
         base_mtree = tuple(cdata_dict[src, coh].mtrees.values())[0]
-        use_genes = {tuple(mcomb.label_iter())[0] for mcomb in use_aucs.index}
+        use_genes = {get_label(mcomb) for mcomb in use_aucs.index}
         train_samps = cdata_dict[src, coh].get_train_samples()
         coh_lbl = get_cohort_label(coh)
 
@@ -297,28 +292,22 @@ def plot_similarity_symmetry(pred_dfs, pheno_dicts, auc_lists,
             for gene, all_mtype in all_mtypes.items()
             }
 
-        for gene, auc_vals in use_aucs.groupby(
-                lambda mcomb: tuple(mcomb.label_iter())[0]):
+        for gene, auc_vals in use_aucs.groupby(get_label):
             pnt_comb = {mcomb for mcomb in auc_vals.index
-                        if all(pnt_mtype == tuple(mtype.subtype_iter())[0][1]
+                        if all(pnt_mtype == get_subtype(mtype)
                                for mtype in mcomb.mtypes)}
 
             cpy_combs = {
                 mcomb for mcomb in auc_vals.index
-                if all(
-                    cna_mtype.is_supertype(tuple(mtype.subtype_iter())[0][1])
-                    for mtype in mcomb.mtypes
-                    )
+                if all(cna_mtype.is_supertype(get_subtype(mtype))
+                       for mtype in mcomb.mtypes)
                 }
 
             if args.ex_lbl == 'IsoShal':
                 cpy_combs = {
                     mcomb for mcomb in cpy_combs
-                    if all(
-                        deep_mtype.is_supertype(
-                            tuple(mtype.subtype_iter())[0][1])
-                        for mtype in mcomb.mtypes
-                        )
+                    if all(deep_mtype.is_supertype(get_subtype(mtype))
+                           for mtype in mcomb.mtypes)
                     }
 
             if len(pnt_comb) == 1 and len(cpy_combs) > 0:
@@ -351,8 +340,7 @@ def plot_similarity_symmetry(pred_dfs, pheno_dicts, auc_lists,
                     line_dict[siml_tupl] = gene
 
                     if any(abs(siml_val) > 0.4 for siml_val in siml_tupl):
-                        cpy_subt = tuple(
-                            tuple(cpy_comb.mtypes)[0].subtype_iter())[0][1]
+                        cpy_subt = get_subtype(tuple(cpy_comb.mtypes)[0])
 
                         plot_dict[siml_tupl] = [
                             None, ("{} in {}".format(gene, coh_lbl),
@@ -384,13 +372,13 @@ def plot_similarity_symmetry(pred_dfs, pheno_dicts, auc_lists,
                 max(1.07, plt_max + plt_rng / 23)]
 
     for (src, coh, cpy_comb), (cpy_siml, pnt_siml) in siml_dict.items():
-        cur_gene = tuple(cpy_comb.label_iter())[0]
+        cur_gene = get_label(cpy_comb)
 
-        plt_size = size_mult * np.mean(pheno_dicts[src, coh][cpy_comb])
-        plot_dict[pnt_siml, cpy_siml][0] = plt_size * 1.31
+        plt_size = 0.47 * size_mult * np.mean(pheno_dicts[src, coh][cpy_comb])
+        plot_dict[pnt_siml, cpy_siml][0] = plt_size
 
         ax.scatter(pnt_siml, cpy_siml, c=[clr_dict[cur_gene]],
-                   s=701 * plt_size, alpha=0.37, edgecolor='none')
+                   s=1103 * plt_size, alpha=0.37, edgecolor='none')
 
     for tupl in line_dict:
         line_dict[tupl] = {'c': clr_dict[line_dict[tupl]]}
@@ -437,15 +425,15 @@ def plot_pair_scores(cpy_mcomb, pnt_mcomb, pred_df, auc_vals, pheno_dict,
         gridspec_kw=dict(height_ratios=[4, 1], width_ratios=[1, 4])
         )
 
-    use_gene = tuple(cpy_mcomb.label_iter())[0]
-    assert tuple(pnt_mcomb.label_iter())[0] == use_gene
+    use_gene = get_label(cpy_mcomb)
+    assert get_label(pnt_mcomb) == use_gene
     cna_mtype = cna_mtypes[cna_lbl]
     if args.ex_lbl == 'IsoShal':
         cna_mtype -= shal_mtype
 
     assert len(cpy_mcomb.mtypes) == len(pnt_mcomb.mtypes) == 1
-    cpy_type = tuple(tuple(cpy_mcomb.mtypes)[0].subtype_iter())[0][1]
-    pnt_type = tuple(tuple(pnt_mcomb.mtypes)[0].subtype_iter())[0][1]
+    cpy_type = get_subtype(tuple(cpy_mcomb.mtypes)[0])
+    pnt_type = get_subtype(tuple(pnt_mcomb.mtypes)[0])
 
     base_mtree = tuple(cdata.mtrees.values())[0]
     all_mtype = MuType({('Gene', use_gene): base_mtree[use_gene].allkey()})
@@ -657,7 +645,7 @@ def plot_interaction_symmetries(pred_dfs, pheno_dicts, auc_lists,
             continue
 
         base_mtree = tuple(cdata_dict[src, coh].mtrees.values())[0]
-        use_genes = {tuple(mcomb.label_iter())[0] for mcomb in use_aucs.index}
+        use_genes = {get_label(mcomb) for mcomb in use_aucs.index}
         train_samps = cdata_dict[src, coh].get_train_samples()
         coh_lbl = get_cohort_label(coh)
 
@@ -675,24 +663,18 @@ def plot_interaction_symmetries(pred_dfs, pheno_dicts, auc_lists,
             for gene, all_mtype in all_mtypes.items()
             }
 
-        for gene, auc_vals in use_aucs.groupby(
-                lambda mcomb: tuple(mcomb.label_iter())[0]):
+        for gene, auc_vals in use_aucs.groupby(get_label):
             cpy_combs = {
                 mcomb for mcomb in auc_vals.index
-                if all(
-                    cna_mtype.is_supertype(tuple(mtype.subtype_iter())[0][1])
-                    for mtype in mcomb.mtypes
-                    )
+                if all(cna_mtype.is_supertype(get_subtype(mtype))
+                       for mtype in mcomb.mtypes)
                 }
 
             if args.ex_lbl == 'IsoShal':
                 cpy_combs = {
                     mcomb for mcomb in cpy_combs
-                    if all(
-                        deep_mtype.is_supertype(
-                            tuple(mtype.subtype_iter())[0][1])
-                        for mtype in mcomb.mtypes
-                        )
+                    if all(deep_mtype.is_supertype(get_subtype(mtype))
+                           for mtype in mcomb.mtypes)
                     }
 
             assert all(len(cpy_comb.mtypes) == 1 for cpy_comb in cpy_combs)
@@ -814,7 +796,7 @@ def plot_interaction_symmetries(pred_dfs, pheno_dicts, auc_lists,
         both_intx = set(siml_dict['Intx-Pnt']) & set(siml_dict['Intx-Cpy'])
 
         for mcomb in both_intx:
-            cur_gene = tuple(mcomb.label_iter())[0]
+            cur_gene = get_label(mcomb)
             plt_size = size_mult * np.mean(pheno_dicts[src, coh][mcomb])
 
             intx_ax2.scatter(siml_dict['Intx-Pnt'][mcomb],
@@ -823,11 +805,11 @@ def plot_interaction_symmetries(pred_dfs, pheno_dicts, auc_lists,
                              alpha=0.31, edgecolor='none')
 
         for pnt_comb, pnt_siml in siml_dict['Pnt-Intx'].items():
-            cur_gene = tuple(pnt_comb.label_iter())[0]
+            cur_gene = get_label(pnt_comb)
             plt_size = size_mult * np.mean(pheno_dicts[src, coh][pnt_comb])
 
             cpy_intx = {mcomb for mcomb in siml_dict['Intx-Cpy']
-                        if tuple(mcomb.label_iter())[0] == cur_gene}
+                        if get_label(mcomb) == cur_gene}
 
             for intx_comb in cpy_intx:
                 intx_ax1.scatter(pnt_siml, siml_dict['Intx-Cpy'][intx_comb],
@@ -835,7 +817,7 @@ def plot_interaction_symmetries(pred_dfs, pheno_dicts, auc_lists,
                                  alpha=0.31, edgecolor='none')
 
             pnt_intx = {mcomb for mcomb in siml_dict['Intx-Pnt']
-                        if tuple(mcomb.label_iter())[0] == cur_gene}
+                        if get_label(mcomb) == cur_gene}
 
             for intx_comb in pnt_intx:
                 pnt_ax.scatter(siml_dict['Intx-Pnt'][intx_comb], pnt_siml,
@@ -843,11 +825,11 @@ def plot_interaction_symmetries(pred_dfs, pheno_dicts, auc_lists,
                                alpha=0.31, edgecolor='none')
 
         for cpy_comb, cpy_siml in siml_dict['Cpy-Intx'].items():
-            cur_gene = tuple(cpy_comb.label_iter())[0]
+            cur_gene = get_label(cpy_comb)
             plt_size = size_mult * np.mean(pheno_dicts[src, coh][cpy_comb])
 
             cpy_intx = {mcomb for mcomb in siml_dict['Intx-Cpy']
-                        if tuple(mcomb.label_iter())[0] == cur_gene}
+                        if get_label(mcomb) == cur_gene}
 
             for intx_comb in cpy_intx:
                 cpy_ax.scatter(cpy_siml, siml_dict['Intx-Cpy'][intx_comb],

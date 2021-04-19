@@ -937,20 +937,24 @@ def main():
         out_df = out_df.loc[out_df.Classif.isin(set(args.clfs))]
 
     out_iter = out_df.groupby(['Levels', 'Classif'])['File']
+    out_tags = {fl: '__'.join(fl.parts[-1].split('__')[1:])
+                for fl in out_df.File}
+
     phn_dict = dict()
     cdata = None
     out_aucs = list()
-    out_preds = {clf: list() for clf in set(out_df.Classif)}
+    out_preds = {clf: {'All': list(), 'Iso': list()}
+                 for clf in set(out_df.Classif)}
 
     for (lvls, clf), out_files in out_iter:
         auc_list = [None for _ in out_files]
-        pred_list = [None for _ in out_files]
+        pred_lists = {ex_lbl: [None for _ in out_files]
+                      for ex_lbl in ['All', 'Iso']}
 
         for i, out_file in enumerate(out_files):
-            out_tag = '__'.join(out_file.parts[-1].split('__')[1:])
-
             with bz2.BZ2File(Path(out_dir,
-                                  '__'.join(["cohort-data", out_tag])),
+                                  '__'.join(["cohort-data",
+                                             out_tags[out_file]])),
                              'r') as f:
                 new_cdata = pickle.load(f)
 
@@ -959,11 +963,13 @@ def main():
                 else:
                     cdata.merge(new_cdata)
 
-            with bz2.BZ2File(Path(out_dir, '__'.join(["out-pheno", out_tag])),
+            with bz2.BZ2File(Path(out_dir, '__'.join(["out-pheno",
+                                                      out_tags[out_file]])),
                              'r') as f:
                 phn_dict.update(pickle.load(f))
 
-            with bz2.BZ2File(Path(out_dir, '__'.join(["out-aucs", out_tag])),
+            with bz2.BZ2File(Path(out_dir, '__'.join(["out-aucs",
+                                                      out_tags[out_file]])),
                              'r') as f:
                 auc_dict = pickle.load(f)
 
@@ -977,21 +983,27 @@ def main():
                     names=['Classif', 'Mutation']
                     )
 
-            with bz2.BZ2File(Path(out_dir, '__'.join(["out-pred", out_tag])),
-                             'r') as f:
-                pred_list[i] = pickle.load(f)
+            for ex_lbl in ['All', 'Iso']:
+                with bz2.BZ2File(Path(out_dir,
+                                      '__'.join(["out-pred_{}".format(ex_lbl),
+                                                 out_tags[out_file]])),
+                                 'r') as f:
+                    pred_lists[ex_lbl][i] = pickle.load(f)
 
         mtypes_comp = np.greater_equal.outer(
             *([[set(auc_vals.index) for auc_vals in auc_list]] * 2))
-        super_list = np.apply_along_axis(all, 1, mtypes_comp)
+        super_comp = np.apply_along_axis(all, 1, mtypes_comp)
 
-        if super_list.any():
-            super_indx = super_list.argmax()
+        if super_comp.any():
+            super_indx = super_comp.argmax()
             out_aucs += [auc_list[super_indx]]
-            out_preds[clf] += [pred_list[super_indx]]
+            out_preds[clf]['All'] += [pred_lists['All'][super_indx]]
+            out_preds[clf]['Iso'] += [pred_lists['Iso'][super_indx]]
 
         else:
-            raise ValueError
+            out_aucs += pd.concat(auc_list, sort=False)
+            out_preds[clf]['All'] += pd.concat(pred_lists['All'], sort=False)
+            out_preds[clf]['Iso'] += pd.concat(pred_lists['Iso'], sort=False)
 
     auc_df = pd.concat(out_aucs, sort=True)
     auc_df = auc_df.loc[~auc_df.index.duplicated()]
@@ -1051,12 +1063,8 @@ def main():
         )[0]
     use_mcomb = tuple(ex_muts[use_clf, use_mtype])[0]
 
-    pred_dfs = {
-        ex_lbl: pd.concat([pred_list[ex_lbl]
-                           for pred_list in out_preds[use_clf]], sort=True)
-        for ex_lbl in ['All', 'Iso']
-        }
-
+    pred_dfs = {ex_lbl: pd.concat(out_preds[use_clf][ex_lbl], sort=True)
+                for ex_lbl in ['All', 'Iso']}
     pred_dfs = {ex_lbl: pred_df.loc[~pred_df.index.duplicated()]
                 for ex_lbl, pred_df in pred_dfs.items()}
 
