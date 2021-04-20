@@ -1,23 +1,16 @@
 
-import os
-import sys
-
-base_dir = os.path.join(os.environ['DATADIR'], 'HetMan', 'subvariant_test')
-sys.path.extend([os.path.join(os.path.dirname(__file__), '..', '..', '..')])
-plot_dir = os.path.join(base_dir, 'plots', 'mutations')
-
-from HetMan.experiments.subvariant_test import (
-    domain_dir, pnt_mtype, copy_mtype)
-from HetMan.experiments.subvariant_tour.utils import RandomType
+from ..utilities.mutations import pnt_mtype, copy_mtype, RandomType
 from dryadic.features.mutations import MuType, MuTree
 
-from HetMan.experiments.subvariant_infer import variant_clrs
-from dryadic.features.data.domains import get_protein_domains
-from HetMan.experiments.subvariant_test.merge_test import merge_cohort_data
-from HetMan.experiments.subvariant_test.utils import get_fancy_label
-from HetMan.experiments.subvariant_test.plot_copy import select_mtype
-from HetMan.experiments.utilities.colour_maps import form_clrs
+from ..subgrouping_test import base_dir
+from ..utilities.misc import get_label, get_subtype, choose_label_colour
+from ..utilities.labels import get_cohort_label, get_fancy_label
 
+from dryadic.features.data.domains import get_protein_domains
+from .utils import filter_mtype
+from ..utilities.colour_maps import variant_clrs, form_clrs
+
+import os
 import argparse
 from pathlib import Path
 import bz2
@@ -31,7 +24,6 @@ import re
 import random
 
 import matplotlib as mpl
-mpl.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -41,10 +33,12 @@ from matplotlib.patches import Rectangle as Rect
 from matplotlib.collections import PatchCollection
 
 # make plots cleaner by turning off outer box, make background all white
+mpl.use('Agg')
 plt.style.use('fivethirtyeight')
-plt.rcParams['axes.facecolor']='white'
-plt.rcParams['savefig.facecolor']='white'
-plt.rcParams['axes.edgecolor']='white'
+plt.rcParams['axes.facecolor'] = 'white'
+plt.rcParams['savefig.facecolor'] = 'white'
+plt.rcParams['axes.edgecolor'] = 'white'
+plot_dir = os.path.join(base_dir, 'plots', 'mutations')
 
 
 def clean_level(lvl):
@@ -286,7 +280,7 @@ def sort_levels(lbls, lvl):
 
 def recurse_labels(ax, mtree, xlims, ymax, all_size,
                    cur_j=0, clr_mtype=False, add_lbls=True, mut_clr=None):
-    all_wdth = len(MuType(mtree.allkey()).subkeys())
+    all_wdth = len(MuType(mtree.allkey()).leaves())
     cur_x = xlims[0]
     muts_dict = dict(mtree)
 
@@ -297,7 +291,7 @@ def recurse_labels(ax, mtree, xlims, ymax, all_size,
         muts = muts_dict[lbl]
 
         if isinstance(muts, MuTree):
-            lf_wdth = len(MuType(muts.allkey()).subkeys())
+            lf_wdth = len(MuType(muts.allkey()).leaves())
         else:
             lf_wdth = 1
 
@@ -337,7 +331,7 @@ def recurse_labels(ax, mtree, xlims, ymax, all_size,
 
         # otherwise, check to see which subtypes need to be coloured
         else:
-            sub_dict = dict(clr_mtype.subtype_list())
+            sub_dict = dict(clr_mtype.subtype_iter())
 
             if lbl not in sub_dict:
                 use_clr = variant_clrs['WT']
@@ -394,11 +388,11 @@ def plot_tree_classif(pred_dict, phn_dict, auc_dict, use_lvls,
         }
 
     for src, clf in use_mtypes:
-        cur_mtypes = {mtype.subtype_list()[0][1]
+        cur_mtypes = {mtype.subtype_iter()[0][1]
                       for mtype, phn in phn_dict[src, use_lvls, clf].items()
                       if (not isinstance(mtype, RandomType)
-                          and mtype.subtype_list()[0][1] != pnt_mtype
-                          and (mtype.subtype_list()[0][1]
+                          and mtype.subtype_iter()[0][1] != pnt_mtype
+                          and (mtype.subtype_iter()[0][1]
                                & copy_mtype).is_empty())}
 
         if len(cur_mtypes) >= 5:
@@ -429,7 +423,7 @@ def plot_tree_classif(pred_dict, phn_dict, auc_dict, use_lvls,
 
     tree_ax = fig.add_subplot(gs[0, 1:])
     tree_ax.axis('off')
-    leaf_count = len(MuType(use_mtree.allkey()).subkeys())
+    leaf_count = len(MuType(use_mtree.allkey()).leaves())
 
     tree_ax.add_patch(Rect((leaf_count * 0.03, len(lvls_k) + 0.17),
                            leaf_count * 0.23, 0.93,
@@ -474,7 +468,7 @@ def plot_tree_classif(pred_dict, phn_dict, auc_dict, use_lvls,
             top_ec = 'none'
 
         else:
-            tree_mtype = plt_mtype.subtype_list()[0][1].subtype_list()[0][1]
+            tree_mtype = plt_mtype.subtype_iter()[0][1].subtype_iter()[0][1]
             top_fc = 'none'
             top_ec = variant_clrs['Point']
 
@@ -618,7 +612,7 @@ def main():
 
             pred_dict[src, lvls, clf] = pred_data.loc[[
                 mtype for mtype in pred_data.index
-                if select_mtype(mtype, args.gene)
+                if filter_mtype(mtype, args.gene)
                 ]]
 
         with bz2.BZ2File(phn_fl, 'r') as f:
@@ -626,7 +620,7 @@ def main():
 
             phn_dict[src, lvls, clf] = {
                 mtype: phn for mtype, phn in phns.items()
-                if select_mtype(mtype, args.gene)
+                if filter_mtype(mtype, args.gene)
                 }
 
         with bz2.BZ2File(auc_fl, 'r') as f:
@@ -634,7 +628,7 @@ def main():
 
             auc_dict[src, lvls, clf] = auc_data[[
                 mtype for mtype in auc_data.index
-                if select_mtype(mtype, args.gene)
+                if filter_mtype(mtype, args.gene)
                 ]]
 
     if not any(len(phn_vals) > 0 for phn_vals in phn_dict.values()):

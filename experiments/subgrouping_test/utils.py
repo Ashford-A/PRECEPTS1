@@ -1,5 +1,5 @@
 
-from ..utilities.misc import choose_label_colour
+from ..utilities.misc import get_label, choose_label_colour
 from ..utilities.pcawg_colours import cohort_clrs
 from ..utilities.mutations import RandomType
 
@@ -44,9 +44,9 @@ def filter_mtype(mtype, gene):
         if mtype.base_mtype is None:
             filter_stat = False
         else:
-            filter_stat = tuple(mtype.base_mtype.label_iter())[0] == gene
+            filter_stat = get_label(mtype.base_mtype) == gene
 
     else:
-        filter_stat = tuple(mtype.label_iter())[0] == gene
+        filter_stat = get_label(mtype) == gene
 
     return filter_stat

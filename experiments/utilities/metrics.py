@@ -95,6 +95,16 @@ def compare_scores(iso_df, samps, muts_dict,
 
 
 def calc_auc(vals, stat):
+    """Calculates the area under the ROC curve
+
+    Args:
+        vals (np.array): A vector of continuous predicted labels.
+        stat (np.array): The ground truth binary class labels.
+
+    Returns:
+        auc_val (float)
+
+    """
     if stat.all() or not stat.any():
         auc_val = 0.5
 
@@ -111,6 +121,22 @@ def calc_conf(auc_vals1, auc_vals2):
 
 
 def calc_delong(preds1, preds2, stat, auc1=None, auc2=None):
+    """Calculates the one-sided version of DeLong's test statistic.
+
+    Args:
+        preds1, preds2 (np.array)
+            Vectors of continuous predicted labels. This function tests to
+            what extent we can reject the hypothesis that `preds1` does not
+            better predict the ground truth labels than `preds2`.
+
+        stat (np.array): The ground truth binary class labels.
+        auc1, auc2 (float, optional)
+            Pre-computed AUCs can be given if possible which will save time.
+
+    Returns:
+        delong_val (float)
+
+    """
     strc1 = np.greater.outer(preds1[stat], preds1[~stat]).astype(float)
     strc1 += 0.5 * np.equal.outer(preds1[stat], preds1[~stat]).astype(float)
     strc2 = np.greater.outer(preds2[stat], preds2[~stat]).astype(float)
