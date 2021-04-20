@@ -190,7 +190,7 @@ def plot_sub_comparisons(auc_df, pheno_dict, args):
                   > np.array(use_aucs['CV'][base_mtype])).all()
 
         # ...and if we are sure that the optimal subgrouping AUC is
-        # better than the point mutation AUC then add a label with the
+        # better than the gene-wide AUC then add a label with the
         # gene name and a description of the best found subgrouping...
         if auc_vec.max() >= 0.7:
             if cv_sig:
@@ -292,32 +292,37 @@ def plot_copy_comparisons(auc_df, pheno_dict, args):
         base_mtype = MuType({('Gene', gene): pnt_mtype})
 
         # find the results of the gene-wide subgrouping as well
-        # as of the best-performing subgrouping
+        # as of the best-performing CNA subgrouping
         base_indx = auc_vec.index.get_loc(base_mtype)
         best_subtype = auc_vec[:base_indx].append(
             auc_vec[(base_indx + 1):]).idxmax()
 
-        auc_tupl = auc_vec[base_mtype], auc_vec[best_subtype]
-        line_dict[auc_tupl] = dict(c=choose_label_colour(gene))
-        base_gain = base_mtype | MuType({('Gene', gene): dup_mtype})
-        base_loss = base_mtype | MuType({('Gene', gene): loss_mtype})
-
+        # get the proportion of samples in the cohort with a point mutation or
+        # a CNA of the same type (loss/gain) as the optimal CNA subgrouping
         if not (best_subtype & dup_mtype).is_empty():
+            base_gain = base_mtype | MuType({('Gene', gene): dup_mtype})
             cnv_size = np.mean(pheno_dict[base_gain])
+
         else:
+            base_loss = base_mtype | MuType({('Gene', gene): loss_mtype})
             cnv_size = np.mean(pheno_dict[base_loss])
 
+        # get the other plotting properties to use for this comparison
+        auc_tupl = auc_vec[base_mtype], auc_vec[best_subtype]
+        line_dict[auc_tupl] = dict(c=choose_label_colour(gene))
+        best_prop = np.mean(pheno_dict[best_subtype]) / cnv_size
+
+        # add an entry to the list of labels to be placed, adjust size of
+        # plotting region, find if best subgrouping is cv-significantly better
         plt_size = 0.07 * cnv_size ** 0.5
         plot_dict[auc_tupl] = [plt_size, ('', '')]
         plt_min = min(plt_min, auc_vec[base_indx] - 0.03,
                       auc_vec[best_subtype] - 0.03)
-        best_prop = np.mean(pheno_dict[best_subtype]) / cnv_size
-
         cv_sig = (np.array(use_aucs['CV'][best_subtype])
                   > np.array(use_aucs['CV'][base_mtype])).all()
 
-        # ...and if we are sure that the optimal subgrouping AUC is
-        # better than the point mutation AUC then add a label with the
+        # ...and if we are sure that the optimal CNA subgrouping AUC is
+        # better than the gene-wide AUC then add a label with the
         # gene name and a description of the best found subgrouping...
         if auc_vec.max() >= 0.7:
             if cv_sig:
@@ -331,6 +336,7 @@ def plot_copy_comparisons(auc_df, pheno_dict, args):
             else:
                 plot_dict[auc_tupl][1] = gene, ''
 
+        # draw the scatter-piechart for this gene's results
         pie_bbox = (auc_tupl[0] - plt_size / 2,
                     auc_tupl[1] - plt_size / 2, plt_size, plt_size)
 

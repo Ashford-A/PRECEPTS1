@@ -1,3 +1,14 @@
+"""
+This module produces gene-specific plots of experiment output for all genes
+with enumerated subgroupings in at least two of the canonical cohorts listed
+in .__init__.py, and with a subgrouping with a classification task AUC of at
+least 0.7 in any of these cohorts.
+
+Example usages:
+    python -m dryads-research.experiments.subgrouping_test.plot_genes Ridge
+    python -m dryads-research.experiments.subgrouping_test.plot_genes SVCrbf
+
+"""
 
 from .plot_gene import *
 
@@ -22,6 +33,8 @@ def main():
             "*__*__samps-*", "out-trnsf__*__{}.p.gz".format(args.classif)))
         ]
 
+    # obtain experiments' subgrouping enumeration criteria, filter out cohorts
+    # where the ``base'' mutation annotation level has not yet been tested
     out_list = pd.DataFrame([
         {'Source': '__'.join(out_data[0].split('__')[:-2]),
          'Cohort': out_data[0].split('__')[-2],
@@ -30,11 +43,13 @@ def main():
              "out-trnsf__")[1].split('__')[:-1])}
         for out_data in out_datas
         ]).groupby('Cohort').filter(
-        lambda outs: 'Consequence__Exon' in set(outs.Levels))
+            lambda outs: 'Consequence__Exon' in set(outs.Levels))
 
     if out_list.shape[0] == 0:
         raise ValueError("No experiment output found for these parameters!")
 
+    # for each cohort, find the experiments that have been run with the
+    # loosest sample count criteria; filter out non-canonical cohorts
     out_use = out_list.groupby(['Source', 'Cohort', 'Levels'])['Samps'].min()
     out_use = out_use[out_use.index.get_level_values(
         'Cohort').isin(train_cohorts)]
@@ -93,14 +108,18 @@ def main():
 
     auc_df = pd.concat(out_aucs.values())
 
+    # group non-gene-wide point mutation subgroupings according to the cohort
+    # they were enumerated in and the gene they are associated with
     gene_sets = auc_df['mean'][[get_subtype(mtype) != pnt_mtype
                                 and pnt_mtype.is_supertype(get_subtype(mtype))
                                 for _, _, mtype in auc_df.index]].groupby(
                                     lambda x: (x[0], x[1],
                                                get_label(x[2]))
                                     ).count()
-    gene_counts = pd.Series([x[-1] for x in gene_sets.index]).value_counts()
 
+    # find the genes with such subgroupings in at least two cohorts; produce
+    # gene-specific plots for each such case
+    gene_counts = pd.Series([x[-1] for x in gene_sets.index]).value_counts()
     for gene in gene_counts.index[gene_counts > 1]:
         setattr(args, 'gene', gene)
 

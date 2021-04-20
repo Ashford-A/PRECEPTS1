@@ -82,9 +82,19 @@ environment:
 
 ## Running the experiment ##
 
-Use run_test.py to launch the experiment pipeline. Depending on the compute
+Use `run_test.py` to launch the experiment pipeline. Depending on the compute
 cluster setup you are using, you will need to modify `cluster.json` which by
 default is designed for Slurm.
+
+`run_test` first uses `setup_test.py` to enumerate the subgrouping tasks to be
+tested. It then launches a batch of jobs on the configured compute cluster
+using `Snakefile`, which in turn uses `fit_test.py` to tune, train, and test
+the subgrouping classifiers, `gather_test.py` to process and consolidate
+experiment output, and `merge_test.py` to concatenate processed output into
+a single set of files for use by downstream analyses. The number of jobs in
+the batch will depend on the number of enumerated tasks, the classifier used,
+and the maximum time allowed for each `fit_test` job to run (1.5 days by
+default).
 
 Example usages of launching `run_test.py` in a Slurm compute environment
 include:

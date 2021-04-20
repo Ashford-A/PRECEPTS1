@@ -204,10 +204,10 @@ def plot_point_similarity(pred_dfs, pheno_dicts, auc_lists,
 
                 auc_val = auc_lists[src, coh][mcomb]
                 plt_size = size_mult * np.mean(pheno_dicts[src, coh][mcomb])
-                plot_dicts[k][auc_val, siml_val][0] = plt_size
+                plot_dicts[k][auc_val, siml_val][0] = 0.23 * plt_size
 
                 ax.scatter(auc_val, siml_val,
-                           c=[clr_dict[cur_gene]], s=1473 * plt_size,
+                           c=[clr_dict[cur_gene]], s=2891 * plt_size,
                            alpha=0.37, edgecolor='none')
 
         ax.grid(alpha=0.47, linewidth=0.9)
@@ -232,7 +232,7 @@ def plot_point_similarity(pred_dfs, pheno_dicts, auc_lists,
 
         lbl_pos = place_scatter_labels(plot_dicts[k], ax,
                                        plt_lims=[xlims, ylims],
-                                       font_size=9, line_dict=line_dicts[k],
+                                       font_size=10, line_dict=line_dicts[k],
                                        linewidth=1.19, alpha=0.37)
 
         ax.set_xlim(xlims)
@@ -371,14 +371,26 @@ def plot_similarity_symmetry(pred_dfs, pheno_dicts, auc_lists,
     plt_lims = [min(-0.07, plt_min - plt_rng / 23),
                 max(1.07, plt_max + plt_rng / 23)]
 
+    ax.grid(alpha=0.47, linewidth=0.9)
+    ax.plot(plt_lims, [0, 0],
+            color='black', linewidth=1.1, linestyle=':', alpha=0.71)
+    ax.plot([0, 0], plt_lims,
+            color='black', linewidth=1.1, linestyle=':', alpha=0.71)
+    ax.plot(plt_lims, plt_lims,
+            '#550000', linewidth=1.7, linestyle='--', alpha=0.41)
+
     for (src, coh, cpy_comb), (cpy_siml, pnt_siml) in siml_dict.items():
         cur_gene = get_label(cpy_comb)
 
-        plt_size = 0.47 * size_mult * np.mean(pheno_dicts[src, coh][cpy_comb])
-        plot_dict[pnt_siml, cpy_siml][0] = plt_size
+        plt_size = size_mult * np.mean(pheno_dicts[src, coh][cpy_comb])
+        plot_dict[pnt_siml, cpy_siml][0] = 0.31 * plt_size
 
         ax.scatter(pnt_siml, cpy_siml, c=[clr_dict[cur_gene]],
-                   s=1103 * plt_size, alpha=0.37, edgecolor='none')
+                   s=4071 * plt_size, alpha=0.37, edgecolor='none')
+
+    # makes sure plot labels don't overlap with equal-similarity diagonal line
+    for k in np.linspace(plt_min, 1, 400):
+        plot_dict[k, k] = [(1 - plt_min) / 387, ('', '')]
 
     for tupl in line_dict:
         line_dict[tupl] = {'c': clr_dict[line_dict[tupl]]}
@@ -386,12 +398,8 @@ def plot_similarity_symmetry(pred_dfs, pheno_dicts, auc_lists,
     if plot_dict:
         lbl_pos = place_scatter_labels(plot_dict, ax,
                                        plt_lims=[plt_lims, plt_lims],
-                                       font_size=11, line_dict=line_dict,
+                                       font_size=12, line_dict=line_dict,
                                        linewidth=1.19, alpha=0.37)
-
-    ax.grid(alpha=0.47, linewidth=0.9)
-    ax.plot(plt_lims, plt_lims,
-            color='black', linewidth=1.13, linestyle='--', alpha=0.47)
 
     ax.set_xlabel(
         "Point Mutations' Similarity\nto {} Alterations".format(cna_lbl),

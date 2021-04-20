@@ -61,7 +61,7 @@ def place_scatter_labels(plot_dict, ax, plt_lims=None,
 
     # initialize object storing how much space needs to be left around already
     # placed points and labels
-    pnt_gaps = {pnt: (sz / 2 + xgap, sz / 2 + ygap)
+    pnt_gaps = {pnt: (607 * xadj * sz + xgap, 607 * yadj * sz + ygap)
                 for pnt, (sz, _) in plot_dict.items()}
 
     # initialize objects storing where each label will be positioned,
