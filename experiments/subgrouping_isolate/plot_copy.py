@@ -1,6 +1,5 @@
 
-from ..utilities.mutations import (pnt_mtype, shal_mtype, deep_mtype,
-                                   copy_mtype, ExMcomb)
+from ..utilities.mutations import pnt_mtype, shal_mtype, copy_mtype, ExMcomb
 from dryadic.features.mutations import MuType
 
 from ..subgrouping_isolate import base_dir, train_cohorts
@@ -14,6 +13,9 @@ from ..utilities.label_placement import place_scatter_labels
 import os
 import argparse
 from pathlib import Path
+
+from itertools import product
+from itertools import combinations as combn
 from itertools import permutations as permt
 
 import numpy as np
@@ -31,145 +33,74 @@ plt.rcParams['axes.edgecolor'] = 'white'
 plot_dir = os.path.join(base_dir, 'plots', 'copy')
 
 
-def plot_point_similarity(pred_dfs, pheno_dicts, auc_lists,
-                          cdata_dict, args, cna_lbl, siml_metric):
+def get_mcomb_type(mcomb):
+    mcomb_type = 'other'
+
+    if all(get_subtype(mtype) == pnt_mtype for mtype in mcomb.mtypes):
+        mcomb_type = 'pnt'
+    elif all(copy_mtype.is_supertype(get_subtype(mtype))
+             for mtype in mcomb.mtypes):
+        mcomb_type = 'cpy'
+
+    elif (len(mcomb.mtypes) == 2
+            and all(get_subtype(mtype) == pnt_mtype
+                    or copy_mtype.is_supertype(get_subtype(mtype))
+                    for mtype in mcomb.mtypes)):
+        mcomb_type = 'intx'
+
+    return mcomb_type
+
+
+def plot_point_similarity(auc_lists, siml_dicts, cdata_dict,
+                          args, cna_lbl, siml_metric):
     fig, (pnt_ax, cpy_ax) = plt.subplots(figsize=(12, 14), nrows=2)
-    cna_mtype = cna_mtypes[cna_lbl]
 
-    copy_dict = dict()
-    gn_dict = dict()
-    siml_dicts = {k: {(src, coh): dict() for src, coh in auc_lists}
-                  for k in ['Pnt', 'Cpy']}
-
-    plot_dicts = {'Pnt': dict(), 'Cpy': dict()}
-    line_dicts = {'Pnt': dict(), 'Cpy': dict()}
+    cna_mtype = cna_mtypes[args.ex_lbl][cna_lbl][0]
+    plt_simls = {'pnt': dict(), 'cpy': dict()}
+    plot_dicts = {'pnt': dict(), 'cpy': dict()}
+    line_dicts = {'pnt': dict(), 'cpy': dict()}
     clr_dict = dict()
+    ymin, ymax = -0.53, 0.53
 
-    # for each dataset, find the subgroupings meeting the minimum task AUC
-    # that are exclusively defined and subsets of point mutations...
-    for (src, coh), auc_list in auc_lists.items():
-        use_aucs = auc_list[
-            list(remove_pheno_dups({
-                mut for mut, auc_val in auc_list.iteritems()
-                if (isinstance(mut, ExMcomb) and auc_val >= args.auc_cutoff
-                    and get_mut_ex(mut) == args.ex_lbl)
-                }, pheno_dicts[src, coh]))
-            ]
-
-        if len(use_aucs) == 0:
-            continue
-
-        base_mtree = tuple(cdata_dict[src, coh].mtrees.values())[0]
-        use_genes = {get_label(mcomb) for mcomb in use_aucs.index}
-        train_samps = cdata_dict[src, coh].get_train_samples()
+    for (src, coh), siml_dict in siml_dicts.items():
         coh_lbl = get_cohort_label(coh)
 
-        all_mtypes = {
-            gene: MuType({('Gene', gene): base_mtree[gene].allkey()})
-            for gene in use_genes
-        }
-
-        if args.ex_lbl == 'IsoShal':
-            for gene in use_genes:
-                all_mtypes[gene] -= MuType({('Gene', gene): shal_mtype})
-
-        all_phns = {
-            gene: np.array(cdata_dict[src, coh].train_pheno(all_mtype))
-            for gene, all_mtype in all_mtypes.items()
+        use_simls = {
+            (comb1, comb2): simls
+            for (comb1, comb2), simls in siml_dict.items()
+            if ({get_mcomb_type(comb1),
+                 get_mcomb_type(comb2)} == {'pnt', 'cpy'}
+                and all(all(cna_mtype.is_supertype(get_subtype(mtype))
+                            for mtype in comb.mtypes)
+                        or all(get_subtype(mtype) == pnt_mtype
+                               for mtype in comb.mtypes)
+                        for comb in [comb1, comb2]))
             }
 
-        for gene, auc_vals in use_aucs.groupby(get_label):
-            pnt_comb = {mcomb for mcomb in auc_vals.index
-                        if all(pnt_mtype == get_subtype(mtype)
-                               for mtype in mcomb.mtypes)}
+        if use_simls:
+            ymin = min(ymin, min(siml_val for simls in use_simls.values()
+                                 for siml_val in simls) - 0.07)
+            ymax = max(ymax, max(siml_val for simls in use_simls.values()
+                                 for siml_val in simls) + 0.07)
 
-            cpy_combs = {
-                mcomb for mcomb in auc_vals.index
-                if all(cna_mtype.is_supertype(get_subtype(mtype))
-                       for mtype in mcomb.mtypes)
-                }
+        for combs, simls in use_simls.items():
+            cur_gene = get_label(combs[0])
+            clr_dict[cur_gene] = None
 
-            if args.ex_lbl == 'IsoShal':
-                cpy_combs = {
-                    mcomb for mcomb in cpy_combs
-                    if all(deep_mtype.is_supertype(get_subtype(mtype))
-                           for mtype in mcomb.mtypes)
-                    }
+            for (trn_comb, prj_comb), siml_val in zip(permt(combs), simls):
+                comb_type = get_mcomb_type(trn_comb)
 
-            if len(pnt_comb) == 1 or len(cpy_combs) > 0:
-                clr_dict[gene] = None
+                plt_simls[comb_type][src, coh, trn_comb, prj_comb] = siml_val
+                plt_tupl = (auc_lists[src, coh][trn_comb], siml_val)
 
-                if args.ex_lbl == 'Iso':
-                    ex_all = ExMcomb(MuType({('Gene', gene): copy_mtype}),
-                                     MuType({('Gene', gene): pnt_mtype}))
+                if (siml_val >= 0.5
+                        or cur_gene in {'TP53', 'PIK3CA', 'GATA3'}):
+                    plot_dicts[comb_type][plt_tupl] = [
+                        None, ("{} in {}".format(cur_gene, coh_lbl), '')]
+                    line_dicts[comb_type][plt_tupl] = cur_gene
 
                 else:
-                    ex_all = ExMcomb(MuType({('Gene', gene): deep_mtype}),
-                                     MuType({('Gene', gene): pnt_mtype}))
-
-                if (src, coh, gene) not in copy_dict:
-                    copy_dict[src, coh, gene] = np.array(
-                        cdata_dict[src, coh].train_pheno(
-                            ExMcomb(MuType({('Gene', gene): pnt_mtype}),
-                                    MuType({('Gene', gene): cna_mtype}))
-                            )
-                        )
-
-                    gn_dict[src, coh, gene] = np.array(
-                        cdata_dict[src, coh].train_pheno(ex_all))
-
-            if len(pnt_comb) == 1:
-                pnt_comb = tuple(pnt_comb)[0]
-                assert not (pheno_dicts[src, coh][pnt_comb]
-                            & copy_dict[src, coh, gene]).any()
-
-                if copy_dict[src, coh, gene].sum() >= 10:
-                    use_preds = pred_dfs[src, coh].loc[pnt_comb, train_samps]
-
-                    siml_dicts['Pnt'][src, coh][pnt_comb] = siml_fxs[
-                        siml_metric](
-                            use_preds.loc[~all_phns[gene]],
-                            use_preds.loc[pheno_dicts[src, coh][pnt_comb]],
-                            use_preds.loc[copy_dict[src, coh, gene]]
-                            )
-
-                    plt_tupl = (auc_vals[pnt_comb],
-                                siml_dicts['Pnt'][src, coh][pnt_comb])
-
-                    if (siml_dicts['Pnt'][src, coh][pnt_comb] >= 0.5
-                            or gene in {'TP53', 'PIK3CA', 'GATA3'}):
-                        plot_dicts['Pnt'][plt_tupl] = [
-                            None, ("{} in {}".format(gene, coh_lbl), '')]
-                        line_dicts['Pnt'][plt_tupl] = gene
-
-                    else:
-                        plot_dicts['Pnt'][plt_tupl] = [None, ('', '')]
-
-            elif len(pnt_comb) > 1:
-                raise ValueError
-
-            for cpy_comb in cpy_combs:
-                if gn_dict[src, coh, gene].sum() >= 10:
-                    use_preds = pred_dfs[src, coh].loc[cpy_comb, train_samps]
-
-                    siml_dicts['Cpy'][src, coh][cpy_comb] = siml_fxs[
-                        siml_metric](
-                            use_preds.loc[~all_phns[gene]],
-                            use_preds.loc[pheno_dicts[src, coh][cpy_comb]],
-                            use_preds.loc[gn_dict[src, coh, gene]]
-                            )
-
-                    plt_tupl = (auc_vals[cpy_comb],
-                                siml_dicts['Cpy'][src, coh][cpy_comb])
-
-                    if (siml_dicts['Cpy'][src, coh][cpy_comb] >= 0.75
-                            or gene in {'TP53', 'PIK3CA', 'GATA3'}):
-                        plot_dicts['Cpy'][plt_tupl] = [
-                            None, ("{} in {}".format(gene, coh_lbl), '')]
-                        line_dicts['Cpy'][plt_tupl] = gene
-
-                    else:
-                        plot_dicts['Cpy'][plt_tupl] = [None, ('', '')]
+                    plot_dicts[comb_type][plt_tupl] = [None, ('', '')]
 
     if len(clr_dict) > 8:
         for gene in clr_dict:
@@ -179,36 +110,29 @@ def plot_point_similarity(pred_dfs, pheno_dicts, auc_lists,
         use_clrs = sns.color_palette(palette='bright', n_colors=len(clr_dict))
         clr_dict = dict(zip(clr_dict, use_clrs))
 
-    size_mult = sum(len(siml_vals) for siml_dict in siml_dicts.values()
-                    for siml_vals in siml_dict.values()) ** -0.23
-
     xlims = [args.auc_cutoff - (1 - args.auc_cutoff) / 47,
              1 + (1 - args.auc_cutoff) / 277]
-
-    ymin = min(min(siml_vals.values()) for siml_dict in siml_dicts.values()
-               for siml_vals in siml_dict.values() if siml_vals)
-    ymax = max(max(siml_vals.values()) for siml_dict in siml_dicts.values()
-               for siml_vals in siml_dict.values() if siml_vals)
     yrng = ymax - ymin
     ylims = [ymin - yrng / 23, ymax + yrng / 23]
 
-    ylbls = {'Pnt': ("Inferred {} Similarity"
+    ylbls = {'pnt': ("Inferred {} Similarity"
                      "\nto Point Mutations").format(cna_lbl),
-             'Cpy': ("Inferred Point Mutation Similarity"
+             'cpy': ("Inferred Point Mutation Similarity"
                      "\nto {} Alterations").format(cna_lbl)}
 
-    for k, ax in zip(['Pnt', 'Cpy'], [pnt_ax, cpy_ax]):
-        for (src, coh), siml_vals in siml_dicts[k].items():
-            for mcomb, siml_val in siml_vals.items():
-                cur_gene = get_label(mcomb)
+    size_mult = sum(len(simls) for simls in plt_simls.values()) ** -0.23
+    for k, ax in zip(['pnt', 'cpy'], [pnt_ax, cpy_ax]):
+        for (src, coh, trn_comb, prj_comb), siml_val in plt_simls[k].items():
+            cur_gene = get_label(trn_comb)
 
-                auc_val = auc_lists[src, coh][mcomb]
-                plt_size = size_mult * np.mean(pheno_dicts[src, coh][mcomb])
-                plot_dicts[k][auc_val, siml_val][0] = 0.23 * plt_size
+            auc_val = auc_lists[src, coh][trn_comb]
+            plt_size = size_mult * np.mean(
+                cdata_dict[src, coh].train_pheno(prj_comb))
+            plot_dicts[k][auc_val, siml_val][0] = 0.23 * plt_size
 
-                ax.scatter(auc_val, siml_val,
-                           c=[clr_dict[cur_gene]], s=2891 * plt_size,
-                           alpha=0.37, edgecolor='none')
+            ax.scatter(auc_val, siml_val,
+                       c=[clr_dict[cur_gene]], s=2891 * plt_size,
+                       alpha=0.37, edgecolor='none')
 
         ax.grid(alpha=0.47, linewidth=0.9)
         ax.plot(xlims, [0, 0],
@@ -216,7 +140,7 @@ def plot_point_similarity(pred_dfs, pheno_dicts, auc_lists,
         ax.plot([1, 1], ylims, color='black', linewidth=1.7, alpha=0.83)
 
         ax.set_ylabel(ylbls[k], size=21, weight='bold')
-        if k == 'Cpy':
+        if k == 'cpy':
             ax.set_xlabel("Subgrouping\nClassification Accuracy",
                           size=21, weight='bold')
 
@@ -248,110 +172,58 @@ def plot_point_similarity(pred_dfs, pheno_dicts, auc_lists,
     plt.close()
 
 
-def plot_similarity_symmetry(pred_dfs, pheno_dicts, auc_lists,
-                             cdata_dict, args, cna_lbl, siml_metric):
+def plot_similarity_symmetry(siml_dicts, pheno_dicts, cdata_dict,
+                             args, cna_lbl, siml_metric):
     fig, ax = plt.subplots(figsize=(9.4, 10))
-    cna_mtype = cna_mtypes[cna_lbl]
 
-    siml_dict = dict()
+    cna_mtype = cna_mtypes[args.ex_lbl][cna_lbl][0]
+    plt_simls = dict()
     plot_dict = dict()
     line_dict = dict()
     clr_dict = dict()
-    annt_lists = {(src, coh): set() for src, coh in auc_lists}
+    annt_lists = {(src, coh): set() for src, coh in siml_dicts}
+    plt_min, plt_max = -0.53, 0.53
 
-    # for each dataset, find the subgroupings meeting the minimum task AUC
-    # that are exclusively defined and subsets of point mutations...
-    for (src, coh), auc_list in auc_lists.items():
-        use_aucs = auc_list[
-            list(remove_pheno_dups({
-                mut for mut, auc_val in auc_list.iteritems()
-                if (isinstance(mut, ExMcomb) and auc_val >= args.auc_cutoff
-                    and get_mut_ex(mut) == args.ex_lbl)
-                }, pheno_dicts[src, coh]))
-            ]
-
-        if len(use_aucs) == 0:
-            continue
-
-        base_mtree = tuple(cdata_dict[src, coh].mtrees.values())[0]
-        use_genes = {get_label(mcomb) for mcomb in use_aucs.index}
-        train_samps = cdata_dict[src, coh].get_train_samples()
+    for (src, coh), siml_dict in siml_dicts.items():
         coh_lbl = get_cohort_label(coh)
 
-        all_mtypes = {
-            gene: MuType({('Gene', gene): base_mtree[gene].allkey()})
-            for gene in use_genes
+        use_simls = {
+            (comb1, comb2): simls
+            for (comb1, comb2), simls in siml_dict.items()
+            if ({get_mcomb_type(comb1),
+                 get_mcomb_type(comb2)} == {'pnt', 'cpy'}
+                and len(simls) == 2
+                and all(all(cna_mtype.is_supertype(get_subtype(mtype))
+                            for mtype in comb.mtypes)
+                        or all(get_subtype(mtype) == pnt_mtype
+                               for mtype in comb.mtypes)
+                        for comb in [comb1, comb2]))
             }
 
-        if args.ex_lbl == 'IsoShal':
-            for gene in use_genes:
-                all_mtypes[gene] -= MuType({('Gene', gene): shal_mtype})
+        if use_simls:
+            plt_min = min(plt_min,
+                          min(siml_val for simls in use_simls.values()
+                              for siml_val in simls) - 0.19)
+            plt_max = max(plt_max,
+                          max(siml_val for simls in use_simls.values()
+                              for siml_val in simls) + 0.19)
 
-        all_phns = {
-            gene: np.array(cdata_dict[src, coh].train_pheno(all_mtype))
-            for gene, all_mtype in all_mtypes.items()
-            }
+        for combs, simls in use_simls.items():
+            cur_gene = get_label(combs[0])
 
-        for gene, auc_vals in use_aucs.groupby(get_label):
-            pnt_comb = {mcomb for mcomb in auc_vals.index
-                        if all(pnt_mtype == get_subtype(mtype)
-                               for mtype in mcomb.mtypes)}
+            clr_dict[cur_gene] = None
+            ordr = 2 * (get_mcomb_type(combs[0]) == 'cpy') - 1
+            plt_simls[(src, coh, *combs[::ordr])] = simls[::ordr]
+            annt_lists[src, coh] |= {combs[::ordr]}
 
-            cpy_combs = {
-                mcomb for mcomb in auc_vals.index
-                if all(cna_mtype.is_supertype(get_subtype(mtype))
-                       for mtype in mcomb.mtypes)
-                }
+            if (max(np.abs(np.array(simls))) > 0.5
+                    or cur_gene in {'TP53', 'PIK3CA', 'GATA3'}):
+                plot_dict[simls[::ordr]] = [
+                    None, ("{} in {}".format(cur_gene, coh_lbl), '')]
+                line_dict[simls[::ordr]] = cur_gene
 
-            if args.ex_lbl == 'IsoShal':
-                cpy_combs = {
-                    mcomb for mcomb in cpy_combs
-                    if all(deep_mtype.is_supertype(get_subtype(mtype))
-                           for mtype in mcomb.mtypes)
-                    }
-
-            if len(pnt_comb) == 1 and len(cpy_combs) > 0:
-                clr_dict[gene] = None
-
-                pnt_comb = tuple(pnt_comb)[0]
-                pnt_preds = pred_dfs[src, coh].loc[pnt_comb, train_samps]
-
-                for cpy_comb in cpy_combs:
-                    assert not (pheno_dicts[src, coh][pnt_comb]
-                                & pheno_dicts[src, coh][cpy_comb]).any()
-
-                    cpy_preds = pred_dfs[src, coh].loc[cpy_comb, train_samps]
-                    annt_lists[src, coh] |= {(cpy_comb, pnt_comb)}
-
-                    siml_dict[src, coh, cpy_comb] = (
-                        siml_fxs[siml_metric](
-                            pnt_preds.loc[~all_phns[gene]],
-                            pnt_preds.loc[pheno_dicts[src, coh][pnt_comb]],
-                            pnt_preds.loc[pheno_dicts[src, coh][cpy_comb]]
-                            ),
-                        siml_fxs[siml_metric](
-                            cpy_preds.loc[~all_phns[gene]],
-                            cpy_preds.loc[pheno_dicts[src, coh][cpy_comb]],
-                            cpy_preds.loc[pheno_dicts[src, coh][pnt_comb]]
-                            )
-                        )
-
-                    siml_tupl = siml_dict[src, coh, cpy_comb][::-1]
-                    line_dict[siml_tupl] = gene
-
-                    if any(abs(siml_val) > 0.4 for siml_val in siml_tupl):
-                        cpy_subt = get_subtype(tuple(cpy_comb.mtypes)[0])
-
-                        plot_dict[siml_tupl] = [
-                            None, ("{} in {}".format(gene, coh_lbl),
-                                   get_fancy_label(cpy_subt))
-                            ]
-
-                    else:
-                        plot_dict[siml_tupl] = [None, ("", "")]
-
-            elif len(pnt_comb) > 1:
-                raise ValueError
+            else:
+                plot_dict[simls[::ordr]] = [None, ('', '')]
 
     if len(clr_dict) > 8:
         for gene in clr_dict:
@@ -361,12 +233,7 @@ def plot_similarity_symmetry(pred_dfs, pheno_dicts, auc_lists,
         use_clrs = sns.color_palette(palette='bright', n_colors=len(clr_dict))
         clr_dict = dict(zip(clr_dict, use_clrs))
 
-    size_mult = len(siml_dict) ** -0.23
-    plt_min = min(siml_val for siml_vals in siml_dict.values()
-                  for siml_val in siml_vals)
-    plt_max = max(siml_val for siml_vals in siml_dict.values()
-                  for siml_val in siml_vals)
-
+    size_mult = len(plt_simls) ** -0.23
     plt_rng = plt_max - plt_min
     plt_lims = [min(-0.07, plt_min - plt_rng / 23),
                 max(1.07, plt_max + plt_rng / 23)]
@@ -379,13 +246,15 @@ def plot_similarity_symmetry(pred_dfs, pheno_dicts, auc_lists,
     ax.plot(plt_lims, plt_lims,
             '#550000', linewidth=1.7, linestyle='--', alpha=0.41)
 
-    for (src, coh, cpy_comb), (cpy_siml, pnt_siml) in siml_dict.items():
+    for (src, coh, cpy_comb, pnt_comb), simls in plt_simls.items():
         cur_gene = get_label(cpy_comb)
 
-        plt_size = size_mult * np.mean(pheno_dicts[src, coh][cpy_comb])
-        plot_dict[pnt_siml, cpy_siml][0] = 0.31 * plt_size
+        plt_size = np.mean(pheno_dicts[src, coh][cpy_comb])
+        plt_size *= np.mean(pheno_dicts[src, coh][pnt_comb])
+        plt_size = size_mult * plt_size ** 0.5
+        plot_dict[simls][0] = 0.31 * plt_size
 
-        ax.scatter(pnt_siml, cpy_siml, c=[clr_dict[cur_gene]],
+        ax.scatter(*simls, c=[clr_dict[cur_gene]],
                    s=4071 * plt_size, alpha=0.37, edgecolor='none')
 
     # makes sure plot labels don't overlap with equal-similarity diagonal line
@@ -435,9 +304,7 @@ def plot_pair_scores(cpy_mcomb, pnt_mcomb, pred_df, auc_vals, pheno_dict,
 
     use_gene = get_label(cpy_mcomb)
     assert get_label(pnt_mcomb) == use_gene
-    cna_mtype = cna_mtypes[cna_lbl]
-    if args.ex_lbl == 'IsoShal':
-        cna_mtype -= shal_mtype
+    cna_mtype = cna_mtypes[args.ex_lbl][cna_lbl][0]
 
     assert len(cpy_mcomb.mtypes) == len(pnt_mcomb.mtypes) == 1
     cpy_type = get_subtype(tuple(cpy_mcomb.mtypes)[0])
@@ -619,166 +486,59 @@ def plot_pair_scores(cpy_mcomb, pnt_mcomb, pred_df, auc_vals, pheno_dict,
     plt.close()
 
 
-def plot_interaction_symmetries(pred_dfs, pheno_dicts, auc_lists,
-                                cdata_dict, args, cna_lbl, siml_metric):
-    fig, ((pnt_ax, intx_ax1), (intx_ax2, cpy_ax)) = plt.subplots(
-        figsize=(17, 17), nrows=2, ncols=2)
+def plot_interaction_symmetries(siml_dicts, pheno_dicts, cdata_dict,
+                                args, cna_lbl, siml_metric):
+    fig, axarr = plt.subplots(figsize=(17, 17), nrows=2, ncols=2)
 
-    cna_mtype = cna_mtypes[cna_lbl]
-    copy_dict = dict()
-    gn_dict = dict()
-    intx_dict = dict()
+    plt_simls = {
+        (src, coh): {k: dict() for k in [('intx', 'pnt'), ('intx', 'cpy'),
+                                         ('pnt', 'intx'), ('cpy', 'intx')]}
+        for src, coh in siml_dicts
+        }
 
-    siml_dicts = {(src, coh): {k: dict() for k in ['Intx-Pnt', 'Intx-Cpy',
-                                                   'Pnt-Intx', 'Cpy-Intx']}
-                  for src, coh in auc_lists}
-    annt_lists = {(src, coh): set() for src, coh in auc_lists}
-
-    plot_dicts = {'Pnt': dict(), 'Cpy': dict()}
-    line_dicts = {'Pnt': dict(), 'Cpy': dict()}
+    cna_mtype = cna_mtypes[args.ex_lbl][cna_lbl][0]
+    annt_lists = {(src, coh): set() for src, coh in siml_dicts}
     clr_dict = dict()
+    plt_min, plt_max = -0.53, 0.53
 
-    # for each dataset, find the subgroupings meeting the minimum task AUC
-    # that are exclusively defined and subsets of point mutations...
-    for (src, coh), auc_list in auc_lists.items():
-        use_aucs = auc_list[
-            list(remove_pheno_dups({
-                mut for mut, auc_val in auc_list.iteritems()
-                if (isinstance(mut, ExMcomb) and auc_val >= args.auc_cutoff
-                    and get_mut_ex(mut) == args.ex_lbl)
-                }, pheno_dicts[src, coh]))
-            ]
+    for (src, coh), siml_dict in siml_dicts.items():
+        use_simls = {
+            (comb1, comb2): simls
+            for (comb1, comb2), simls in siml_dict.items()
+            if (all(all(cna_mtype.is_supertype(get_subtype(mtype))
+                        or get_subtype(mtype) == pnt_mtype
+                        for mtype in comb.mtypes)
+                    for comb in [comb1, comb2])
 
-        if len(use_aucs) == 0:
-            continue
-
-        base_mtree = tuple(cdata_dict[src, coh].mtrees.values())[0]
-        use_genes = {get_label(mcomb) for mcomb in use_aucs.index}
-        train_samps = cdata_dict[src, coh].get_train_samples()
-        coh_lbl = get_cohort_label(coh)
-
-        all_mtypes = {
-            gene: MuType({('Gene', gene): base_mtree[gene].allkey()})
-            for gene in use_genes
+                and sum(len(comb.mtypes) == 2
+                        and any(get_subtype(mtype) == pnt_mtype
+                                for mtype in comb.mtypes)
+                        for comb in [comb1, comb2]) == 1)
             }
 
-        if args.ex_lbl == 'IsoShal':
-            for gene in use_genes:
-                all_mtypes[gene] -= MuType({('Gene', gene): shal_mtype})
+        if use_simls:
+            plt_min = min(plt_min,
+                          min(siml_val for simls in use_simls.values()
+                              for siml_val in simls) - 0.07)
+            plt_max = max(plt_max,
+                          max(siml_val for simls in use_simls.values()
+                              for siml_val in simls) + 0.07)
 
-        all_phns = {
-            gene: np.array(cdata_dict[src, coh].train_pheno(all_mtype))
-            for gene, all_mtype in all_mtypes.items()
-            }
+        for combs, simls in use_simls.items():
+            cur_gene = get_label(combs[0])
+            clr_dict[cur_gene] = None
 
-        for gene, auc_vals in use_aucs.groupby(get_label):
-            cpy_combs = {
-                mcomb for mcomb in auc_vals.index
-                if all(cna_mtype.is_supertype(get_subtype(mtype))
-                       for mtype in mcomb.mtypes)
-                }
+            for (trn_comb, prj_comb), siml_val in zip(permt(combs), simls):
+                comb_types = (get_mcomb_type(trn_comb),
+                              get_mcomb_type(prj_comb))
 
-            if args.ex_lbl == 'IsoShal':
-                cpy_combs = {
-                    mcomb for mcomb in cpy_combs
-                    if all(deep_mtype.is_supertype(get_subtype(mtype))
-                           for mtype in mcomb.mtypes)
-                    }
+                if trn_comb in plt_simls[src, coh][comb_types]:
+                    plt_simls[src, coh][comb_types][
+                        trn_comb][prj_comb] = siml_val
 
-            assert all(len(cpy_comb.mtypes) == 1 for cpy_comb in cpy_combs)
-            cpy_types = {tuple(mcomb.mtypes)[0] for mcomb in cpy_combs}
-            gene_pnt = MuType({('Gene', gene): pnt_mtype})
-
-            intx_combs = {
-                mcomb for mcomb in auc_vals.index
-                if (len(mcomb.mtypes) == 2
-                    and any(mtype in cpy_types for mtype in mcomb.mtypes)
-                    and any(mtype == gene_pnt for mtype in mcomb.mtypes))
-                }
-
-            if (src, coh, gene) not in copy_dict:
-                copy_dict[src, coh, gene] = np.array(
-                    cdata_dict[src, coh].train_pheno(
-                        ExMcomb(gene_pnt,
-                                MuType({('Gene', gene): cna_mtype}))
-                        )
-                    )
-
-                if args.ex_lbl == 'Iso':
-                    ex_copy = MuType({
-                        ('Gene', gene): deep_mtype | shal_mtype})
                 else:
-                    ex_copy = MuType({('Gene', gene): deep_mtype})
-
-                gn_dict[src, coh, gene] = np.array(
-                    cdata_dict[src, coh].train_pheno(
-                        ExMcomb(ex_copy, gene_pnt))
-                    )
-
-                intx_dict[src, coh, gene] = np.array(
-                    cdata_dict[src, coh].train_pheno(
-                        ExMcomb(ex_copy, gene_pnt,
-                                MuType({('Gene', gene): cna_mtype}))
-                        )
-                    )
-
-            for intx_comb in intx_combs:
-                use_preds = pred_dfs[src, coh].loc[intx_comb, train_samps]
-
-                if copy_dict[src, coh, gene].sum() >= 10:
-                    clr_dict[gene] = None
-
-                    siml_dicts[src, coh]['Intx-Cpy'][intx_comb] = siml_fxs[
-                        siml_metric](
-                            use_preds.loc[~all_phns[gene]],
-                            use_preds.loc[pheno_dicts[src, coh][intx_comb]],
-                            use_preds.loc[copy_dict[src, coh, gene]]
-                            )
-
-                if gn_dict[src, coh, gene].sum() >= 10:
-                    clr_dict[gene] = None
-
-                    siml_dicts[src, coh]['Intx-Pnt'][intx_comb] = siml_fxs[
-                        siml_metric](
-                            use_preds.loc[~all_phns[gene]],
-                            use_preds.loc[pheno_dicts[src, coh][intx_comb]],
-                            use_preds.loc[gn_dict[src, coh, gene]]
-                            )
-
-            for cpy_comb in cpy_combs:
-                use_preds = pred_dfs[src, coh].loc[cpy_comb, train_samps]
-
-                if intx_dict[src, coh, gene].sum() >= 10:
-                    clr_dict[gene] = None
-
-                    siml_dicts[src, coh]['Cpy-Intx'][cpy_comb] = siml_fxs[
-                        siml_metric](
-                            use_preds.loc[~all_phns[gene]],
-                            use_preds.loc[pheno_dicts[src, coh][cpy_comb]],
-                            use_preds.loc[intx_dict[src, coh, gene]]
-                            )
-
-            pnt_comb = {mcomb for mcomb in auc_vals.index
-                        if all(mtype == gene_pnt for mtype in mcomb.mtypes)}
-
-            if len(pnt_comb) == 1:
-                pnt_comb = tuple(pnt_comb)[0]
-                use_preds = pred_dfs[src, coh].loc[pnt_comb, train_samps]
-                assert not (pheno_dicts[src, coh][pnt_comb]
-                            & copy_dict[src, coh, gene]).any()
-
-                if intx_dict[src, coh, gene].sum() >= 10:
-                    clr_dict[gene] = None
-
-                    siml_dicts[src, coh]['Pnt-Intx'][pnt_comb] = siml_fxs[
-                        siml_metric](
-                            use_preds.loc[~all_phns[gene]],
-                            use_preds.loc[pheno_dicts[src, coh][pnt_comb]],
-                            use_preds.loc[intx_dict[src, coh, gene]]
-                            )
-
-            elif len(pnt_comb) > 1:
-                raise ValueError
+                    plt_simls[src, coh][comb_types][trn_comb] = {
+                        prj_comb: siml_val}
 
     if len(clr_dict) > 8:
         for gene in clr_dict:
@@ -788,63 +548,75 @@ def plot_interaction_symmetries(pred_dfs, pheno_dicts, auc_lists,
         use_clrs = sns.color_palette(palette='bright', n_colors=len(clr_dict))
         clr_dict = dict(zip(clr_dict, use_clrs))
 
-    size_mult = sum(len(siml_vals) for siml_dict in siml_dicts.values()
-                    for siml_vals in siml_dict.values()) ** -0.23
-
-    plt_min = min(min(siml_vals.values()) for siml_dict in siml_dicts.values()
-                  for siml_vals in siml_dict.values() if siml_vals)
-    plt_max = max(max(siml_vals.values()) for siml_dict in siml_dicts.values()
-                  for siml_vals in siml_dict.values() if siml_vals)
+    size_mult = sum(len(simls) for comb_simls in plt_simls.values()
+                    for simls in comb_simls.values()) ** -0.23
 
     plt_rng = plt_max - plt_min
     plt_lims = [min(-0.07, plt_min - plt_rng / 23),
                 max(1.07, plt_max + plt_rng / 23)]
 
-    for (src, coh), siml_dict in siml_dicts.items():
-        both_intx = set(siml_dict['Intx-Pnt']) & set(siml_dict['Intx-Cpy'])
+    for (src, coh), siml_dict in plt_simls.items():
+        both_intx = set(siml_dict['intx', 'pnt'])
+        both_intx &= set(siml_dict['intx', 'cpy'])
 
-        for mcomb in both_intx:
-            cur_gene = get_label(mcomb)
-            plt_size = size_mult * np.mean(pheno_dicts[src, coh][mcomb])
+        for trn_comb in both_intx:
+            cur_gene = get_label(trn_comb)
+            plt_size = size_mult * np.mean(pheno_dicts[src, coh][trn_comb])
 
-            intx_ax2.scatter(siml_dict['Intx-Pnt'][mcomb],
-                             siml_dict['Intx-Cpy'][mcomb],
-                             c=[clr_dict[cur_gene]], s=1473 * plt_size,
-                             alpha=0.31, edgecolor='none')
+            for (pnt_comb, pnt_siml), (cpy_comb, cpy_siml) in product(
+                    siml_dict['intx', 'pnt'][trn_comb].items(),
+                    siml_dict['intx', 'cpy'][trn_comb].items()
+                    ):
+                axarr[1, 0].scatter(pnt_siml, cpy_siml,
+                                    c=[clr_dict[cur_gene]], s=1473 * plt_size,
+                                    alpha=0.31, edgecolor='none')
 
-        for pnt_comb, pnt_siml in siml_dict['Pnt-Intx'].items():
+        for pnt_comb, pnt_simls in siml_dict['pnt', 'intx'].items():
             cur_gene = get_label(pnt_comb)
-            plt_size = size_mult * np.mean(pheno_dicts[src, coh][pnt_comb])
+            pnt_size = np.mean(pheno_dicts[src, coh][pnt_comb])
 
-            cpy_intx = {mcomb for mcomb in siml_dict['Intx-Cpy']
-                        if get_label(mcomb) == cur_gene}
+            for intx_comb, intx_siml1 in pnt_simls.items():
+                cpy_intx = {
+                    comb: simls[intx_comb]
+                    for comb, simls in siml_dict['cpy', 'intx'].items()
+                    if intx_comb in simls
+                    }
 
-            for intx_comb in cpy_intx:
-                intx_ax1.scatter(pnt_siml, siml_dict['Intx-Cpy'][intx_comb],
-                                 c=[clr_dict[cur_gene]], s=1473 * plt_size,
-                                 alpha=0.31, edgecolor='none')
+                for cpy_comb, intx_siml2 in cpy_intx.items():
+                    cpy_size = np.mean(pheno_dicts[src, coh][cpy_comb])
+                    plt_size = size_mult * (pnt_size * cpy_size) ** 0.5
 
-            pnt_intx = {mcomb for mcomb in siml_dict['Intx-Pnt']
-                        if get_label(mcomb) == cur_gene}
+                    axarr[0, 1].scatter(intx_siml1, intx_siml2,
+                                        c=[clr_dict[cur_gene]],
+                                        s=1473 * plt_size, alpha=0.31,
+                                        edgecolor='none')
 
-            for intx_comb in pnt_intx:
-                pnt_ax.scatter(siml_dict['Intx-Pnt'][intx_comb], pnt_siml,
-                               c=[clr_dict[cur_gene]], s=1473 * plt_size,
-                               alpha=0.31, edgecolor='none')
+                if intx_comb in siml_dict['intx', 'pnt']:
+                    intx_size = np.mean(pheno_dicts[src, coh][intx_comb])
+                    plt_size = size_mult * (pnt_size * intx_size) ** 0.5
+                    intx_siml2 = siml_dict['intx', 'pnt'][intx_comb][pnt_comb]
 
-        for cpy_comb, cpy_siml in siml_dict['Cpy-Intx'].items():
+                    axarr[0, 0].scatter(intx_siml2, intx_siml1,
+                                        c=[clr_dict[cur_gene]],
+                                        s=1473 * plt_size, alpha=0.31,
+                                        edgecolor='none')
+
+        for cpy_comb, cpy_simls in siml_dict['cpy', 'intx'].items():
             cur_gene = get_label(cpy_comb)
-            plt_size = size_mult * np.mean(pheno_dicts[src, coh][cpy_comb])
+            cpy_size = np.mean(pheno_dicts[src, coh][cpy_comb])
 
-            cpy_intx = {mcomb for mcomb in siml_dict['Intx-Cpy']
-                        if get_label(mcomb) == cur_gene}
+            for intx_comb, intx_siml1 in cpy_simls.items():
+                if intx_comb in siml_dict['intx', 'cpy']:
+                    intx_size = np.mean(pheno_dicts[src, coh][intx_comb])
+                    plt_size = size_mult * (cpy_size * intx_size) ** 0.5
+                    intx_siml2 = siml_dict['intx', 'cpy'][intx_comb][cpy_comb]
 
-            for intx_comb in cpy_intx:
-                cpy_ax.scatter(cpy_siml, siml_dict['Intx-Cpy'][intx_comb],
-                               c=[clr_dict[cur_gene]], s=1473 * plt_size,
-                               alpha=0.31, edgecolor='none')
+                    axarr[1, 1].scatter(intx_siml1, intx_siml2,
+                                        c=[clr_dict[cur_gene]],
+                                        s=1473 * plt_size, alpha=0.31,
+                                        edgecolor='none')
 
-    for ax in (pnt_ax, intx_ax1, intx_ax2, cpy_ax):
+    for ax in axarr.flatten():
         ax.grid(alpha=0.37, linewidth=0.71)
         ax.plot(plt_lims, plt_lims,
                 color='black', linewidth=1.13, linestyle='--', alpha=0.47)
@@ -854,25 +626,25 @@ def plot_interaction_symmetries(pred_dfs, pheno_dicts, auc_lists,
         ax.set_xlim(plt_lims)
         ax.set_ylim(plt_lims)
 
-    for ax in (pnt_ax, intx_ax1):
+    for ax in axarr[0, :]:
         ax.set_xticklabels([])
-    for ax in (cpy_ax, intx_ax1):
+    for ax in axarr[:, 1]:
         ax.set_yticklabels([])
 
-    intx_ax2.set_xlabel(
+    axarr[1, 0].set_xlabel(
         "Point Mutations' Similarity\nto Point & {}".format(cna_lbl),
         size=27, weight='bold'
         )
-    intx_ax2.set_ylabel(
+    axarr[1, 0].set_ylabel(
         "{0} Alterations' Similarity\nto Point & {0}".format(cna_lbl),
         size=27, weight='bold'
         )
 
-    cpy_ax.set_xlabel(
+    axarr[1, 1].set_xlabel(
         "Point & {0} Similarity\nto {0} Alterations".format(cna_lbl),
         size=27, weight='bold'
         )
-    pnt_ax.set_ylabel(
+    axarr[0, 0].set_ylabel(
         "Point & {} Similarity\nto Point Mutations".format(cna_lbl),
         size=27, weight='bold'
         )
@@ -932,15 +704,103 @@ def main():
         out_list, args.ex_lbl, args.data_cache)
 
     for siml_metric in args.siml_metrics:
+        siml_fx = siml_fxs[siml_metric]
+        siml_dicts = {(src, coh): dict() for src, coh in auc_lists}
+
+        for (src, coh), auc_list in auc_lists.items():
+            use_aucs = auc_list[
+                list(remove_pheno_dups({
+                    mut for mut, auc_val in auc_list.iteritems()
+                    if (isinstance(mut, ExMcomb)
+                        and auc_val >= args.auc_cutoff
+                        and get_mut_ex(mut) == args.ex_lbl
+                        and all(get_subtype(mtype) == pnt_mtype
+                                or copy_mtype.is_supertype(get_subtype(mtype))
+                                for mtype in mut.mtypes))
+                    }, phn_dicts[src, coh]))
+                ]
+
+            if len(use_aucs) == 0:
+                continue
+
+            base_mtree = tuple(cdata_dict[src, coh].mtrees.values())[0]
+            use_genes = {get_label(mcomb) for mcomb in use_aucs.index}
+            train_samps = cdata_dict[src, coh].get_train_samples()
+
+            all_mtypes = {
+                gene: MuType({('Gene', gene): base_mtree[gene].allkey()})
+                for gene in use_genes
+                }
+
+            if args.ex_lbl == 'IsoShal':
+                for gene in use_genes:
+                    all_mtypes[gene] -= MuType({('Gene', gene): shal_mtype})
+
+            all_phns = {
+                gene: np.array(cdata_dict[src, coh].train_pheno(all_mtype))
+                for gene, all_mtype in all_mtypes.items()
+                }
+
+            for gene, auc_vals in use_aucs.groupby(get_label):
+                gene_pnt = MuType({('Gene', gene): pnt_mtype})
+                cna_all = MuType({
+                    ('Gene', gene): cna_mtypes[args.ex_lbl]['All']})
+
+                for mcomb1, mcomb2 in combn(auc_vals.index, 2):
+                    use_preds1 = pred_dfs[src, coh].loc[mcomb1, train_samps]
+                    use_preds2 = pred_dfs[src, coh].loc[mcomb2, train_samps]
+
+                    siml_dicts[src, coh][mcomb1, mcomb2] = (
+                        siml_fx(use_preds1.loc[~all_phns[gene]],
+                                use_preds1.loc[phn_dicts[src, coh][mcomb1]],
+                                use_preds1.loc[phn_dicts[src, coh][mcomb2]]),
+                        siml_fx(use_preds2.loc[~all_phns[gene]],
+                                use_preds2.loc[phn_dicts[src, coh][mcomb2]],
+                                use_preds2.loc[phn_dicts[src, coh][mcomb1]])
+                        )
+
+                proj_combs = {ExMcomb(cna_all, gene_pnt)}
+                proj_combs |= {
+                    ExMcomb(gene_pnt, MuType({('Gene', gene): cna_type}))
+                    for cna_type in (cna_mtypes[args.ex_lbl]['Gain']
+                                     + cna_mtypes[args.ex_lbl]['Loss'])
+                    }
+
+                proj_combs |= {
+                    ExMcomb(cna_all, gene_pnt,
+                            MuType({('Gene', gene): cna_type}))
+                    for cna_type in (cna_mtypes[args.ex_lbl]['Gain']
+                                     + cna_mtypes[args.ex_lbl]['Loss'])
+                    }
+
+                proj_phns = {
+                    comb: np.array(cdata_dict[src, coh].train_pheno(comb))
+                    for comb in proj_combs
+                    }
+
+                proj_combs = {prj_comb for prj_comb, phn in proj_phns.items()
+                              if (phn.sum() >= 10
+                                  and not any(mcomb.mtypes == prj_comb.mtypes
+                                              for mcomb in auc_vals.index))}
+
+                for mcomb in auc_vals.index:
+                    use_preds = pred_dfs[src, coh].loc[mcomb, train_samps]
+
+                    for prj_comb in proj_combs:
+                        siml_dicts[src, coh][mcomb, prj_comb] = (siml_fx(
+                            use_preds.loc[~all_phns[gene]],
+                            use_preds.loc[phn_dicts[src, coh][mcomb]],
+                            use_preds.loc[proj_phns[prj_comb]]
+                            ), )
+
         if args.auc_cutoff < 1:
             for cna_lbl in ['Gain', 'Loss']:
-                plot_point_similarity(pred_dfs, phn_dicts, auc_lists,
-                                      cdata_dict, args, cna_lbl, siml_metric)
+                plot_point_similarity(auc_lists, siml_dicts, cdata_dict,
+                                      args, cna_lbl, siml_metric)
 
-                annt_types = plot_similarity_symmetry(
-                    pred_dfs, phn_dicts, auc_lists,
-                    cdata_dict, args, cna_lbl, siml_metric
-                    )
+                annt_types = plot_similarity_symmetry(siml_dicts, phn_dicts,
+                                                      cdata_dict, args,
+                                                      cna_lbl, siml_metric)
 
                 for (src, coh), annt_list in annt_types.items():
                     if annt_list:
@@ -958,7 +818,7 @@ def main():
                             )
 
                 intx_types = plot_interaction_symmetries(
-                    pred_dfs, phn_dicts, auc_lists,
+                    siml_dicts, phn_dicts,
                     cdata_dict, args, cna_lbl, siml_metric
                     )
 
