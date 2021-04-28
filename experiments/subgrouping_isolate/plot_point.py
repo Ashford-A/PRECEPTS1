@@ -5,7 +5,7 @@ from dryadic.features.mutations import MuType
 from ..subgrouping_isolate import base_dir, train_cohorts
 from .utils import (load_cohorts_data,
                     siml_fxs, remove_pheno_dups, get_mut_ex, get_mcomb_lbl)
-from ..utilities.labels import get_fancy_label, get_cohort_label
+from ..utilities.labels import get_cohort_label
 from ..utilities.misc import get_label, get_subtype, choose_label_colour
 from ..utilities.colour_maps import simil_cmap, variant_clrs
 from ..utilities.label_placement import place_scatter_labels
@@ -40,7 +40,7 @@ plot_dir = os.path.join(base_dir, 'plots', 'point')
 
 def plot_divergent_types(pred_dfs, pheno_dicts, auc_lists,
                          cdata_dict, args, siml_metric):
-    fig, ax = plt.subplots(figsize=(12, 7))
+    fig, ax = plt.subplots(figsize=(12, 8))
 
     divg_dfs = dict()
     gn_dict = dict()
@@ -85,17 +85,22 @@ def plot_divergent_types(pred_dfs, pheno_dicts, auc_lists,
             for gene, all_mtype in all_mtypes.items()
             }
 
+        # for each subgrouping, find the subset of point mutations that
+        # defines it, the gene it's associated with, and its task predictions
         for mcomb in use_combs:
             use_mtype = tuple(mcomb.mtypes)[0]
             cur_gene = get_label(mcomb)
             use_preds = pred_dfs[src, coh].loc[mcomb, train_samps]
 
+            # get the samples that carry any point mutation of this gene
             if (src, coh, cur_gene) not in gn_dict:
                 gn_dict[src, coh, cur_gene] = np.array(
                     cdata_dict[src, coh].train_pheno(
                         MuType({('Gene', cur_gene): pnt_mtype}))
                     )
 
+            # get samples that have any point mutation of this gene that is
+            # not the subgrouping's mutation and no other mutation of the gene
             rst_dict[src, coh, mcomb] = np.array(
                 cdata_dict[src, coh].train_pheno(
                     ExMcomb(mcomb.all_mtype,
@@ -106,6 +111,8 @@ def plot_divergent_types(pred_dfs, pheno_dicts, auc_lists,
             assert not (pheno_dicts[src, coh][mcomb]
                         & rst_dict[src, coh, mcomb]).any()
 
+            # find the similarity of the remaining exclusively defined point
+            # mutations to samples carrying only this subgrouping's mutation
             if rst_dict[src, coh, mcomb].sum() >= 10:
                 siml_vals[mcomb] = siml_fxs[siml_metric](
                     use_preds.loc[~all_phns[cur_gene]],
@@ -121,32 +128,25 @@ def plot_divergent_types(pred_dfs, pheno_dicts, auc_lists,
 
         for cur_gene, divg_vals in divg_df.groupby(get_label):
             clr_dict[cur_gene] = None
+
             plt_size = np.mean(gn_dict[src, coh, cur_gene]) ** 0.5
             divg_stat = (divg_vals.Divg < 0.5).any()
+            divg_tupl = divg_vals.AUC[0], divg_vals.Divg[0]
+            line_dict[divg_tupl] = cur_gene
 
             for i, (mcomb, (divg_val, auc_val)) in enumerate(
                     divg_vals.iterrows()):
-                line_dict[auc_val, divg_val] = cur_gene
-
                 if not (divg_vals[:i].AUC > auc_val).any():
                     divg_mcombs |= {mcomb}
-
-                    if divg_val < 0.5:
-                        plot_dict[auc_val, divg_val] = [
-                            plt_size, ("{} in {}".format(cur_gene, coh_lbl),
-                                       get_mcomb_lbl(mcomb))
-                            ]
-
-                    else:
-                        plot_dict[auc_val, divg_val] = [plt_size, ('', '')]
-
-                else:
                     plot_dict[auc_val, divg_val] = [plt_size, ('', '')]
 
-            if not divg_stat:
-                line_dict[divg_vals.AUC[0], divg_vals.Divg[0]] = cur_gene
+            if divg_stat:
+                plot_dict[divg_tupl] = [plt_size,
+                                        ("{} in {}".format(cur_gene, coh_lbl),
+                                         get_mcomb_lbl(mcomb))]
 
-                plot_dict[divg_vals.AUC[0], divg_vals.Divg[0]] = [
+            else:
+                plot_dict[divg_tupl] = [
                     plt_size, ("{} in {}".format(cur_gene, coh_lbl), '')]
 
         divg_dfs[src, coh] = divg_df.loc[divg_mcombs]
@@ -159,9 +159,8 @@ def plot_divergent_types(pred_dfs, pheno_dicts, auc_lists,
         use_clrs = sns.color_palette(palette='bright', n_colors=len(clr_dict))
         clr_dict = dict(zip(clr_dict, use_clrs))
 
-    #TODO: make this scale better for smaller number of points?
-    size_mult = 4.7 * sum(divg_df.shape[0]
-                          for divg_df in divg_dfs.values()) ** -0.47
+    # TODO: make this scale better for smaller number of points?
+    size_mult = sum(df.shape[0] for df in divg_dfs.values()) ** -0.23
     for k in plot_dict:
         plot_dict[k][0] *= size_mult
 
@@ -175,7 +174,8 @@ def plot_divergent_types(pred_dfs, pheno_dicts, auc_lists,
     for (src, coh), divg_df in divg_dfs.items():
         for mcomb, (divg_val, auc_val) in divg_df.iterrows():
             cur_gene = get_label(mcomb)
-            plt_size = plot_dict[auc_val, divg_val][0] / 3.1
+            plt_size = 0.83 * size_mult * plot_dict[auc_val, divg_val][0]
+            plot_dict[auc_val, divg_val][0] *= 0.19 * size_mult
 
             plt_prop = np.mean(pheno_dicts[src, coh][mcomb])
             plt_prop /= np.mean(gn_dict[src, coh, cur_gene])
@@ -203,7 +203,7 @@ def plot_divergent_types(pred_dfs, pheno_dicts, auc_lists,
     ymin = min(divg_df.Divg.min() for divg_df in divg_dfs.values())
     ymax = max(divg_df.Divg.max() for divg_df in divg_dfs.values())
     yrng = ymax - ymin
-    ylims = [ymin - yrng / 9.1, ymax + yrng / 29]
+    ylims = [ymin - yrng / 6.1, ymax + yrng / 6.1]
 
     ax.grid(alpha=0.47, linewidth=0.9)
     ax.plot(xlims, [0, 0],
@@ -216,12 +216,12 @@ def plot_divergent_types(pred_dfs, pheno_dicts, auc_lists,
 
     for k in np.linspace(args.auc_cutoff, 0.99, 200):
         if (k, 0) not in plot_dict:
-            plot_dict[k, 0] = [1 / 11, ('', '')]
+            plot_dict[k, 0] = [1 / 503, ('', '')]
 
     if plot_dict:
         lbl_pos = place_scatter_labels(plot_dict, ax, plt_lims=[xlims, ylims],
                                        font_size=9, line_dict=line_dict,
-                                       linewidth=1.23, alpha=0.37)
+                                       linewidth=0.91, alpha=0.37)
 
     ax.xaxis.set_major_locator(plt.MaxNLocator(5, steps=[1, 2, 5]))
     ax.yaxis.set_major_locator(plt.MaxNLocator(7, steps=[1, 2, 5]))
@@ -239,7 +239,7 @@ def plot_divergent_types(pred_dfs, pheno_dicts, auc_lists,
 
 def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
                          cdata_dict, args, siml_metric):
-    fig, ax = plt.subplots(figsize=(12, 7))
+    fig, ax = plt.subplots(figsize=(12, 8))
 
     divg_lists = dict()
     plot_dict = dict()
@@ -387,7 +387,7 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
             plt_tupl = auc_list[list(lbl_pair)].min(), divg_list[lbl_pair]
             line_dict[plt_tupl] = src, coh, gene
 
-            plot_dict[plt_tupl] = [3.1 * size_dict[(src, coh, *lbl_pair)],
+            plot_dict[plt_tupl] = [size_dict[(src, coh, *lbl_pair)],
                                    ("{} in {}".format(gene,
                                                       get_cohort_label(coh)),
                                     pair_lbl)]
@@ -400,22 +400,22 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
         use_clrs = sns.color_palette(palette='bright', n_colors=len(clr_dict))
         clr_dict = dict(zip(clr_dict, use_clrs))
 
-    size_mult = 6107 * sum(
-        len(divg_list) for divg_list in divg_lists.values()) ** -0.31
+    size_mult = sum(len(divg_list)
+                    for divg_list in divg_lists.values()) ** -0.23
 
     for k in line_dict:
         line_dict[k] = {'c': clr_dict[line_dict[k][-1]]}
     for k in size_dict:
-        size_dict[k] *= size_mult
+        size_dict[k] *= 6037 * size_mult
 
     for (src, coh), divg_list in divg_lists.items():
         for (mcomb1, mcomb2), divg_val in divg_list.iteritems():
             cur_gene = get_label(mcomb1)
+            plt_tupl = auc_lists[src, coh][[mcomb1, mcomb2]].min(), divg_val
+            plot_dict[plt_tupl][0] *= 0.19 * size_mult
 
-            ax.scatter(auc_lists[src, coh][[mcomb1, mcomb2]].min(), divg_val,
-                       s=size_dict[src, coh, mcomb1, mcomb2],
-                       c=[clr_dict[cur_gene]],
-                       alpha=0.31, edgecolor='none')
+            ax.scatter(*plt_tupl, s=size_dict[src, coh, mcomb1, mcomb2],
+                       c=[clr_dict[cur_gene]], alpha=0.31, edgecolor='none')
 
     xlims = [args.auc_cutoff - (1 - args.auc_cutoff) / 47,
              1 + (1 - args.auc_cutoff) / 277]
@@ -435,11 +435,15 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
     ax.xaxis.set_major_locator(plt.MaxNLocator(5, steps=[1, 2, 5]))
     ax.yaxis.set_major_locator(plt.MaxNLocator(7, steps=[1, 2, 5]))
 
+    for k in np.linspace(args.auc_cutoff, 0.99, 200):
+        if (k, 0) not in plot_dict:
+            plot_dict[k, 0] = [1 / 503, ('', '')]
+
     if plot_dict:
         lbl_pos = place_scatter_labels(plot_dict, ax,
                                        plt_lims=[xlims, ylims],
                                        font_size=10, line_dict=line_dict,
-                                       linewidth=1.7, alpha=0.41)
+                                       linewidth=1.37, alpha=0.31)
 
     ax.set_xlim(xlims)
     ax.set_ylim(ylims)

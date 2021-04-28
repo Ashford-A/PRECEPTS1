@@ -1,6 +1,7 @@
 
-from ..utilities.mutations import (
-    MuType, Mcomb, ExMcomb, shal_mtype, copy_mtype, gains_mtype, dels_mtype)
+from ..utilities.mutations import (MuType, Mcomb, ExMcomb, deep_mtype,
+                                   shal_mtype, copy_mtype, gains_mtype,
+                                   dels_mtype, dup_mtype, loss_mtype)
 from ..utilities.metrics import calculate_mean_siml, calculate_ks_siml
 from ..utilities.colour_maps import variant_clrs, mcomb_clrs
 from ..utilities.labels import get_fancy_label
@@ -13,7 +14,11 @@ import dill as pickle
 from pathlib import Path
 
 siml_fxs = {'mean': calculate_mean_siml, 'ks': calculate_ks_siml}
-cna_mtypes = {'Gain': gains_mtype, 'Loss': dels_mtype}
+cna_mtypes = {'Iso': {'All': shal_mtype | deep_mtype,
+                      'Gain': [gains_mtype, dup_mtype],
+                      'Loss': [dels_mtype, loss_mtype]},
+              'IsoShal': {'All': deep_mtype,
+                          'Gain': [dup_mtype], 'Loss': [loss_mtype]}}
 
 
 # TODO: is this still useful without pre-computed similarities?
