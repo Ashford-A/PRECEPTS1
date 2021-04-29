@@ -6,6 +6,7 @@ from dryadic.features.mutations import MuType
 from ..subgrouping_isolate import base_dir, train_cohorts
 from .utils import load_cohorts_data, siml_fxs, remove_pheno_dups, get_mut_ex
 from ..utilities.misc import get_label, get_subtype, choose_label_colour
+from ..utilities.label_placement import place_scatter_labels
 
 import os
 import argparse
@@ -32,8 +33,6 @@ def plot_overlap_divergence(pred_dfs, pheno_dicts, auc_lists,
 
     siml_dicts = {(src, coh): dict() for src, coh in auc_lists}
     gn_dict = dict()
-    clr_dict = dict()
-    line_dict = dict()
 
     # for each dataset, find the subgroupings meeting the minimum task AUC
     # that are exclusively defined and subsets of point mutations...
@@ -46,19 +45,20 @@ def plot_overlap_divergence(pred_dfs, pheno_dicts, auc_lists,
                         for mtype in mut.mtypes))
             }, pheno_dicts[src, coh])
 
-        use_scombs = {mcomb for mcomb in use_combs if len(mcomb.mtypes) == 1}
-        use_dcombs = {mcomb for mcomb in use_combs if len(mcomb.mtypes) > 1}
-
         # skip this dataset for plotting if we cannot find any such pairs
-        if not use_scombs and not use_dcombs:
+        if not use_combs:
             continue
 
+        # get sample order used in the cohort and a breakdown of mutations
+        # in which each individual mutation can be uniquely identified
         train_samps = cdata_dict[src, coh].get_train_samples()
         use_mtree = cdata_dict[src, coh].mtrees['Gene', 'Scale', 'Copy',
                                                 'Exon', 'Position', 'HGVSp']
-        use_genes = {get_label(mcomb) for mcomb in use_scombs | use_dcombs}
+        use_genes = {get_label(mcomb) for mcomb in use_combs}
         cmp_phns = {gene: {'Sngl': None, 'Mult': None} for gene in use_genes}
 
+        # get the samples carrying a single point mutation or multiple
+        # mutations of each gene with at least one mutation in the cohort
         for gene in use_genes:
             gene_tree = use_mtree[gene]['Point']
 
@@ -99,16 +99,21 @@ def plot_overlap_divergence(pred_dfs, pheno_dicts, auc_lists,
             for gene, all_mtype in all_mtypes.items()
             }
 
-        for mcomb in use_scombs | use_dcombs:
+        # for each subgrouping, find the subset of point mutations that
+        # defines it, the gene it's associated with, and its task predictions
+        for mcomb in use_combs:
             cur_gene = get_label(mcomb)
             use_preds = pred_dfs[src, coh].loc[mcomb, train_samps]
 
+            # get the samples that carry any point mutation of this gene
             if (src, coh, cur_gene) not in gn_dict:
                 gn_dict[src, coh, cur_gene] = np.array(
                     cdata_dict[src, coh].train_pheno(
                         MuType({('Gene', cur_gene): pnt_mtype}))
                     )
 
+            # find the samples carrying one or multiple point mutations of
+            # this gene not belonging to this subgrouping
             cmp_phn = ~pheno_dicts[src, coh][mcomb]
             if len(mcomb.mtypes) == 1:
                 cmp_phn &= cmp_phns[cur_gene]['Mult']
@@ -116,58 +121,72 @@ def plot_overlap_divergence(pred_dfs, pheno_dicts, auc_lists,
                 cmp_phn &= cmp_phns[cur_gene]['Sngl']
 
             if cmp_phn.sum() >= 10:
-                clr_dict[cur_gene] = None
-
                 siml_dicts[src, coh][mcomb] = siml_fxs[siml_metric](
                     use_preds.loc[~all_phns[cur_gene]],
                     use_preds.loc[pheno_dicts[src, coh][mcomb]],
                     use_preds.loc[cmp_phn]
                     )
 
-    if len(clr_dict) > 8:
-        for gene in clr_dict:
-            clr_dict[gene] = choose_label_colour(gene)
+    plt_df = pd.DataFrame(
+        {'Siml': pd.DataFrame.from_records(siml_dicts).stack()})
+    plt_df['AUC'] = [auc_lists[src, coh][mcomb]
+                     for mcomb, (src, coh) in plt_df.index]
 
-    else:
-        use_clrs = sns.color_palette(palette='bright', n_colors=len(clr_dict))
-        clr_dict = dict(zip(clr_dict, use_clrs))
-
-    size_mult = sum(len(siml_dict)
-                    for siml_dict in siml_dicts.values()) ** -0.31
+    gene_means = plt_df.groupby(
+        lambda x: (get_label(x[0]), len(x[0].mtypes))).mean()
+    clr_dict = {gene: choose_label_colour(gene)
+                for gene, _ in gene_means.index}
+    size_mult = plt_df.groupby(
+        lambda x: len(x[0].mtypes)).Siml.count().max() ** -0.23
 
     xlims = [args.auc_cutoff - (1 - args.auc_cutoff) / 47,
              1 + (1 - args.auc_cutoff) / 277]
-
-    ymin = min(min(siml_dict.values()) for siml_dict in siml_dicts.values()
-               if siml_dict)
-    ymax = max(max(siml_dict.values()) for siml_dict in siml_dicts.values()
-               if siml_dict)
+    ymin, ymax = plt_df.Siml.quantile(q=[0, 1])
     yrng = ymax - ymin
     ylims = [ymin - yrng / 23, ymax + yrng / 23]
 
-    for k in line_dict:
-        line_dict[k] = {'c': clr_dict[line_dict[k][-1]]}
+    plot_dicts = {mcomb_i: {(auc_val, siml_val): [0.0001, (gene, '')]
+                            for (gene, mcomb_indx), (siml_val, auc_val)
+                            in gene_means.iterrows() if mcomb_indx == mcomb_i}
+                  for mcomb_i in [1, 2]}
 
-    for (src, coh), siml_dict in siml_dicts.items():
-        for mcomb, siml_val in siml_dict.items():
-            cur_gene = get_label(mcomb)
-            plt_size = size_mult * np.mean(pheno_dicts[src, coh][mcomb])
+    for (mcomb, (src, coh)), (siml_val, auc_val) in plt_df.iterrows():
+        cur_gene = get_label(mcomb)
 
-            if len(mcomb.mtypes) == 1:
-                use_ax = sngl_ax
-            else:
-                use_ax = mult_ax
+        plt_size = size_mult * np.mean(pheno_dicts[src, coh][mcomb])
+        plot_dicts[(len(mcomb.mtypes) == 2) + 1][auc_val, siml_val] = [
+            0.19 * plt_size, ('', '')]
 
-            use_ax.scatter(auc_lists[src, coh][mcomb], siml_val,
-                           s=2571 * plt_size, c=[clr_dict[cur_gene]],
-                           alpha=0.21, edgecolor='none')
+        if len(mcomb.mtypes) == 1:
+            use_ax = sngl_ax
+        else:
+            use_ax = mult_ax
 
-    for ax in sngl_ax, mult_ax:
+        use_ax.scatter(auc_val, siml_val, s=3751 * plt_size,
+                       c=[clr_dict[cur_gene]], alpha=0.25, edgecolor='none')
+
+    for ax, mcomb_i in zip([sngl_ax, mult_ax], [1, 2]):
         ax.grid(alpha=0.47, linewidth=0.9)
-
-        ax.plot(xlims, [0, 0],
-                color='black', linewidth=1.11, linestyle='--', alpha=0.67)
         ax.plot([1, 1], ylims, color='black', linewidth=1.7, alpha=0.83)
+
+        for yval in [0, 1]:
+            if xlims[0] < yval < xlims[1]:
+                ax.plot(xlims, [yval, yval], color='black',
+                        linewidth=1.11, linestyle='--', alpha=0.67)
+
+                for k in np.linspace(args.auc_cutoff, 0.99, 200):
+                    if (k, yval) not in plot_dicts[mcomb_i]:
+                        plot_dicts[mcomb_i][k, yval] = [1 / 703, ('', '')]
+
+        line_dict = {k: {'c': clr_dict[v[1][0]]}
+                     for k, v in plot_dicts[mcomb_i].items() if v[1][0]}
+        font_dict = {k: {'c': v['c'], 'weight': 'bold'}
+                     for k, v in line_dict.items()}
+
+        lbl_pos = place_scatter_labels(plot_dicts[mcomb_i], ax,
+                                       plt_lims=[xlims, ylims],
+                                       line_dict=line_dict,
+                                       font_dict=font_dict, font_size=19)
 
         ax.xaxis.set_major_locator(plt.MaxNLocator(5, steps=[1, 2, 5]))
         ax.yaxis.set_major_locator(plt.MaxNLocator(7, steps=[1, 2, 5]))
