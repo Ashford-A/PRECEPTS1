@@ -25,6 +25,7 @@ from scipy.stats import fisher_exact
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import seaborn as sns
+from matplotlib.lines import Line2D
 
 mpl.use('Agg')
 plt.style.use('fivethirtyeight')
@@ -80,9 +81,9 @@ def plot_point_similarity(auc_lists, siml_dicts, cdata_dict,
 
         if use_simls:
             ymin = min(ymin, min(siml_val for simls in use_simls.values()
-                                 for siml_val in simls) - 0.07)
+                                 for siml_val in simls))
             ymax = max(ymax, max(siml_val for simls in use_simls.values()
-                                 for siml_val in simls) + 0.07)
+                                 for siml_val in simls))
 
         for combs, simls in use_simls.items():
             cur_gene = get_label(combs[0])
@@ -114,7 +115,7 @@ def plot_point_similarity(auc_lists, siml_dicts, cdata_dict,
     xlims = [args.auc_cutoff - (1 - args.auc_cutoff) / 47,
              1 + (1 - args.auc_cutoff) / 277]
     yrng = ymax - ymin
-    ylims = [ymin - yrng / 23, ymax + yrng / 23]
+    ylims = [ymin - yrng / 7, ymax + yrng / 7]
 
     ylbls = {'pnt': ("Inferred {} Similarity"
                      "\nto Point Mutations").format(cna_lbl),
@@ -186,7 +187,7 @@ def plot_similarity_symmetry(siml_dicts, pheno_dicts, cdata_dict,
     plt_min, plt_max = -0.53, 0.53
 
     for (src, coh), siml_dict in siml_dicts.items():
-        coh_lbl = get_cohort_label(coh)
+        coh_lbl = get_cohort_label(coh).replace("TCGA-", '')
 
         use_simls = {
             (comb1, comb2): simls
@@ -204,10 +205,10 @@ def plot_similarity_symmetry(siml_dicts, pheno_dicts, cdata_dict,
         if use_simls:
             plt_min = min(plt_min,
                           min(siml_val for simls in use_simls.values()
-                              for siml_val in simls) - 0.19)
+                              for siml_val in simls))
             plt_max = max(plt_max,
                           max(siml_val for simls in use_simls.values()
-                              for siml_val in simls) + 0.19)
+                              for siml_val in simls))
 
         for combs, simls in use_simls.items():
             cur_gene = get_label(combs[0])
@@ -217,10 +218,20 @@ def plot_similarity_symmetry(siml_dicts, pheno_dicts, cdata_dict,
             plt_simls[(src, coh, *combs[::ordr])] = simls[::ordr]
             annt_lists[src, coh] |= {combs[::ordr]}
 
+            if (get_subtype(tuple(combs[::ordr][0].mtypes)[0])
+                    & shal_mtype).is_empty():
+                if cna_lbl == 'Gain':
+                    cpy_lbl = "only deep gains"
+                else:
+                    cpy_lbl = "only deep losses"
+
+            else:
+                cpy_lbl = ''
+
             if (max(np.abs(np.array(simls))) > 0.5
                     or cur_gene in {'TP53', 'PIK3CA', 'GATA3'}):
                 plot_dict[simls[::ordr]] = [
-                    None, ("{} in {}".format(cur_gene, coh_lbl), '')]
+                    None, ("{} in {}".format(cur_gene, coh_lbl), cpy_lbl)]
                 line_dict[simls[::ordr]] = cur_gene
 
             else:
@@ -236,16 +247,18 @@ def plot_similarity_symmetry(siml_dicts, pheno_dicts, cdata_dict,
 
     size_mult = len(plt_simls) ** -0.23
     plt_rng = plt_max - plt_min
-    plt_lims = [min(-0.07, plt_min - plt_rng / 23),
-                max(1.07, plt_max + plt_rng / 23)]
+    plt_lims = [min(-0.07, plt_min - plt_rng / 31),
+                max(1.07, plt_max + plt_rng / 31)]
 
     ax.grid(alpha=0.47, linewidth=0.9)
-    ax.plot(plt_lims, [0, 0],
-            color='black', linewidth=1.1, linestyle=':', alpha=0.71)
-    ax.plot([0, 0], plt_lims,
-            color='black', linewidth=1.1, linestyle=':', alpha=0.71)
     ax.plot(plt_lims, plt_lims,
-            '#550000', linewidth=1.7, linestyle='--', alpha=0.41)
+            '#550000', linewidth=1.3, linestyle='--', alpha=0.41)
+
+    for j in [0, 1]:
+        ax.plot(plt_lims, [j, j],
+                color='black', linewidth=0.83, linestyle=':', alpha=0.67)
+        ax.plot([j, j], plt_lims,
+                color='black', linewidth=0.83, linestyle=':', alpha=0.67)
 
     for (src, coh, cpy_comb, pnt_comb), simls in plt_simls.items():
         cur_gene = get_label(cpy_comb)
@@ -253,14 +266,15 @@ def plot_similarity_symmetry(siml_dicts, pheno_dicts, cdata_dict,
         plt_size = np.mean(pheno_dicts[src, coh][cpy_comb])
         plt_size *= np.mean(pheno_dicts[src, coh][pnt_comb])
         plt_size = size_mult * plt_size ** 0.5
-        plot_dict[simls][0] = 0.31 * plt_size
+        plot_dict[simls][0] = 0.19 * plt_size
 
         ax.scatter(*simls, c=[clr_dict[cur_gene]],
-                   s=4071 * plt_size, alpha=0.37, edgecolor='none')
+                   s=2371 * plt_size, alpha=0.41, edgecolor='none')
 
     # makes sure plot labels don't overlap with equal-similarity diagonal line
-    for k in np.linspace(plt_min, 1, 400):
-        plot_dict[k, k] = [(1 - plt_min) / 387, ('', '')]
+    for k in np.linspace(plt_min, plt_max, 100):
+        if (k, k) not in plot_dict:
+            plot_dict[k, k] = [plt_rng / 387, ('', '')]
 
     for tupl in line_dict:
         line_dict[tupl] = {'c': clr_dict[line_dict[tupl]]}
@@ -280,8 +294,8 @@ def plot_similarity_symmetry(siml_dicts, pheno_dicts, cdata_dict,
         size=23, weight='bold'
         )
 
-    ax.xaxis.set_major_locator(plt.MaxNLocator(5, steps=[1, 2, 5]))
-    ax.yaxis.set_major_locator(plt.MaxNLocator(5, steps=[1, 2, 5]))
+    ax.xaxis.set_major_locator(plt.MaxNLocator(7, steps=[1, 2, 5]))
+    ax.yaxis.set_major_locator(plt.MaxNLocator(7, steps=[1, 2, 5]))
     ax.set_xlim(plt_lims)
     ax.set_ylim(plt_lims)
 
@@ -520,14 +534,18 @@ def plot_interaction_symmetries(siml_dicts, pheno_dicts, cdata_dict,
         if use_simls:
             plt_min = min(plt_min,
                           min(siml_val for simls in use_simls.values()
-                              for siml_val in simls) - 0.07)
+                              for siml_val in simls))
             plt_max = max(plt_max,
                           max(siml_val for simls in use_simls.values()
-                              for siml_val in simls) + 0.07)
+                              for siml_val in simls))
 
         for combs, simls in use_simls.items():
             cur_gene = get_label(combs[0])
-            clr_dict[cur_gene] = None
+
+            if cur_gene in clr_dict:
+                clr_dict[cur_gene] += 1
+            else:
+                clr_dict[cur_gene] = 1
 
             for (trn_comb, prj_comb), siml_val in zip(permt(combs), simls):
                 comb_types = (get_mcomb_type(trn_comb),
@@ -541,6 +559,7 @@ def plot_interaction_symmetries(siml_dicts, pheno_dicts, cdata_dict,
                     plt_simls[src, coh][comb_types][trn_comb] = {
                         prj_comb: siml_val}
 
+    lgnd_gns = pd.Series(clr_dict).sort_values().index[:-13:-1]
     if len(clr_dict) > 8:
         for gene in clr_dict:
             clr_dict[gene] = choose_label_colour(gene)
@@ -549,12 +568,18 @@ def plot_interaction_symmetries(siml_dicts, pheno_dicts, cdata_dict,
         use_clrs = sns.color_palette(palette='bright', n_colors=len(clr_dict))
         clr_dict = dict(zip(clr_dict, use_clrs))
 
+    lgnd_mrks = [Line2D([], [], marker='o', linestyle='None',
+                        markersize=25, alpha=0.61,
+                        markerfacecolor=clr_dict[gene],
+                        markeredgecolor='none')
+                 for gene in lgnd_gns]
+
     size_mult = sum(len(simls) for comb_simls in plt_simls.values()
                     for simls in comb_simls.values()) ** -0.23
 
     plt_rng = plt_max - plt_min
-    plt_lims = [min(-0.07, plt_min - plt_rng / 23),
-                max(1.07, plt_max + plt_rng / 23)]
+    plt_lims = [min(-0.07, plt_min - plt_rng / 53),
+                max(1.07, plt_max + plt_rng / 53)]
 
     for (src, coh), siml_dict in plt_simls.items():
         both_intx = set(siml_dict['intx', 'pnt'])
@@ -568,8 +593,9 @@ def plot_interaction_symmetries(siml_dicts, pheno_dicts, cdata_dict,
                     siml_dict['intx', 'pnt'][trn_comb].items(),
                     siml_dict['intx', 'cpy'][trn_comb].items()
                     ):
+
                 axarr[1, 0].scatter(pnt_siml, cpy_siml,
-                                    c=[clr_dict[cur_gene]], s=1473 * plt_size,
+                                    c=[clr_dict[cur_gene]], s=5173 * plt_size,
                                     alpha=0.31, edgecolor='none')
 
         for pnt_comb, pnt_simls in siml_dict['pnt', 'intx'].items():
@@ -587,9 +613,9 @@ def plot_interaction_symmetries(siml_dicts, pheno_dicts, cdata_dict,
                     cpy_size = np.mean(pheno_dicts[src, coh][cpy_comb])
                     plt_size = size_mult * (pnt_size * cpy_size) ** 0.5
 
-                    axarr[0, 1].scatter(intx_siml1, intx_siml2,
+                    axarr[0, 1].scatter(intx_siml2, intx_siml1,
                                         c=[clr_dict[cur_gene]],
-                                        s=1473 * plt_size, alpha=0.31,
+                                        s=5173 * plt_size, alpha=0.31,
                                         edgecolor='none')
 
                 if intx_comb in siml_dict['intx', 'pnt']:
@@ -599,7 +625,7 @@ def plot_interaction_symmetries(siml_dicts, pheno_dicts, cdata_dict,
 
                     axarr[0, 0].scatter(intx_siml2, intx_siml1,
                                         c=[clr_dict[cur_gene]],
-                                        s=1473 * plt_size, alpha=0.31,
+                                        s=5173 * plt_size, alpha=0.31,
                                         edgecolor='none')
 
         for cpy_comb, cpy_simls in siml_dict['cpy', 'intx'].items():
@@ -614,7 +640,7 @@ def plot_interaction_symmetries(siml_dicts, pheno_dicts, cdata_dict,
 
                     axarr[1, 1].scatter(intx_siml1, intx_siml2,
                                         c=[clr_dict[cur_gene]],
-                                        s=1473 * plt_size, alpha=0.31,
+                                        s=5173 * plt_size, alpha=0.27,
                                         edgecolor='none')
 
     for ax in axarr.flatten():
@@ -622,8 +648,14 @@ def plot_interaction_symmetries(siml_dicts, pheno_dicts, cdata_dict,
         ax.plot(plt_lims, plt_lims,
                 color='black', linewidth=1.13, linestyle='--', alpha=0.47)
 
-        ax.xaxis.set_major_locator(plt.MaxNLocator(4, steps=[1, 2, 5]))
-        ax.yaxis.set_major_locator(plt.MaxNLocator(4, steps=[1, 2, 5]))
+        for j in [0, 1]:
+            ax.plot(plt_lims, [j, j],
+                    color='black', linewidth=0.71, linestyle=':', alpha=0.67)
+            ax.plot([j, j], plt_lims,
+                    color='black', linewidth=0.71, linestyle=':', alpha=0.67)
+
+        ax.xaxis.set_major_locator(plt.MaxNLocator(5, steps=[1, 2, 5]))
+        ax.yaxis.set_major_locator(plt.MaxNLocator(5, steps=[1, 2, 5]))
         ax.set_xlim(plt_lims)
         ax.set_ylim(plt_lims)
 
@@ -634,21 +666,24 @@ def plot_interaction_symmetries(siml_dicts, pheno_dicts, cdata_dict,
 
     axarr[1, 0].set_xlabel(
         "Point Mutations' Similarity\nto Point & {}".format(cna_lbl),
-        size=27, weight='bold'
+        size=33, weight='bold'
         )
     axarr[1, 0].set_ylabel(
         "{0} Alterations' Similarity\nto Point & {0}".format(cna_lbl),
-        size=27, weight='bold'
+        size=33, weight='bold'
         )
 
     axarr[1, 1].set_xlabel(
         "Point & {0} Similarity\nto {0} Alterations".format(cna_lbl),
-        size=27, weight='bold'
+        size=33, weight='bold'
         )
     axarr[0, 0].set_ylabel(
         "Point & {} Similarity\nto Point Mutations".format(cna_lbl),
-        size=27, weight='bold'
+        size=33, weight='bold'
         )
+
+    fig.legend(lgnd_mrks, lgnd_gns, bbox_to_anchor=(0.5, -0.007),
+               frameon=False, fontsize=31, ncol=4, loc=9, handletextpad=0.13)
 
     fig.tight_layout(w_pad=3, h_pad=3)
     plt.savefig(
