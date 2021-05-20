@@ -127,7 +127,8 @@ def plot_divergent_types(pred_dfs, pheno_dicts, auc_lists,
         coh_lbl = get_cohort_label(coh)
 
         for cur_gene, divg_vals in divg_df.groupby(get_label):
-            clr_dict[cur_gene] = None
+            if cur_gene not in clr_dict:
+                clr_dict[cur_gene] = choose_label_colour(cur_gene)
 
             plt_size = np.mean(gn_dict[src, coh, cur_gene]) ** 0.5
             divg_stat = (divg_vals.Divg < 0.5).any()
@@ -151,14 +152,6 @@ def plot_divergent_types(pred_dfs, pheno_dicts, auc_lists,
 
         divg_dfs[src, coh] = divg_df.loc[divg_mcombs]
 
-    if len(clr_dict) > 8:
-        for gene in clr_dict:
-            clr_dict[gene] = choose_label_colour(gene)
-
-    else:
-        use_clrs = sns.color_palette(palette='bright', n_colors=len(clr_dict))
-        clr_dict = dict(zip(clr_dict, use_clrs))
-
     # TODO: make this scale better for smaller number of points?
     size_mult = sum(df.shape[0] for df in divg_dfs.values()) ** -0.23
     for k in plot_dict:
@@ -175,7 +168,7 @@ def plot_divergent_types(pred_dfs, pheno_dicts, auc_lists,
         for mcomb, (divg_val, auc_val) in divg_df.iterrows():
             cur_gene = get_label(mcomb)
             plt_size = 0.83 * size_mult * plot_dict[auc_val, divg_val][0]
-            plot_dict[auc_val, divg_val][0] *= 0.19 * size_mult
+            plot_dict[auc_val, divg_val][0] *= 0.23 * size_mult
 
             plt_prop = np.mean(pheno_dicts[src, coh][mcomb])
             plt_prop /= np.mean(gn_dict[src, coh, cur_gene])
@@ -197,30 +190,33 @@ def plot_divergent_types(pred_dfs, pheno_dicts, auc_lists,
                                clr_dict[cur_gene] + (0.11,)],
                        explode=[0.29, 0, 0], startangle=270, normalize=True)
 
+    ax.grid(alpha=0.47, linewidth=0.9)
     xlims = [args.auc_cutoff - (1 - args.auc_cutoff) / 47,
              1 + (1 - args.auc_cutoff) / 277]
 
     ymin = min(divg_df.Divg.min() for divg_df in divg_dfs.values())
     ymax = max(divg_df.Divg.max() for divg_df in divg_dfs.values())
     yrng = ymax - ymin
-    ylims = [ymin - yrng / 6.1, ymax + yrng / 6.1]
+    ylims = [ymin - yrng / 5.3, ymax + yrng / 5.3]
 
-    ax.grid(alpha=0.47, linewidth=0.9)
     ax.plot(xlims, [0, 0],
-            color='black', linewidth=1.11, linestyle='--', alpha=0.67)
+            color='black', linewidth=0.91, linestyle='--', alpha=0.67)
+    ax.plot(xlims, [1, 1],
+            color='black', linewidth=0.91, linestyle='--', alpha=0.67)
     ax.plot([1, 1], ylims, color='black', linewidth=1.7, alpha=0.83)
 
     ax.set_xlabel("Isolated Classification Accuracy", size=21, weight='bold')
-    ax.set_ylabel("Inferred Similarity to\nRemaining Point Mutations",
-                  size=21, weight='bold')
+    ax.set_ylabel("Inferred Similarity to Same Gene's"
+                  "\nRemaining Point Mutations", size=21, weight='bold')
 
-    for k in np.linspace(args.auc_cutoff, 0.99, 200):
-        if (k, 0) not in plot_dict:
-            plot_dict[k, 0] = [1 / 503, ('', '')]
+    for k in np.linspace(args.auc_cutoff, 0.99, 100):
+        for j in [0, 1]:
+            if (k, j) not in plot_dict:
+                plot_dict[k, j] = [1 / 503, ('', '')]
 
     if plot_dict:
         lbl_pos = place_scatter_labels(plot_dict, ax, plt_lims=[xlims, ylims],
-                                       font_size=9, line_dict=line_dict,
+                                       font_size=11, line_dict=line_dict,
                                        linewidth=0.91, alpha=0.37)
 
     ax.xaxis.set_major_locator(plt.MaxNLocator(5, steps=[1, 2, 5]))
@@ -377,7 +373,8 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
 
         for gene, pair_vals in pair_df.groupby(
                 lambda mcombs: get_label(mcombs[0])):
-            clr_dict[gene] = None
+            if gene not in clr_dict:
+                clr_dict[gene] = choose_label_colour(gene)
 
             lbl_pair = pair_vals.index[0]
             annt_dict[src, coh] |= set(pair_vals.index[:5])
@@ -392,14 +389,6 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
                                                       get_cohort_label(coh)),
                                     pair_lbl)]
 
-    if len(clr_dict) > 8:
-        for gene in clr_dict:
-            clr_dict[gene] = choose_label_colour(gene)
-
-    else:
-        use_clrs = sns.color_palette(palette='bright', n_colors=len(clr_dict))
-        clr_dict = dict(zip(clr_dict, use_clrs))
-
     size_mult = sum(len(divg_list)
                     for divg_list in divg_lists.values()) ** -0.23
 
@@ -412,39 +401,44 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
         for (mcomb1, mcomb2), divg_val in divg_list.iteritems():
             cur_gene = get_label(mcomb1)
             plt_tupl = auc_lists[src, coh][[mcomb1, mcomb2]].min(), divg_val
-            plot_dict[plt_tupl][0] *= 0.19 * size_mult
+            plot_dict[plt_tupl][0] *= 0.23 * size_mult
 
             ax.scatter(*plt_tupl, s=size_dict[src, coh, mcomb1, mcomb2],
                        c=[clr_dict[cur_gene]], alpha=0.31, edgecolor='none')
 
+    ax.grid(alpha=0.47, linewidth=0.9)
     xlims = [args.auc_cutoff - (1 - args.auc_cutoff) / 47,
              1 + (1 - args.auc_cutoff) / 277]
 
     ymin = min(divg_list.min() for divg_list in divg_lists.values())
     ymax = max(divg_list.max() for divg_list in divg_lists.values())
     yrng = ymax - ymin
-    ylims = [ymin - yrng / 11, ymax + yrng / 41]
+    ylims = [ymin - yrng / 4.1, ymax + yrng / 4.1]
 
-    ax.grid(alpha=0.47, linewidth=0.9)
     ax.plot(xlims, [0, 0],
-            color='black', linewidth=1.11, linestyle='--', alpha=0.67)
+            color='black', linewidth=0.91, linestyle='--', alpha=0.67)
+    ax.plot(xlims, [1, 1],
+            color='black', linewidth=0.91, linestyle='--', alpha=0.67)
     ax.plot([1, 1], ylims, color='black', linewidth=1.7, alpha=0.83)
 
-    ax.set_xlabel("Minimum Classification Accuracy", size=21, weight='bold')
-    ax.set_ylabel("Maximum Inferred Similarity", size=21, weight='bold')
-    ax.xaxis.set_major_locator(plt.MaxNLocator(5, steps=[1, 2, 5]))
-    ax.yaxis.set_major_locator(plt.MaxNLocator(7, steps=[1, 2, 5]))
+    ax.set_xlabel("Minimum Classification Accuracy\nAcross Subgrouping Pair",
+                  size=21, weight='bold')
+    ax.set_ylabel("Maximum of Inferred Similarities"
+                  "\nBetween Subgrouping Pair", size=21, weight='bold')
 
-    for k in np.linspace(args.auc_cutoff, 0.99, 200):
-        if (k, 0) not in plot_dict:
-            plot_dict[k, 0] = [1 / 503, ('', '')]
+    for k in np.linspace(args.auc_cutoff, 0.99, 100):
+        for j in [0, 1]:
+            if (k, j) not in plot_dict:
+                plot_dict[k, j] = [1 / 503, ('', '')]
 
     if plot_dict:
         lbl_pos = place_scatter_labels(plot_dict, ax,
                                        plt_lims=[xlims, ylims],
-                                       font_size=10, line_dict=line_dict,
-                                       linewidth=1.37, alpha=0.31)
+                                       font_size=11, line_dict=line_dict,
+                                       linewidth=0.91, alpha=0.37)
 
+    ax.xaxis.set_major_locator(plt.MaxNLocator(5, steps=[1, 2, 5]))
+    ax.yaxis.set_major_locator(plt.MaxNLocator(7, steps=[1, 2, 5]))
     ax.set_xlim(xlims)
     ax.set_ylim(ylims)
 
@@ -647,7 +641,7 @@ def plot_orthogonal_scores(plt_mcomb1, plt_mcomb2, pred_df, auc_vals,
 def main():
     parser = argparse.ArgumentParser(
         'plot_point',
-        description="Compares point mutation subgroupings with a cohort."
+        description="Compares point mutation subgroupings across all cohorts."
         )
 
     parser.add_argument('classif', help="a mutation classifier")

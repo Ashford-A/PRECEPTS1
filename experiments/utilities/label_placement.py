@@ -128,14 +128,14 @@ def place_scatter_labels(plot_dict, ax, plt_lims=None,
     # for labels that couldn't be placed right beside their points, look for
     # empty space in a vicinity determined using simulated annealing
     i = 0
-    while i < 65000 and any(lbl is None for lbl in lbl_pos.values()):
-        i += 1
+    while i < 10000 and any(lbl is None for lbl in lbl_pos.values()):
+        i += 5
 
         for pnt, (_, (_, bot_lbl)) in plot_dict.items():
             if (pnt in lbl_pos and lbl_pos[pnt] is None
                     and lbl_wdths[pnt] < (0.91 * (xmax - xmin))
                     and lbl_hghts[pnt] < (0.47 * (ymax - ymin))):
-                pos_rands = [random.expovariate((i * adj / 1703) ** -1)
+                pos_rands = [random.expovariate((i * adj / 83) ** -1)
                              for adj in [xadj, yadj]]
 
                 # adds padding to the randomly chosen distances and randomly
@@ -157,9 +157,9 @@ def place_scatter_labels(plot_dict, ax, plt_lims=None,
 
                 # exclude areas too far away from the original point
                 new_pos[0] = np.clip(new_pos[0],
-                                     pnt[0] - 331 * xadj, pnt[0] + 331 * xadj)
+                                     pnt[0] - 401 * xadj, pnt[0] + 401 * xadj)
                 new_pos[1] = np.clip(new_pos[1],
-                                     pnt[1] - 331 * yadj, pnt[1] + 331 * yadj)
+                                     pnt[1] - 401 * yadj, pnt[1] + 401 * yadj)
 
                 # if the label has a bottom text component, account for it
                 # when determining the label's vertical alignment
