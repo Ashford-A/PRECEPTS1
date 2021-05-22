@@ -1,5 +1,6 @@
 
-from ..utilities.mutations import pnt_mtype, shal_mtype, copy_mtype, ExMcomb
+from ..utilities.mutations import (pnt_mtype, dup_mtype, loss_mtype,
+                                   shal_mtype, copy_mtype, ExMcomb)
 from dryadic.features.mutations import MuType
 
 from ..subgrouping_isolate import base_dir, train_cohorts
@@ -20,7 +21,7 @@ from itertools import permutations as permt
 
 import numpy as np
 import pandas as pd
-from scipy.stats import fisher_exact
+from scipy.stats import ks_2samp, fisher_exact
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -65,7 +66,7 @@ def plot_point_similarity(auc_lists, siml_dicts, cdata_dict,
     ymin, ymax = -0.53, 0.53
 
     for (src, coh), siml_dict in siml_dicts.items():
-        coh_lbl = get_cohort_label(coh)
+        coh_lbl = get_cohort_label(coh).replace("TCGA-", '')
 
         use_simls = {
             (comb1, comb2): simls
@@ -95,8 +96,7 @@ def plot_point_similarity(auc_lists, siml_dicts, cdata_dict,
                 plt_simls[comb_type][src, coh, trn_comb, prj_comb] = siml_val
                 plt_tupl = (auc_lists[src, coh][trn_comb], siml_val)
 
-                if (siml_val >= 0.5
-                        or cur_gene in {'TP53', 'PIK3CA', 'GATA3'}):
+                if siml_val >= 0.5:
                     plot_dicts[comb_type][plt_tupl] = [
                         None, ("{} in {}".format(cur_gene, coh_lbl), '')]
                     line_dicts[comb_type][plt_tupl] = cur_gene
@@ -116,6 +116,10 @@ def plot_point_similarity(auc_lists, siml_dicts, cdata_dict,
              1 + (1 - args.auc_cutoff) / 277]
     yrng = ymax - ymin
     ylims = [ymin - yrng / 7, ymax + yrng / 7]
+
+    xlbls = {'pnt': "Point Mutation Isolated Classification Accuracy",
+             'cpy': "{} Alteration Isolated Classification Accuracy".format(
+                 cna_lbl)}
 
     ylbls = {'pnt': ("Inferred {} Similarity"
                      "\nto Point Mutations").format(cna_lbl),
@@ -141,18 +145,13 @@ def plot_point_similarity(auc_lists, siml_dicts, cdata_dict,
                 color='black', linewidth=1.11, linestyle='--', alpha=0.67)
         ax.plot([1, 1], ylims, color='black', linewidth=1.7, alpha=0.83)
 
+        ax.set_xlabel(xlbls[k], size=21, weight='bold')
         ax.set_ylabel(ylbls[k], size=21, weight='bold')
-        if k == 'cpy':
-            ax.set_xlabel("Subgrouping\nClassification Accuracy",
-                          size=21, weight='bold')
-
-        ax.xaxis.set_major_locator(plt.MaxNLocator(5, steps=[1, 2, 5]))
-        ax.yaxis.set_major_locator(plt.MaxNLocator(7, steps=[1, 2, 5]))
 
         for tupl in line_dicts[k]:
             line_dicts[k][tupl] = {'c': clr_dict[line_dicts[k][tupl]]}
 
-        for val in np.linspace(args.auc_cutoff, 0.99, 200):
+        for val in np.linspace(args.auc_cutoff, 0.99, 100):
             if (val, 0) not in plot_dicts[k]:
                 plot_dicts[k][val, 0] = [1 / 11, ('', '')]
 
@@ -161,6 +160,8 @@ def plot_point_similarity(auc_lists, siml_dicts, cdata_dict,
                                        font_size=10, line_dict=line_dicts[k],
                                        linewidth=1.19, alpha=0.37)
 
+        ax.xaxis.set_major_locator(plt.MaxNLocator(5, steps=[1, 2, 5]))
+        ax.yaxis.set_major_locator(plt.MaxNLocator(7, steps=[1, 2, 5]))
         ax.set_xlim(xlims)
         ax.set_ylim(ylims)
 
@@ -178,11 +179,12 @@ def plot_similarity_symmetry(siml_dicts, pheno_dicts, cdata_dict,
                              args, cna_lbl, siml_metric):
     fig, ax = plt.subplots(figsize=(9.4, 10))
 
-    cna_mtype = cna_mtypes[args.ex_lbl][cna_lbl][0]
     plt_simls = dict()
     plot_dict = dict()
     line_dict = dict()
     clr_dict = dict()
+
+    cna_mtype = cna_mtypes[args.ex_lbl][cna_lbl][0]
     annt_lists = {(src, coh): set() for src, coh in siml_dicts}
     plt_min, plt_max = -0.53, 0.53
 
@@ -213,7 +215,9 @@ def plot_similarity_symmetry(siml_dicts, pheno_dicts, cdata_dict,
         for combs, simls in use_simls.items():
             cur_gene = get_label(combs[0])
 
-            clr_dict[cur_gene] = None
+            if cur_gene not in clr_dict:
+                clr_dict[cur_gene] = choose_label_colour(cur_gene)
+
             ordr = 2 * (get_mcomb_type(combs[0]) == 'cpy') - 1
             plt_simls[(src, coh, *combs[::ordr])] = simls[::ordr]
             annt_lists[src, coh] |= {combs[::ordr]}
@@ -228,22 +232,9 @@ def plot_similarity_symmetry(siml_dicts, pheno_dicts, cdata_dict,
             else:
                 cpy_lbl = ''
 
-            if (max(np.abs(np.array(simls))) > 0.5
-                    or cur_gene in {'TP53', 'PIK3CA', 'GATA3'}):
-                plot_dict[simls[::ordr]] = [
-                    None, ("{} in {}".format(cur_gene, coh_lbl), cpy_lbl)]
-                line_dict[simls[::ordr]] = cur_gene
-
-            else:
-                plot_dict[simls[::ordr]] = [None, ('', '')]
-
-    if len(clr_dict) > 8:
-        for gene in clr_dict:
-            clr_dict[gene] = choose_label_colour(gene)
-
-    else:
-        use_clrs = sns.color_palette(palette='bright', n_colors=len(clr_dict))
-        clr_dict = dict(zip(clr_dict, use_clrs))
+            plot_dict[simls[::ordr]] = [
+                None, ("{} in {}".format(cur_gene, coh_lbl), cpy_lbl)]
+            line_dict[simls[::ordr]] = cur_gene
 
     size_mult = len(plt_simls) ** -0.23
     plt_rng = plt_max - plt_min
@@ -269,7 +260,7 @@ def plot_similarity_symmetry(siml_dicts, pheno_dicts, cdata_dict,
         plot_dict[simls][0] = 0.19 * plt_size
 
         ax.scatter(*simls, c=[clr_dict[cur_gene]],
-                   s=2371 * plt_size, alpha=0.41, edgecolor='none')
+                   s=2501 * plt_size, alpha=0.41, edgecolor='none')
 
     # makes sure plot labels don't overlap with equal-similarity diagonal line
     for k in np.linspace(plt_min, plt_max, 100):
@@ -707,7 +698,7 @@ def plot_overlap_similarity(siml_dicts, pheno_dicts, cdata_dict,
     ymin, ymax = -0.53, 0.53
 
     for (src, coh), siml_dict in siml_dicts.items():
-        coh_lbl = get_cohort_label(coh)
+        coh_lbl = get_cohort_label(coh).replace("TCGA-", '')
 
         use_simls = {
             (comb1, comb2): simls
@@ -748,10 +739,14 @@ def plot_overlap_similarity(siml_dicts, pheno_dicts, cdata_dict,
             cpy_comb = combs[int(get_mcomb_type(combs[1]) == 'cpy')]
             cpy_subt = get_subtype(tuple(cpy_comb.mtypes)[0])
 
-            plot_dict[ovlp_dict[(src, coh, *combs)]] = [
-                None, ("{} in {}".format(cur_gene, coh_lbl),
-                       get_fancy_label(cpy_subt))
-                ]
+            if np.abs(ovlp_dict[(src, coh, *combs)][0]) >= 1:
+                plot_dict[ovlp_dict[(src, coh, *combs)]] = [
+                    None, ("{} in {}".format(cur_gene, coh_lbl),
+                           get_fancy_label(cpy_subt))
+                    ]
+
+            else:
+                plot_dict[ovlp_dict[(src, coh, *combs)]] = [None, ('', '')]
 
     size_mult = len(ovlp_dict) ** -0.23
     ovlp_df = pd.DataFrame(ovlp_dict, index=['Ovlp', 'Siml']).transpose()
@@ -765,20 +760,21 @@ def plot_overlap_similarity(siml_dicts, pheno_dicts, cdata_dict,
 
     plot_lims = ovlp_df.quantile(q=[0, 1])
     plot_diff = plot_lims.diff().iloc[1]
-    plot_lims.Ovlp += plot_diff.Ovlp * np.array([-4.3, 4.3]) ** -1
-    plot_lims.Siml += plot_diff.Siml * np.array([-4.3, 4.3]) ** -1
+    ovlp_lims = plot_lims.Ovlp + plot_diff.Ovlp * np.array([-8.3, 6.1]) ** -1
+    siml_lims = plot_lims.Siml + plot_diff.Siml * np.array([-8.1, 5.3]) ** -1
     plot_gaps = plot_lims.diff().iloc[1] / 4.73
 
-    plot_lims.Ovlp[0] = min(plot_lims.Ovlp[0], -1.07)
-    plot_lims.Ovlp[1] = max(plot_lims.Ovlp[1], plot_gaps.Ovlp, 1.07)
-    plot_lims.Siml[0] = min(plot_lims.Siml[0], -0.53)
-    plot_lims.Siml[1] = max(plot_lims.Siml[1], plot_gaps.Siml, 0.53)
+    ovlp_lims[0] = min(ovlp_lims[0], -1.07)
+    ovlp_lims[1] = max(ovlp_lims[1], plot_gaps.Ovlp, 1.07)
+    siml_lims[0] = min(siml_lims[0], -0.53)
+    siml_lims[1] = max(siml_lims[1], plot_gaps.Siml, 0.53)
+    ovlp_rng, siml_rng = ovlp_lims.diff()[1], siml_lims.diff()[1]
 
     ax.grid(alpha=0.47, linewidth=0.9)
-    ax.plot(plot_lims.Ovlp, [0, 0],
-            color='black', linewidth=1.1, linestyle=':', alpha=0.71)
-    ax.plot([0, 0], plot_lims.Siml,
-            color='black', linewidth=1.1, linestyle=':', alpha=0.71)
+    ax.plot(ovlp_lims, [0, 0],
+            color='black', linewidth=0.91, linestyle=':', alpha=0.67)
+    ax.plot([0, 0], siml_lims,
+            color='black', linewidth=0.91, linestyle=':', alpha=0.67)
 
     for (src, coh, comb1, comb2), (ovlp_val, siml_val) in ovlp_df.iterrows():
         cur_gene = get_label(comb1)
@@ -791,19 +787,46 @@ def plot_overlap_similarity(siml_dicts, pheno_dicts, cdata_dict,
         ax.scatter(ovlp_val, siml_val, c=[clr_dict[cur_gene]],
                    s=2071 * plt_size, alpha=0.37, edgecolor='none')
 
+    x_plcs = ovlp_rng / 143, ovlp_rng / 23
+    y_plc = siml_lims[1] - siml_rng / 41
+
+    ax.text(-x_plcs[0], y_plc, '\u2190',
+            size=22, ha='right', va='center', weight='bold')
+    ax.text(-x_plcs[1], y_plc, "significant exclusivity",
+            size=12, ha='right', va='center')
+
+    ax.text(x_plcs[0], y_plc, '\u2192',
+            size=22, ha='left', va='center', weight='bold')
+    ax.text(x_plcs[1], y_plc, "significant overlap",
+            size=12, ha='left', va='center')
+
+    x_plc = ovlp_lims[1] - ovlp_rng / 19
+    y_plcs = siml_rng / 91, siml_rng / 17
+
+    ax.text(x_plc, -y_plcs[0], '\u2190',
+            size=22, rotation=90, ha='center', va='top', weight='bold')
+    ax.text(x_plc, -y_plcs[1], "opposite\ndownstream\neffects",
+            size=12, ha='center', va='top')
+
+    ax.text(x_plc, y_plcs[0], '\u2192',
+            size=22, rotation=90, ha='center', va='bottom', weight='bold')
+    ax.text(x_plc, y_plcs[1], "similar\ndownstream\neffects",
+            size=12, ha='center', va='bottom')
+
     if plot_dict:
         lbl_pos = place_scatter_labels(
-            plot_dict, ax, plt_lims=[plot_lims.Ovlp, plot_lims.Siml],
-            font_size=11, line_dict=line_dict, linewidth=1.19, alpha=0.37
+            plot_dict, ax, plt_lims=[ovlp_lims, siml_lims],
+            plc_lims=[plot_lims.Ovlp, plot_lims.Siml],
+            font_size=9, line_dict=line_dict, linewidth=0.67, alpha=0.37
             )
 
-    plt.xlabel("Genomic Co-occurence", size=23, weight='semibold')
-    plt.ylabel("Transcriptomic Similarity", size=23, weight='semibold')
+    plt.xlabel("Genomic Co-occurence", size=21, weight='semibold')
+    plt.ylabel("Transcriptomic Similarity", size=21, weight='semibold')
 
     ax.xaxis.set_major_locator(plt.MaxNLocator(5, steps=[1, 2, 5]))
     ax.yaxis.set_major_locator(plt.MaxNLocator(5, steps=[1, 2, 5]))
-    ax.set_xlim(*plot_lims.Ovlp)
-    ax.set_ylim(*plot_lims.Siml)
+    ax.set_xlim(*ovlp_lims)
+    ax.set_ylim(*siml_lims)
 
     plt.savefig(
         os.path.join(plot_dir,
@@ -818,7 +841,7 @@ def plot_overlap_similarity(siml_dicts, pheno_dicts, cdata_dict,
 def main():
     parser = argparse.ArgumentParser(
         'plot_copy',
-        description="Compares copy # alterations subgroupings with a cohort."
+        description="Compares CNA subgroupings across all cohorts."
         )
 
     parser.add_argument('classif', help="a mutation classifier")
@@ -880,6 +903,10 @@ def main():
             base_mtree = tuple(cdata_dict[src, coh].mtrees.values())[0]
             use_genes = {get_label(mcomb) for mcomb in use_aucs.index}
             train_samps = cdata_dict[src, coh].get_train_samples()
+            use_preds = pred_dfs[src, coh].loc[use_aucs.index, train_samps]
+
+            mut_vals = {mcomb: preds[phn_dicts[src, coh][mcomb]]
+                        for mcomb, preds in use_preds.iterrows()}
 
             all_mtypes = {
                 gene: MuType({('Gene', gene): base_mtree[gene].allkey()})
@@ -896,22 +923,63 @@ def main():
                 }
 
             for gene, auc_vals in use_aucs.groupby(get_label):
+                wt_phn = ~all_phns[gene]
+
+                if siml_metric == 'mean':
+                    wt_means = {mcomb: use_preds.loc[mcomb, wt_phn].mean()
+                                for mcomb in auc_vals.index}
+                    mut_means = {mcomb: mut_vals[mcomb].mean()
+                                 for mcomb in auc_vals.index}
+
+                elif siml_metric == 'ks':
+                    base_dists = {
+                        mcomb: (ks_2samp(use_preds.loc[mcomb, wt_phn],
+                                         mut_vals[mcomb],
+                                         alternative='greater').statistic
+                                - ks_2samp(use_preds.loc[mcomb, wt_phn],
+                                           mut_vals[mcomb],
+                                           alternative='less').statistic)
+                        for mcomb in auc_vals.index
+                        }
+
                 gene_pnt = MuType({('Gene', gene): pnt_mtype})
                 cna_all = MuType({
                     ('Gene', gene): cna_mtypes[args.ex_lbl]['All']})
 
                 for mcomb1, mcomb2 in combn(auc_vals.index, 2):
-                    use_preds1 = pred_dfs[src, coh].loc[mcomb1, train_samps]
-                    use_preds2 = pred_dfs[src, coh].loc[mcomb2, train_samps]
+                    if siml_metric == 'mean':
+                        siml_dicts[src, coh][mcomb1, mcomb2] = (
+                            siml_fx(
+                                use_preds.loc[mcomb1, wt_phn],
+                                mut_vals[mcomb1],
+                                use_preds.loc[mcomb1,
+                                              phn_dicts[src, coh][mcomb2]],
+                                wt_means[mcomb1], mut_means[mcomb1]
+                                ),
+                            siml_fx(
+                                use_preds.loc[mcomb2, wt_phn],
+                                mut_vals[mcomb2],
+                                use_preds.loc[mcomb2,
+                                              phn_dicts[src, coh][mcomb1]],
+                                wt_means[mcomb2], mut_means[mcomb2]
+                                )
+                            )
 
-                    siml_dicts[src, coh][mcomb1, mcomb2] = (
-                        siml_fx(use_preds1.loc[~all_phns[gene]],
-                                use_preds1.loc[phn_dicts[src, coh][mcomb1]],
-                                use_preds1.loc[phn_dicts[src, coh][mcomb2]]),
-                        siml_fx(use_preds2.loc[~all_phns[gene]],
-                                use_preds2.loc[phn_dicts[src, coh][mcomb2]],
-                                use_preds2.loc[phn_dicts[src, coh][mcomb1]])
-                        )
+                    elif siml_metric == 'ks':
+                        siml_dicts[src, coh][mcomb1, mcomb2] = (
+                            siml_fx(
+                                use_preds.loc[mcomb1, wt_phn],
+                                mut_vals[mcomb1],
+                                use_preds.loc[mcomb1,
+                                              phn_dicts[src, coh][mcomb2]],
+                                base_dists[mcomb1]),
+                            siml_fx(
+                                use_preds.loc[mcomb2, wt_phn],
+                                mut_vals[mcomb2],
+                                use_preds.loc[mcomb2,
+                                              phn_dicts[src, coh][mcomb1]],
+                                base_dists[mcomb2])
+                            )
 
                 proj_combs = {ExMcomb(cna_all, gene_pnt)}
                 proj_combs |= {
@@ -938,14 +1006,22 @@ def main():
                                               for mcomb in auc_vals.index))}
 
                 for mcomb in auc_vals.index:
-                    use_preds = pred_dfs[src, coh].loc[mcomb, train_samps]
-
                     for prj_comb in proj_combs:
-                        siml_dicts[src, coh][mcomb, prj_comb] = (siml_fx(
-                            use_preds.loc[~all_phns[gene]],
-                            use_preds.loc[phn_dicts[src, coh][mcomb]],
-                            use_preds.loc[proj_phns[prj_comb]]
-                            ), )
+                        if siml_metric == 'mean':
+                            siml_dicts[src, coh][mcomb, prj_comb] = (siml_fx(
+                                use_preds.loc[mcomb, wt_phn],
+                                mut_vals[mcomb],
+                                use_preds.loc[mcomb, proj_phns[prj_comb]],
+                                wt_means[mcomb], mut_means[mcomb]
+                                ), )
+
+                        elif siml_metric == 'ks':
+                            siml_dicts[src, coh][mcomb, prj_comb] = (siml_fx(
+                                use_preds.loc[mcomb, wt_phn],
+                                mut_vals[mcomb],
+                                use_preds.loc[mcomb, proj_phns[prj_comb]],
+                                base_dists[mcomb]
+                                ), )
 
         if args.auc_cutoff < 1:
             for cna_lbl in ['Gain', 'Loss']:
