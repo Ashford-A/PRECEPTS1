@@ -70,8 +70,13 @@ def add_scatterpie_legend(ax, plot_dict, plt_min, base_mtype, args):
         raise ValueError(
             "Unrecognized `base_mtype` argument: {}".format(base_mtype))
 
+    if hasattr(args, 'cohort'):
+        use_coh = args.cohort
+    else:
+        use_coh = "cohort"
+
     coh_lbl = "% of {} samples\nwith {} in gene".format(
-        get_cohort_label(args.cohort), base_lbl)
+        get_cohort_label(use_coh), base_lbl)
     ax.text(lgnd_x - lgnd_sz / 103, lgnd_y + lgnd_sz * 0.71, coh_lbl,
             size=15, style='italic', ha='center', va='bottom')
 

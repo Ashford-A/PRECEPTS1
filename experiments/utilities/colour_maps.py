@@ -60,4 +60,5 @@ form_clrs['synonymous_variant'] = '0.67'
 form_clrs['inframe_insertion'] = form_clrs['inframe_deletion']
 form_clrs['protein_altering_variant'] = form_clrs['frameshift_variant']
 form_clrs['splice_donor_variant'] = form_clrs['splice_region_variant']
+form_clrs['start_lost'] = form_clrs['stop_lost']
 

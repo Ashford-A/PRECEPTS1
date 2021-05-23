@@ -124,7 +124,7 @@ def plot_divergent_types(pred_dfs, pheno_dicts, auc_lists,
         divg_df['AUC'] = auc_list[divg_df.index]
         divg_df = divg_df.sort_values(by='Divg')
         divg_mcombs = set()
-        coh_lbl = get_cohort_label(coh)
+        coh_lbl = get_cohort_label(coh).replace("TCGA-", '')
 
         for cur_gene, divg_vals in divg_df.groupby(get_label):
             if cur_gene not in clr_dict:
@@ -190,7 +190,6 @@ def plot_divergent_types(pred_dfs, pheno_dicts, auc_lists,
                                clr_dict[cur_gene] + (0.11,)],
                        explode=[0.29, 0, 0], startangle=270, normalize=True)
 
-    ax.grid(alpha=0.47, linewidth=0.9)
     xlims = [args.auc_cutoff - (1 - args.auc_cutoff) / 47,
              1 + (1 - args.auc_cutoff) / 277]
 
@@ -199,20 +198,16 @@ def plot_divergent_types(pred_dfs, pheno_dicts, auc_lists,
     yrng = ymax - ymin
     ylims = [ymin - yrng / 5.3, ymax + yrng / 5.3]
 
-    ax.plot(xlims, [0, 0],
-            color='black', linewidth=0.91, linestyle='--', alpha=0.67)
-    ax.plot(xlims, [1, 1],
-            color='black', linewidth=0.91, linestyle='--', alpha=0.67)
+    ax.grid(alpha=0.47, linewidth=0.9)
     ax.plot([1, 1], ylims, color='black', linewidth=1.7, alpha=0.83)
+
+    for siml_val in [0, 1]:
+        ax.plot(xlims, [siml_val, siml_val],
+                color='black', linewidth=0.83, linestyle=':', alpha=0.67)
 
     ax.set_xlabel("Isolated Classification Accuracy", size=21, weight='bold')
     ax.set_ylabel("Inferred Similarity to Same Gene's"
                   "\nRemaining Point Mutations", size=21, weight='bold')
-
-    for k in np.linspace(args.auc_cutoff, 0.99, 100):
-        for j in [0, 1]:
-            if (k, j) not in plot_dict:
-                plot_dict[k, j] = [1 / 503, ('', '')]
 
     if plot_dict:
         lbl_pos = place_scatter_labels(plot_dict, ax, plt_lims=[xlims, ylims],
@@ -340,6 +335,7 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
         divg_list = siml_df.max(axis=1).sort_values()
         divg_indx = {mcomb: None for mcomb in pair_combs}
         divg_pairs = set()
+        coh_lbl = get_cohort_label(coh).replace("TCGA-", '')
 
         for mcomb1, mcomb2 in divg_list.index:
             if divg_indx[mcomb1] is None and divg_indx[mcomb2] is None:
@@ -385,8 +381,7 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
             line_dict[plt_tupl] = src, coh, gene
 
             plot_dict[plt_tupl] = [size_dict[(src, coh, *lbl_pair)],
-                                   ("{} in {}".format(gene,
-                                                      get_cohort_label(coh)),
+                                   ("{} in {}".format(gene, coh_lbl),
                                     pair_lbl)]
 
     size_mult = sum(len(divg_list)
@@ -406,7 +401,6 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
             ax.scatter(*plt_tupl, s=size_dict[src, coh, mcomb1, mcomb2],
                        c=[clr_dict[cur_gene]], alpha=0.31, edgecolor='none')
 
-    ax.grid(alpha=0.47, linewidth=0.9)
     xlims = [args.auc_cutoff - (1 - args.auc_cutoff) / 47,
              1 + (1 - args.auc_cutoff) / 277]
 
@@ -415,11 +409,12 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
     yrng = ymax - ymin
     ylims = [ymin - yrng / 4.1, ymax + yrng / 4.1]
 
-    ax.plot(xlims, [0, 0],
-            color='black', linewidth=0.91, linestyle='--', alpha=0.67)
-    ax.plot(xlims, [1, 1],
-            color='black', linewidth=0.91, linestyle='--', alpha=0.67)
+    ax.grid(alpha=0.47, linewidth=0.9)
     ax.plot([1, 1], ylims, color='black', linewidth=1.7, alpha=0.83)
+
+    for siml_val in [0, 1]:
+        ax.plot(xlims, [siml_val, siml_val],
+                color='black', linewidth=0.83, linestyle=':', alpha=0.67)
 
     ax.set_xlabel("Minimum Classification Accuracy\nAcross Subgrouping Pair",
                   size=21, weight='bold')

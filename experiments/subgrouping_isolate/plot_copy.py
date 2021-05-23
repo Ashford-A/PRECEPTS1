@@ -110,8 +110,9 @@ def plot_point_similarity(auc_lists, siml_dicts, cdata_dict,
 
     size_mult = sum(len(simls) for simls in plt_simls.values()) ** -0.23
     for comb_type, ax in zip(['pnt', 'cpy'], [pnt_ax, cpy_ax]):
-        lbl_ctf = pd.Series(plt_simls[comb_type]).abs().sort_values()[-12]
         comb_simls = plt_simls[comb_type]
+        ctf_indx = min(12, len(comb_simls))
+        lbl_ctf = pd.Series(comb_simls).abs().sort_values()[-ctf_indx]
 
         for (src, coh, trn_comb, prj_comb), siml_val in comb_simls.items():
             cur_gene = get_label(trn_comb)
@@ -499,7 +500,6 @@ def plot_interaction_symmetries(siml_dicts, pheno_dicts, cdata_dict,
     cna_mtype = cna_mtypes[args.ex_lbl][cna_lbl][0]
     annt_lists = {(src, coh): set() for src, coh in siml_dicts}
     clr_dict = dict()
-    plt_min, plt_max = -0.53, 0.53
 
     for (src, coh), siml_dict in siml_dicts.items():
         use_simls = {
@@ -515,14 +515,6 @@ def plot_interaction_symmetries(siml_dicts, pheno_dicts, cdata_dict,
                                 for mtype in comb.mtypes)
                         for comb in [comb1, comb2]) == 1)
             }
-
-        if use_simls:
-            plt_min = min(plt_min,
-                          min(siml_val for simls in use_simls.values()
-                              for siml_val in simls))
-            plt_max = max(plt_max,
-                          max(siml_val for simls in use_simls.values()
-                              for siml_val in simls))
 
         for combs, simls in use_simls.items():
             cur_gene = get_label(combs[0])
@@ -556,10 +548,7 @@ def plot_interaction_symmetries(siml_dicts, pheno_dicts, cdata_dict,
 
     size_mult = sum(len(simls) for comb_simls in plt_simls.values()
                     for simls in comb_simls.values()) ** -0.23
-
-    plt_rng = plt_max - plt_min
-    plt_lims = [min(-0.07, plt_min - plt_rng / 53),
-                max(1.07, plt_max + plt_rng / 53)]
+    plt_min, plt_max = -0.11, 1.13
 
     for (src, coh), siml_dict in plt_simls.items():
         both_intx = set(siml_dict['intx', 'pnt'])
@@ -573,6 +562,8 @@ def plot_interaction_symmetries(siml_dicts, pheno_dicts, cdata_dict,
                     siml_dict['intx', 'pnt'][trn_comb].items(),
                     siml_dict['intx', 'cpy'][trn_comb].items()
                     ):
+                plt_min = min(plt_min, pnt_siml, cpy_siml)
+                plt_max = max(plt_max, pnt_siml, cpy_siml)
 
                 axarr[1, 0].scatter(pnt_siml, cpy_siml,
                                     c=[clr_dict[cur_gene]], s=5173 * plt_size,
@@ -593,6 +584,9 @@ def plot_interaction_symmetries(siml_dicts, pheno_dicts, cdata_dict,
                     cpy_size = np.mean(pheno_dicts[src, coh][cpy_comb])
                     plt_size = size_mult * (pnt_size * cpy_size) ** 0.5
 
+                    plt_min = min(plt_min, intx_siml1, intx_siml2)
+                    plt_max = max(plt_max, intx_siml1, intx_siml2)
+
                     axarr[0, 1].scatter(intx_siml2, intx_siml1,
                                         c=[clr_dict[cur_gene]],
                                         s=5173 * plt_size, alpha=0.31,
@@ -602,6 +596,9 @@ def plot_interaction_symmetries(siml_dicts, pheno_dicts, cdata_dict,
                     intx_size = np.mean(pheno_dicts[src, coh][intx_comb])
                     plt_size = size_mult * (pnt_size * intx_size) ** 0.5
                     intx_siml2 = siml_dict['intx', 'pnt'][intx_comb][pnt_comb]
+
+                    plt_min = min(plt_min, intx_siml1, intx_siml2)
+                    plt_max = max(plt_max, intx_siml1, intx_siml2)
 
                     axarr[0, 0].scatter(intx_siml2, intx_siml1,
                                         c=[clr_dict[cur_gene]],
@@ -618,10 +615,16 @@ def plot_interaction_symmetries(siml_dicts, pheno_dicts, cdata_dict,
                     plt_size = size_mult * (cpy_size * intx_size) ** 0.5
                     intx_siml2 = siml_dict['intx', 'cpy'][intx_comb][cpy_comb]
 
+                    plt_min = min(plt_min, intx_siml1, intx_siml2)
+                    plt_max = max(plt_max, intx_siml1, intx_siml2)
+
                     axarr[1, 1].scatter(intx_siml1, intx_siml2,
                                         c=[clr_dict[cur_gene]],
                                         s=5173 * plt_size, alpha=0.27,
                                         edgecolor='none')
+
+    plt_rng = plt_max - plt_min
+    plt_lims = plt_min - plt_rng / 47, plt_max + plt_rng / 47
 
     for ax in axarr.flatten():
         ax.grid(alpha=0.37, linewidth=0.71)
@@ -641,29 +644,34 @@ def plot_interaction_symmetries(siml_dicts, pheno_dicts, cdata_dict,
 
     for ax in axarr[0, :]:
         ax.set_xticklabels([])
+    for ax in axarr[1, :]:
+        ax.tick_params(axis='x', which='major', labelsize=21)
+
+    for ax in axarr[:, 0]:
+        ax.tick_params(axis='y', which='major', labelsize=21)
     for ax in axarr[:, 1]:
         ax.set_yticklabels([])
 
     axarr[1, 0].set_xlabel(
         "Point Mutations' Similarity\nto Point & {}".format(cna_lbl),
-        size=33, weight='bold'
+        size=35, weight='bold'
         )
     axarr[1, 0].set_ylabel(
         "{0} Alterations' Similarity\nto Point & {0}".format(cna_lbl),
-        size=33, weight='bold'
+        size=35, weight='bold'
         )
 
     axarr[1, 1].set_xlabel(
         "Point & {0} Similarity\nto {0} Alterations".format(cna_lbl),
-        size=33, weight='bold'
+        size=35, weight='bold'
         )
     axarr[0, 0].set_ylabel(
         "Point & {} Similarity\nto Point Mutations".format(cna_lbl),
-        size=33, weight='bold'
+        size=35, weight='bold'
         )
 
     fig.legend(lgnd_mrks, lgnd_gns, bbox_to_anchor=(0.5, -0.007),
-               frameon=False, fontsize=31, ncol=4, loc=9, handletextpad=0.13)
+               frameon=False, fontsize=33, ncol=4, loc=9, handletextpad=0.13)
 
     fig.tight_layout(w_pad=3, h_pad=3)
     plt.savefig(
