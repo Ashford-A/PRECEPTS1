@@ -1,12 +1,15 @@
 
-from ..utilities.mutations import (pnt_mtype, copy_mtype,
-                                   deep_mtype, shal_mtype, ExMcomb)
+from ..utilities.mutations import (pnt_mtype, copy_mtype, deep_mtype,
+                                   shal_mtype, gains_mtype, dels_mtype,
+                                   ExMcomb)
 from dryadic.features.mutations import MuType
 
 from ..subgrouping_isolate import base_dir, train_cohorts
-from .utils import load_cohorts_data, siml_fxs, remove_pheno_dups, get_mut_ex
+from .utils import (load_cohorts_data, siml_fxs, remove_pheno_dups,
+                    get_mut_ex, get_mcomb_lbl, choose_subtype_colour)
 from ..utilities.misc import get_label, get_subtype, choose_label_colour
 from ..utilities.labels import get_cohort_label
+from ..utilities.colour_maps import variant_clrs
 from ..utilities.label_placement import place_scatter_labels
 
 import os
@@ -25,6 +28,7 @@ from scipy.stats import ks_2samp
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import seaborn as sns
 from matplotlib.lines import Line2D
 
 mpl.use('Agg')
@@ -220,6 +224,7 @@ def plot_overlap_synergy(pred_dfs, pheno_dicts, auc_lists,
                          cdata_dict, args, siml_metric):
     fig, ax = plt.subplots(figsize=(11, 11))
     siml_dfs = dict()
+    annt_lists = dict()
 
     # for each dataset, find the subgroupings meeting the minimum task AUC
     # that are exclusively defined and subsets of point mutations...
@@ -237,15 +242,11 @@ def plot_overlap_synergy(pred_dfs, pheno_dicts, auc_lists,
 
         # find all pairs of subgroupings from the same gene that are disjoint
         # either by construction or by phenotype
-        use_pairs = {
-            (scomb, dcomb) for scomb, dcomb in product(use_scombs, use_dcombs)
-            if (get_label(scomb) == get_label(dcomb)
-                and (all((mtp1 & mtp2).is_empty()
-                         for mtp1, mtp2 in product(scomb.mtypes,
-                                                   dcomb.mtypes))
-                     or not (pheno_dicts[src, coh][scomb]
-                             & pheno_dicts[src, coh][dcomb]).any()))
-            }
+        use_pairs = {(scomb, dcomb)
+                     for scomb, dcomb in product(use_scombs, use_dcombs)
+                     if (get_label(scomb) == get_label(dcomb)
+                         and not (pheno_dicts[src, coh][scomb]
+                                  & pheno_dicts[src, coh][dcomb]).any())}
 
         # skip this dataset for plotting if we cannot find any such pairs
         if not use_pairs:
@@ -320,6 +321,22 @@ def plot_overlap_synergy(pred_dfs, pheno_dicts, auc_lists,
         siml_dfs[src, coh].index.set_names(
             ['Source', 'Cohort', 'Mcomb1', 'Mcomb2'], inplace=True)
 
+        annt_lists[src, coh] = dict()
+        for gene, siml_df in siml_dfs[src, coh].groupby(
+                lambda x: get_label(x[2])):
+            annt_mat = pd.DataFrame.from_dict({
+                (mcomb1, mcomb2): {'Siml1': siml1, 'Siml2': siml2,
+                                   'AUC1': auc_list[mcomb1],
+                                   'AUC2': auc_list[mcomb2]}
+                for (_, _, mcomb1, mcomb2), (siml1, siml2)
+                in siml_df.iterrows()
+                }, orient='index')
+
+            annt_lists[src, coh][gene] = (
+                (annt_mat.AUC1 - args.auc_cutoff)
+                * (annt_mat.AUC2 - args.auc_cutoff)
+                ).sort_values().index[-10:].tolist()
+
     plt_df = pd.concat(siml_dfs.values())
     gene_counts = plt_df.groupby(
         lambda x: (x[0], x[1], get_label(x[2]), get_label(x[3]))).count()
@@ -328,7 +345,7 @@ def plot_overlap_synergy(pred_dfs, pheno_dicts, auc_lists,
     clr_dict = {gene: choose_label_colour(gene) for gene in plt_genes}
     size_mult = plt_df.shape[0] ** -0.23
 
-    lgnd_lbls = ["{} in {}{:<7} pairs".format(gene, get_cohort_label(coh),
+    lgnd_lbls = ["{} in {}{:>7} pairs".format(gene, get_cohort_label(coh),
                                               count[0])
                  for (_, coh, gene, _), count in gene_counts.iterrows()]
 
@@ -376,7 +393,236 @@ def plot_overlap_synergy(pred_dfs, pheno_dicts, auc_lists,
                 bbox_inches='tight', format='svg')
 
     plt.close()
-    return siml_dfs
+    return annt_lists
+
+
+def plot_synergy_pair(pred_vals, auc_vals, pheno_dict, cdata,
+                      data_tag, args, siml_metric, file_lbl=None):
+    fig, ((mcomb2_ax, sctr_ax), (crnr_ax, mcomb1_ax)) = plt.subplots(
+        figsize=(13, 12), nrows=2, ncols=2,
+        gridspec_kw=dict(height_ratios=[3.1, 1], width_ratios=[1, 3.1])
+        )
+
+    plt_mcomb1, plt_mcomb2 = pred_vals.index
+    assert len(plt_mcomb1.mtypes) == 1 and len(plt_mcomb2.mtypes) == 2
+    mcomb1_vals, mcomb2_vals = pred_vals[cdata.get_train_samples()].values
+
+    use_gene = {get_label(mtype) for mcomb in [plt_mcomb1, plt_mcomb2]
+                for mtype in mcomb.mtypes}
+    assert len(use_gene) == 1
+    use_gene = tuple(use_gene)[0]
+
+    train_samps = cdata.get_train_samples()
+    gene_tree = cdata.mtrees['Gene', 'Scale', 'Copy',
+                             'Exon', 'Position', 'HGVSp'][use_gene]
+
+    all_mtype = MuType({('Gene', use_gene): gene_tree.allkey()})
+    if args.ex_lbl == 'IsoShal':
+        all_mtype -= MuType({('Gene', use_gene): shal_mtype})
+
+    x_min, x_max = np.percentile(mcomb1_vals, q=[0, 100])
+    y_min, y_max = np.percentile(mcomb2_vals, q=[0, 100])
+    x_rng, y_rng = x_max - x_min, y_max - y_min
+    xlims = x_min - x_rng / 31, x_max + x_rng / 11
+    ylims = y_min - y_rng / 31, y_max + y_rng / 11
+
+    if args.ex_lbl == 'Iso':
+        cpy_samps = copy_mtype.get_samples(gene_tree)
+    else:
+        cpy_samps = deep_mtype.get_samples(gene_tree)
+
+    samp_counts = {samp: 0 for samp in (gene_tree.get_samples() - cpy_samps)}
+    for subk in MuType(gene_tree['Point'].allkey()).leaves():
+        for samp in MuType(subk).get_samples(gene_tree['Point']):
+            if samp in samp_counts:
+                samp_counts[samp] += 1
+
+    for samp in train_samps:
+        if samp not in samp_counts:
+            samp_counts[samp] = 0
+
+    sngl_phn = np.array([samp_counts[samp] == 1 for samp in train_samps])
+    mult_phn = np.array([samp_counts[samp] > 1 for samp in train_samps])
+
+    use_phns = {
+        'WT': ~np.array(cdata.train_pheno(all_mtype)),
+        'Mut1': pheno_dict[plt_mcomb1], 'Mut2': pheno_dict[plt_mcomb2],
+        'Sngl': sngl_phn & ~pheno_dict[plt_mcomb1] & ~pheno_dict[plt_mcomb2],
+        'Mult': mult_phn & ~pheno_dict[plt_mcomb2] & ~pheno_dict[plt_mcomb1],
+        'Gain': np.array(cdata.train_pheno(
+            ExMcomb(all_mtype, MuType({('Gene', use_gene): gains_mtype})))),
+        'Del': np.array(cdata.train_pheno(
+            ExMcomb(all_mtype, MuType({('Gene', use_gene): dels_mtype}))))
+        }
+
+    use_fclrs = {'WT': variant_clrs['WT'], 'Mut1': '#080097',
+                 'Mut2': '#00847F', 'Sngl': 'none', 'Mult': 'none',
+                 'Gain': 'none', 'Del': 'none'}
+
+    use_eclrs = {'WT': 'none', 'Mut1': 'none', 'Mut2': 'none',
+                 'Sngl': '#080097', 'Mult': '#00847F',
+                 'Gain': choose_subtype_colour(gains_mtype),
+                 'Del': choose_subtype_colour(dels_mtype)}
+
+    use_sizes = {'WT': 5, 'Mut1': 7, 'Mut2': 7,
+                 'Sngl': 5, 'Mult': 5, 'Gain': 5, 'Del': 5}
+    use_alphas = {'WT': 0.21, 'Mut1': 0.31, 'Mut2': 0.31,
+                  'Sngl': 0.35, 'Mult': 0.35, 'Gain': 0.35, 'Del': 0.35}
+
+    for lbl, phn in use_phns.items():
+        sctr_ax.plot(mcomb1_vals[phn], mcomb2_vals[phn],
+                     marker='o', linewidth=0,
+                     markersize=use_sizes[lbl], alpha=use_alphas[lbl],
+                     mfc=use_fclrs[lbl], mec=use_eclrs[lbl], mew=1.9)
+
+    mcomb_lbls = [get_mcomb_lbl(mcomb, pnt_link='\nor ')
+                  for mcomb in [plt_mcomb1, plt_mcomb2]]
+    subg_lbls = ["only {} mutation\nis {}".format(use_gene, mcomb_lbl)
+                 for mcomb_lbl in mcomb_lbls]
+
+    sctr_ax.text(0.98, 0.03, subg_lbls[0], size=16, c=use_fclrs['Mut1'],
+                 ha='right', va='bottom', transform=sctr_ax.transAxes)
+    sctr_ax.text(0.03, 0.98, subg_lbls[1], size=16, c=use_fclrs['Mut2'],
+                 ha='left', va='top', transform=sctr_ax.transAxes)
+
+    sctr_ax.text(0.97, 0.98, get_cohort_label(data_tag.split('__')[1]),
+                 size=20, style='italic', ha='right', va='top',
+                 transform=sctr_ax.transAxes)
+
+    sctr_ax.set_xticklabels([])
+    sctr_ax.set_yticklabels([])
+
+    for ax in sctr_ax, mcomb1_ax, mcomb2_ax:
+        ax.grid(alpha=0.47, linewidth=0.9)
+
+    use_preds = pd.DataFrame({
+        'Mut1': mcomb1_vals, 'Mut2': mcomb2_vals, 'Phn': 'WT'})
+    for lbl in ['Mut1', 'Mut2', 'Sngl', 'Mult', 'Gain', 'Del']:
+        use_preds.loc[use_phns[lbl], 'Phn'] = lbl
+
+    sns.violinplot(data=use_preds, y='Phn', x='Mut1', ax=mcomb1_ax,
+                   order=['WT', 'Mut1', 'Mut2',
+                          'Sngl', 'Mult', 'Gain', 'Del'],
+                   palette=use_fclrs, orient='h', linewidth=0, cut=0)
+
+    sns.violinplot(data=use_preds, x='Phn', y='Mut2', ax=mcomb2_ax,
+                   order=['WT', 'Mut2', 'Mut1',
+                          'Mult', 'Sngl', 'Gain', 'Del'],
+                   palette=use_fclrs, orient='v', linewidth=0, cut=0)
+
+    for mcomb_ax, lbls in zip([mcomb1_ax, mcomb2_ax],
+                              [['Sngl', 'Mult', 'Gain', 'Del'],
+                               ['Mult', 'Sngl', 'Gain', 'Del']]):
+        for i in range(3):
+            mcomb_ax.get_children()[i * 2].set_alpha(0.61)
+            mcomb_ax.get_children()[i * 2].set_linewidth(0)
+
+        i = 0
+        for lbl in lbls:
+            if use_phns[lbl].sum() > 1:
+                i += 1
+
+                mcomb_ax.get_children()[4 + i * 2].set_edgecolor(
+                    use_eclrs[lbl])
+                mcomb_ax.get_children()[4 + i * 2].set_facecolor('white')
+                mcomb_ax.get_children()[4 + i * 2].set_linewidth(2.9)
+                mcomb_ax.get_children()[4 + i * 2].set_alpha(0.71)
+
+    mcomb1_ax.set_xlabel("Subgrouping Isolation Task 1\nPredicted Scores",
+                         size=23, weight='semibold')
+    mcomb1_ax.yaxis.label.set_visible(False)
+
+    mcomb1_ax.set_yticklabels(
+        ["Wild-Type", "Subg1", "Subg2",
+         "Other {}\nSingletons".format(use_gene),
+         "Other {}\nOverlaps".format(use_gene), 'Gains', 'Dels'],
+        size=11
+        )
+
+    mcomb2_ax.set_ylabel("Subgrouping Isolation Task 2\nPredicted Scores",
+                         size=23, weight='semibold')
+    mcomb2_ax.xaxis.label.set_visible(False)
+
+    mcomb2_ax.set_xticklabels(
+        ['WT', 'Subg2', 'Subg1', 'Overlps', 'Singls', 'Gains', 'Dels'],
+        rotation=31, size=11, ha='right'
+        )
+
+    for i, lbl in enumerate(['WT', 'Mut1', 'Mut2',
+                             'Sngl', 'Mult', 'Gain', 'Del']):
+        mcomb1_ax.text(1, 0.9 - i / 7, "n={}".format(use_phns[lbl].sum()),
+                       size=12, ha='left', transform=mcomb1_ax.transAxes,
+                       clip_on=False)
+
+    for i, lbl in enumerate(['WT', 'Mut2', 'Mut1',
+                             'Mult', 'Sngl', 'Gain', 'Del']):
+        mcomb2_ax.text(0.04 + i / 7, 1, "n={}".format(use_phns[lbl].sum()),
+                       size=12, rotation=31, ha='left',
+                       transform=mcomb2_ax.transAxes, clip_on=False)
+
+    crnr_ax.text(0.77, 0.76, "(AUC1: {:.3f})".format(auc_vals[plt_mcomb1]),
+                 size=10, ha='right', transform=crnr_ax.transAxes,
+                 clip_on=False)
+    mcomb2_ax.text(-0.01, -0.14,
+                   "(AUC2: {:.3f})".format(auc_vals[plt_mcomb2]),
+                   size=10, rotation=31, ha='right',
+                   transform=mcomb2_ax.transAxes, clip_on=False)
+
+    wt_vals = use_preds.loc[use_preds.Phn == 'WT', ['Mut1', 'Mut2']]
+    siml_vals = {
+        'mut': {
+            subg: format(siml_fxs[siml_metric](
+                wt_vals[subg], use_preds.loc[use_preds.Phn == subg, subg],
+                use_preds.loc[use_preds.Phn == oth_subg, subg]
+            ), '.3f')
+            for subg, oth_subg in permt(['Mut1', 'Mut2'])
+            }
+        }
+
+    for lbl in ['Sngl', 'Mult', 'Gain', 'Del']:
+        if use_phns[lbl].sum() >= 10:
+            siml_vals[lbl] = {
+                subg: format(siml_fxs[siml_metric](
+                    wt_vals[subg], use_preds.loc[use_preds.Phn == subg, subg],
+                    use_preds.loc[use_preds.Phn == lbl, subg]
+                ), '.3f')
+                for subg in ['Mut1', 'Mut2']
+            }
+
+        else:
+            siml_vals[lbl] = {'Mut1': "    n/a", 'Mut2': "    n/a"}
+
+    for i, lbl in enumerate(['mut', 'Sngl', 'Mult', 'Gain', 'Del']):
+        crnr_ax.text(0.77, 0.62 - i / 7,
+                     "(Siml1: {})".format(siml_vals[lbl]['Mut1']),
+                     size=10, ha='right', transform=crnr_ax.transAxes,
+                     clip_on=False)
+
+    for i, lbl in enumerate(['mut', 'Mult', 'Sngl', 'Gain', 'Del']):
+        mcomb2_ax.text(0.133 + i / 7, -0.14,
+                       "(Siml2: {})".format(siml_vals[lbl]['Mut2']),
+                       size=10, rotation=31, ha='right',
+                       transform=mcomb2_ax.transAxes, clip_on=False)
+
+    crnr_ax.axis('off')
+    sctr_ax.set_xlim(xlims)
+    sctr_ax.set_ylim(ylims)
+    mcomb1_ax.set_xlim(xlims)
+    mcomb2_ax.set_ylim(ylims)
+
+    if file_lbl is None:
+        file_lbl = '__'.join(['__'.join([mtype.get_filelabel()[:30]
+                                         for mtype in sorted(mcomb.mtypes)])
+                              for mcomb in [plt_mcomb1, plt_mcomb2]])
+
+    fig.tight_layout(w_pad=-2, h_pad=-0.3)
+    plt.savefig(os.path.join(
+        plot_dir, data_tag, use_gene,
+        "{}_{}-synergy-scores_{}__{}.svg".format(args.ex_lbl, siml_metric,
+                                                 args.classif, file_lbl)
+        ), bbox_inches='tight', format='svg')
+
+    plt.close()
 
 
 def main():
@@ -428,8 +674,22 @@ def main():
             plot_overlap_divergence(pred_dfs, phn_dicts, auc_lists,
                                     cdata_dict, args, siml_metric)
 
-            siml_dfs = plot_overlap_synergy(pred_dfs, phn_dicts, auc_lists,
-                                            cdata_dict, args, siml_metric)
+            annt_pairs = plot_overlap_synergy(pred_dfs, phn_dicts, auc_lists,
+                                              cdata_dict, args, siml_metric)
+
+            for (src, coh), gene_dict in annt_pairs.items():
+                for gene, pair_list in gene_dict.items():
+                    os.makedirs(os.path.join(plot_dir,
+                                             '__'.join([src, coh]), gene),
+                                exist_ok=True)
+
+                    for i, (mcomb1, mcomb2) in enumerate(sorted(pair_list)):
+                        plot_synergy_pair(
+                            pred_dfs[src, coh].loc[[mcomb1, mcomb2]],
+                            auc_lists[src, coh], phn_dicts[src, coh],
+                            cdata_dict[src, coh], '__'.join([src, coh]),
+                            args, siml_metric, file_lbl=i + 1
+                            )
 
 
 if __name__ == '__main__':
