@@ -1,10 +1,11 @@
 
-from ..utilities.mutations import pnt_mtype, shal_mtype, ExMcomb
+from ..utilities.mutations import (
+    pnt_mtype, shal_mtype, gains_mtype, dels_mtype, ExMcomb)
 from dryadic.features.mutations import MuType
 
 from ..subgrouping_isolate import base_dir, train_cohorts
-from .utils import (load_cohorts_data,
-                    siml_fxs, remove_pheno_dups, get_mut_ex, get_mcomb_lbl)
+from .utils import (load_cohorts_data, siml_fxs, remove_pheno_dups,
+                    get_mut_ex, get_mcomb_lbl, choose_subtype_colour)
 from ..utilities.labels import get_cohort_label
 from ..utilities.misc import get_label, get_subtype, choose_label_colour
 from ..utilities.colour_maps import simil_cmap, variant_clrs
@@ -446,12 +447,16 @@ def plot_divergent_pairs(pred_dfs, pheno_dicts, auc_lists,
     return annt_dict
 
 
-def plot_orthogonal_scores(plt_mcomb1, plt_mcomb2, pred_df, auc_vals,
-                           pheno_dict, cdata, data_tag, args, siml_metric):
+def plot_orthogonal_scores(pred_vals, auc_vals, pheno_dict, cdata,
+                           data_tag, args, siml_metric):
     fig, ((mcomb2_ax, sctr_ax), (crnr_ax, mcomb1_ax)) = plt.subplots(
         figsize=(13, 12), nrows=2, ncols=2,
-        gridspec_kw=dict(height_ratios=[4, 1], width_ratios=[1, 4])
+        gridspec_kw=dict(height_ratios=[3.5, 1], width_ratios=[1, 3.5])
         )
+
+    plt_mcomb1, plt_mcomb2 = pred_vals.index
+    assert len(plt_mcomb1.mtypes) == len(plt_mcomb2.mtypes) == 1
+    mcomb1_vals, mcomb2_vals = pred_vals[cdata.get_train_samples()].values
 
     use_gene = {get_label(mtype) for mcomb in [plt_mcomb1, plt_mcomb2]
                 for mtype in mcomb.mtypes}
@@ -463,158 +468,164 @@ def plot_orthogonal_scores(plt_mcomb1, plt_mcomb2, pred_df, auc_vals,
     if args.ex_lbl == 'IsoShal':
         all_mtype -= MuType({('Gene', use_gene): shal_mtype})
 
-    use_preds = pred_df.loc[[plt_mcomb1, plt_mcomb2],
-                            cdata.get_train_samples()].T
-    use_preds.columns = ['Subg1', 'Subg2']
-
-    x_min, y_min = use_preds.min()
-    x_max, y_max = use_preds.max()
+    x_min, x_max = np.percentile(mcomb1_vals, q=[0, 100])
+    y_min, y_max = np.percentile(mcomb2_vals, q=[0, 100])
     x_rng, y_rng = x_max - x_min, y_max - y_min
-    xlims = x_min - x_rng / 31, x_max + x_rng / 31
-    ylims = y_min - y_rng / 31, y_max + y_rng / 31
+    xlims = x_min - x_rng / 31, x_max + x_rng / 11
+    ylims = y_min - y_rng / 31, y_max + y_rng / 11
 
-    all_phn = np.array(cdata.train_pheno(all_mtype))
-    use_preds['Phn'] = np.array(['Other' if phn else 'WT' for phn in all_phn])
-    use_preds.loc[pheno_dict[plt_mcomb1], 'Phn'] = 'Subg1'
-    use_preds.loc[pheno_dict[plt_mcomb2], 'Phn'] = 'Subg2'
+    use_phns = {
+        'WT': ~np.array(cdata.train_pheno(all_mtype)),
+        'Mut1': pheno_dict[plt_mcomb1], 'Mut2': pheno_dict[plt_mcomb2],
+        'Other': (
+            np.array(cdata.train_pheno(
+                ExMcomb(all_mtype, MuType({('Gene', use_gene): pnt_mtype}))))
+            & ~pheno_dict[plt_mcomb1] & ~pheno_dict[plt_mcomb2]
+            ),
+        'Gain': np.array(cdata.train_pheno(
+            ExMcomb(all_mtype, MuType({('Gene', use_gene): gains_mtype})))),
+        'Del': np.array(cdata.train_pheno(
+            ExMcomb(all_mtype, MuType({('Gene', use_gene): dels_mtype}))))
+        }
+
+    use_fclrs = {'WT': variant_clrs['WT'],
+                 'Mut1': '#080097', 'Mut2': '#00847F',
+                 'Other': 'none', 'Gain': 'none', 'Del': 'none'}
+
+    use_eclrs = {'WT': 'none', 'Mut1': 'none', 'Mut2': 'none',
+                 'Other': choose_subtype_colour(pnt_mtype),
+                 'Gain': choose_subtype_colour(gains_mtype),
+                 'Del': choose_subtype_colour(dels_mtype)}
+
+    use_sizes = {'WT': 5, 'Mut1': 7, 'Mut2': 7,
+                 'Other': 5, 'Gain': 5, 'Del': 5}
+    use_alphas = {'WT': 0.21, 'Mut1': 0.31, 'Mut2': 0.31,
+                  'Other': 0.35, 'Gain': 0.35, 'Del': 0.35}
+
+    for lbl, phn in use_phns.items():
+        sctr_ax.plot(mcomb1_vals[phn], mcomb2_vals[phn],
+                     marker='o', linewidth=0,
+                     markersize=use_sizes[lbl], alpha=use_alphas[lbl],
+                     mfc=use_fclrs[lbl], mec=use_eclrs[lbl], mew=1.9)
+
+    mcomb_lbls = [get_mcomb_lbl(mcomb) for mcomb in [plt_mcomb1, plt_mcomb2]]
+    subg_lbls = ["only {} mutation\nis {}".format(use_gene, mcomb_lbl)
+                 for mcomb_lbl in mcomb_lbls]
+
+    sctr_ax.text(0.98, 0.03, subg_lbls[0], size=17, c=use_fclrs['Mut1'],
+                 ha='right', va='bottom', transform=sctr_ax.transAxes)
+    sctr_ax.text(0.03, 0.98, subg_lbls[1], size=17, c=use_fclrs['Mut2'],
+                 ha='left', va='top', transform=sctr_ax.transAxes)
+
+    sctr_ax.text(0.97, 0.98, get_cohort_label(data_tag.split('__')[1]),
+                 size=21, style='italic', ha='right', va='top',
+                 transform=sctr_ax.transAxes)
+
+    sctr_ax.set_xticklabels([])
+    sctr_ax.set_yticklabels([])
 
     for ax in sctr_ax, mcomb1_ax, mcomb2_ax:
         ax.grid(alpha=0.47, linewidth=0.9)
 
-    use_clrs = {'WT': variant_clrs['WT'],
-                'Subg1': '#080097', 'Subg2': '#00847F', 'Other': 'black'}
-    mcomb_lbls = [get_mcomb_lbl(mcomb) for mcomb in [plt_mcomb1, plt_mcomb2]]
+    use_preds = pd.DataFrame({
+        'Mut1': mcomb1_vals, 'Mut2': mcomb2_vals, 'Phn': 'WT'})
+    for lbl in ['Mut1', 'Mut2', 'Other', 'Gain', 'Del']:
+        use_preds.loc[use_phns[lbl], 'Phn'] = lbl
 
-    sctr_ax.plot(use_preds.loc[use_preds.Phn == 'WT', 'Subg1'],
-                 use_preds.loc[use_preds.Phn == 'WT', 'Subg2'],
-                 marker='o', markersize=6, linewidth=0, alpha=0.19,
-                 mfc=use_clrs['WT'], mec='none')
+    sns.violinplot(data=use_preds, y='Phn', x='Mut1', ax=mcomb1_ax,
+                   order=['WT', 'Mut1', 'Mut2', 'Other', 'Gain', 'Del'],
+                   palette=use_fclrs, orient='h', linewidth=0, cut=0)
 
-    sctr_ax.plot(use_preds.loc[use_preds.Phn == 'Subg1', 'Subg1'],
-                 use_preds.loc[use_preds.Phn == 'Subg1', 'Subg2'],
-                 marker='o', markersize=9, linewidth=0, alpha=0.23,
-                 mfc=use_clrs['Subg1'], mec='none')
-
-    sctr_ax.plot(use_preds.loc[use_preds.Phn == 'Subg2', 'Subg1'],
-                 use_preds.loc[use_preds.Phn == 'Subg2', 'Subg2'],
-                 marker='o', markersize=9, linewidth=0, alpha=0.23,
-                 mfc=use_clrs['Subg2'], mec='none')
-
-    sctr_ax.plot(use_preds.loc[use_preds.Phn == 'Other', 'Subg1'],
-                 use_preds.loc[use_preds.Phn == 'Other', 'Subg2'],
-                 marker='o', markersize=8, linewidth=0, alpha=0.31,
-                 mfc='none', mec=use_clrs['Other'])
-
-    sctr_ax.text(0.98, 0.03,
-                 "Subgrouping 1:\n{} mutants\n{}".format(use_gene,
-                                                         mcomb_lbls[0]),
-                 size=15, c=use_clrs['Subg1'], ha='right', va='bottom',
-                 transform=sctr_ax.transAxes)
-    sctr_ax.text(0.03, 0.98,
-                 "Subgrouping 2:\n{} mutants\n{}".format(use_gene,
-                                                         mcomb_lbls[1]),
-                 size=15, c=use_clrs['Subg2'], ha='left', va='top',
-                 transform=sctr_ax.transAxes)
-
-    sns.violinplot(data=use_preds, y='Phn', x='Subg1', ax=mcomb1_ax,
-                   order=['WT', 'Subg1', 'Subg2', 'Other'],
-                   palette=use_clrs, orient='h', linewidth=0, cut=0)
-
-    sns.violinplot(data=use_preds, x='Phn', y='Subg2', ax=mcomb2_ax,
-                   order=['WT', 'Subg2', 'Subg1', 'Other'],
-                   palette=use_clrs, orient='v', linewidth=0, cut=0)
+    sns.violinplot(data=use_preds, x='Phn', y='Mut2', ax=mcomb2_ax,
+                   order=['WT', 'Mut2', 'Mut1', 'Other', 'Gain', 'Del'],
+                   palette=use_fclrs, orient='v', linewidth=0, cut=0)
 
     for mcomb_ax in mcomb1_ax, mcomb2_ax:
         for i in range(3):
             mcomb_ax.get_children()[i * 2].set_alpha(0.61)
             mcomb_ax.get_children()[i * 2].set_linewidth(0)
 
-        mcomb_ax.get_children()[6].set_edgecolor('black')
-        mcomb_ax.get_children()[6].set_facecolor('white')
-        mcomb_ax.get_children()[6].set_linewidth(1.3)
-        mcomb_ax.get_children()[6].set_alpha(0.61)
+        i = 0
+        for lbl in ['Other', 'Gain', 'Del']:
+            if use_phns[lbl].sum() > 1:
+                i += 1
 
-    sctr_ax.set_xticklabels([])
-    sctr_ax.set_yticklabels([])
+                mcomb_ax.get_children()[4 + i * 2].set_edgecolor(
+                    use_eclrs[lbl])
+                mcomb_ax.get_children()[4 + i * 2].set_facecolor('white')
+                mcomb_ax.get_children()[4 + i * 2].set_linewidth(2.9)
+                mcomb_ax.get_children()[4 + i * 2].set_alpha(0.71)
 
-    mcomb1_ax.set_xlabel("Subgrouping Task 1\nPredicted Scores",
+    mcomb1_ax.set_xlabel("Subgrouping Isolation Task 1\nPredicted Scores",
                          size=23, weight='semibold')
-    mcomb1_ax.yaxis.label.set_visible(False)
-    mcomb1_ax.set_yticklabels([
-        "Wild-Type", "Subg1", "Subg2", "Other\n{}\nMuts".format(use_gene)])
-
-    mcomb2_ax.set_ylabel("Subgrouping Task 2\nPredicted Scores",
+    mcomb2_ax.set_ylabel("Subgrouping Isolation Task 2\nPredicted Scores",
                          size=23, weight='semibold')
+
     mcomb2_ax.xaxis.label.set_visible(False)
-    mcomb2_ax.set_xticklabels(mcomb2_ax.get_xticklabels(),
-                              rotation=31, ha='right')
+    mcomb1_ax.yaxis.label.set_visible(False)
 
-    mcomb1_ax.text(1, 0.83, "n={}".format((use_preds.Phn == 'WT').sum()),
-                   size=13, ha='left', transform=mcomb1_ax.transAxes,
-                   clip_on=False)
-    mcomb1_ax.text(1, 0.58, "n={}".format((use_preds.Phn == 'Subg1').sum()),
-                   size=13, ha='left', transform=mcomb1_ax.transAxes,
-                   clip_on=False)
-    mcomb1_ax.text(1, 0.33, "n={}".format((use_preds.Phn == 'Subg2').sum()),
-                   size=13, ha='left', transform=mcomb1_ax.transAxes,
-                   clip_on=False)
-    mcomb1_ax.text(1, 0.08, "n={}".format((use_preds.Phn == 'Other').sum()),
-                   size=13, ha='left', transform=mcomb1_ax.transAxes,
-                   clip_on=False)
+    for i, lbl in enumerate(['WT', 'Mut1', 'Mut2', 'Other', 'Gain', 'Del']):
+        mcomb1_ax.text(1, 0.9 - i / 6, "n={}".format(use_phns[lbl].sum()),
+                       size=13, ha='left', transform=mcomb1_ax.transAxes,
+                       clip_on=False)
 
-    mcomb2_ax.text(1 / 8, 1, "n={}".format((use_preds.Phn == 'WT').sum()),
-                   size=13, rotation=31, ha='left',
-                   transform=mcomb2_ax.transAxes, clip_on=False)
-    mcomb2_ax.text(3 / 8, 1, "n={}".format((use_preds.Phn == 'Subg2').sum()),
-                   size=13, rotation=31, ha='left',
-                   transform=mcomb2_ax.transAxes, clip_on=False)
-    mcomb2_ax.text(5 / 8, 1, "n={}".format((use_preds.Phn == 'Subg1').sum()),
-                   size=13, rotation=31, ha='left',
-                   transform=mcomb2_ax.transAxes, clip_on=False)
-    mcomb2_ax.text(7 / 8, 1, "n={}".format((use_preds.Phn == 'Other').sum()),
-                   size=13, rotation=31, ha='left',
-                   transform=mcomb2_ax.transAxes, clip_on=False)
+    for i, lbl in enumerate(['WT', 'Mut2', 'Mut1', 'Other', 'Gain', 'Del']):
+        mcomb2_ax.text(0.04 + i / 6, 1, "n={}".format(use_phns[lbl].sum()),
+                       size=13, rotation=31, ha='left',
+                       transform=mcomb2_ax.transAxes, clip_on=False)
 
-    crnr_ax.text(0.95, 0.59, "(AUC1: {:.3f})".format(auc_vals[plt_mcomb1]),
-                 size=11, ha='right', transform=crnr_ax.transAxes,
-                 clip_on=False)
-    crnr_ax.text(0, 0.55, "(AUC2: {:.3f})".format(auc_vals[plt_mcomb2]),
-                 size=11, rotation=31, ha='right',
-                 transform=crnr_ax.transAxes, clip_on=False)
-
-    wt_vals = use_preds.loc[use_preds.Phn == 'WT', ['Subg1', 'Subg2']]
-    mut_simls = {
-        subg: siml_fxs[siml_metric](
-            wt_vals[subg], use_preds.loc[use_preds.Phn == subg, subg],
-            use_preds.loc[use_preds.Phn == oth_subg, subg]
-            )
-        for subg, oth_subg in permt(['Subg1', 'Subg2'])
+    wt_vals = use_preds.loc[use_preds.Phn == 'WT', ['Mut1', 'Mut2']]
+    siml_vals = {
+        'mut': {
+            subg: format(siml_fxs[siml_metric](
+                wt_vals[subg], use_preds.loc[use_preds.Phn == subg, subg],
+                use_preds.loc[use_preds.Phn == oth_subg, subg]
+            ), '.3f')
+            for subg, oth_subg in permt(['Mut1', 'Mut2'])
+            }
         }
 
-    oth_simls = {
-        subg: siml_fxs[siml_metric](
-            wt_vals[subg], use_preds.loc[use_preds.Phn == subg, subg],
-            use_preds.loc[use_preds.Phn == 'Other', subg]
-            )
-        for subg in ['Subg1', 'Subg2']
-        }
+    for lbl in ['Other', 'Gain', 'Del']:
+        if use_phns[lbl].sum() >= 10:
+            siml_vals[lbl] = {
+                subg: format(siml_fxs[siml_metric](
+                    wt_vals[subg], use_preds.loc[use_preds.Phn == subg, subg],
+                    use_preds.loc[use_preds.Phn == lbl, subg]
+                ), '.3f')
+                for subg in ['Mut1', 'Mut2']
+            }
 
-    crnr_ax.text(0.95, 0.34, "(Siml1: {:.3f})".format(mut_simls['Subg1']),
-                 size=11, ha='right', transform=crnr_ax.transAxes,
-                 clip_on=False)
-    crnr_ax.text(0.95, 0.09, "(Siml1: {:.3f})".format(oth_simls['Subg1']),
-                 size=11, ha='right', transform=crnr_ax.transAxes,
-                 clip_on=False)
+        else:
+            siml_vals[lbl] = {'Mut1': "    n/a", 'Mut2': "    n/a"}
 
-    crnr_ax.text(0.25, 0.55, "(Siml2: {:.3f})".format(mut_simls['Subg2']),
-                 size=11, rotation=31, ha='right',
-                 transform=crnr_ax.transAxes, clip_on=False)
-    crnr_ax.text(0.5, 0.55, "(Siml2: {:.3f})".format(oth_simls['Subg2']),
-                 size=11, rotation=31, ha='right',
-                 transform=crnr_ax.transAxes, clip_on=False)
+    mcomb1_ax.set_yticklabels(['WT', 'Subg1', 'Subg2',
+                               'Other {}\nPoint Muts'.format(use_gene),
+                               'Gains', 'Dels'], size=12)
+
+    mcomb2_ax.set_xticklabels(['WT', 'Subg2', 'Subg1',
+                               'Other', 'Gains', 'Dels'],
+                              rotation=31, size=12, ha='right')
+
+    mcomb1_ax.text(-0.17, 0.72, "(AUC1: {:.3f})".format(auc_vals[plt_mcomb1]),
+                   size=11, ha='right', transform=mcomb1_ax.transAxes,
+                   clip_on=False)
+    mcomb2_ax.text(-0.04, -0.06,
+                   "(AUC2: {:.3f})".format(auc_vals[plt_mcomb2]),
+                   size=11, rotation=31, ha='right', va='top',
+                   transform=mcomb2_ax.transAxes, clip_on=False)
+
+    for i, lbl in enumerate(['mut', 'Other', 'Gain', 'Del']):
+        mcomb1_ax.text(-0.17, 0.61 - i / 6,
+                       "(Siml1: {})".format(siml_vals[lbl]['Mut1']),
+                       size=11, ha='right', va='top',
+                       transform=mcomb1_ax.transAxes, clip_on=False)
+
+        mcomb2_ax.text(0.14 + i / 6, -0.06,
+                       "(Siml2: {})".format(siml_vals[lbl]['Mut2']),
+                       size=11, rotation=31, ha='right', va='top',
+                       transform=mcomb2_ax.transAxes, clip_on=False)
 
     crnr_ax.axis('off')
-
     sctr_ax.set_xlim(xlims)
     sctr_ax.set_ylim(ylims)
     mcomb1_ax.set_xlim(xlims)
@@ -624,7 +635,7 @@ def plot_orthogonal_scores(plt_mcomb1, plt_mcomb2, pred_df, auc_vals,
                                      for mtype in mcomb.mtypes])
                           for mcomb in [plt_mcomb1, plt_mcomb2]])
 
-    fig.tight_layout(w_pad=-1.3, h_pad=-1.3)
+    fig.tight_layout(w_pad=-10, h_pad=-2)
     plt.savefig(os.path.join(
         plot_dir, data_tag, "{}_{}-ortho-scores_{}__{}.svg".format(
             args.ex_lbl, siml_metric, args.classif, file_lbl)
@@ -694,7 +705,7 @@ def main():
 
                 for mcomb1, mcomb2 in pair_list:
                     plot_orthogonal_scores(
-                        mcomb1, mcomb2, pred_dfs[src, coh],
+                        pred_dfs[src, coh].loc[[mcomb1, mcomb2]],
                         auc_lists[src, coh], phn_dicts[src, coh],
                         cdata_dict[src, coh], '__'.join([src, coh]),
                         args, siml_metric
