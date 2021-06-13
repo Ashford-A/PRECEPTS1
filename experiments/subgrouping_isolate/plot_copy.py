@@ -835,6 +835,167 @@ def plot_overlap_similarity(siml_dicts, pheno_dicts, cdata_dict,
     plt.close()
 
 
+def plot_overlap_synergy(siml_dicts, pheno_dicts, cdata_dict,
+                         args, siml_metric):
+    fig, ax = plt.subplots(figsize=(11, 7))
+
+    cna_mtype = cna_mtypes[args.ex_lbl]['All']
+    ovlp_dict = dict()
+    plot_dict = dict()
+    ymin, ymax = 0.47, 1.53
+
+    for (src, coh), siml_dict in siml_dicts.items():
+        coh_lbl = get_cohort_label(coh).replace("TCGA-", '')
+
+        use_simls = {
+            (comb1, comb2): simls
+            for (comb1, comb2), simls in siml_dict.items()
+            if (((len(simls) == 1 and get_mcomb_type(comb2) == 'intx')
+                 or (len(simls) == 2
+                     and 'intx' in {get_mcomb_type(comb1),
+                                    get_mcomb_type(comb2)}))
+                and len({mtype for comb in [comb1, comb2]
+                         for mtype in comb.mtypes}) == 2)
+            }
+
+        plt_simls = dict()
+        for combs, simls in use_simls.items():
+            cur_gene = get_label(combs[0])
+
+            if len(simls) == 1:
+                oth_indx = 0
+            else:
+                oth_indx = int(get_mcomb_type(combs[0]) == 'intx')
+
+            comb_stype = get_subtype(tuple(combs[oth_indx].mtypes)[0])
+            type_key = tuple(sorted(combs[1 - oth_indx].mtypes))
+
+            if (cur_gene, type_key) not in plt_simls:
+                plt_simls[cur_gene, type_key] = dict()
+
+            oth_type = get_mcomb_type(combs[oth_indx])
+            plt_simls[cur_gene, type_key][oth_type] = simls[oth_indx]
+
+        plt_simls = {k: np.mean(tuple(simls.values()))
+                     for k, simls in plt_simls.items() if len(simls) == 2}
+
+        if plt_simls:
+            ymin = min(ymin, min(plt_simls.values()) - 0.19)
+            ymax = max(ymax, max(plt_simls.values()) + 0.19)
+
+        for (gene, mtypes), siml_val in plt_simls.items():
+            cur_gene = get_label(mtypes[0])
+
+            mtype_phns = [np.array(cdata_dict[src, coh].train_pheno(mtype))
+                          for mtype in mtypes]
+
+            ovlp_odds, ovlp_pval = fisher_exact(
+                table=pd.crosstab(*mtype_phns))
+            ovlp_dict[(src, coh, *mtypes)] = (
+                np.sign(ovlp_odds - 1) * -np.log10(ovlp_pval), siml_val)
+
+            cpy_type = [mtype for mtype in mtypes
+                        if (get_subtype(mtype) & pnt_mtype).is_empty()][0]
+
+            if np.abs(ovlp_dict[(src, coh, *mtypes)][0]) >= 1:
+                plot_dict[ovlp_dict[(src, coh, *mtypes)]] = [
+                    None, ("{} in {}".format(cur_gene, coh_lbl),
+                           get_fancy_label(get_subtype(cpy_type)))
+                    ]
+
+            else:
+                plot_dict[ovlp_dict[(src, coh, *mtypes)]] = [None, ('', '')]
+
+    size_mult = len(ovlp_dict) ** -0.23
+    ovlp_df = pd.DataFrame(ovlp_dict, index=['Ovlp', 'Siml']).transpose()
+
+    gene_gby = ovlp_df.groupby(lambda x: get_label(x[2]))
+    clr_dict = {gene: choose_label_colour(gene) for gene, _ in gene_gby}
+    line_dict = {
+        (ovlp_val, siml_val): dict(c=clr_dict[get_label(comb)])
+        for (_, _, comb, _), (ovlp_val, siml_val) in ovlp_dict.items()
+        }
+
+    plot_lims = ovlp_df.quantile(q=[0, 1])
+    plot_diff = plot_lims.diff().iloc[1]
+    ovlp_lims = plot_lims.Ovlp + plot_diff.Ovlp * np.array([-8.3, 6.1]) ** -1
+    siml_lims = plot_lims.Siml + plot_diff.Siml * np.array([-8.1, 5.3]) ** -1
+    plot_gaps = plot_lims.diff().iloc[1] / 4.73
+
+    ovlp_lims[0] = min(ovlp_lims[0], -1.07)
+    ovlp_lims[1] = max(ovlp_lims[1], plot_gaps.Ovlp, 1.07)
+    siml_lims[0] = min(siml_lims[0], 0.47)
+    siml_lims[1] = max(siml_lims[1], plot_gaps.Siml, 1.53)
+    ovlp_rng, siml_rng = ovlp_lims.diff()[1], siml_lims.diff()[1]
+
+    ax.grid(alpha=0.47, linewidth=0.9)
+    ax.plot(ovlp_lims, [1, 1],
+            color='black', linewidth=0.91, linestyle=':', alpha=0.67)
+    ax.plot([0, 0], siml_lims,
+            color='black', linewidth=0.91, linestyle=':', alpha=0.67)
+
+    for (src, coh, comb1, comb2), (ovlp_val, siml_val) in ovlp_df.iterrows():
+        cur_gene = get_label(comb1)
+
+        plt_size = np.sqrt(np.mean(pheno_dicts[src, coh][comb1])
+                           * np.mean(pheno_dicts[src, coh][comb2]))
+        plt_size *= size_mult
+        plot_dict[ovlp_val, siml_val][0] = 0.17 * plt_size
+
+        ax.scatter(ovlp_val, siml_val, c=[clr_dict[cur_gene]],
+                   s=2071 * plt_size, alpha=0.37, edgecolor='none')
+
+    x_plcs = ovlp_rng / 143, ovlp_rng / 23
+    y_plc = siml_lims[1] - siml_rng / 41
+
+    ax.text(-x_plcs[0], y_plc, '\u2190',
+            size=22, ha='right', va='center', weight='bold')
+    ax.text(-x_plcs[1], y_plc, "significant exclusivity",
+            size=12, ha='right', va='center')
+
+    ax.text(x_plcs[0], y_plc, '\u2192',
+            size=22, ha='left', va='center', weight='bold')
+    ax.text(x_plcs[1], y_plc, "significant overlap",
+            size=12, ha='left', va='center')
+
+    x_plc = ovlp_lims[1] - ovlp_rng / 19
+    y_plcs = siml_rng / 91, siml_rng / 17
+
+    ax.text(x_plc, 1 - y_plcs[0], '\u2190',
+            size=22, rotation=90, ha='center', va='top', weight='bold')
+    ax.text(x_plc, 1 - y_plcs[1], "cancelling-out\ndownstream\neffects",
+            size=12, ha='center', va='top')
+
+    ax.text(x_plc, 1 + y_plcs[0], '\u2192',
+            size=22, rotation=90, ha='center', va='bottom', weight='bold')
+    ax.text(x_plc, 1 + y_plcs[1], "synergistic\ndownstream\neffects",
+            size=12, ha='center', va='bottom')
+
+    if plot_dict:
+        lbl_pos = place_scatter_labels(
+            plot_dict, ax, plt_lims=[ovlp_lims, siml_lims],
+            plc_lims=[plot_lims.Ovlp, plot_lims.Siml],
+            font_size=9, line_dict=line_dict, linewidth=0.67, alpha=0.37
+            )
+
+    plt.xlabel("Genomic Co-occurence", size=21, weight='semibold')
+    plt.ylabel("Transcriptomic Synergy", size=21, weight='semibold')
+
+    ax.xaxis.set_major_locator(plt.MaxNLocator(5, steps=[1, 2, 5]))
+    ax.yaxis.set_major_locator(plt.MaxNLocator(5, steps=[1, 2, 5]))
+    ax.set_xlim(*ovlp_lims)
+    ax.set_ylim(*siml_lims)
+
+    plt.savefig(
+        os.path.join(plot_dir,
+                     "{}_{}-overlap-synergy_{}.svg".format(
+                         args.ex_lbl, siml_metric, args.classif)),
+        bbox_inches='tight', format='svg'
+        )
+
+    plt.close()
+
+
 def main():
     parser = argparse.ArgumentParser(
         'plot_copy',
@@ -1051,6 +1212,8 @@ def main():
 
             plot_overlap_similarity(siml_dicts, phn_dicts, cdata_dict,
                                     args, siml_metric)
+            plot_overlap_synergy(siml_dicts, phn_dicts, cdata_dict,
+                                 args, siml_metric)
 
 
 if __name__ == '__main__':
