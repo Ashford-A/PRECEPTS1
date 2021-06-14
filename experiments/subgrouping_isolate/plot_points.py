@@ -45,10 +45,12 @@ def plot_overlap_divergence(pred_dfs, pheno_dicts, auc_lists,
 
     siml_dicts = {(src, coh): dict() for src, coh in auc_lists}
     gn_dict = dict()
+    test = dict()
 
     # for each dataset, find the subgroupings meeting the minimum task AUC
     # that are exclusively defined and subsets of point mutations...
     for (src, coh), auc_list in auc_lists.items():
+        test[src, coh] = dict()
         use_combs = remove_pheno_dups({
             mut for mut, auc_val in auc_list.iteritems()
             if (isinstance(mut, ExMcomb) and auc_val >= args.auc_cutoff
@@ -132,17 +134,24 @@ def plot_overlap_divergence(pred_dfs, pheno_dicts, auc_lists,
             else:
                 cmp_phn &= cmp_phns[cur_gene]['Sngl']
 
-            if cmp_phn.sum() >= 10:
+            if cmp_phn.sum() >= 1:
                 siml_dicts[src, coh][mcomb] = siml_fxs[siml_metric](
                     use_preds.loc[~all_phns[cur_gene]],
                     use_preds.loc[pheno_dicts[src, coh][mcomb]],
                     use_preds.loc[cmp_phn]
                     )
+                test[src, coh][mcomb] = sum(
+                    pheno_dicts[src, coh][mcomb] & cmp_phns[cur_gene]['Mult'])
 
     plt_df = pd.DataFrame(
         {'Siml': pd.DataFrame.from_records(siml_dicts).stack()})
     plt_df['AUC'] = [auc_lists[src, coh][mcomb]
                      for mcomb, (src, coh) in plt_df.index]
+    """
+    plt_df['Phn'] = [test[src, coh][mcomb] 
+                     for mcomb, (src, coh) in plt_df.index]
+    import ipdb; ipdb.set_trace()
+    """
 
     gene_means = plt_df.groupby(
         lambda x: (get_label(x[0]), len(x[0].mtypes))).mean()
@@ -394,6 +403,88 @@ def plot_overlap_synergy(pred_dfs, pheno_dicts, auc_lists,
 
     plt.close()
     return annt_lists
+
+
+def plot_overlap_aucs(pheno_dict, auc_list,
+                      cdata, data_tag, args, siml_metric, use_gene):
+    fig, ax = plt.subplots(figsize=(11, 8))
+
+    use_combs = remove_pheno_dups({
+        mut for mut, auc_val in auc_list.iteritems()
+        if (isinstance(mut, ExMcomb) and auc_val >= args.auc_cutoff
+            and get_mut_ex(mut) == args.ex_lbl
+            and len(mut.mtypes) == 1 and get_label(mut) == use_gene
+            and all(pnt_mtype.is_supertype(get_subtype(mtype))
+                    for mtype in mut.mtypes))
+        }, pheno_dict)
+
+    train_samps = cdata.get_train_samples()
+    use_mtree = cdata.mtrees['Gene', 'Scale', 'Copy',
+                             'Exon', 'Position', 'HGVSp']
+    gene_tree = use_mtree[use_gene]['Point']
+
+    if args.ex_lbl == 'Iso':
+        gene_cpy = MuType({('Gene', use_gene): copy_mtype})
+    else:
+        gene_cpy = MuType({('Gene', use_gene): deep_mtype})
+
+    cpy_samps = gene_cpy.get_samples(use_mtree)
+    samp_counts = {samp: 0 for samp in (gene_tree.get_samples() - cpy_samps)}
+
+    for subk in MuType(gene_tree.allkey()).leaves():
+        for samp in MuType(subk).get_samples(gene_tree):
+            if samp in samp_counts:
+                samp_counts[samp] += 1
+
+    for samp in train_samps:
+        if samp not in samp_counts:
+            samp_counts[samp] = 0
+
+    plt_df = pd.DataFrame({'AUC': auc_list[use_combs]})
+    plt_df['Muts'] = [np.mean([samp_counts[samp]
+                               for samp, phn in zip(train_samps,
+                                                    pheno_dict[mcomb])
+                               if phn]) for mcomb in plt_df.index]
+
+    plt_df['Size'] = [np.mean(pheno_dict[mcomb]) for mcomb in plt_df.index]
+    plt_clr = choose_label_colour(use_gene)
+    size_mult = plt_df.shape[0] ** -0.23
+
+    xlims = [args.auc_cutoff - (1 - args.auc_cutoff) / 47,
+             1 + (1 - args.auc_cutoff) / 277]
+    ymin, ymax = [1, plt_df.Muts.max()]
+    yrng = ymax - ymin
+    ylims = [ymin - yrng / 23, ymax + yrng / 23]
+
+    for mcomb, (auc_val, mut_val, size_val) in plt_df.iterrows():
+        ax.scatter(auc_val, mut_val, s=3751 * size_mult * size_val,
+                   c=[plt_clr], alpha=0.31, edgecolor='none')
+
+    ax.grid(alpha=0.47, linewidth=0.9)
+    ax.plot([1, 1], ylims, color='black', linewidth=1.7, alpha=0.83)
+    ax.plot(xlims, [1, 1], color='black', linewidth=1.3, alpha=0.83)
+
+    ax.xaxis.set_major_locator(plt.MaxNLocator(5, steps=[1, 2, 5]))
+    ax.yaxis.set_major_locator(plt.MaxNLocator(7, steps=[1, 2, 5]))
+    ax.set_xlim(xlims)
+    ax.set_ylim(ylims)
+
+    ax.set_xlabel("Subgrouping Classification Accuracy",
+                  size=21, weight='bold')
+    ax.set_ylabel("Average # of {} Point Mutations"
+                  "\nper Subgrouping Sample".format(use_gene),
+                  size=21, weight='bold')
+
+    ax.text(0.97, 0.07, get_cohort_label(data_tag.split('__')[1]),
+            size=17, style='italic', ha='right', va='bottom',
+            transform=ax.transAxes)
+
+    plt.savefig(os.path.join(plot_dir, data_tag, use_gene,
+                             "{}_{}-overlap-aucs_{}.svg".format(
+                                 args.ex_lbl, siml_metric, args.classif)),
+                bbox_inches='tight', format='svg')
+
+    plt.close()
 
 
 def plot_synergy_pair(pred_vals, auc_vals, pheno_dict, cdata,
@@ -682,6 +773,12 @@ def main():
                     os.makedirs(os.path.join(plot_dir,
                                              '__'.join([src, coh]), gene),
                                 exist_ok=True)
+
+                    plot_overlap_aucs(
+                        phn_dicts[src, coh], auc_lists[src, coh],
+                        cdata_dict[src, coh], '__'.join([src, coh]),
+                        args, siml_metric, gene
+                        )
 
                     for i, (mcomb1, mcomb2) in enumerate(sorted(pair_list)):
                         plot_synergy_pair(
