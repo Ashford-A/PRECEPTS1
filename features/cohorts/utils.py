@@ -139,6 +139,59 @@ def get_input_datasets(cohort, expr_source, mut_fields=None):
 
 def get_cohort_data(cohort, expr_source, mut_lvls, vep_cache_dir, out_path,
                     use_genes=None, use_copies=True, leaf_annot=None):
+    """Creates a mutation cohort object using expression and mutation data.
+
+    This function uses :func:`get_input_datasets` to get the datasets
+    associated with a given cohort, and then consolidates that data into a
+    BaseMutationCohort instance that can be used for both mutation subgrouping
+    enumeration and classification experiments.
+
+    A crucial intermediate step in this process is running the VEP mutation
+    annotation tool on the given mutation data to produce variant calls that
+    are standardized across all cohorts.
+
+    The <expr_source> + <cohort> combinations currently supported are:
+        microarray  METABRIC
+        Firehose    any TGCA cohort available through GDAC
+                        e.g. BLCA, BRCA, HNSC, LUAD, LUSC
+        toil__gns   beatAML, any TGCA cohort available through GDAC
+        toil__txs   any TCGA cohort available through GDAC
+        <>          CCLE (any expr source can be given)
+
+    Args:
+        cohort (str): A cancer cohort, eg. 'METABRIC', 'HNSC_HPV-', etc.
+        expr_source (str): A place or method such as 'Firehose' or
+                           'microarray' that describes how the expression
+                           calls were made or stored.
+
+        mut_lvls (:obj: `iterable` of :obj: `str`, optional)
+            Which combination(s) of mutation annotation fields to use for
+            constructing the hierarchy of mutations for this cohort.
+                e.g. ['Consequence', 'Exon']
+                     ['Pfam-domain', 'Position', 'HGVSp']
+            This can either be a list of fields for one combination, or a list
+            of such lists to use any number of combinations.
+
+        vep_cache_dir (str): Where VEP is storing genome assembly datasets.
+        out_path (str): Where to store intermediate output files.
+
+        use_genes (:obj: `iterable` of :obj: `str`, optional)
+            If given, only mutations from these genes will be included.
+            Default is to use all genes with mutations in the cohort.
+        use_copies (boolean, optional)
+            Whether to include copy number alterations in the mutation data.
+        leaf_annot (:obj: `iterable` of :obj: `str`, optional)
+            Which mutation properties to use for annotating the leaf nodes
+            of each mutation tree constructed for the cohort. Default is to
+            not use leaf annotations.
+
+    Returns:
+        cdata (BaseMutationCohort)
+
+    """
+
+    # these mutation annotation fields need to be pulled from the cohort's
+    # mutation data in order to produce input for VEP
     mut_fields = ['Sample', 'Gene', 'Chr', 'Start', 'End',
                   'RefAllele', 'TumorAllele']
     if leaf_annot is not None:
@@ -239,6 +292,8 @@ def get_cohort_data(cohort, expr_source, mut_lvls, vep_cache_dir, out_path,
 
 def load_cohort(cohort, expr_source, mut_lvls, vep_cache_dir, use_path=None,
                 temp_path=None, use_genes=None, leaf_annot=None):
+    """Load a saved cohort object from file; create a new one if necessary."""
+
     if isinstance(mut_lvls[0], str):
         mut_lvls = [mut_lvls]
 
@@ -268,6 +323,8 @@ def load_cohort(cohort, expr_source, mut_lvls, vep_cache_dir, use_path=None,
 
 
 def get_cohort_subtypes(coh):
+    """Gets the cohort samples associated with known molecular subtypes."""
+
     if coh == 'METABRIC':
         metabric_samps = load_metabric_samps(metabric_dir)
         subt_dict = {subt: choose_metabric_subtypes(metabric_samps, subt)
@@ -286,6 +343,7 @@ def get_cohort_subtypes(coh):
     return subt_dict
 
 
+# TODO: consolidate this with the above function?
 def list_cohort_subtypes(coh):
     if coh == 'METABRIC':
          type_dict = list_metabric_subtypes(load_metabric_samps(metabric_dir))
