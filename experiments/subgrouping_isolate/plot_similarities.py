@@ -1,8 +1,5 @@
 
-from ..utilities.mutations import (
-    pnt_mtype, copy_mtype, shal_mtype, deep_mtype,
-    dup_mtype, gains_mtype, loss_mtype, dels_mtype, ExMcomb
-    )
+from ..utilities.mutations import pnt_mtype, shal_mtype, deep_mtype, ExMcomb
 from dryadic.features.mutations import MuType
 
 from ..subgrouping_isolate import base_dir
@@ -57,7 +54,7 @@ def plot_subpoint_divergences(pred_df, pheno_dict, auc_vals, cdata, args,
 
     pnt_aucs = auc_vals[[
         mcomb for mcomb in use_combs
-        if (auc_vals[mcomb] > 0.7
+        if (auc_vals[mcomb] >= 0.65
             and pnt_mtype != get_subtype(tuple(mcomb.mtypes)[0])
             and pnt_mtype.is_supertype(get_subtype(tuple(mcomb.mtypes)[0])))
         ]]
@@ -106,7 +103,7 @@ def plot_subpoint_divergences(pred_df, pheno_dict, auc_vals, cdata, args,
 
                 pos_tupl = auc_val, siml_val
                 lbl_pos[cur_gene] += [pos_tupl]
-                plot_dict[pos_tupl] = [1.41 * base_size, ('', '')]
+                plot_dict[pos_tupl] = [0.01 * base_size, ('', '')]
 
                 ax.scatter(auc_val, siml_val, c=[clr_dict[cur_gene]],
                            s=601 * base_size, alpha=0.29, edgecolor='none')
@@ -117,8 +114,8 @@ def plot_subpoint_divergences(pred_df, pheno_dict, auc_vals, cdata, args,
 
     for siml_val in [-1, 0, 1, 2]:
         if -ylim <= siml_val <= ylim:
-            for k in np.linspace(0.73, 0.97, 200):
-                plot_dict[k, siml_val] = [0.1, ('', '')]
+            for k in np.linspace(0.68, 0.97, 60):
+                plot_dict[k, siml_val] = [0.01, ('', '')]
 
     plt_counts = pd.Series({gn: len(pos) for gn, pos in lbl_pos.items()})
     plt_counts = plt_counts[plt_counts.values > 1].sort_values()
@@ -131,28 +128,29 @@ def plot_subpoint_divergences(pred_df, pheno_dict, auc_vals, cdata, args,
         plot_dict[pos_med] = [0, (gene, '')]
 
     _ = place_scatter_labels(
-        plot_dict, ax, plt_lims=[[0.59, 1], [-ylim, ylim]],
-        plc_lims=[[0.73, 0.97], [-ylim * 0.83, ylim * 0.83]],
+        plot_dict, ax, plt_lims=[[0.65, 1], [-ylim, ylim]],
+        plc_lims=[[0.68, 0.97], [-ylim * 0.83, ylim * 0.83]],
         font_size=13, font_dict=font_dict, line_dict=line_dict,
         linewidth=2.3, alpha=0.23
         )
 
     ax.plot([1, 1], [-ylim, ylim],
             color='black', linewidth=1.1, alpha=0.89)
-    ax.plot([0.7, 1], [0, 0],
+    ax.plot([0.65, 1], [0, 0],
             color='black', linewidth=1.7, linestyle=':', alpha=0.61)
 
     for siml_val in [-1, 1, 2]:
-        ax.plot([0.7, 1], [siml_val] * 2,
+        ax.plot([0.65, 1], [siml_val] * 2,
                 color=simil_cmap(clr_norm(siml_val)),
                 linewidth=3.7, linestyle=':', alpha=0.41)
 
-    ax.set_xlabel("Accuracy of Isolated Subgrouping Classifier",
+    ax.set_xlabel("Accuracy of Isolated Subgrouping Classifier"
+                  "\nin {}".format(get_cohort_label(args.cohort)),
                   size=21, weight='bold')
     ax.set_ylabel("Remaining Point Mutations'\nSimilarity to Subgrouping",
                   size=21, weight='bold')
 
-    ax.set_xlim(0.69, 1.005)
+    ax.set_xlim(0.64, 1.005)
     ax.set_ylim(-ylim, ylim)
 
     plt.savefig(
@@ -168,22 +166,21 @@ def plot_subpoint_divergences(pred_df, pheno_dict, auc_vals, cdata, args,
 def plot_subcopy_adjacencies(pred_df, pheno_dict, auc_vals, cdata, args,
                              cna_lbl, siml_metric, ex_lbl, add_lgnd=False):
     fig, axarr = plt.subplots(figsize=(10, 9), nrows=2, ncols=1)
-    cna_mtype = cna_mtypes[cna_lbl]
+    cna_mtype = cna_mtypes[ex_lbl][cna_lbl][0]
 
     use_combs = remove_pheno_dups({
         mcomb for mcomb in auc_vals.index
-        if (isinstance(mcomb, ExMcomb) and len(mcomb.mtypes) == 1
-            and not (mcomb.all_mtype & shal_mtype).is_empty())
+        if isinstance(mcomb, ExMcomb) and get_mut_ex(mcomb) == ex_lbl
         }, pheno_dict)
 
     pnt_aucs = auc_vals[[
         mcomb for mcomb in use_combs
-        if (auc_vals[mcomb] > 0.65
-            and pnt_mtype.is_supertype(
-                tuple(tuple(mcomb.mtypes)[0].subtype_iter())[0][1]))
+        if (auc_vals[mcomb] >= 0.65
+            and all(pnt_mtype.is_supertype(get_subtype(mtype))
+                    for mtype in mcomb.mtypes))
         ]]
 
-    plt_gby = pnt_aucs.groupby(lambda mtype: tuple(mtype.label_iter())[0])
+    plt_gby = pnt_aucs.groupby(get_label)
     clr_dict = {gene: choose_label_colour(gene)
                 for gene in plt_gby.groups.keys()}
     lbl_pos = [{gene: list() for gene in plt_gby.groups.keys()}
@@ -200,8 +197,10 @@ def plot_subcopy_adjacencies(pred_df, pheno_dict, auc_vals, cdata, args,
     auc_list: pd.Series
     for cur_gene, auc_list in plt_gby:
         gene_cna = MuType({('Gene', cur_gene): cna_mtype})
+
         plt_combs = {mcomb for mcomb in use_combs
-                     if tuple(mcomb.mtypes)[0] == gene_cna}
+                     if (len(mcomb.mtypes) == 1
+                         and tuple(mcomb.mtypes)[0] == gene_cna)}
 
         if len(plt_combs) > 1:
             raise ValueError("Too many exclusive {} CNAs associated with "
@@ -212,6 +211,9 @@ def plot_subcopy_adjacencies(pred_df, pheno_dict, auc_vals, cdata, args,
             use_mtree = tuple(cdata.mtrees.values())[0][cur_gene]
 
             all_mtype = MuType({('Gene', cur_gene): use_mtree.allkey()})
+            if ex_lbl == 'IsoShal':
+                all_mtype -= MuType({('Gene', cur_gene): shal_mtype})
+
             all_phn = np.array(cdata.train_pheno(all_mtype))
             use_preds = pred_df.loc[set(auc_list.index) | {plt_comb},
                                     train_samps].applymap(np.mean)
@@ -225,7 +227,7 @@ def plot_subcopy_adjacencies(pred_df, pheno_dict, auc_vals, cdata, args,
                         )
                     ]
 
-                if auc_vals[plt_comb] > 0.6:
+                if auc_vals[plt_comb] >= 0.65:
                     copy_simls += [
                         siml_fxs[siml_metric](
                             use_preds.loc[plt_comb][~all_phn],
@@ -241,7 +243,7 @@ def plot_subcopy_adjacencies(pred_df, pheno_dict, auc_vals, cdata, args,
                         zip(axarr[:len(copy_simls)], copy_simls)):
                     pos_tupl = auc_val, siml_val
                     lbl_pos[i][cur_gene] += [pos_tupl]
-                    plot_dicts[i][pos_tupl] = [1.41 * base_size, ('', '')]
+                    plot_dicts[i][pos_tupl] = [0.01 * base_size, ('', '')]
 
                     ax.scatter(auc_val, siml_val,
                                c=[clr_dict[cur_gene]], s=601 * base_size,
@@ -258,8 +260,8 @@ def plot_subcopy_adjacencies(pred_df, pheno_dict, auc_vals, cdata, args,
 
         for siml_val in [-1, 0, 1, 2]:
             if -ylim <= siml_val <= ylim:
-                for k in np.linspace(0.68, 0.97, 200):
-                    plot_dicts[i][k, siml_val] = [0.1, ('', '')]
+                for k in np.linspace(0.68, 0.97, 60):
+                    plot_dicts[i][k, siml_val] = [0.01, ('', '')]
 
         for gene, pos_list in lbl_pos[i].items():
             if pos_list:
@@ -269,9 +271,9 @@ def plot_subcopy_adjacencies(pred_df, pheno_dict, auc_vals, cdata, args,
                 plot_dicts[i][pos_med] = [0, (gene, '')]
 
         _ = place_scatter_labels(
-            plot_dicts[i], ax, plt_lims=[[0.64, 1], [-ylim, ylim]],
+            plot_dicts[i], ax, plt_lims=[[0.65, 1], [-ylim, ylim]],
             plc_lims=[[0.68, 0.97], [-ylim * 0.83, ylim * 0.83]],
-            plt_type='scatter', font_size=13, font_dict=font_dicts[i],
+            font_size=13, font_dict=font_dicts[i],
             line_dict=line_dicts[i], linewidth=2.3, alpha=0.23
             )
 
@@ -292,7 +294,8 @@ def plot_subcopy_adjacencies(pred_df, pheno_dict, auc_vals, cdata, args,
         size=21, weight='bold'
         )
 
-    axarr[1].set_xlabel("Accuracy of Isolated Subgrouping Classifier",
+    axarr[1].set_xlabel("Accuracy of Isolated Subgrouping Classifier"
+                        "\nin {}".format(get_cohort_label(args.cohort)),
                         size=21, weight='bold')
 
     for ax in axarr:
@@ -302,8 +305,8 @@ def plot_subcopy_adjacencies(pred_df, pheno_dict, auc_vals, cdata, args,
     plt.tight_layout(pad=0, h_pad=1.7)
     plt.savefig(
         os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
-                     "{}-sub{}-adjacencies_{}.svg".format(
-                         siml_metric, cna_lbl, args.classif)),
+                     "{}_{}-sub{}-adjacencies_{}.svg".format(
+                         ex_lbl, siml_metric, cna_lbl, args.classif)),
         bbox_inches='tight', format='svg'
         )
 
@@ -322,10 +325,11 @@ def plot_copy_interaction(pred_df, pheno_dict, auc_vals,
         cna_lbl: {
             mcomb for mcomb in use_mcombs
             if (auc_vals[mcomb] > 0.6
-                and cna_type.is_supertype(
+                and cna_types[0].is_supertype(
                     tuple(tuple(mcomb.mtypes)[0].subtype_iter())[0][1]))
             }
-        for cna_lbl, cna_type in cna_mtypes.items()
+        for cna_lbl, cna_types in cna_mtypes[ex_lbl].items()
+        if cna_lbl in {'Gain', 'Loss'}
         }
 
     train_samps = cdata.get_train_samples()
@@ -377,7 +381,7 @@ def plot_copy_interaction(pred_df, pheno_dict, auc_vals,
                                     | pheno_dict[pnt_mcomb])
 
                 plot_dicts[cna_lbl][auc_vals[copy_comb], copy_siml] = (
-                    dyad_size ** 0.91, (cur_gene, subt_lbl))
+                    0.071 * dyad_size ** 0.91, (cur_gene, subt_lbl))
                 line_dicts[cna_lbl][auc_vals[copy_comb], copy_siml] = dict(
                     c=use_clr)
 
@@ -391,8 +395,9 @@ def plot_copy_interaction(pred_df, pheno_dict, auc_vals,
                        size=23, weight='bold')
     loss_ax.set_ylabel("Similarity to\nAll Loss Alterations",
                        size=23, weight='bold')
-    loss_ax.set_xlabel("Accuracy of Isolated Classifier",
-                       size=23, weight='bold')
+    loss_ax.set_xlabel("Accuracy of Isolated Subgrouping Classifier"
+                       "\nin {}".format(get_cohort_label(args.cohort)),
+                       size=21, weight='bold')
 
     clr_norm = colors.Normalize(vmin=-1, vmax=2)
     y_rng = plt_lims[1] - plt_lims[0]
@@ -411,17 +416,16 @@ def plot_copy_interaction(pred_df, pheno_dict, auc_vals,
         ax.set_xlim(0.59, 1.005)
         ax.set_ylim(*plt_lims)
 
-        lbl_pos = place_scatter_labels(
-            plot_dicts[cna_lbl], ax,
-            plt_type='scatter', font_size=11, seed=args.seed,
-            line_dict=line_dicts[cna_lbl], linewidth=0.71, alpha=0.61
-            )
+        lbl_pos = place_scatter_labels(plot_dicts[cna_lbl], ax,
+                                       font_size=11, seed=args.seed,
+                                       line_dict=line_dicts[cna_lbl],
+                                       linewidth=0.71, alpha=0.61)
 
     plt.tight_layout(pad=0, h_pad=1.9)
     plt.savefig(
         os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
-                     "{}-copy-interaction_{}.svg".format(
-                         siml_metric, args.classif)),
+                     "{}_{}-copy-interaction_{}.svg".format(
+                         ex_lbl, siml_metric, args.classif)),
         bbox_inches='tight', format='svg'
         )
 
@@ -705,7 +709,17 @@ def main():
             )
         super_list = np.apply_along_axis(all, 1, mtypes_comp)
 
-        if super_list.any():
+        if not super_list.any():
+            for ex_lbl in ['All', 'Iso', 'IsoShal']:
+                for aucs in out_aucs:
+                    auc_dfs[ex_lbl] = pd.concat([auc_dfs[ex_lbl],
+                                                 aucs[ex_lbl]], sort=False)
+
+                for preds in out_preds[ex_lbl]:
+                    pred_dfs[ex_lbl] = pd.concat([pred_dfs[ex_lbl], preds],
+                                                 sort=False)
+
+        else:
             super_indx = super_list.argmax()
 
             for ex_lbl in ['All', 'Iso', 'IsoShal']:
@@ -721,6 +735,8 @@ def main():
 
     auc_dfs = {ex_lbl: auc_df.loc[~auc_df.index.duplicated()]
                for ex_lbl, auc_df in auc_dfs.items()}
+    pred_dfs = {ex_lbl: pred_df.loc[~pred_df.index.duplicated()]
+                for ex_lbl, pred_df in pred_dfs.items()}
 
     if 'Consequence__Exon' in out_iter.groups.keys():
         for siml_metric in args.siml_metrics:
@@ -729,8 +745,7 @@ def main():
                                           auc_dfs[ex_lbl]['mean'],
                                           cdata, args, siml_metric, ex_lbl)
 
-                """
-                for cna_lbl in cna_mtypes:
+                for cna_lbl in ['Gain', 'Loss']:
                     plot_subcopy_adjacencies(
                         pred_dfs[ex_lbl], phn_dict, auc_dfs[ex_lbl]['mean'],
                         cdata, args, cna_lbl, siml_metric, ex_lbl
@@ -739,7 +754,6 @@ def main():
                     plot_copy_interaction(pred_dfs[ex_lbl], phn_dict,
                                           auc_dfs[ex_lbl]['mean'],
                                           cdata, args, siml_metric, ex_lbl)
-                """
 
     else:
         warnings.warn("Cannot analyze the similarities between CNAs and "
