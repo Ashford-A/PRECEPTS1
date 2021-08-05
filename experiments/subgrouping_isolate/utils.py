@@ -12,6 +12,7 @@ import pandas as pd
 import bz2
 import dill as pickle
 from pathlib import Path
+from zipfile import ZipFile
 
 siml_fxs = {'mean': calculate_mean_siml, 'ks': calculate_ks_siml}
 cna_mtypes = {'Iso': {'All': shal_mtype | deep_mtype,
@@ -82,26 +83,39 @@ def choose_subtype_colour(mut):
     return mut_clr
 
 
-def get_mcomb_lbl(mcomb):
+def get_mcomb_lbl(mcomb, **lbl_kwargs):
     return '\n& '.join([
-        get_fancy_label(tuple(mtype.subtype_iter())[0][1])
-        for mtype in mcomb.mtypes
+        get_fancy_label(tuple(mtype.subtype_iter())[0][1], **lbl_kwargs)
+        for mtype in sorted(mcomb.mtypes)
         ])
 
 
-def load_cohorts_data(out_list, ex_lbl, data_cache=None):
+def load_cohorts_data(out_list, ex_lbl, data_cache=None, load_objs=None):
     if data_cache and Path(data_cache).exists():
-        with bz2.BZ2File(data_cache, 'r') as f:
-            pred_dfs, phn_dicts, auc_lists, cdata_dict = pickle.load(f)
+        objs = [None, None, None, None]
+
+        if load_objs is None:
+            load_objs = ['preds', 'phns', 'aucs', 'cdatas']
+
+        for i, obj_lbl in enumerate(['preds', 'phns', 'aucs', 'cdatas']):
+            if obj_lbl in load_objs:
+                with ZipFile(data_cache, 'r') as f:
+                    objs[i] = pickle.loads(f.read(obj_lbl))
+
+        pred_dfs, phn_dicts, auc_lists, cdata_dict = objs
 
     else:
         pred_dfs, phn_dicts, auc_lists, cdata_dict = load_cohorts_output(
             out_list, ex_lbl)
 
         if data_cache:
-            with bz2.BZ2File(data_cache, 'w') as f:
-                pickle.dump((pred_dfs, phn_dicts, auc_lists, cdata_dict),
-                            f, protocol=-1)
+            with ZipFile(data_cache, 'w') as f:
+                f.writestr('preds', pickle.dumps(pred_dfs, protocol=-1))
+
+            for lbl, obj in zip(['phns', 'aucs', 'cdatas'],
+                                [phn_dicts, auc_lists, cdata_dict]):
+                with ZipFile(data_cache, 'a') as f:
+                    f.writestr(lbl, pickle.dumps(obj, protocol=-1))
 
     return pred_dfs, phn_dicts, auc_lists, cdata_dict
 

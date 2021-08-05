@@ -12,10 +12,10 @@ _"Systematic interrogation of mutation groupings reveals divergent downstream
 expression programs within key cancer genes"_
 **(MR Grzadkowski, HD Holly, J Somers, and E Demir)** 
 
-currently under review for publication at BMC Bioinformatics. For the other
-analyses used in this manuscript, see `../subgrouping_tour` and
-`../subgrouping_thresholds`, both of which follow an analogous experiment
-structure and identical setup steps.
+[published](bmcbioinformatics.biomedcentral.com/articles/10.1186/s12859-021-04147-y)
+in 2021 at BMC Bioinformatics. For the other analyses used in this paper, see
+`../subgrouping_tour` and `../subgrouping_thresholds`, both of which follow an
+analogous experiment structure and identical setup steps.
 
 
 ## Preparing to run the experiment ##
@@ -24,12 +24,13 @@ Clone the `dryads-research` git repository into the current directory:
 
 ```git clone https://github.com/ohsu-comp-bio/dryads-research.git```
 
-Install the `research` conda environment:
+Install the `research` conda environment, which will be activated by
+the pipeline:
 
 ```conda env create -f environment.yml```
 
-Register an account at https://www.synapse.org/; use your credentials to
-create a file named `.synapseConfig` with the following format:
+Register an account at www.synapse.org; use your credentials to
+create a file named `~/.synapseConfig` with the following format:
 ```
 [authentication]
 username: ...
@@ -54,7 +55,7 @@ The following variables must be added:
 # where Broad Firehose datasets were downloaded
 firehose_dir = "/home/users/datasets/..."
 
-# the local Synapse cache
+# the folder to use for the local Synapse cache
 syn_root = "..."
 
 # where the METABRIC datasets were downloaded from cBioPortal
@@ -104,9 +105,9 @@ include:
    jobs submitted to the cluster such that each job takes no more than 250
    minutes:
 ```
- sbatch --mem-per-cpu=8000 --account='compbio' -c 4 --exclude=$ex_nodes \
-    --output=$slurm_dir/subg-test.out --error=$slurm_dir/subg-test.err \
-    dryads-research/experiments/subgrouping_test/run_tour.sh \
+ sbatch --mem-per-cpu=8000 -c 4 \
+    --output=~/slurm_logs/subg-test.out --error=$slurm_dir/subg-test.err \
+    dryads-research/experiments/subgrouping_test/run_test.sh \
     -e microarray -t METABRIC_LumA \
     -s 20 -l Consequence__Exon -c Ridge -m 250 -r
 ```
@@ -115,11 +116,22 @@ include:
    using a mutation hierarchy based on genomic location, distributing
    subgrouping tasks such that each job runs for a maximum of 10 hours:
 ```
- sbatch --mem-per-cpu=8000 --account='compbio' -c 4 --exclude=$ex_nodes \
-    --output=$slurm_dir/subg-test.out --error=$slurm_dir/subg-test.err \
-    dryads-research/experiments/subgrouping_test/run_tour.sh \
+ sbatch --mem-per-cpu=8000 -c 4 \
+    --output=~/slurm_logs/subg-test.out --error=~/slurm_logs/subg-test.err \
+    dryads-research/experiments/subgrouping_test/run_test.sh \
     -e Firehose -t BLCA -s 20 -l Exon__Position__HGVSp -c Ridge -m 600 -r
 ```
+
+See `run_test.sh` for documentation on pipeline flags such as `-e` and `-l`.
+Also note that depending on how your compute cluster is configured, you may
+also need to use additional `sbatch` flags such as `--account` and `--exclude`
+to submit the pipeline.
+
+Because VEP, the mutation annotation tool used by `setup_test.py`, uses
+threading, we recommend allocating four CPUs and plenty of memory to the
+master pipeline job as shown. The threading behaviour of VEP can be adjusted
+by editing the call to `process_variants` in
+`dryads-research.features.cohorts.utils`.
 
 
 ## Analyzing the output of the experiment ##
