@@ -4,7 +4,8 @@ from dryadic.features.mutations import MuType
 
 from ..subgrouping_test import base_dir, train_cohorts
 from .utils import choose_cohort_colour
-from ..utilities.misc import choose_label_colour, get_distr_transform
+from ..utilities.misc import (choose_label_colour, get_distr_transform,
+                              get_label, get_subtype)
 from ..utilities.labels import get_cohort_label, get_fancy_label
 from ..utilities.label_placement import place_scatter_labels
 
@@ -54,7 +55,7 @@ def plot_gene_accuracy(auc_vals, pheno_dict, args):
         # according to how frequently the gene was mutated in the cohort
         plt_x = 0.5 + np.random.randn() / 7.9
         base_size = np.mean(pheno_dict[src, coh][mtype])
-        pnt_size = 0.91 * base_size ** 0.5
+        pnt_size = (base_size ** 0.5) / 73
         use_clr = choose_label_colour(cur_gene)
         line_dict[src, coh][plt_x, auc_val] = dict(c=use_clr)
 
@@ -72,7 +73,7 @@ def plot_gene_accuracy(auc_vals, pheno_dict, args):
             ax.set_yticklabels([])
 
         ax.text(0.5, -0.01, get_cohort_label(coh).replace("(", "\n("),
-                size=18, weight='semibold', ha='center', va='top',
+                size=16, weight='semibold', ha='center', va='top',
                 transform=ax.transAxes)
 
         ax.plot([0, 1], [1, 1], color='black', linewidth=2.7, alpha=0.89)
@@ -85,11 +86,10 @@ def plot_gene_accuracy(auc_vals, pheno_dict, args):
 
     for ax, (src, coh) in zip(axarr.flatten(), plt_cohs):
         lbl_pos = place_scatter_labels(
-            plot_dict[src, coh], ax,
-            plt_lims=[plt_ylims] * 2,
+            plot_dict[src, coh], ax, plt_lims=[plt_ylims] * 2,
             plc_lims=[[use_aucs.min() + 0.01, 0.99]] * 2,
-            plt_type='scatter', font_size=9, seed=args.seed,
-            line_dict=line_dict[src, coh], linewidth=0.7, alpha=0.37
+            font_size=9, seed=args.seed, line_dict=line_dict[src, coh],
+            linewidth=0.7, alpha=0.37
             )
 
         ax.set_xlim([0, 1])
@@ -263,6 +263,11 @@ def main():
 
     parser.add_argument('classif', help='a mutation classifier')
     parser.add_argument(
+        '--sig_file', '-s', nargs='?', const='sig-list.tsv',
+        help='a file to store a list of significantly divergent genes'
+        )
+
+    parser.add_argument(
         '--seed', type=int,
         help="random seed for fixing plot elements like label placement"
         )
@@ -323,7 +328,7 @@ def main():
                                       "out-aucs__{}__{}.p.gz".format(
                                           lvls, args.classif)),
                          'r') as f:
-            auc_vals = pickle.load(f)['mean']
+            auc_vals = pickle.load(f)
 
         auc_vals.index = pd.MultiIndex.from_product(
             [[src], [coh], auc_vals.index],
@@ -368,15 +373,39 @@ def main():
             )
         acc_dict[coh, lvls] = acc_vals
 
-    # consolidate filtered experiment output in data frames
-    auc_vals = pd.concat(auc_dict.values()).sort_index()
+    # consolidate filtered experiment output into data frames
+    auc_df = pd.concat(auc_dict.values()).sort_index()
     conf_vals = pd.concat(conf_dict.values()).sort_index()
     acc_df = pd.concat(acc_dict.values()).sort_index()
 
+    if args.sig_file:
+        use_aucs = auc_df[[not isinstance(x[-1], RandomType)
+                           and (copy_mtype & get_subtype(x[-1])).is_empty()
+                           for x in auc_df.index]]
+
+        gene_gby = use_aucs.groupby(lambda x: (x[0], x[1], get_label(x[-1])))
+        sig_list = []
+
+        for (src, coh, gene), gene_df in gene_gby:
+            if gene_df.shape[0] > 1:
+                base_mtype = MuType({('Gene', gene): pnt_mtype})
+                base_aucs = np.array(gene_df.CV[src, coh, base_mtype])
+
+                sig_stat = [gene_df.loc[(src, coh, mtype), 'mean'] >= 0.7
+                            and (np.array(aucs) > base_aucs).all()
+                            for (_, _, mtype), aucs in gene_df.CV.iteritems()]
+
+                if any(sig_stat):
+                    sig_list += [(src, coh, gene)]
+
+        pd.DataFrame(sig_list,
+                     columns=['Source', 'Cohort', 'Gene']).to_csv(
+                         args.sig_file, index=False, sep='\t')
+
     # create the plots
-    plot_gene_accuracy(auc_vals, phn_dict, args)
-    plot_gene_results(auc_vals, conf_vals, phn_dict, args)
-    plot_tuning_profile(acc_df, out_clf, auc_vals, args)
+    plot_gene_accuracy(auc_df['mean'], phn_dict, args)
+    plot_gene_results(auc_df['mean'], conf_vals, phn_dict, args)
+    plot_tuning_profile(acc_df, out_clf, auc_df['mean'], args)
 
 
 if __name__ == "__main__":
