@@ -147,11 +147,6 @@ def plot_overlap_divergence(pred_dfs, pheno_dicts, auc_lists,
         {'Siml': pd.DataFrame.from_records(siml_dicts).stack()})
     plt_df['AUC'] = [auc_lists[src, coh][mcomb]
                      for mcomb, (src, coh) in plt_df.index]
-    """
-    plt_df['Phn'] = [test[src, coh][mcomb] 
-                     for mcomb, (src, coh) in plt_df.index]
-    import ipdb; ipdb.set_trace()
-    """
 
     gene_means = plt_df.groupby(
         lambda x: (get_label(x[0]), len(x[0].mtypes))).mean()
@@ -407,7 +402,7 @@ def plot_overlap_synergy(pred_dfs, pheno_dicts, auc_lists,
 
 def plot_overlap_aucs(pheno_dict, auc_list,
                       cdata, data_tag, args, siml_metric, use_gene):
-    fig, ax = plt.subplots(figsize=(11, 8))
+    fig, ax = plt.subplots(figsize=(13, 7))
 
     use_combs = remove_pheno_dups({
         mut for mut, auc_val in auc_list.iteritems()
@@ -470,17 +465,141 @@ def plot_overlap_aucs(pheno_dict, auc_list,
     ax.set_ylim(ylims)
 
     ax.set_xlabel("Subgrouping Classification Accuracy",
-                  size=21, weight='bold')
+                  size=23, weight='bold')
     ax.set_ylabel("Average # of {} Point Mutations"
                   "\nper Subgrouping Sample".format(use_gene),
-                  size=21, weight='bold')
+                  size=23, weight='bold')
 
     ax.text(0.97, 0.07, get_cohort_label(data_tag.split('__')[1]),
-            size=17, style='italic', ha='right', va='bottom',
+            size=25, style='italic', ha='right', va='bottom',
             transform=ax.transAxes)
 
     plt.savefig(os.path.join(plot_dir, data_tag, use_gene,
                              "{}_{}-overlap-aucs_{}.svg".format(
+                                 args.ex_lbl, siml_metric, args.classif)),
+                bbox_inches='tight', format='svg')
+
+    plt.close()
+
+
+def plot_gene_synergy(pred_df, pheno_dict, auc_list, cdata,
+                      data_tag, args, siml_metric, use_gene):
+    fig, ax = plt.subplots(figsize=(11, 11))
+    siml_dfs = dict()
+
+    use_combs = remove_pheno_dups({
+        mut for mut, auc_val in auc_list.iteritems()
+        if (isinstance(mut, ExMcomb) and auc_val >= args.auc_cutoff
+            and get_mut_ex(mut) == args.ex_lbl
+            and all(pnt_mtype.is_supertype(get_subtype(mtype))
+                    for mtype in mut.mtypes))
+        }, pheno_dict)
+
+    use_scombs = {mcomb for mcomb in use_combs if len(mcomb.mtypes) == 1}
+    use_dcombs = {mcomb for mcomb in use_combs if len(mcomb.mtypes) > 1}
+
+    # find all pairs of subgroupings from the same gene that are disjoint
+    # either by construction or by phenotype
+    use_pairs = {(scomb, dcomb)
+                 for scomb, dcomb in product(use_scombs, use_dcombs)
+                 if (get_label(scomb) == get_label(dcomb)
+                     and not (pheno_dict[scomb] & pheno_dict[dcomb]).any())}
+
+    base_mtree = tuple(cdata.mtrees.values())[0]
+    all_mtype = MuType({('Gene', use_gene): base_mtree[use_gene].allkey()})
+    if args.ex_lbl == 'IsoShal':
+        all_mtype -= MuType({('Gene', use_gene): shal_mtype})
+
+    all_phn = np.array(cdata.train_pheno(all_mtype))
+    train_samps = cdata.get_train_samples()
+    pair_combs = set(reduce(add, use_pairs))
+    use_preds = pred_df.loc[pair_combs, train_samps]
+    map_args = []
+
+    wt_vals = {mcomb: use_preds.loc[mcomb][~all_phn] for mcomb in pair_combs}
+    mut_vals = {mcomb: use_preds.loc[mcomb, pheno_dict[mcomb]]
+                for mcomb in pair_combs}
+
+    if siml_metric == 'mean':
+        wt_means = {mcomb: vals.mean() for mcomb, vals in wt_vals.items()}
+        mut_means = {mcomb: vals.mean()
+                     for mcomb, vals in mut_vals.items()}
+
+        map_args += [
+            (wt_vals[mcomb1], mut_vals[mcomb1],
+             use_preds.loc[mcomb1, pheno_dict[mcomb2]],
+             wt_means[mcomb1], mut_means[mcomb1], None)
+            for mcombs in use_pairs for mcomb1, mcomb2 in permt(mcombs)
+            ]
+
+    elif siml_metric == 'ks':
+        base_dists = {mcomb: ks_2samp(wt_vals[mcomb], mut_vals[mcomb],
+                                      alternative='greater').statistic
+                      for mcomb in pair_combs}
+
+        map_args += [
+            (wt_vals[mcomb1], mut_vals[mcomb1],
+             use_preds.loc[mcomb1, pheno_dict[mcomb2]],
+             base_dists[mcomb1])
+            for mcombs in use_pairs for mcomb1, mcomb2 in permt(mcombs)
+            ]
+
+    if siml_metric == 'mean':
+        chunk_size = int(len(map_args) / (11 * args.cores)) + 1
+    elif siml_metric == 'ks':
+        chunk_size = int(len(map_args) / (3 * args.cores)) + 1
+
+    pool = mp.Pool(args.cores)
+    siml_list = pool.starmap(siml_fxs[siml_metric], map_args, chunk_size)
+    pool.close()
+
+    plt_df = pd.DataFrame(
+        dict(zip(use_pairs, zip(siml_list[::2], siml_list[1::2])))
+        ).transpose()
+
+    use_clr = choose_label_colour(use_gene)
+    size_mult = plt_df.shape[0] ** -0.23
+
+    for (scomb, dcomb), siml_vals in plt_df.iterrows():
+        plt_size = (np.mean(pheno_dict[scomb])
+                    * np.mean(pheno_dict[dcomb])) ** 0.5
+        plt_size *= size_mult
+
+        ax.scatter(*siml_vals, s=2307 * plt_size,
+                   c=[use_clr], alpha=0.23, edgecolor='none')
+
+    ax.grid(alpha=0.47, linewidth=0.9)
+    ax.tick_params(axis='both', which='major', labelsize=19)
+    ax.xaxis.set_major_locator(plt.MaxNLocator(5, steps=[1, 2, 5]))
+    ax.yaxis.set_major_locator(plt.MaxNLocator(5, steps=[1, 2, 5]))
+
+    plt_min, plt_max = np.percentile(plt_df.values, q=[0, 100])
+    plt_rng = plt_max - plt_min
+    plt_lims = [plt_min - plt_rng / 31, plt_max + plt_rng / 31]
+
+    ax.plot(plt_lims, plt_lims,
+            color='#550000', linewidth=1.3, linestyle='--', alpha=0.41)
+    ax.plot([1, 1], plt_lims,
+            color='black', linewidth=0.83, linestyle=':', alpha=0.67)
+    ax.plot(plt_lims, [1, 1],
+            color='black', linewidth=0.83, linestyle=':', alpha=0.67)
+
+    ax.set_xlabel("Singletons' Similarity to Overlaps",
+                  size=33, weight='bold')
+    ax.set_ylabel("Overlaps' Similarity to Singletons",
+                  size=33, weight='bold')
+
+    ax.set_xlim(plt_lims)
+    ax.set_ylim(plt_lims)
+
+    ax.text(0.04, 0.98,
+            "{} in\n{}".format(use_gene,
+                               get_cohort_label(data_tag.split('__')[1])),
+            size=25, style='italic', ha='left', va='top',
+            transform=ax.transAxes)
+
+    plt.savefig(os.path.join(plot_dir, data_tag, use_gene,
+                             "{}_{}-gene-synergy_{}.svg".format(
                                  args.ex_lbl, siml_metric, args.classif)),
                 bbox_inches='tight', format='svg')
 
@@ -778,6 +897,12 @@ def main():
                         phn_dicts[src, coh], auc_lists[src, coh],
                         cdata_dict[src, coh], '__'.join([src, coh]),
                         args, siml_metric, gene
+                        )
+
+                    plot_gene_synergy(
+                        pred_dfs[src, coh], phn_dicts[src, coh],
+                        auc_lists[src, coh], cdata_dict[src, coh],
+                        '__'.join([src, coh]), args, siml_metric, gene
                         )
 
                     for i, (mcomb1, mcomb2) in enumerate(sorted(pair_list)):
