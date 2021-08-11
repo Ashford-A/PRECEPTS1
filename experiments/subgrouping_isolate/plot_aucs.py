@@ -564,10 +564,16 @@ def main():
             *([[set(auc_vals['All']['mean'].index)
                 for auc_vals in out_aucs[lvls]]] * 2)
             )
-        super_list = np.apply_along_axis(all, 1, mtypes_comp)
+        super_comp = np.apply_along_axis(all, 1, mtypes_comp)
 
-        if super_list.any():
-            super_indx = super_list.argmax()
+        if not super_comp.any():
+            for ex_lbl in ['All', 'Iso', 'IsoShal']:
+                for aucs in out_aucs[lvls]:
+                    auc_dfs[ex_lbl] = pd.concat([auc_dfs[ex_lbl],
+                                                 aucs[ex_lbl]])
+
+        else:
+            super_indx = super_comp.argmax()
 
             for ex_lbl in ['All', 'Iso', 'IsoShal']:
                 auc_dfs[ex_lbl] = pd.concat([

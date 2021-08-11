@@ -99,3 +99,21 @@ Each entry of this dictionary is another dictionary with three entries:
 
 The current version of the manuscript uses results generated using the
 `semideep` combination of search parameters, and the Iso classification setup.
+
+
+## Creating manuscript plots ##
+
+The plots found in the current version of the manuscript are generated using
+the following methods:
+
+- **Figure 1** `plot_copy.plot_interaction_symmetries`
+- **Figure 2A** `plot_copy.plot_point_similarity`
+- **Figure 2B** `plot_copy.plot_similarity_symmetry`
+- **Figure 3** `plot_point.plot_divergent_types`
+- **Figure 4** `plot_points.plot_gene_synergy`
+
+- **Figure S1** `plot_cluster.plot_clustering`
+- **Figure S2** `plot_copy.plot_pair_scores`
+- **Figure S3** `plot_similarities.plot_subcopy_adjacencies`
+- **Figure S4** `plot_point.plot_divergent_pairs`
+- **Figure S5** `plot_points.plot_overlap_aucs`

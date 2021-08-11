@@ -1,3 +1,23 @@
+"""
+This script loads and pre-processes the input datasets that will be used for a
+given run of the subgrouping isolation experiment and uses the genomic data to
+enumerate the subgrouping tasks to be tested.
+
+See .run_isolate for how this script is invoked in the experiment pipeline.
+
+Example usages:
+    python -m dryads-research.experiments.subgrouping_isolate.setup_isolate \
+        microarray METABRIC Consequence__Exon default temp/
+
+    python -m dryads-research.experiments.subgrouping_isolate.setup_isolate \
+        Firehose BLCA Exon__HGVSp semideep \
+        /usr/timmy/temp/Firehose/BRCA_LumA__samps-20/Exon__HGVSp
+
+    python -m dryads-research.experiments.subgrouping_isolate.setup_isolate \
+        toil__gns STAD Pfam-domain__Consequence shallow \
+        /tmp/users/timmy/Firehose__STAD/Pfam-domain__Consequence
+
+"""
 
 from .param_list import params
 from ..utilities.data_dirs import vep_cache_dir
@@ -81,9 +101,9 @@ def main():
                 # all of this gene's missense mutations are on the fifth exon
                 for cmp_mtype in pnt_types - {rmv_mtype} - rmv_mtypes:
                     if (samp_dict[rmv_mtype] == samp_dict[cmp_mtype]
-                            and (rmv_mtype.is_supertype(cmp_mtype)
-                                 or (len(rmv_lvls)
-                                     < len(cmp_mtype.get_levels())))):
+                            and ((len(rmv_mtype.leaves())
+                                  > len(cmp_mtype.leaves()))
+                                 or rmv_mtype.is_supertype(cmp_mtype))):
                         rmv_mtypes |= {rmv_mtype}
                         break
 
@@ -133,11 +153,14 @@ def main():
                           if (search_dict['samp_cutoff']
                               <= len(samp_dict[mtype]) <= max_samps)}
 
+            # get the list of all possible mutations for this gene, with and
+            # without the shallow CNAs
             all_mtype = MuType(mtree.allkey())
             ex_mtypes = [MuType({}), shal_mtype]
             mtype_lvls = {mtype: mtype.get_levels() - {'Scale'}
                           for mtype in pnt_types | copy_types}
 
+            # get all of the disjoint pairs of subgroupings for this gene
             use_pairs = {(mtype2, mtype1)
                          if 'Copy' in lvls1 else (mtype1, mtype2)
                          for (mtype1, lvls1), (mtype2, lvls2)
@@ -147,14 +170,19 @@ def main():
                              and not samp_dict[mtype1] >= samp_dict[mtype2]
                              and not samp_dict[mtype2] >= samp_dict[mtype1])}
 
+            # create subgroupings using these pairs that do and do not exclude
+            # the presence of the remaining mutations of the gene
             use_mcombs = {Mcomb(*pair) for pair in use_pairs}
             use_mcombs |= {ExMcomb(all_mtype - ex_mtype, *pair)
                            for pair in use_pairs for ex_mtype in ex_mtypes}
 
+            # create subgroupings that exclude the remaining mutations of the
+            # gene using the subgroupings defined using one type of mutation
             use_mcombs |= {ExMcomb(all_mtype - ex_mtype, mtype)
                            for mtype in test_types
                            for ex_mtype in ex_mtypes}
 
+            # filter out subgroupings that appear in too few/many samples
             test_muts |= {
                 Mcomb(*[MuType({('Gene', gene): mtype})
                         for mtype in mcomb.mtypes])

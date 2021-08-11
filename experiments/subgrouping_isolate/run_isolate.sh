@@ -76,16 +76,30 @@ time_left=$(( time_lim - (cur_time - start_time) / 60 + 1 ))
 
 if [ -z ${time_max+x} ]
 then
-	time_max=$(( $time_left * 11 / 13 ))
+	time_max=$(( $time_left * 7 / 9 ))
 fi
 
 if [ ! -f setup/tasks.txt ]
 then
-	merge_max=$(( $time_left - $time_max - 3 ))
+	merge_max=$(( $time_left - $time_max - 11 ))
+
+	if [ $classif == 'Ridge' ]
+	then
+		task_size=1.29
+		samp_exp=1
+	elif [ $classif == 'RidgeRobust' ]
+	then
+		task_size=2.81
+		samp_exp=1.07
+	elif [ $classif == 'RidgeFlat' ]
+	then
+		task_size=1.73
+		samp_exp=1.07
+	fi
 
 	eval "$( python -m dryads-research.experiments.utilities.pipeline_setup \
 		$OUTDIR $time_max --merge_max=$merge_max \
-		--task_size=1.13 --samp_exp=0.5 )"
+		--task_size=$task_size --samp_exp=$samp_exp --merge_size=3.41 )"
 fi
 
 # if we are only enumerating, we quit before classification jobs are launched
@@ -101,7 +115,7 @@ eval "$( tail -n 1 setup/tasks.txt )"
 dvc run -d setup/muts-list.p -d $RUNDIR/fit_isolate.py -O out-conf.p.gz \
 	-f output.dvc --overwrite-dvcfile --ignore-build-cache \
 	'snakemake -s $RUNDIR/Snakefile \
-	-j 400 --latency-wait 120 --cluster-config $RUNDIR/cluster.json \
+	-j 1200 --latency-wait 120 --cluster-config $RUNDIR/cluster.json \
 	--cluster "sbatch -p {cluster.partition} -J {cluster.job-name} \
 	-t {cluster.time} -o {cluster.output} -e {cluster.error} \
 	-n {cluster.ntasks} -c {cluster.cpus-per-task} \
