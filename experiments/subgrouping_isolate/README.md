@@ -122,3 +122,60 @@ Please note that many of these plotting modules use a `--data_cache` argument.
 To speed up the runtime of these scripts, create a cache by specifying a
 `.zip` file for this argument the first time you run each script; specifying the
 same file in subsequent runs will load the data from the cache.
+
+
+## Calculating similarities ##
+
+There are two methods used here to calculate the similarity of another
+subgrouping (M2) to a subgrouping for which we have predicted task scores
+(M1): "mean" and "ks". These are implemented in
+`dryads-research.experiments.utilities.metrics`, and are invoked using the
+`siml_fxs` mapping defined here under `utils`. The current version of the
+manuscript relies solely on "ks", but "mean" gives similar results and is
+useful for debugging purposes as it is faster to calculate.
+
+Our goal is to place the predicted scores for samples mutated for M2 (S2) on
+a spectrum between the predicted scores for samples mutated for M1 (S1) and
+the scores for samples wild-type for any mutation of the gene in question
+(WT). In particular, we want to generate a single number that describes
+whether S2 is closer to S1 or to WT, that is, whether the subgrouping M2
+resembles M1 in its downstream effects or not. The simplest way to do this is
+to calculate the means of each of the three distributions WT, S1, and S2,
+calculate the distance between the means of WT and S2, and then normalize it
+using the distance between the means of WT and S1. Thus if the distributions
+S1 and S2 are very similar, we will get a similarity score close to 1, and if
+WT and S2 are very similar, we will get a similarity score close to 0.
+
+However, we can use a method for determining the distance between each of our
+distributions that is more sophisticated than using the distance between their
+means. The two-sample Kolmogorov-Smirnov test compares two distributions and
+calculates a statistic representing the confidence that one can reject the null
+hypothesis that the two distributions are equal to one another. We use here
+both one-sided versions of this test and subtract the statistic returned by
+the "lesser" version from the statistic returned by the "greater" version to
+generate a signed version of the K-S statistic. By calculating this signed K-S
+statistic between all three pairs of WT, S1, and S2, we can thus "triangulate"
+the position of S2 between S1 and WT.
+
+We can thus calculate the similarity of M2 to M1, and if we have a subgrouping
+task for M2, we can also calculate the similarity of M1 to M2. Note that even
+if we do not have a task for M2, it can still be useful to compare it to M1 if
+there are a sufficient number of samples mutated for M2. For example, in
+`plot_point.plot_divergent_types`, we use our point mutation subgroupings as
+M1, and the remaining point mutations of the same gene as M2. Even though we
+do not have subgrouping tasks for M2 in this case, we can still consider the
+distribution of scores returned by each M1 task for these remaining mutations,
+as long as there are at least ten cohort samples carrying such mutations.
+Remember that M1, by virtue of being a subgrouping enumerated by
+`setup_isolate`, is guaranteed to have at least twenty mutated samples in the
+cohort, or whatever threshold was specified using `param_list`.
+
+We thus infer how divergent each subgrouping is from all of the other point
+mutations of the gene. Compare this to `plot_point.plot_divergent_pairs`, in
+which we consider similarities between pairs of explicitly-defined
+subgroupings, each of which have predicted scores. This distinction between
+explicitly and implicitly defined subgroupings occurs in other analyses as
+well; see for instance `plot_copy`, in which we define a set of subgroupings
+`proj_combs` for which we do not have classification tasks, but which
+nevertheless appear in at least ten samples and can thus be compared to
+subgroupings with predicted scores.

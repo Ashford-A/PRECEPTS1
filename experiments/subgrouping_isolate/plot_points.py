@@ -1,3 +1,20 @@
+"""
+This module produces plots of inferred similarities between subgroupings
+defined using a combination of two different point mutation types ("overlap
+subgroupings") and subgroupings defined using a single point mutation type
+("singleton subgroupings").
+
+Example usages:
+    python -m dryads-research.experiments.subgrouping_isolate.plot_points \
+        Ridge Iso -a 0.7 -s ks -c 4
+        --data_cache temp/subg-iso-cache_Iso-semideep.zip
+
+    python -m dryads-research.experiments.subgrouping_isolate.plot_points \
+        RidgeFlat Iso -a 0.75 -s mean -c 4
+    python -m dryads-research.experiments.subgrouping_isolate.plot_points \
+        Ridge IsoShal -a 0.7 -s ks
+
+"""
 
 from ..utilities.mutations import (pnt_mtype, copy_mtype, deep_mtype,
                                    shal_mtype, gains_mtype, dels_mtype,
@@ -845,20 +862,31 @@ def main():
     parser.add_argument('ex_lbl', help="a classification mode",
                         choices={'Iso', 'IsoShal'})
 
-    parser.add_argument('--auc_cutoff', '-a', type=float, default=0.8)
+    parser.add_argument('--auc_cutoff', '-a', type=float, default=0.8,
+                        help="minimum subgrouping task performance")
     parser.add_argument('--siml_metrics', '-s', nargs='+',
                         default=['ks'], choices={'mean', 'ks'})
 
-    parser.add_argument('--cores', '-c', type=int, default=1)
-    parser.add_argument('--seed', type=int)
-    parser.add_argument('--data_cache')
-    parser.add_argument('--verbose', '-v', action='count', default=0)
+    parser.add_argument(
+        '--seed', type=int, default=4501,
+        help="random seed for fixing plot elements like label placement"
+        )
+
+    parser.add_argument(
+        '--cores', '-c', type=int, default=1,
+        help="allows for parallelization of similarity calculations"
+        )
+
+    parser.add_argument('--data_cache',
+                        help="save/load experiment output to/from data cache")
 
     # parse command line arguments, find completed runs for this classifier
     args = parser.parse_args()
     out_datas = tuple(Path(base_dir).glob(
         os.path.join("*", "out-aucs__*__*__{}.p.gz".format(args.classif))))
 
+    # create output plot directory, find cohorts for which at least two
+    # different mutation level hierarchies have completed experiments
     os.makedirs(plot_dir, exist_ok=True)
     out_list = pd.DataFrame(
         [{'Source': '__'.join(out_data.parts[-2].split('__')[:-1]),
@@ -875,6 +903,7 @@ def main():
         raise ValueError("No completed experiments found for this "
                          "combination of parameters!")
 
+    # load experiment output, using cached data if it exists
     out_list = out_list[out_list.Cohort.isin(train_cohorts)]
     pred_dfs, phn_dicts, auc_lists, cdata_dict = load_cohorts_data(
         out_list, args.ex_lbl, args.data_cache)
