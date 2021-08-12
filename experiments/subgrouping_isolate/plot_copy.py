@@ -1,3 +1,18 @@
+"""
+This module produces plots of inferred similarities between copy number
+alterations and the point mutations of genes across all tested cohorts.
+
+Example usages:
+    python -m dryads-research.experiments.subgrouping_isolate.plot_copy \
+        Ridge Iso -a 0.7 -s ks
+        --data_cache temp/subg-iso-cache_Iso-semideep.zip
+
+    python -m dryads-research.experiments.subgrouping_isolate.plot_copy \
+        Ridge IsoShal -a 0.75 -s ks
+    python -m dryads-research.experiments.subgrouping_isolate.plot_copy \
+        Ridge Iso -a 0.8 -s mean
+
+"""
 
 from ..utilities.mutations import (pnt_mtype, dup_mtype, loss_mtype,
                                    shal_mtype, copy_mtype, ExMcomb)
@@ -150,7 +165,8 @@ def plot_point_similarity(auc_lists, siml_dicts, cdata_dict,
 
         lbl_pos = place_scatter_labels(
             plot_dicts[comb_type], ax, plt_lims=[xlims, ylims], font_size=10,
-            line_dict=line_dicts[comb_type], linewidth=0.83, alpha=0.37
+            seed=args.seed, line_dict=line_dicts[comb_type],
+            linewidth=0.83, alpha=0.37
             )
 
         ax.xaxis.set_major_locator(plt.MaxNLocator(5, steps=[1, 2, 5]))
@@ -244,6 +260,8 @@ def plot_similarity_symmetry(siml_dicts, pheno_dicts, cdata_dict,
         ax.plot([j, j], plt_lims,
                 color='black', linewidth=0.83, linestyle=':', alpha=0.67)
 
+    #import ipdb; ipdb.set_trace()
+
     for (src, coh, cpy_comb, pnt_comb), simls in plt_simls.items():
         cur_gene = get_label(cpy_comb)
 
@@ -267,7 +285,8 @@ def plot_similarity_symmetry(siml_dicts, pheno_dicts, cdata_dict,
         lbl_pos = place_scatter_labels(plot_dict, ax,
                                        plt_lims=[plt_lims, plt_lims],
                                        font_size=12, line_dict=line_dict,
-                                       linewidth=1.19, alpha=0.37)
+                                       linewidth=1.19, alpha=0.37,
+                                       seed=args.seed)
 
     ax.set_xlabel(
         "Point Mutations' Similarity\nto {} Alterations".format(cna_lbl),
@@ -314,8 +333,7 @@ def plot_pair_scores(pred_vals, auc_vals, pheno_dict, cdata,
 
     assert cpy_mcomb.all_mtype == pnt_mcomb.all_mtype
     both_type = ExMcomb(cpy_mcomb.all_mtype, cpy_type, pnt_type)
-    oth_type = ExMcomb(cpy_mcomb.all_mtype,
-                       cpy_mcomb.all_mtype - cpy_type - pnt_type)
+    oth_type = cpy_mcomb.all_mtype - cpy_type - pnt_type
 
     base_mtree = tuple(cdata.mtrees.values())[0]
     all_mtype = MuType({('Gene', use_gene): base_mtree[use_gene].allkey()})
@@ -357,13 +375,13 @@ def plot_pair_scores(pred_vals, auc_vals, pheno_dict, cdata,
     subg_lbls = ["only {} mutation\nis {}".format(use_gene, mtype_lbl)
                  for mtype_lbl in mtype_lbls]
 
-    sctr_ax.text(0.98, 0.03, subg_lbls[0], size=17, c=use_fclrs['Copy'],
+    sctr_ax.text(0.98, 0.03, subg_lbls[0], size=21, c=use_fclrs['Copy'],
                  ha='right', va='bottom', transform=sctr_ax.transAxes)
-    sctr_ax.text(0.03, 0.98, subg_lbls[1], size=17, c=use_fclrs['Point'],
+    sctr_ax.text(0.03, 0.98, subg_lbls[1], size=21, c=use_fclrs['Point'],
                  ha='left', va='top', transform=sctr_ax.transAxes)
 
     sctr_ax.text(0.97, 0.98, get_cohort_label(data_tag.split('__')[1]),
-                 size=21, style='italic', ha='right', va='top',
+                 size=27, style='italic', ha='right', va='top',
                  transform=sctr_ax.transAxes)
 
     sctr_ax.set_xticklabels([])
@@ -373,8 +391,8 @@ def plot_pair_scores(pred_vals, auc_vals, pheno_dict, cdata,
         ax.grid(alpha=0.47, linewidth=0.9)
 
     use_preds = pd.DataFrame({
-        'Copy': cpy_vals, 'Point': pnt_vals, 'Phn': 'WT'})
-    for lbl in ['Copy', 'Point', 'Both', 'Other']:
+        'Copy': cpy_vals, 'Point': pnt_vals, 'Phn': None})
+    for lbl in ['WT', 'Copy', 'Point', 'Both', 'Other']:
         use_preds.loc[use_phns[lbl], 'Phn'] = lbl
 
     sns.violinplot(data=use_preds, x='Copy', y='Phn', ax=mcomb1_ax,
@@ -407,25 +425,26 @@ def plot_pair_scores(pred_vals, auc_vals, pheno_dict, cdata,
         other_lbl = 'Gain'
 
     mcomb1_ax.set_xlabel("{} Isolation Task Predicted Scores".format(cna_lbl),
-                         size=23, weight='semibold')
+                         size=29, weight='semibold')
     mcomb1_ax.yaxis.label.set_visible(False)
-    mcomb1_ax.set_yticklabels(['Wild-Type', cna_lbl, 'Point',
-                               '{}\n& Point'.format(cna_lbl), other_lbl])
+    mcomb1_ax.set_yticklabels(['Wild-Type', 'Only\n{}'.format(cna_lbl),
+                               'Only\nPoint', '{}\n& Point'.format(cna_lbl),
+                               other_lbl], size=13)
 
     mcomb2_ax.set_ylabel("Point Mutation Isolation Task\nPredicted Scores",
-                         size=23, weight='semibold')
+                         size=29, weight='semibold')
     mcomb2_ax.xaxis.label.set_visible(False)
     mcomb2_ax.set_xticklabels(['WT', 'Point', cna_lbl, 'Both', other_lbl],
-                              rotation=31, ha='right')
+                              rotation=31, size=13, ha='right')
 
     for i, lbl in enumerate(['WT', 'Copy', 'Point', 'Both', 'Other']):
         mcomb1_ax.text(1, 0.87 - i / 5, "n={}".format(use_phns[lbl].sum()),
-                       size=14, ha='left', transform=mcomb1_ax.transAxes,
+                       size=15, ha='left', transform=mcomb1_ax.transAxes,
                        clip_on=False)
 
     for i, lbl in enumerate(['WT', 'Point', 'Copy', 'Both', 'Other']):
         mcomb2_ax.text(0.07 + i / 5, 1, "n={}".format(use_phns[lbl].sum()),
-                       size=14, rotation=31, ha='left',
+                       size=15, rotation=31, ha='left',
                        transform=mcomb2_ax.transAxes, clip_on=False)
 
     crnr_ax.text(0.97, 0.67, "(AUC: {:.3f})".format(auc_vals[cpy_mcomb]),
@@ -813,8 +832,8 @@ def plot_overlap_similarity(siml_dicts, pheno_dicts, cdata_dict,
     if plot_dict:
         lbl_pos = place_scatter_labels(
             plot_dict, ax, plt_lims=[ovlp_lims, siml_lims],
-            plc_lims=[plot_lims.Ovlp, plot_lims.Siml],
-            font_size=9, line_dict=line_dict, linewidth=0.67, alpha=0.37
+            plc_lims=[plot_lims.Ovlp, plot_lims.Siml], font_size=9,
+            seed=args.seed, line_dict=line_dict, linewidth=0.67, alpha=0.37
             )
 
     plt.xlabel("Genomic Co-occurence", size=21, weight='semibold')
@@ -974,8 +993,8 @@ def plot_overlap_synergy(siml_dicts, pheno_dicts, cdata_dict,
     if plot_dict:
         lbl_pos = place_scatter_labels(
             plot_dict, ax, plt_lims=[ovlp_lims, siml_lims],
-            plc_lims=[plot_lims.Ovlp, plot_lims.Siml],
-            font_size=9, line_dict=line_dict, linewidth=0.67, alpha=0.37
+            plc_lims=[plot_lims.Ovlp, plot_lims.Siml], font_size=9,
+            seed=args.seed, line_dict=line_dict, linewidth=0.67, alpha=0.37
             )
 
     plt.xlabel("Genomic Co-occurence", size=21, weight='semibold')
@@ -1006,20 +1025,26 @@ def main():
     parser.add_argument('ex_lbl', help="a classification mode",
                         choices={'Iso', 'IsoShal'})
 
-    parser.add_argument('--auc_cutoff', '-a', type=float, default=0.8)
+    parser.add_argument('--auc_cutoff', '-a', type=float, default=0.8,
+                        help="minimum subgrouping task performance")
     parser.add_argument('--siml_metrics', '-s', nargs='+',
                         default=['ks'], choices={'mean', 'ks'})
 
-    parser.add_argument('--cores', '-c', type=int, default=1)
-    parser.add_argument('--seed', type=int)
-    parser.add_argument('--data_cache')
-    parser.add_argument('--verbose', '-v', action='count', default=0)
+    parser.add_argument(
+        '--seed', type=int, default=4501,
+        help="random seed for fixing plot elements like label placement"
+        )
+
+    parser.add_argument('--data_cache',
+                        help="save/load experiment output to/from data cache")
 
     # parse command line arguments, find completed runs for this classifier
     args = parser.parse_args()
     out_datas = tuple(Path(base_dir).glob(
         os.path.join("*", "out-aucs__*__*__{}.p.gz".format(args.classif))))
 
+    # create output plot directory, find cohorts for which the experiment using
+    # the "base" set of mutation annotation levels has been run
     os.makedirs(plot_dir, exist_ok=True)
     out_list = pd.DataFrame(
         [{'Source': '__'.join(out_data.parts[-2].split('__')[:-1]),
@@ -1034,14 +1059,18 @@ def main():
         raise ValueError("No completed experiments found for this "
                          "combination of parameters!")
 
+    # load experiment output, using cached data if it exists
     out_list = out_list[out_list.Cohort.isin(train_cohorts)]
     pred_dfs, phn_dicts, auc_lists, cdata_dict = load_cohorts_data(
         out_list, args.ex_lbl, args.data_cache)
 
+    # calculate the inferred similarities we will need to create plots
     for siml_metric in args.siml_metrics:
         siml_fx = siml_fxs[siml_metric]
         siml_dicts = {(src, coh): dict() for src, coh in auc_lists}
 
+        # get the list of exclusively-defined subgroupings in each cohort that
+        # passed the AUC threshold and are either CNAs or all point mutations
         for (src, coh), auc_list in auc_lists.items():
             use_aucs = auc_list[
                 list(remove_pheno_dups({
@@ -1058,31 +1087,40 @@ def main():
             if len(use_aucs) == 0:
                 continue
 
+            # get the predicted model scores for these subgroupings
             base_mtree = tuple(cdata_dict[src, coh].mtrees.values())[0]
             use_genes = {get_label(mcomb) for mcomb in use_aucs.index}
             train_samps = cdata_dict[src, coh].get_train_samples()
             use_preds = pred_dfs[src, coh].loc[use_aucs.index, train_samps]
 
+            # get the predicted scores for the mutated samples for each task
             mut_vals = {mcomb: preds[phn_dicts[src, coh][mcomb]]
                         for mcomb, preds in use_preds.iterrows()}
 
+            # for each gene with any subgroupings get the set of all mutations
             all_mtypes = {
                 gene: MuType({('Gene', gene): base_mtree[gene].allkey()})
                 for gene in use_genes
                 }
 
+            # remove shallow CNAs from the sets of all mutations if applicable
             if args.ex_lbl == 'IsoShal':
                 for gene in use_genes:
                     all_mtypes[gene] -= MuType({('Gene', gene): shal_mtype})
 
+            # get the samples carrying any mutation of each subgrouping gene
             all_phns = {
                 gene: np.array(cdata_dict[src, coh].train_pheno(all_mtype))
                 for gene, all_mtype in all_mtypes.items()
                 }
 
+            # for each gene with any mutations, get the list of samples
+            # without any mutation of the gene
             for gene, auc_vals in use_aucs.groupby(get_label):
                 wt_phn = ~all_phns[gene]
 
+                # precalculate comparisons between distributions of predicted
+                # scores for mutated and wild-type samples in each task
                 if siml_metric == 'mean':
                     wt_means = {mcomb: use_preds.loc[mcomb, wt_phn].mean()
                                 for mcomb in auc_vals.index}
@@ -1100,10 +1138,13 @@ def main():
                         for mcomb in auc_vals.index
                         }
 
+                # get the mutation types representing the point mutations
+                # and all CNAs for each mutated gene
                 gene_pnt = MuType({('Gene', gene): pnt_mtype})
                 cna_all = MuType({
                     ('Gene', gene): cna_mtypes[args.ex_lbl]['All']})
 
+                # calculate inferred similarities for each subgrouping pair
                 for mcomb1, mcomb2 in combn(auc_vals.index, 2):
                     if siml_metric == 'mean':
                         siml_dicts[src, coh][mcomb1, mcomb2] = (

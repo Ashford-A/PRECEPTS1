@@ -117,3 +117,8 @@ the following methods:
 - **Figure S3** `plot_similarities.plot_subcopy_adjacencies`
 - **Figure S4** `plot_point.plot_divergent_pairs`
 - **Figure S5** `plot_points.plot_overlap_aucs`
+
+Please note that many of these plotting modules use a `--data_cache` argument.
+To speed up the runtime of these scripts, create a cache by specifying a
+`.zip` file for this argument the first time you run each script; specifying the
+same file in subsequent runs will load the data from the cache.
