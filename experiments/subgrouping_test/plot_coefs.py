@@ -7,6 +7,7 @@ from ..subgrouping_test import base_dir
 from .utils import filter_mtype
 from ..utilities.colour_maps import variant_clrs
 from ..utilities.labels import get_fancy_label
+from ..utilities.label_placement import place_scatter_labels
 
 import os
 import argparse
@@ -148,7 +149,8 @@ def plot_coef_divergence(coef_df, auc_vals, pheno_dict, args):
 
 
 def plot_top_heatmap(coef_df, auc_vals, pheno_dict, args):
-    coef_vals = coef_df.groupby(level=0, axis=1).mean()
+    coef_mat = coef_df.groupby(level=0, axis=1).mean()
+    coef_mat = (coef_mat.transpose() / coef_mat.abs().max(axis=1)).transpose()
 
     if args.auc_cutoff == -1:
         min_auc = auc_vals[MuType({('Gene', args.gene): pnt_mtype})]
@@ -163,12 +165,12 @@ def plot_top_heatmap(coef_df, auc_vals, pheno_dict, args):
     plt_genes = set()
 
     for mtype in plt_mtypes:
-        plt_genes |= set(coef_vals.loc[mtype].abs().sort_values()[-10:].index)
+        plt_genes |= set(coef_mat.loc[mtype].abs().sort_values()[-10:].index)
 
-    fig, ax = plt.subplots(figsize=(4 + len(plt_genes) / 11,
-                                    0.53 + len(plt_mtypes) / 5))
+    fig, ax = plt.subplots(figsize=(4 + len(plt_genes) / 4,
+                                    1.3 + len(plt_mtypes) / 5.3))
 
-    plot_df = coef_vals.loc[plt_mtypes, plt_genes]
+    plot_df = coef_mat.loc[plt_mtypes, plt_genes]
     plot_df = plot_df.iloc[
         dendrogram(linkage(distance.pdist(plot_df, metric='euclidean'),
                            method='centroid'), no_plot=True)['leaves'],
@@ -177,18 +179,27 @@ def plot_top_heatmap(coef_df, auc_vals, pheno_dict, args):
                            method='centroid'), no_plot=True)['leaves']
         ]
 
-    xlabs = [gene for gene in plot_df.columns]
-    ylabs = [get_fancy_label(tuple(mtype.subtype_iter())[0][1])
-             for mtype in plot_df.index]
-
     coef_cmap = sns.diverging_palette(13, 131, s=91, l=41, sep=3,
                                       as_cmap=True)
 
     sns.heatmap(plot_df, cmap=coef_cmap, center=0,
-                xticklabels=xlabs, yticklabels=ylabs)
+                xticklabels=False, yticklabels=False)
 
-    ax.set_xticklabels(xlabs, size=5, ha='right', rotation=47)
-    ax.set_yticklabels(ylabs, size=9, ha='right', rotation=0)
+    for i, mtype in enumerate(plot_df.index):
+        if mtype == MuType({('Gene', args.gene): pnt_mtype}):
+            lbl_wgt = 'bold'
+        else:
+            lbl_wgt = 'normal'
+
+        ax.text(-0.29 / plot_df.shape[1], 1 - ((i + 0.53) / plot_df.shape[0]),
+                get_fancy_label(tuple(mtype.subtype_iter())[0][1]),
+                size=9, weight=lbl_wgt, ha='right', va='center',
+                transform=ax.transAxes)
+
+    for i, gene in enumerate(plot_df.columns):
+        ax.text((i + 1) / plot_df.shape[1], -0.29 / plot_df.shape[0], gene,
+                size=12, ha='right', va='top', rotation=47,
+                transform=ax.transAxes, clip_on=False)
 
     plt.savefig(
         os.path.join(plot_dir, '__'.join([args.expr_source, args.cohort]),
@@ -471,6 +482,22 @@ def main():
     plot_task_characteristics(coef_df, auc_df['mean'],
                               phn_dict, pred_df, args)
     plot_coef_divergence(coef_df, auc_df['mean'], phn_dict, args)
+
+    plt_mtypes = {mtype for mtype in auc_df.index
+                  if (not isinstance(mtype, RandomType)
+                      and (tuple(mtype.subtype_iter())[0][1]
+                           & copy_mtype).is_empty())}
+
+
+    coef_means = coef_df.groupby(level=0, axis=1).mean()
+    base_mtype = MuType({('Gene', args.gene): pnt_mtype})
+    corr_dict = {mtype: spearmanr(coef_means.loc[base_mtype], coef_vals)[0]
+                 for mtype, coef_vals in coef_means.iterrows()}
+
+    divg_list = pd.Series({
+        mtype: (auc_df.loc[mtype, 'mean'] - 0.5) * (1 - corr_dict[mtype])
+        for mtype in plt_mtypes if mtype != base_mtype
+        }).sort_values()
 
     plot_top_heatmap(coef_df, auc_df['mean'], phn_dict, args)
     plot_all_heatmap(coef_df, auc_df['mean'], phn_dict, args)

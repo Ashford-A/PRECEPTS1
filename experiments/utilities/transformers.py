@@ -36,3 +36,7 @@ class OmicTSNE(Base):
 class OmicUMAP(Base):
     fit_inst = UMAP()
 
+
+class OmicUMAP4(Base):
+    fit_inst = UMAP(n_components=4)
+
