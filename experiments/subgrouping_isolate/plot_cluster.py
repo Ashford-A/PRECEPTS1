@@ -1,3 +1,16 @@
+"""
+This module produces plots of unsupervised clusterings of the expression data
+of a particular tumour cohort.
+
+Example usages:
+    python -m dryads-research.experiments.subgrouping_isolate.plot_cluster \
+        Firehose STAD UMAP
+    python -m dryads-research.experiments.subgrouping_isolate.plot_cluster \
+        microarray METABRIC_LumA UMAP
+    python -m dryads-research.experiments.subgrouping_isolate.plot_cluster \
+        Firehose BLCA tSNE
+
+"""
 
 from ..subgrouping_isolate import base_dir
 from ..utilities.transformers import OmicPCA, OmicTSNE, OmicUMAP
@@ -29,6 +42,74 @@ clust_algs = {'PCA': OmicPCA(), 'tSNE': OmicTSNE(), 'UMAP': OmicUMAP()}
 
 
 def plot_clustering(trans_expr, subt_data, cdata, args, pca_comps=(0, 1)):
+    fig, (type_ax, lgnd_ax) = plt.subplots(
+        figsize=(7, 8), nrows=2, gridspec_kw=dict(height_ratios=[4.3, 1]))
+
+    # choose a colour for each molecular subtype in this cohort
+    plt_subts = subt_data.unique()
+    subt_clrs = dict(zip(
+        plt_subts, sns.color_palette('bright', n_colors=len(plt_subts))))
+
+    # get the components of the expression clustering we will be plotting
+    trans_expr = trans_expr[:, np.array(pca_comps)]
+    train_samps = cdata.train_data(None)[0].index
+    subt_stat = np.array([subt_data[samp]
+                          if samp in subt_data.index else 'Not Available'
+                          for samp in train_samps])
+
+    lgnd_lbls = []
+    lgnd_marks = []
+
+    for sub_type in sorted(set(subt_stat)):
+        subt_indx = subt_stat == sub_type
+
+        if sub_type == 'Not Available':
+            subt_clr = '0.53'
+        else:
+            subt_clr = subt_clrs[sub_type]
+
+        type_ax.scatter(trans_expr[subt_indx, 0], trans_expr[subt_indx, 1],
+                        marker='o', s=31, c=[subt_clr],
+                        alpha=0.27, edgecolor='none')
+
+        lgnd_lbls += ["{} ({})".format(sub_type, np.sum(subt_indx))]
+        lgnd_marks += [Line2D([], [], marker='o', linestyle='None',
+                              markersize=24, alpha=0.43,
+                              markerfacecolor=subt_clr,
+                              markeredgecolor='none')]
+
+    lgnd_ax.legend(lgnd_marks, lgnd_lbls, bbox_to_anchor=(0.5, 1),
+                   frameon=False, fontsize=21, ncol=2, loc=9,
+                   handletextpad=0.17)
+
+    type_ax.grid(alpha=0.31, linewidth=0.91)
+
+    type_ax.set_xlabel("{} Component {}".format(args.transform,
+                                                pca_comps[0] + 1),
+                       size=19, weight='semibold')
+    type_ax.set_xticklabels([])
+
+    type_ax.set_ylabel("{} Component {}".format(args.transform,
+                                                pca_comps[1] + 1),
+                       size=19, weight='semibold')
+    type_ax.set_yticklabels([])
+
+    lgnd_ax.axis('off')
+    fig.text(0.5, 1, get_cohort_label(args.cohort),
+             size=25, weight='bold', ha='center', va='top')
+
+    fig.savefig(
+        os.path.join(plot_dir, "{}__{}__{}_comps-{}_{}.svg".format(
+            args.expr_source, args.cohort, args.transform,
+            pca_comps[0], pca_comps[1]
+            )),
+        bbox_inches='tight', format='svg'
+        )
+
+    plt.close()
+
+
+def plot_mutated_counts(trans_expr, subt_data, cdata, args, pca_comps=(0, 1)):
     fig, ((type_ax, muts_ax), (lgnd1_ax, lgnd2_ax)) = plt.subplots(
         figsize=(15, 7), nrows=2, ncols=2,
         gridspec_kw=dict(height_ratios=[4.3, 1])
@@ -126,7 +207,7 @@ def plot_clustering(trans_expr, subt_data, cdata, args, pca_comps=(0, 1)):
              size=23, weight='bold', ha='center', va='top')
 
     fig.savefig(
-        os.path.join(plot_dir, "{}__{}__{}_comps-{}_{}.svg".format(
+        os.path.join(plot_dir, "{}__{}__{}_muts-comps-{}_{}.svg".format(
             args.expr_source, args.cohort, args.transform,
             pca_comps[0], pca_comps[1]
             )),
@@ -144,23 +225,23 @@ def main():
 
     parser.add_argument('expr_source', help="a source of expression datasets")
     parser.add_argument('cohort', help="a tumour sample -omic dataset")
-
     parser.add_argument('transform', type=str,
                         choices=list(clust_algs.keys()),
                         help='an unsupervised learning method')
-
-    parser.add_argument('--seed', type=int, default=9087)
     parser.add_argument('--temp_path', type=str, default=os.getcwd())
-    args = parser.parse_args()
-    np.random.seed(args.seed)
 
+    # parse command line arguments, load the -omic datasets for this cohort
+    args = parser.parse_args()
     cdata = load_cohort(args.cohort, args.expr_source, ('Consequence', ),
                         vep_cache_dir, temp_path=args.temp_path)
 
+    # apply the given clustering method to the transcriptomic data, create the
+    # directory that will store the plots, get the cohort's molecular subtypes
     trans_expr = clust_algs[args.transform].fit_transform_coh(cdata)
     os.makedirs(plot_dir, exist_ok=True)
     type_dict = list_cohort_subtypes(args.cohort.split('_')[0])
 
+    # parse the subtype data to get the subtype for each cohort sample
     if type_dict:
         subt_data = pd.concat([pd.Series(subt, index=smps)
                                for subt, smps in type_dict.items()])

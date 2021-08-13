@@ -68,7 +68,7 @@ experiment" section of the `subgrouping_test` README.
 
 ## Running the experiment ##
 
-Use `run_isolate.py` to launch the experiment pipeline, and modify
+Use `run_isolate.sh` to launch the experiment pipeline, and modify
 `cluster.json` if necessary which by default is designed for Slurm.
 
 The arguments used by `run_isolate` are identical to those used by

@@ -9,6 +9,7 @@ from scipy.stats import rv_discrete
 import random
 
 
+# generic subgroupings useful as shorthand definitions
 pnt_mtype = MuType({('Scale', 'Point'): None})
 copy_mtype = MuType({('Scale', 'Copy'): None})
 
