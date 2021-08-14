@@ -1180,6 +1180,8 @@ def main():
                                 base_dists[mcomb2])
                             )
 
+                # create implicitly-defined subgroupings: all point mutations
+                # that do not overlap with a CNA and vice versa...
                 proj_combs = {ExMcomb(cna_all, gene_pnt)}
                 proj_combs |= {
                     ExMcomb(gene_pnt, MuType({('Gene', gene): cna_type}))
@@ -1187,6 +1189,7 @@ def main():
                                      + cna_mtypes[args.ex_lbl]['Loss'])
                     }
 
+                # ...and all samples that have both a point mutation and a CNA
                 proj_combs |= {
                     ExMcomb(cna_all, gene_pnt,
                             MuType({('Gene', gene): cna_type}))
@@ -1194,16 +1197,21 @@ def main():
                                      + cna_mtypes[args.ex_lbl]['Loss'])
                     }
 
+                # get the samples carrying each implicitly-defined subgrouping
                 proj_phns = {
                     comb: np.array(cdata_dict[src, coh].train_pheno(comb))
                     for comb in proj_combs
                     }
 
+                # filter out the implicit subgroupings with not enough samples,
+                # or that were in fact explicitly defined and tested
                 proj_combs = {prj_comb for prj_comb, phn in proj_phns.items()
                               if (phn.sum() >= 10
                                   and not any(mcomb.mtypes == prj_comb.mtypes
                                               for mcomb in auc_vals.index))}
 
+                # calculate the similarity of each implicit subgrouping to
+                # each explicit subgrouping
                 for mcomb in auc_vals.index:
                     for prj_comb in proj_combs:
                         if siml_metric == 'mean':
@@ -1222,6 +1230,7 @@ def main():
                                 base_dists[mcomb]
                                 ), )
 
+        # create the plots
         if args.auc_cutoff < 1:
             for cna_lbl in ['Gain', 'Loss']:
                 plot_point_similarity(auc_lists, siml_dicts, cdata_dict,

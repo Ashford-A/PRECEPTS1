@@ -6,8 +6,7 @@ from ..utilities.mutations import (
 from dryadic.features.mutations import MuType
 
 from ..subgrouping_isolate import base_dir
-from ..utilities.metrics import calculate_mean_siml, calculate_ks_siml
-from .plot_gene import choose_subtype_colour, remove_pheno_dups
+from .utils import siml_fxs, choose_subtype_colour, remove_pheno_dups
 from ..utilities.colour_maps import simil_cmap, auc_cmap
 from ..utilities.labels import get_fancy_label, get_cohort_label
 
@@ -43,8 +42,6 @@ plt.rcParams['savefig.facecolor'] = 'white'
 plt.rcParams['axes.edgecolor'] = 'white'
 plot_dir = os.path.join(base_dir, 'plots', 'partitions')
 
-
-SIML_FXS = {'mean': calculate_mean_siml, 'ks': calculate_ks_siml}
 PLOT_MAX = 25000
 
 
@@ -168,7 +165,7 @@ def plot_symmetry_decomposition(pred_df, pheno_dict, auc_vals,
                     for mcomb1, mcomb2 in permt(mcombs)]
 
     pool = mp.Pool(args.cores)
-    siml_list = pool.starmap(SIML_FXS[siml_metric], map_args, chunk_size)
+    siml_list = pool.starmap(siml_fxs[siml_metric], map_args, chunk_size)
     pool.close()
     siml_vals = dict(zip(use_pairs, zip(siml_list[::2], siml_list[1::2])))
 
@@ -352,13 +349,14 @@ def main():
 
     args = parser.parse_args()
     out_dir = Path(base_dir, '__'.join([args.expr_source, args.cohort]))
-    out_list = tuple(Path(out_dir).glob(
+    out_list = tuple(out_dir.glob(
         "out-aucs__*__*__{}.p.gz".format(args.classif)))
 
     if len(out_list) == 0:
         raise ValueError("No completed experiments found for this "
                          "combination of parameters!")
 
+    # create directory where plots will be stored
     os.makedirs(os.path.join(
         plot_dir, '__'.join([args.expr_source, args.cohort])), exist_ok=True)
 
@@ -366,20 +364,21 @@ def main():
         [{'Levels': '__'.join(out_file.parts[-1].split('__')[1:-2]),
           'File': out_file}
          for out_file in out_list]
-        )
+    )
 
     out_iter = out_use.groupby('Levels')['File']
-    out_aucs = {lvls: list() for lvls in out_iter.groups}
-    out_preds = {lvls: list() for lvls in out_iter.groups}
-
     phn_dict = dict()
     cdata = None
 
     auc_df = pd.DataFrame([])
     pred_dfs = {ex_lbl: pd.DataFrame([])
-                for ex_lbl in ['All', 'Iso', 'IsoShal']}
+                for ex_lbl in ['Iso', 'IsoShal']}
 
+    # load experiment output
     for lvls, out_files in out_iter:
+        out_aucs = list()
+        out_preds = {ex_lbl: list() for ex_lbl in ['Iso', 'IsoShal']}
+
         for out_file in out_files:
             out_tag = '__'.join(out_file.parts[-1].split('__')[1:])
 
@@ -395,7 +394,7 @@ def main():
                 ex_lbl: auc_vals[ex_lbl]['mean'][
                     [mut for mut in auc_vals[ex_lbl]['mean'].index
                      if isinstance(mut, ExMcomb)]
-                ]
+                    ]
                 for ex_lbl in ['Iso', 'IsoShal']
                 })
 
@@ -405,17 +404,19 @@ def main():
                     if tuple(mcomb.label_iter())[0] in set(args.genes)
                     ]]
 
-            out_aucs[lvls] += [auc_vals]
+            out_aucs += [auc_vals]
 
-            with bz2.BZ2File(Path(out_dir, '__'.join(["out-pred", out_tag])),
-                             'r') as f:
-                pred_vals = pickle.load(f)
+            for ex_lbl in ['Iso', 'IsoShal']:
+                with bz2.BZ2File(Path(out_dir,
+                                      '__'.join(["out-pred_{}".format(ex_lbl),
+                                                 out_tag])),
+                                 'r') as f:
+                    pred_vals = pickle.load(f)
 
-            out_preds[lvls] += [{
-                ex_lbl: pred_vals[ex_lbl].loc[
-                    out_aucs[lvls][-1][ex_lbl].index].applymap(np.mean)
-                for ex_lbl in ['Iso', 'IsoShal']
-                }]
+                out_preds[ex_lbl] += [
+                    pred_vals.loc[
+                        out_aucs[-1][ex_lbl].index].applymap(np.mean)
+                    ]
 
             with bz2.BZ2File(Path(out_dir,
                                   '__'.join(["cohort-data", out_tag])),
@@ -428,22 +429,34 @@ def main():
                 cdata.merge(new_cdata, use_genes=args.genes)
 
         mtypes_comp = np.greater_equal.outer(
-            *([[set(auc_vals['Iso'].index)
-                for auc_vals in out_aucs[lvls]]] * 2)
-            )
+            *([[set(auc_vals.index) for auc_vals in out_aucs]] * 2))
         super_list = np.apply_along_axis(all, 1, mtypes_comp)
 
-        if super_list.any():
+        if not super_list.any():
+            for ex_lbl in ['Iso', 'IsoShal']:
+                for aucs in out_aucs:
+                    auc_dfs[ex_lbl] = pd.concat([auc_dfs[ex_lbl],
+                                                 aucs[ex_lbl]], sort=False)
+
+                for preds in out_preds[ex_lbl]:
+                    pred_dfs[ex_lbl] = pd.concat([pred_dfs[ex_lbl], preds],
+                                                 sort=False)
+
+        else:
             super_indx = super_list.argmax()
 
-            auc_df = pd.concat([auc_df, out_aucs[lvls][super_indx]],
+            auc_df = pd.concat([auc_df,
+                                pd.DataFrame(out_aucs[super_indx])],
                                sort=False)
 
             for ex_lbl in ['Iso', 'IsoShal']:
-                pred_dfs[ex_lbl] = pd.concat(
-                    [pred_dfs[ex_lbl], out_preds[lvls][super_indx][ex_lbl]],
-                    sort=False
-                    )
+                pred_dfs[ex_lbl] = pd.concat([pred_dfs[ex_lbl],
+                                              out_preds[ex_lbl][super_indx]],
+                                             sort=False)
+
+    auc_df = auc_df.loc[~auc_df.index.duplicated()]
+    pred_dfs = {ex_lbl: pred_df.loc[~pred_df.index.duplicated()]
+                for ex_lbl, pred_df in pred_dfs.items()}
 
     if cdata._muts.shape[0] == 0:
         raise ValueError("No mutation calls found in cohort "
@@ -453,7 +466,6 @@ def main():
         raise ValueError("No mutation types passing test search criteria "
                          "found for this combination of parameters!")
 
-    auc_df = auc_df.loc[~auc_df.index.duplicated()]
     use_mtypes = {
         'Iso': remove_pheno_dups({
             mcomb for mcomb, auc_val in auc_df['Iso'].iteritems()

@@ -15,6 +15,12 @@ defined in your bash environment:
  - *$TEMPDIR* a temporary location for intermediate experiment output files
  - *$DATADIR* a permanent location for the final experiment output files
 
+ - move data_locs to experiments.utilites
+ - move data_dirs to experiments.AML_scRNA_analysis
+ - set up synapse
+ - get permissions for beatAML Synapse repos
+ - make sure conda is added to $PATH
+
 
 ## Running the experiment ##
 
