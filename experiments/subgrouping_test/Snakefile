@@ -36,6 +36,7 @@ rule test:
     threads: 8
 
     shell: """
+        echo $PATH
         set +u; source activate research; set -u;
 
         export OMP_NUM_THREADS=1;

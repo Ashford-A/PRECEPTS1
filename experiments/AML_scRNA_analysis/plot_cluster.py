@@ -24,6 +24,9 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib.lines import Line2D
 
+# Added by Andrew on 6/2/2023 to point the script to the correct run location. Instead of "base_dir", it was saved in "temp_dir" global variable
+base_dir = '/home/groups/precepts/ashforda/single-cell_precepts/custom_precepts_inputs/vanGalen_ALL_merged/Temp_Files/dryads-research/AML_scRNA_analysis/default__default/'
+
 mpl.use('Agg')
 plt.style.use('fivethirtyeight')
 plt.rcParams['axes.facecolor'] = 'white'
@@ -161,15 +164,24 @@ def main():
     args = parser.parse_args()
     np.random.seed(args.seed)
 
+    # Added by Andrew 6/2/2023 to check what base_dir is set to
+    #print('base_dir: ', base_dir)
+
     with bz2.BZ2File(os.path.join(base_dir, args.classif,
-                                  "out-pheno__default__default.p.gz"),
+                                  "out-pheno.p.gz"),
                      'r') as f:
         pheno_dict = pickle.load(f)
 
+        # Added by Andrew on 6/2/2023 to check the pheno_dict values
+        #print('pheno_dict: ', pheno_dict)
+
     with bz2.BZ2File(os.path.join(base_dir, args.classif,
-                                  "out-aucs__default__default.p.gz"),
+                                  "out-aucs.p.gz"),
                      'r') as f:
         auc_df = pickle.load(f)
+
+        # Added by Andrew on 6/2/2023 to check the auc_df values
+        #print('auc_df: ', auc_df)
 
     comp_dict = {
         Path(comp_file).stem: pd.read_csv(comp_file, sep='\t',
@@ -178,9 +190,12 @@ def main():
         }
 
     with bz2.BZ2File(os.path.join(base_dir, args.classif,
-                                  "out-sc__default__default.p.gz"),
+                                  "out-sc.p.gz"),
                      'r') as f:
         sc_preds = pickle.load(f)
+        
+        # Added by Andrew on 6/2/2023 to check the sc_preds values
+        #print('sc_preds: ', sc_preds)
 
     for gene, auc_vec in auc_df['mean'].groupby(
             lambda mtype: tuple(mtype.label_iter())[0]):

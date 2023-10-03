@@ -42,6 +42,14 @@ OUTDIR=$TEMPDIR/dryads-research/AML_scRNA_analysis/$param_tag/$classif
 FINALDIR=$DATADIR/dryads-research/AML_scRNA_analysis/$classif
 export RUNDIR=$CODEDIR/dryads-research/experiments/AML_scRNA_analysis
 
+# Added by Andrew to keep track of what script is doing:
+echo -e "\nCODEDIR: " $CODEDIR
+echo -e "DATADIR: " $DATADIR
+echo -e "TEMPDIR: " $TEMPDIR
+echo -e "param_tag: " $param_tag
+echo -e "OUTDIR: " $OUTDIR
+echo -e "FINALDIR: " $FINALDIR "\n\n"
+
 # if we want to rewrite the experiment, remove the intermediate output directory
 if $rewrite
 then
@@ -59,6 +67,9 @@ export PYTHONPATH="$CODEDIR"
 
 # get input data files
 eval "$( python -m dryads-research.experiments.utilities.data_dirs beatAML )"
+
+# Added by Andrew to keep track of what script is doing:
+echo -e "\nThe workflow is enumerating subgroupings to be tested.\n\n"
 
 # enumerate subgroupings to be tested
 if $rewrite
@@ -111,6 +122,9 @@ fi
 eval "$( tail -n 2 setup/tasks.txt | head -n 1 )"
 eval "$( tail -n 1 setup/tasks.txt )"
 
+# Added by Andrew to keep track of what script is doing:
+echo -e "\nThe workflow is running the dvc run command.\n\n"
+
 # run the classification and output consolidation tasks
 dvc run -d setup/muts-list.p -d $RUNDIR/fit_analysis.py -O out-conf.p.gz \
 	-O $FINALDIR/out-conf__${param_tag}.p.gz -f output.dvc \
@@ -119,7 +133,7 @@ dvc run -d setup/muts-list.p -d $RUNDIR/fit_analysis.py -O out-conf.p.gz \
 	--cluster "sbatch -p {cluster.partition} -J {cluster.job-name} \
 	-t {cluster.time} -o {cluster.output} -e {cluster.error} \
 	-n {cluster.ntasks} -c {cluster.cpus-per-task} \
-	--mem-per-cpu {cluster.mem-per-cpu} --exclude=$ex_nodes --no-requeue" \
+	--mem-per-cpu {cluster.mem-per-cpu} --no-requeue" \
 	--config search='"$search_params"' mut_levels='"$mut_lvls"' \
 	classif='"$classif"' time_max='"$run_time"' merge_max='"$merge_time"
 

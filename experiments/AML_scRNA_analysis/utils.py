@@ -10,7 +10,7 @@ def load_scRNA_expr():
     with open(os.path.join(expr_dir, "genes.tsv"), 'r') as f:
         gene_names = f.readlines()
 
-    with open(os.path.join(expr_dir, "BM_combined_sept15_barcodes.tsv"),
+    with open(os.path.join(expr_dir, "barcodes.tsv"),
               'r') as f:
         samp_bars = f.readlines()
 
@@ -18,7 +18,7 @@ def load_scRNA_expr():
     samp_bars = [bar.strip() for bar in samp_bars]
 
     expr_df = pd.DataFrame.sparse.from_spmatrix(
-        mmread(os.path.join(expr_dir, "BM_combined_sept15_matrix.mtx")),
+        mmread(os.path.join(expr_dir, "matrix.mtx")),
         index=samp_bars, columns=gene_names
         )
 

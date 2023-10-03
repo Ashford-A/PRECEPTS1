@@ -105,12 +105,31 @@ def calc_auc(vals, stat):
         auc_val (float)
 
     """
+    ##### Added by Andrew to see what variables passed to this function contain #####
+    #print(vals)
+    #print(stat)
+    #print(vals[stat])
+    #print(vals[~stat])
+    #print(vals[~stat].mean)
+
     if stat.all() or not stat.any():
+        print("########## default_AUC ##########")
         auc_val = 0.5
+
+        ##### Added by Andrew to see what variables passed to this function contain #####
+        print(vals)
+        print(stat)
 
     else:
         auc_val = np.greater.outer(vals[stat], vals[~stat]).mean()
         auc_val += 0.5 * np.equal.outer(vals[stat], vals[~stat]).mean()
+        
+        ##### Added by Andrew to see what variables passed to this function contain #####
+        print(vals)
+        print(stat)
+        #print(vals[stat])
+        #print(vals[~stat])
+        #print(vals[~stat].mean)
 
     return auc_val
 

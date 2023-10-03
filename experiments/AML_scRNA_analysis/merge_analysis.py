@@ -38,6 +38,10 @@ def main():
             pred_data = pickle.load(fl)
         pred_df = pred_df.append(pred_data)
 
+        ##### Added by Andrew 6/7/2023 to check for error #####
+        print('pred_df from dryads-research/experiments/AML_scRNA_analysis/merge_analysis.py: ', str(pred_df))
+        ####################################################### 
+
     assert sorted(muts_list) == sorted(pred_df.index), (
         "Tested mutations missing from merged classifier predictions!")
     with bz2.BZ2File(os.path.join(args.use_dir, "out-pred.p.gz"), 'w') as fl:

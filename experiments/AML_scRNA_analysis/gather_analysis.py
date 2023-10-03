@@ -1,7 +1,10 @@
 
 from ..utilities.pipeline_setup import get_task_count
 from ..utilities.misc import compare_muts
-from ..subgrouping_test.gather_test import calculate_auc
+##### Changed by Andrew 6/2/2023 to matc Michal's GitHub code, also changed the other "calc_auc" variables to "calculate_auc" #####
+##### Upon further inspection, they should be pointing to the same function definition in the same file #####
+from ..utilities.metrics import calc_auc
+#from ..subgrouping_test.gather_test import calculate_auc
 from .utils import load_scRNA_expr
 
 import os
@@ -228,13 +231,21 @@ def main():
 
     # calculates AUCs for prediction tasks using scores from all
     # cross-validations concatenated together...
+
+    ##### Added by Andrew 6/7/2023 to check for error where AUCs aren't being calculated #####
+    print('use_muts variable from dryads-research/experiments/AML_scRNA_analysis/gather_analysis.py', str(use_muts))
+    print('pheno_dict variable from dryads-research/experiments/AML_scRNA_analysis/gather_analysis.py', str(pheno_dict))
+
+    ##### Added by Andrew 6/19/2023 to check for error #####
+    # Reversed the order of variables being passed into "calc_auc()" function. This function was always returning a default
+    # AUC because the order of the two variables was reversed.. see "subgrouping_test/gather_test.py" for the correct way to
+    # call the function    
+    ####################################################### 
+
     auc_dict = {
         'all': pd.Series(dict(zip(use_muts, Parallel(
             n_jobs=12, prefer='threads', pre_dispatch=120)(
-            delayed(calculate_auc)(
-                pheno_dict[mtype],
-                np.vstack(pred_df.loc[mtype][train_samps].values)
-                )
+            delayed(calc_auc)(np.vstack(pred_df.loc[mtype][train_samps].values), pheno_dict[mtype])
             for mtype in use_muts
             )
         ))),
@@ -243,11 +254,7 @@ def main():
         'CV': pd.DataFrame.from_records(
             tuple(zip(cycle(use_muts), Parallel(
                 n_jobs=12, prefer='threads', pre_dispatch=120)(
-                delayed(calculate_auc)(
-                    pheno_dict[mtype],
-                    np.vstack(pred_df.loc[
-                                  mtype][train_samps].values)[:, cv_id]
-                    )
+                delayed(calc_auc)(np.vstack(pred_df.loc[mtype][train_samps].values)[:, cv_id], pheno_dict[mtype])
                 for cv_id in range(10) for mtype in use_muts
                 )
                       ))
@@ -257,11 +264,7 @@ def main():
         # sample across CV runs
         'mean': pd.Series(dict(zip(use_muts, Parallel(
             n_jobs=12, prefer='threads', pre_dispatch=120)(
-                delayed(calculate_auc)(
-                    pheno_dict[mtype],
-                    np.vstack(pred_df.loc[
-                                  mtype][train_samps].values).mean(axis=1)
-                    )
+                delayed(calc_auc)(np.vstack(pred_df.loc[mtype][train_samps].values).mean(axis=1), pheno_dict[mtype])
                 for mtype in use_muts
                 )
             )))
@@ -269,6 +272,10 @@ def main():
 
     auc_dict['CV'].name = None
     auc_dict['CV'].index.name = None
+
+    ##### Added by Andrew 6/7/2023 to check for AUC calculation error #####
+    print('auc_dict variable from dryads-research/experiments/AML_scRNA_analysis/gather_analysis.py', str(auc_dict))
+    #######################################################################
 
     with bz2.BZ2File(os.path.join(args.use_dir, 'merge',
                                   "out-aucs{}.p.gz".format(out_tag)),
@@ -282,12 +289,7 @@ def main():
     conf_df = pd.DataFrame.from_records(
         tuple(zip(cycle(use_muts), Parallel(
             n_jobs=12, prefer='threads', pre_dispatch=120)(
-            delayed(calculate_auc)(
-                pheno_dict[mtype][sub_indx],
-                np.vstack(pred_df.loc[
-                              mtype][train_samps[sub_indx]].values).mean(
-                    axis=1)
-                )
+            delayed(calc_auc)(np.vstack(pred_df.loc[mtype][train_samps[sub_indx]].values).mean(axis=1), pheno_dict[mtype][sub_indx])
             for sub_indx in sub_inds for mtype in use_muts
             )
                   ))
@@ -295,6 +297,10 @@ def main():
 
     conf_df.name = None
     conf_df.index.name = None
+
+    ##### Added by Andrew 6/7/2023 to check for AUC calculation error #####
+    print('conf_df variable from dryads-research/experiments/AML_scRNA_analysis/gather_analysis.py', str(conf_df))
+    #######################################################################
 
     with bz2.BZ2File(os.path.join(args.use_dir, 'merge',
                                   "out-conf{}.p.gz".format(out_tag)),
