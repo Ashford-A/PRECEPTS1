@@ -29,6 +29,9 @@ def get_task_count(out_dir):
  
     with open(os.path.join(out_dir, 'setup', "tasks.txt"), 'r') as f:
         task_list = f.readline().strip()
+        
+        ##### Added by Andrew 10/2/23 to check for error #####
+        print('task_list aka tasks.txt from get_task_count function within pipeline_setup.py file: ' + str(task_list))
  
         while task_list != DIV_LINE.strip():
             task_count = max(task_count,
@@ -54,9 +57,16 @@ def main():
     parser.add_argument('--test', action='store_true')
     args = parser.parse_args()
 
+    ##### Added by Andrew 10/2/23 to check for error #####
+    print('args.out_dir from pipeline_setup.py: ' + str(args.out_dir))
+    
     # find how many mutation classification tasks are to be run
     with open(os.path.join(args.out_dir, 'setup',
                            "muts-count.txt"), 'r') as f:
+        
+        ##### Added by Andrew 10/2/23 to check for error #####
+        print('muts_count variable which is being read into /setup/muts-count.txt' + str(int(f.readline())))
+        
         muts_count = int(f.readline())
 
     # find how large the training cohort will be
@@ -64,6 +74,9 @@ def main():
                                   "cohort-data.p.gz"), 'r') as f:
         samp_count = len(pickle.load(f).get_samples())
 
+        ##### Added by Andrew 10/2/23 to check for error #####
+        print('samp_count variable from cohort-data.p.gz in main() of pipeline_setup.py: ' + str(samp_count))
+        
     task_load = args.run_max * (607 ** args.samp_exp)
     task_load //= args.task_size * ((1.07 * samp_count) ** args.samp_exp)
     task_count = int((muts_count - 1) // task_load) + 2

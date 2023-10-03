@@ -25,7 +25,12 @@ import seaborn as sns
 from matplotlib.lines import Line2D
 
 # Added by Andrew on 6/2/2023 to point the script to the correct run location. Instead of "base_dir", it was saved in "temp_dir" global variable
-base_dir = '/home/groups/precepts/ashforda/single-cell_precepts/custom_precepts_inputs/vanGalen_ALL_merged/Temp_Files/dryads-research/AML_scRNA_analysis/default__default/'
+# base_dir points the script toward outputs in the temporary directory location where the script stored the intermediate files, it requires the creation of
+# a plots/cluster directory within, for instance "dryads-research/AML_scRNA_analysis/default__default/
+# For example: dryads-research/AML_scRNA_analysis/default__default/plots/cluster
+#base_dir = '/home/groups/precepts/ashforda/single-cell_precepts/custom_precepts_inputs/AML556-D0/Temp_Files/dryads-research/AML_scRNA_analysis/default__default'
+#base_dir = '/home/groups/precepts/ashforda/single-cell_precepts/custom_precepts_inputs/AML556-D0/dryads-research/AML_scRNA_analysis'
+base_dir = '/home/groups/precepts/ashforda/single-cell_precepts/custom_precepts_inputs/vanGalen_D0_AML_samples_and_4_healthy_BM_samples/Temp_Files/dryads-research/AML_scRNA_analysis/default__default'
 
 mpl.use('Agg')
 plt.style.use('fivethirtyeight')
@@ -53,8 +58,10 @@ def plot_score_clustering(auc_vec, pred_data, comp_info, pheno_dict, args):
     divg_scrs = pd.Series({mtype: (1 - corr_val) * (auc_vec[mtype] - 0.7)
                            for mtype, corr_val in corr_vals.items()})
     best_subtype = divg_scrs.sort_values().index[-1]
-    use_cmap = sns.diverging_palette(13, 131, s=91, l=31, sep=10, as_cmap=True)
-
+    #use_cmap = sns.diverging_palette(13, 131, s=91, l=31, sep=10, as_cmap=True)
+    use_cmap = sns.diverging_palette(13, 131, s=91, l=31, sep=50, as_cmap=True)
+    #use_cmap = use_cmap = sns.diverging_palette(13, 131, s=91, l=31, sep=10, center="dark", as_cmap=True)
+    
     for ax, mtype in [(gene_ax, base_mtype), (subt_ax, best_subtype)]:
         ax.scatter(comp_data.loc[pred_data.columns].iloc[:, 0],
                    comp_data.loc[pred_data.columns].iloc[:, 1],

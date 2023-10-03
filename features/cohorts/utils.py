@@ -6,6 +6,10 @@ from ...experiments.utilities.data_dirs import (
     )
 
 from .beatAML import process_input_datasets as process_baml_datasets
+
+# Added by Andrew to process the BeatAML waves 1-4 input datasets:
+from .beatAML_waves_1_to_4 import process_input_datasets as process_baml_waves_1_to_4_datasets
+
 from .tcga import tcga_subtypes
 from .tcga import process_input_datasets as process_tcga_datasets
 from .tcga import choose_subtypes as choose_tcga_subtypes
@@ -44,13 +48,20 @@ def get_input_datasets(cohort, expr_source, mut_fields=None):
                           assembly used to create the above.
 
     """
+    
     data_dict = {data_k: None
                  for data_k in ('expr', 'vars', 'copy', 'annot', 'assembly')}
-
+    
+    
+    # Need this to load in Synapse repo files! Currently commented out because 
+    # I'm currently not accessing the Synapse repo.
+    
+    
     # instantiate Synapse client, find where locally saved credentials are
     syn = synapseclient.Synapse()
     syn.cache.cache_root_dir = syn_root
-
+    
+    
     # if loading the beatAML cohort, we pull the datasets from Synapse
     if cohort == 'beatAML':
         syn.login()
@@ -69,12 +80,73 @@ def get_input_datasets(cohort, expr_source, mut_fields=None):
                                       mut_fields=mut_fields)
                 )
             })
+        
+    ########################################################################
+    # Added by Andrew on 9/12/2023 to account for the case when we want to #
+    # use beatAML waves 1-4 data to train the models..                     #
+    ########################################################################
+    
+    elif cohort == 'beatAMLwvs1to4':
+        # The commented out code is the code above to load in the original 
+        # beatAML data waves 1 and 2 for reference. We don't need to use 
+        # Synapse client in this case..
+        '''
+        syn.login()
+        data_dict['assembly'] = 'GRCh37'
 
+        if expr_source != 'toil__gns':
+            raise ValueError("Only gene-level Kallisto calls are available "
+                             "for the beatAML cohort!")
+
+        data_dict.update({
+            data_k: baml_data
+            for data_k, baml_data in zip(
+                ('expr', 'vars', 'annot'),
+                process_baml_datasets(baml_dir, gencode_dir, syn,
+                                      annot_fields=['transcript'],
+                                      mut_fields=mut_fields)
+                )
+            })
+        '''
+        
+        data_dict['assembly'] = 'GRCh37' # Might need to change this to GRCh38..
+         
+        '''
+        Simplifying the data read in in this script by taking out the use of environmental 
+        variables.. Specify the data locations below.
+        '''
+        # Specify RNA-seq tpm-normalized expression data directory and filename variables below.
+        # Eventually maybe add this to the script "run_analysis.sh" to specify it in one line.
+        ########################################################################################
+        baml_dir = '/home/groups/precepts/ashforda/single-cell_precepts/custom_precepts_inputs/BeatAML_waves_1-4_training/'
+        ########################################################################################
+        
+        # Specify the location of the "syn" file. For BeatAML waves 1-4 it's stored on Exacloud
+        # in the following location:
+        syn = baml_dir + 'beataml_wes_wv1to4_mutations_v4_exon_mut_loc_and_variant_class_added.tsv'
+        
+        data_dict.update({
+            data_k: baml_data
+            for data_k, baml_data in zip(
+                ('expr', 'vars', 'annot'),
+                process_baml_waves_1_to_4_datasets(baml_dir, gencode_dir, syn,
+                                      annot_fields=['transcript'],
+                                      mut_fields=mut_fields)
+                )
+            })
+    
+        #print(str(data_dict) + ' -> data_dict updated.')
+        #print('data_dict keys: ' + str(data_dict.keys()))
+        #print('data_dict at vars: ' + str(data_dict['vars']))
+    
+    ########################################################################
+
+    
     # if loading the METABRIC cohort, we pull the datasets from where they
     # were locally downloaded to from cBioPortal
     elif cohort.split('_')[0] == 'METABRIC':
         data_dict['assembly'] = 'GRCh37'
-
+              
         if expr_source != 'microarray':
             raise ValueError("Only Illumina microarray mRNA calls are "
                              "available for the METABRIC cohort!")
@@ -197,6 +269,9 @@ def get_cohort_data(cohort, expr_source, mut_lvls, vep_cache_dir, out_path,
     if leaf_annot is not None:
         mut_fields += leaf_annot
 
+    print(cohort)
+    print(expr_source)
+    
     data_dict = get_input_datasets(cohort, expr_source, mut_fields=mut_fields)
 
     # TODO: how to handle this special case
@@ -204,13 +279,16 @@ def get_cohort_data(cohort, expr_source, mut_lvls, vep_cache_dir, out_path,
         return BaseMutationCohort(data_dict['expr'], data_dict['vars'],
                                   [('Gene', 'Form')], data_dict['copy'],
                                   data_dict['annot'], leaf_annot=None)
-
+    
     elif leaf_annot is not None:
         use_vars = data_dict['vars'].loc[
             data_dict['vars'].Gene.isin(use_genes)]
         use_copy = data_dict['copy'].loc[
             data_dict['copy'].Gene.isin(use_genes)]
-
+        
+        print('use_vars variable: ' + str(use_vars))
+        print('use_copy variable: ' + str(use_copy))
+        
         if 'ref_count' in leaf_annot:
             use_vars.loc[:, 'ref_count'] = use_vars.ref_count.astype(int)
         if 'depth' in leaf_annot:
@@ -222,6 +300,9 @@ def get_cohort_data(cohort, expr_source, mut_lvls, vep_cache_dir, out_path,
                                   mut_lvls, use_copy,
                                   data_dict['annot'], leaf_annot=leaf_annot)
 
+    print('Chr to add to var_df: ')
+    print(str(data_dict['vars'].Chr.astype('int')))
+    
     # format the mutation calls into a format compatible with VEP
     var_df = pd.DataFrame({'Chr': data_dict['vars'].Chr.astype('int'),
                            'Start': data_dict['vars'].Start.astype('int'),
@@ -255,8 +336,26 @@ def get_cohort_data(cohort, expr_source, mut_lvls, vep_cache_dir, out_path,
         raise TypeError(
             "Unrecognized <mut_lvls> argument: `{}`!".format(mut_lvls))
 
+    ##### Print statements added to check for what's causing an error #####
+    #print("data_dict: " + str(data_dict))
+    print("var_df: " + str(var_df)) # Check where var_df is created to see if empyu output.. trace back.
+    #### Where is vars.txt being written in the code?
+    
+    ##### Added by Andrew to check for an error #####
+    print('Chr: ' + str(data_dict['vars'].Chr.astype('int')))
+    print('RefAllele: ' + str(data_dict['vars'].RefAllele))
+    
+    #print('data_dict keys: ' + str(data_dict.keys))
+    #print('data_dict at vars keys: ' + str(data_dict['vars'].keys))
+        
     # run the VEP command line wrapper to obtain a standardized
     # set of point mutation calls
+    
+    print('var_fields variable: ' + str(var_fields))
+    print('vep_cache_dir variable: ' + str(vep_cache_dir))
+    print('out_path variable: ' + str(out_path))
+    print('assembly in data dict: ' + str(data_dict['assembly']))
+    
     variants = process_variants(
         var_df, out_fields=var_fields, cache_dir=vep_cache_dir,
         temp_dir=out_path, assembly=data_dict['assembly'],
@@ -274,7 +373,10 @@ def get_cohort_data(cohort, expr_source, mut_lvls, vep_cache_dir, out_path,
 
     # remove mutation calls not assigned to a canonical transcript by VEP as
     # well as those not associated with genes linked to cancer processes
-    variants = variants.loc[variants.CANONICAL == 'YES']
+    
+    ##### COMMENTED OUT 9/27/2023 by Andrew #####
+    #variants = variants.loc[variants.CANONICAL == 'YES'] #...my spreadsheet don't gots this..
+    
     if use_genes:
         variants = variants.loc[variants.Gene.isin(use_genes)]
 
@@ -346,9 +448,9 @@ def get_cohort_subtypes(coh):
 # TODO: consolidate this with the above function?
 def list_cohort_subtypes(coh):
     if coh == 'METABRIC':
-         type_dict = list_metabric_subtypes(load_metabric_samps(metabric_dir))
+        type_dict = list_metabric_subtypes(load_metabric_samps(metabric_dir))
 
-    elif coh == 'beatAML':
+    elif (coh == 'beatAML') or (coh == 'beatAMLwvs1to4'):
         type_dict = {}
 
     else:

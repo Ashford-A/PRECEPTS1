@@ -24,3 +24,14 @@ def load_scRNA_expr():
 
     return np.log10(expr_df + 0.01).astype(pd.SparseDtype("float", -2.))
 
+def filter_mtype(mtype, gene):
+    if isinstance(mtype, RandomType):
+        if mtype.base_mtype is None:
+            filter_stat = False
+        else:
+            filter_stat = get_label(mtype.base_mtype) == gene
+
+    else:
+        filter_stat = get_label(mtype) == gene
+
+    return filter_stat

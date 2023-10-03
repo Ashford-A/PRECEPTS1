@@ -11,7 +11,13 @@
 
 
 start_time=$( date +%s )
-source activate research
+#source activate research
+#source research/bin/activate
+#source /research/bin/activate
+source /home/groups/precepts/ashforda/anaconda3/etc/profile.d/conda.sh
+conda activate research
+
+
 rewrite=false
 count_only=false
 
@@ -66,7 +72,8 @@ dvc init --no-scm -f
 export PYTHONPATH="$CODEDIR"
 
 # get input data files
-eval "$( python -m dryads-research.experiments.utilities.data_dirs beatAML )"
+#eval "$( python -m dryads-research.experiments.utilities.data_dirs beatAML )"
+eval "$( python -m dryads-research.experiments.utilities.data_dirs beatAMLwvs1to4 )"
 
 # Added by Andrew to keep track of what script is doing:
 echo -e "\nThe workflow is enumerating subgroupings to be tested.\n\n"

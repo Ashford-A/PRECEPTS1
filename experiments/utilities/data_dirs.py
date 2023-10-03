@@ -12,7 +12,7 @@ def choose_source(cohort):
     # choose the source of expression data to use for this tumour cohort
     coh_base = cohort.split('_')[0]
 
-    if coh_base == 'beatAML':
+    if coh_base in ['beatAML', 'beatAMLwvs1to4']:
         use_src = 'toil__gns'
     elif coh_base in ['METABRIC', 'CCLE']:
         use_src = 'microarray'
@@ -49,7 +49,8 @@ def main():
     elif expr_source == 'toil__gns':
         if args.cohort.split('_')[0] == 'beatAML':
             coh_dir = baml_dir
-
+        elif args.cohort.split('_')[0] == 'beatAMLwvs1to4':
+            coh_dir = baml_dir
         else:
             coh_dir = expr_sources['toil']
 

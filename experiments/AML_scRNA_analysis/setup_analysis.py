@@ -27,6 +27,7 @@ def main():
     # parse command line arguments, create directory for enumeration output
     args = parser.parse_args()
     out_path = os.path.join(args.out_dir, 'setup')
+    print('out_path variable from setup_analysis.py script: ' + str(out_path))
 
     # get the parameters determining which subgroupings we will look for
     lvl_lists = [('Gene', ) + lvl_list
@@ -34,8 +35,19 @@ def main():
     search_dict = params[args.search_params]
 
     # load beatAML expression and mutation datasets
+    
+    # The code below uses the "beatAML" option for "get_cohort_data()" function
+    # I've edited the code with an if/else statement for if beatAML is the dataset
+    # or if "beatAMLwvs1to4" is the data to use.
+    '''
     cdata = get_cohort_data('beatAML', 'toil__gns', lvl_lists,
                             vep_cache_dir, out_path, use_copies=False)
+    '''
+    cdata = get_cohort_data('beatAMLwvs1to4', 'toil__gns', lvl_lists,
+                            vep_cache_dir, out_path, use_copies=False)
+    
+    print('cdata variable: ' + str(cdata))
+    
     with bz2.BZ2File(os.path.join(out_path, "cohort-data.p.gz"), 'w') as f:
         pickle.dump(cdata, f, protocol=-1)
 
@@ -57,6 +69,10 @@ def main():
 
     # for each mutated gene, count how many samples have its point mutations
     for gene in test_genes:
+        
+        ##### Added by Andrew on 10/2/2023 to make sure the script is enumerating genes properly #####
+        print('Current gene in test_genes variable: ' + str(gene))
+        
         pnt_count = {len(cdata.mtrees[lvls][gene].get_samples())
                      for lvls in lvl_lists}
 
@@ -73,7 +89,14 @@ def main():
             # for each set of mutation annotation levels, get the subgroupings
             # matching the search criteria
             for lvls in lvl_lists:
+                
+                ##### Added by Andrew on 10/2/2023 to make sure the script is enumerating properly #####
+                print('Current lvls in lvl_lists variable: ' + str(lvls))
+                
                 use_mtree = cdata.mtrees[lvls][gene]
+                
+                ##### Added by Andrew on 10/2/2023 to make sure the script is enumerating properly #####
+                print('Current mtree in lvls in lvl_lists for loop (use_mtree variable): ' + str(use_mtree))
 
                 lvl_types = {
                     mtype for mtype in use_mtree.combtypes(
@@ -84,6 +107,11 @@ def main():
                         )
                     }
 
+                # Decided not to print this variable as it's super long - looks like:
+                # {Pfam-domain IS PF00145 WITH Consequence IS missense_variant OR Pfam-domain IS PF00855 OR Pfam-domain 
+                # IS none WITH Consequence IS stop_gained, etc. etc.
+                #print('lvl_types variable from setup_analysis.py script: ' + str(lvl_types))
+                
                 # get the samples mutated for each putative subgrouping
                 samp_dict.update({mtype: mtype.get_samples(use_mtree)
                                   for mtype in lvl_types})
@@ -97,7 +125,12 @@ def main():
             # remove duplicate subgroupings, i.e. those that have the same set
             # of mutated samples as another subgrouping
             rmv_mtypes = set()
+            current_iteration = 0
             for rmv_mtype in sorted(gene_types):
+                
+                print('rmv_mtype from sorted(gene_types) for loop in setup_analysis.py: ' + str(rmv_mtype))
+                print('Current iteration of rmv_mtype for loop: ' + str(current_iteration) + '/' + str(len(gene_types)))
+                
                 rmv_lvls = rmv_mtype.get_levels()
 
                 for cmp_mtype in sorted(gene_types
@@ -113,17 +146,26 @@ def main():
                                  or rmv_mtype > cmp_mtype)):
                         rmv_mtypes |= {rmv_mtype}
                         break
+                  
+                current_iteration += 1
 
             # update list of subgroupings to be enumerated
             test_mtypes |= {MuType({('Gene', gene): mtype})
                             for mtype in gene_types - rmv_mtypes}
             test_mtypes |= {MuType({('Gene', gene): None})}
+            
+            print('Updated test_mtypes variable from end of setup_analysis.py script for loop: ' + str(test_mtypes))
 
-    # save output of enumeration to file
+    ##### Added by Andrew 10/2/2023 to check what's happening with the output files below #####
+    print('muts-list.p output variable sorted(test_mtypes): ' + str(sorted(test_mtypes)))
+    print('muts-count.txt output variable str(len(test_mtypes)): ' + str(len(test_mtypes)))
+            
     with open(os.path.join(out_path, "muts-list.p"), 'wb') as f:
         pickle.dump(sorted(test_mtypes), f, protocol=-1)
     with open(os.path.join(out_path, "muts-count.txt"), 'w') as fl:
         fl.write(str(len(test_mtypes)))
+        
+    print('Yay! We got to the end of the setup_analysis.py script successfully!')
 
 
 if __name__ == '__main__':
