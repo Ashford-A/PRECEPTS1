@@ -1,4 +1,4 @@
-# dryads-research #
+# PRECEPTS1 #
 
 The purpose of this project is to investigate whether we can use
 classification algorithms to not only predict the presence of different
