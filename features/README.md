@@ -1,4 +1,4 @@
-# HetMan.features #
+# PRECEPTS1 Features #
 
 This directory contains:
 
