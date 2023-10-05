@@ -13,7 +13,6 @@ import bz2
 import dill as pickle
 from itertools import product
 
-from mpi4py import MPI
 
 def main():
     parser = argparse.ArgumentParser(
