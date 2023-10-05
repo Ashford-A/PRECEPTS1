@@ -169,8 +169,6 @@ def main():
 
             print('Master node: Finished aggregating and writing results!')
 
-        print(f'Finished task {task_id}')
-
 
 if __name__ == '__main__':
     main()
