@@ -85,7 +85,9 @@ def main():
             temp_filename = os.path.join(out_path, f"rmv_mtypes_temp_{task_id}.p")
             with open(temp_filename, 'wb') as f:
                 pickle.dump(rmv_mtypes, f, protocol=-1)
-
+            
+            aggregated_rmv_mtypes = set()
+            
             if task_id != 0:
                 with open(os.path.join(out_path, f"done_{task_id}.flag"), 'w') as flag_file:
                     flag_file.write('done')
@@ -96,7 +98,6 @@ def main():
                     if not all_tasks_done:
                         time.sleep(10)
 
-                aggregated_rmv_mtypes = set()
                 for i in range(1, num_tasks):
                     temp_filename = os.path.join(out_path, f"rmv_mtypes_temp_{i}.p")
                     with open(temp_filename, 'rb') as f:
