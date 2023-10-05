@@ -20,12 +20,6 @@ Collecting and processing expression, mutation, and other -omics datasets as
 well as phenotypes such as drug response.
 
 
-## predict ##
-
-Custom machine learning tools to predict presence of gene mutations, drug 
-response profiles, etc.
-
-
 ## experiments ##
 
 Scripts for running particular analyses.
