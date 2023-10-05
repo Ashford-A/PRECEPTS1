@@ -6,14 +6,11 @@ from ..utilities.data_dirs import vep_cache_dir, expr_sources
 from ...features.cohorts.utils import get_cohort_data
 
 import os
-
 import argparse
 import bz2
 import dill as pickle
 from itertools import product
-
 import time
-
 
 def main():
     parser = argparse.ArgumentParser(
@@ -45,7 +42,11 @@ def main():
 
     total_samps = len(cdata.get_samples())
     max_samps = total_samps - search_dict['samp_cutoff']
-    test_mtypes = set()
+
+    task_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', 0))
+    num_tasks = int(os.environ.get('SLURM_ARRAY_TASK_COUNT', 1))
+
+    local_test_mtypes = set()
     test_genes = {gene for gene, _ in tuple(cdata.mtrees.values())[0] if gene in cdata.gene_annot}
 
     for gene in test_genes:
@@ -69,54 +70,48 @@ def main():
                         min_branch_size=search_dict['min_branch']
                     )
                 }
-                
+
                 samp_dict.update({mtype: mtype.get_samples(use_mtree) for mtype in lvl_types})
                 gene_types |= {mtype for mtype in lvl_types if (len(samp_dict[mtype]) <= max_samps and len(samp_dict[mtype]) < pnt_count)}
 
-            task_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', 0))
-            num_tasks = int(os.environ.get('SLURM_ARRAY_TASK_COUNT', 1))
-            sorted_gene_types = sorted(gene_types)
-            total_len = len(sorted_gene_types)
-            tasks_per_process = total_len // num_tasks
-            start_task = task_id * tasks_per_process
-            end_task = (task_id + 1) * tasks_per_process if task_id != num_tasks - 1 else total_len
+            local_test_mtypes |= {MuType({('Gene', gene): mtype}) for mtype in gene_types}
 
-            rmv_mtypes = set()
-            temp_filename = os.path.join(out_path, f"rmv_mtypes_temp_{task_id}.p")
-            with open(temp_filename, 'wb') as f:
-                pickle.dump(rmv_mtypes, f, protocol=-1)
-            
-            aggregated_rmv_mtypes = set()
-            
-            if task_id != 0:
-                with open(os.path.join(out_path, f"done_{task_id}.flag"), 'w') as flag_file:
-                    flag_file.write('done')
-            else:
-                all_tasks_done = False
-                while not all_tasks_done:
-                    all_tasks_done = all(os.path.exists(os.path.join(out_path, f"done_{i}.flag")) for i in range(1, num_tasks))
-                    if not all_tasks_done:
-                        time.sleep(10)
+    # Each node writes its results to a unique temporary file
+    temp_filename = os.path.join(out_path, f"test_mtypes_temp_{task_id}.p")
+    with open(temp_filename, 'wb') as f:
+        pickle.dump(local_test_mtypes, f, protocol=-1)
 
-                for i in range(1, num_tasks):
-                    temp_filename = os.path.join(out_path, f"rmv_mtypes_temp_{i}.p")
-                    with open(temp_filename, 'rb') as f:
-                        node_rmv_mtypes = pickle.load(f)
-                        aggregated_rmv_mtypes.update(node_rmv_mtypes)
-                    os.remove(temp_filename)
-                    os.remove(os.path.join(out_path, f"done_{i}.flag"))
+    # For non-master nodes, just write a done flag and then finish.
+    if task_id != 0:
+        with open(os.path.join(out_path, f"done_{task_id}.flag"), 'w') as flag_file:
+            flag_file.write('done')
+    else:
+        # Master node waits for other nodes to finish and aggregates their results
+        all_tasks_done = False
+        while not all_tasks_done:
+            all_tasks_done = all(os.path.exists(os.path.join(out_path, f"done_{i}.flag")) for i in range(1, num_tasks))
+            if not all_tasks_done:
+                time.sleep(10)
 
-            print(f'Finished task {task_id}')
+        aggregated_test_mtypes = set()
+        for i in range(num_tasks):  # Include the master node's results
+            temp_filename = os.path.join(out_path, f"test_mtypes_temp_{i}.p")
+            with open(temp_filename, 'rb') as f:
+                node_test_mtypes = pickle.load(f)
+                aggregated_test_mtypes.update(node_test_mtypes)
+            os.remove(temp_filename)
+            if i != 0:  # Master node flag should not be removed yet, as its task is not done
+                os.remove(os.path.join(out_path, f"done_{i}.flag"))
 
-            test_mtypes |= {MuType({('Gene', gene): mtype}) for mtype in gene_types - aggregated_rmv_mtypes}
-            test_mtypes |= {MuType({('Gene', gene): None})}
-        
-            with open(os.path.join(out_path, "muts-list.p"), 'wb') as f:
-                pickle.dump(sorted(test_mtypes), f, protocol=-1)
-            with open(os.path.join(out_path, "muts-count.txt"), 'w') as fl:
-                fl.write(str(len(test_mtypes)))
+        # Writing final aggregated results to the output files
+        with open(os.path.join(out_path, "muts-list.p"), 'wb') as f:
+            pickle.dump(sorted(aggregated_test_mtypes), f, protocol=-1)
+        with open(os.path.join(out_path, "muts-count.txt"), 'w') as fl:
+            fl.write(str(len(aggregated_test_mtypes)))
 
-            print('Master node: Finished aggregating and writing results!')
+        print('Master node: Finished aggregating and writing results!')
+
+    print(f'Finished task {task_id}')
 
 if __name__ == '__main__':
     main()
