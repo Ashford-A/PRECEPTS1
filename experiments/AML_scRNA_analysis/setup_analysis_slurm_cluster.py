@@ -135,47 +135,41 @@ def main():
             start_task = task_id * tasks_per_process
             end_task = (task_id + 1) * tasks_per_process if task_id != num_tasks - 1 else total_len
 
-            # remove duplicate subgroupings, i.e. those that have the same set
-            # of mutated samples as another subgrouping
-            rmv_mtypes = set()
-            for task_num in range(start_task, end_task):
-                rmv_mtype = sorted_gene_types[task_num]
-                print('rmv_mtype from sorted(gene_types) for loop in setup_analysis.py: ' + str(rmv_mtype))
-                print('Current iteration of rmv_mtype for loop: ' + str(task_num) + '/' + str(total_len))
-    
-                rmv_lvls = rmv_mtype.get_levels()
+            # Each compute node writes its results to a unique temporary file
+            temp_filename = os.path.join(out_path, f"rmv_mtypes_temp_{task_id}.p")
+            with open(temp_filename, 'wb') as f:
+                pickle.dump(rmv_mtypes, f, protocol=-1)
 
-                for cmp_mtype in sorted(set(sorted_gene_types) - {rmv_mtype} - rmv_mtypes):
-                    cmp_lvls = cmp_mtype.get_levels()
-
-                    if (samp_dict[rmv_mtype] == samp_dict[cmp_mtype]
-                            and (rmv_mtype.is_supertype(cmp_mtype)
-                                 or (any('domain' in lvl for lvl in rmv_lvls)
-                                     and all('domain' not in lvl for lvl in cmp_lvls))
-                                 or len(rmv_lvls) > len(cmp_lvls)
-                                 or rmv_mtype > cmp_mtype)):
-                        rmv_mtypes |= {rmv_mtype}
-                        break
-
-            #current_iteration += 1
-
-            # update list of subgroupings to be enumerated
-            test_mtypes |= {MuType({('Gene', gene): mtype})
-                            for mtype in gene_types - rmv_mtypes}
-            test_mtypes |= {MuType({('Gene', gene): None})}
-            
-            print('Updated test_mtypes variable from end of setup_analysis.py script for loop: ' + str(test_mtypes))
-
-    ##### Added by Andrew 10/2/2023 to check what's happening with the output files below #####
-    print('muts-list.p output variable sorted(test_mtypes): ' + str(sorted(test_mtypes)))
-    print('muts-count.txt output variable str(len(test_mtypes)): ' + str(len(test_mtypes)))
-            
-    with open(os.path.join(out_path, "muts-list.p"), 'wb') as f:
-        pickle.dump(sorted(test_mtypes), f, protocol=-1)
-    with open(os.path.join(out_path, "muts-count.txt"), 'w') as fl:
-        fl.write(str(len(test_mtypes)))
+            # If this is the master task, gather results from all nodes and aggregate
+            if task_id == 0:
+                aggregated_rmv_mtypes = set()
+                num_tasks = int(os.environ.get('SLURM_ARRAY_TASK_COUNT', 1))
         
-    print('Yay! We got to the end of the setup_analysis.py script successfully!')
+                for i in range(num_tasks):
+                    temp_filename = os.path.join(out_path, f"rmv_mtypes_temp_{i}.p")
+                    with open(temp_filename, 'rb') as f:
+                        node_rmv_mtypes = pickle.load(f)
+                        aggregated_rmv_mtypes.update(node_rmv_mtypes)
+                    # Clean up the temporary file
+                    os.remove(temp_filename)
+
+            # At this point, aggregated_rmv_mtypes contains the results combined from all nodes
+            # You can replace rmv_mtypes in the subsequent code with aggregated_rmv_mtypes
+
+            # update list of subgroupings to be enumerated using the aggregated results
+            test_mtypes |= {MuType({('Gene', gene): mtype})
+                            for mtype in gene_types - aggregated_rmv_mtypes}
+            test_mtypes |= {MuType({('Gene', gene): None})}
+        
+            # Writing final results to the output files
+            with open(os.path.join(out_path, "muts-list.p"), 'wb') as f:
+                pickle.dump(sorted(test_mtypes), f, protocol=-1)
+            with open(os.path.join(out_path, "muts-count.txt"), 'w') as fl:
+                fl.write(str(len(test_mtypes)))
+
+            print('Master node: Finished aggregating and writing results!')
+
+        print(f'Finished task {task_id}')
 
 
 if __name__ == '__main__':
