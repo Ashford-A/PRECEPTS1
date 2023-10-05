@@ -14,13 +14,13 @@ one of the experiment pipelines.
 This repository consists of three major parts:
 
 
-## features ##
+## Features ##
 
 Collecting and processing expression, mutation, and other -omics datasets as
 well as phenotypes such as drug response.
 
 
-## experiments ##
+## Experiments ##
 
 Scripts for running particular analyses.
 
