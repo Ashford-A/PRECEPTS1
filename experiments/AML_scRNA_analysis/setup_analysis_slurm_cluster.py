@@ -74,7 +74,26 @@ def main():
                 samp_dict.update({mtype: mtype.get_samples(use_mtree) for mtype in lvl_types})
                 gene_types |= {mtype for mtype in lvl_types if (len(samp_dict[mtype]) <= max_samps and len(samp_dict[mtype]) < pnt_count)}
 
-            local_test_mtypes |= {MuType({('Gene', gene): mtype}) for mtype in gene_types}
+            # Remove duplicate subgroupings (from the old code)
+            rmv_mtypes = set()
+            for rmv_mtype in sorted(gene_types):
+                rmv_lvls = rmv_mtype.get_levels()
+                for cmp_mtype in sorted(gene_types - {rmv_mtype} - rmv_mtypes):
+                    cmp_lvls = cmp_mtype.get_levels()
+
+                    if (samp_dict[rmv_mtype] == samp_dict[cmp_mtype]
+                            and (rmv_mtype.is_supertype(cmp_mtype)
+                                or (any('domain' in lvl for lvl in rmv_lvls)
+                                    and all('domain' not in lvl for lvl in cmp_lvls))
+                                or len(rmv_lvls) > len(cmp_lvls)
+                                or rmv_mtype > cmp_mtype)):
+                        rmv_mtypes |= {rmv_mtype}
+                        break
+
+# Update the local_test_mtypes set
+local_test_mtypes |= {MuType({('Gene', gene): mtype})
+                      for mtype in gene_types - rmv_mtypes}
+local_test_mtypes.add(MuType({('Gene', gene): None})) 
 
     # Each node writes its results to a unique temporary file
     temp_filename = os.path.join(out_path, f"test_mtypes_temp_{task_id}.p")
