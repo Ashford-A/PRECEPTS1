@@ -90,10 +90,10 @@ def main():
                         rmv_mtypes |= {rmv_mtype}
                         break
 
-# Update the local_test_mtypes set
-local_test_mtypes |= {MuType({('Gene', gene): mtype})
-                      for mtype in gene_types - rmv_mtypes}
-local_test_mtypes.add(MuType({('Gene', gene): None})) 
+            # Update the local_test_mtypes set
+            local_test_mtypes |= {MuType({('Gene', gene): mtype})
+                                  for mtype in gene_types - rmv_mtypes}
+            local_test_mtypes.add(MuType({('Gene', gene): None})) 
 
     # Each node writes its results to a unique temporary file
     temp_filename = os.path.join(out_path, f"test_mtypes_temp_{task_id}.p")
