@@ -89,12 +89,8 @@ def main():
     local_test_mtypes = set()
     test_genes = {gene for gene, _ in tuple(cdata.mtrees.values())[0] if gene in cdata.gene_annot}
 
-    # Distribute genes among Slurm tasks
-    gene_partition = len(test_genes) // num_tasks
-    gene_start = task_id * gene_partition
-    gene_end = (task_id + 1) * gene_partition if task_id < num_tasks - 1 else len(test_genes)
-
-    for gene in list(test_genes)[gene_start:gene_end]:
+    for gene in test_genes:
+        # Process each gene efficiently and add its results to the local_test_mtypes set
         gene_results = process_gene(cdata, gene, lvl_lists, search_dict, max_samps)
         local_test_mtypes.update(gene_results)
 
