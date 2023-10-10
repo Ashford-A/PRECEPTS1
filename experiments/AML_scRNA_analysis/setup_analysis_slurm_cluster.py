@@ -53,6 +53,12 @@ def process_gene(cdata, gene, lvl_lists, search_dict, max_samps):
     return local_test_mtypes
 
 
+def gene_already_processed(out_path, task_id):
+    """Check if the results for a specific task_id/gene already exist."""
+    temp_filename = os.path.join(out_path, f"test_mtypes_temp_{task_id}.p")
+    return os.path.exists(temp_filename)
+
+
 def main():
     parser = argparse.ArgumentParser(
         'parallel_script',
@@ -78,6 +84,11 @@ def main():
     task_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', 0))
     num_tasks = int(os.environ.get('SLURM_ARRAY_TASK_COUNT', 1)) 
     
+    # Check if this task/gene has already been processed
+    if gene_already_processed(out_path, task_id):
+        print(f"Task {task_id} has already been processed. Skipping.")
+        return
+
     local_test_mtypes = set()
     test_genes = {gene for gene, _ in tuple(cdata.mtrees.values())[0] if gene in cdata.gene_annot}
 
