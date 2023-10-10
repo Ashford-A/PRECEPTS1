@@ -52,10 +52,11 @@ def process_gene(cdata, gene, lvl_lists, search_dict, max_samps):
 
     return local_test_mtypes
 
+
 def main():
     parser = argparse.ArgumentParser(
-        'setup_analysis',
-        description="Load datasets and enumerate subgroupings to be tested."
+        'parallel_script',
+        description="Distributed analysis based on preprocessed data."
     )
 
     parser.add_argument('search_params', type=str)
@@ -64,28 +65,19 @@ def main():
 
     args = parser.parse_args()
     out_path = os.path.join(args.out_dir, 'setup')
-    print('out_path variable from setup_analysis.py script: ' + str(out_path))
-
+    
     lvl_lists = [('Gene', ) + lvl_list for lvl_list in mut_lvls[args.mut_lvls]]
     search_dict = params[args.search_params]
-
     cdata = get_cohort_data('beatAMLwvs1to4', 'toil__gns', lvl_lists, vep_cache_dir, out_path, use_copies=False)
-    print('cdata variable: ' + str(cdata))
-    
-    with bz2.BZ2File(os.path.join(out_path, "cohort-data.p.gz"), 'w') as f:
-        pickle.dump(cdata, f, protocol=-1)
-
     sc_expr = load_scRNA_expr()
     use_feats = set(cdata.get_features()) & set(sc_expr.columns)
-    with open(os.path.join(out_path, "feat-list.p"), 'wb') as f:
-        pickle.dump(use_feats, f, protocol=-1)
-
+    
     total_samps = len(cdata.get_samples())
     max_samps = total_samps - search_dict['samp_cutoff']
 
     task_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', 0))
-    num_tasks = int(os.environ.get('SLURM_ARRAY_TASK_COUNT', 1))
-
+    num_tasks = int(os.environ.get('SLURM_ARRAY_TASK_COUNT', 1)) 
+    
     local_test_mtypes = set()
     test_genes = {gene for gene, _ in tuple(cdata.mtrees.values())[0] if gene in cdata.gene_annot}
 
@@ -134,6 +126,7 @@ def main():
         print('Master node: Finished aggregating and writing results!')
 
     print(f'Finished task {task_id}')
+
 
 if __name__ == '__main__':
     main()

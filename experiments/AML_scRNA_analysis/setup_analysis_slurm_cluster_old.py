@@ -89,10 +89,19 @@ def main():
     local_test_mtypes = set()
     test_genes = {gene for gene, _ in tuple(cdata.mtrees.values())[0] if gene in cdata.gene_annot}
 
-    for gene in test_genes:
-        # Process each gene efficiently and add its results to the local_test_mtypes set
+    # Distribute genes among Slurm tasks
+    gene_partition = len(test_genes) // num_tasks
+    gene_start = task_id * gene_partition
+    gene_end = (task_id + 1) * gene_partition if task_id < num_tasks - 1 else len(test_genes)
+
+    current_iteration = 0
+
+    for gene in list(test_genes)[gene_start:gene_end]:
+        print('gene_start:current_iteration:gene_end variables for this job: ' + str(gene_start) + ':' + str(current_iteration) + ':' + str(gene_end))
+
         gene_results = process_gene(cdata, gene, lvl_lists, search_dict, max_samps)
         local_test_mtypes.update(gene_results)
+        current_iteration += 1
 
     # Each node writes its results to a unique temporary file
     temp_filename = os.path.join(out_path, f"test_mtypes_temp_{task_id}.p")
