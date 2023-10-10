@@ -11,6 +11,9 @@ import bz2
 import dill as pickle
 import time
 
+import hashlib 
+
+
 def process_gene(cdata, gene, lvl_lists, search_dict, max_samps):
     # Extract common calculations outside the loop
     pnt_count = len(cdata.mtrees[lvl_lists[0]][gene].get_samples())
@@ -53,10 +56,45 @@ def process_gene(cdata, gene, lvl_lists, search_dict, max_samps):
     return local_test_mtypes
 
 
+def calculate_checksum(filename):
+    """Calculate the SHA256 checksum of a file."""
+    sha256_hash = hashlib.sha256()
+    with open(filename, "rb") as f:
+        # Read and update hash string value in blocks of 4K
+        for byte_block in iter(lambda: f.read(4096), b""):
+            sha256_hash.update(byte_block)
+    return sha256_hash.hexdigest()
+
+
+def save_checksum(filename, checksum):
+    """Save the checksum to a file."""
+    with open(f"{filename}.sha256", "w") as f:
+        f.write(checksum)
+
+
+def verify_checksum(filename):
+    """Verify the checksum of a file against the saved checksum."""
+    saved_checksum = ""
+    with open(f"{filename}.sha256", "r") as f:
+        saved_checksum = f.read().strip()
+    current_checksum = calculate_checksum(filename)
+    return saved_checksum == current_checksum
+
+
 def gene_already_processed(out_path, task_id):
-    """Check if the results for a specific task_id/gene already exist."""
+    """Check if the results for a specific task_id/gene already exist and are intact."""
     temp_filename = os.path.join(out_path, f"test_mtypes_temp_{task_id}.p")
-    return os.path.exists(temp_filename)
+    if not os.path.exists(temp_filename):
+        return False
+    
+    # Verify checksum
+    if not verify_checksum(temp_filename):
+        print(f"Checksum verification failed for task {task_id}. Re-processing.")
+        return False
+
+    # You can add more content verifications here, if needed.
+    
+    return True
 
 
 def main():
@@ -84,7 +122,7 @@ def main():
     task_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', 0))
     num_tasks = int(os.environ.get('SLURM_ARRAY_TASK_COUNT', 1)) 
     
-    # Check if this task/gene has already been processed
+    # Check if this task/gene has already been processed and is intact
     if gene_already_processed(out_path, task_id):
         print(f"Task {task_id} has already been processed. Skipping.")
         return
@@ -105,6 +143,8 @@ def main():
     temp_filename = os.path.join(out_path, f"test_mtypes_temp_{task_id}.p")
     with open(temp_filename, 'wb') as f:
         pickle.dump(local_test_mtypes, f, protocol=-1)
+    
+    save_checksum(temp_filename, calculate_checksum(temp_filename))
 
     # For non-master nodes, just write a done flag and then finish.
     if task_id != 0:
