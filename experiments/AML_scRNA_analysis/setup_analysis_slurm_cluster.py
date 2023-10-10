@@ -114,6 +114,14 @@ def main():
     args = parser.parse_args()
     out_path = os.path.join(args.out_dir, 'setup')
     
+    task_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', 0))
+    num_tasks = int(os.environ.get('SLURM_ARRAY_TASK_COUNT', 1))
+
+    # Check if this task/gene has already been processed and is intact
+    if gene_already_processed(out_path, task_id):
+        print(f"Task {task_id} has already been correctly processed. Skipping.")
+        return
+
     lvl_lists = [('Gene', ) + lvl_list for lvl_list in mut_lvls[args.mut_lvls]]
     search_dict = params[args.search_params]
     cdata = get_cohort_data('beatAMLwvs1to4', 'toil__gns', lvl_lists, vep_cache_dir, out_path, use_copies=False)
@@ -122,14 +130,6 @@ def main():
     
     total_samps = len(cdata.get_samples())
     max_samps = total_samps - search_dict['samp_cutoff']
-
-    task_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', 0))
-    num_tasks = int(os.environ.get('SLURM_ARRAY_TASK_COUNT', 1)) 
-    
-    # Check if this task/gene has already been processed and is intact
-    if gene_already_processed(out_path, task_id):
-        print(f"Task {task_id} has already been processed. Skipping.")
-        return
 
     local_test_mtypes = set()
     test_genes = {gene for gene, _ in tuple(cdata.mtrees.values())[0] if gene in cdata.gene_annot}
