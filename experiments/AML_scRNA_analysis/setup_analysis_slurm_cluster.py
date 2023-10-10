@@ -167,6 +167,8 @@ def main():
             os.remove(temp_filename)
             if i != 0:  # Master node flag should not be removed yet, as its task is not done
                 os.remove(os.path.join(out_path, f"done_{i}.flag"))
+                os.remove(os.path.join(out_path, f"test_mtypes_temp_{i}.p"))
+                os.remove(os.path.join(out_path, f"test_mtypes_temp_{i}.p.sha256"))
 
         # Writing final aggregated results to the output files
         with open(os.path.join(out_path, "muts-list.p"), 'wb') as f:
