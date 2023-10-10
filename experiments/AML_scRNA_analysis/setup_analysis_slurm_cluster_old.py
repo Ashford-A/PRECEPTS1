@@ -11,6 +11,9 @@ import bz2
 import dill as pickle
 import time
 
+import hashlib 
+
+
 def process_gene(cdata, gene, lvl_lists, search_dict, max_samps):
     # Extract common calculations outside the loop
     pnt_count = len(cdata.mtrees[lvl_lists[0]][gene].get_samples())
@@ -32,6 +35,10 @@ def process_gene(cdata, gene, lvl_lists, search_dict, max_samps):
     # Remove duplicate subgroupings
     rmv_mtypes = set()
     for rmv_mtype in sorted(gene_types):
+        # Output the counts of the "for rmv_mtype in sorted(gene_types):" loop. Want to see which tasks take longer 
+        print('Current gene: ' + str(gene))
+        print('Current iteration of rmv_mtype for loop: ' + str(current_iteration) + '/' + str(len(gene_types)))
+        
         rmv_lvls = rmv_mtype.get_levels()
         for cmp_mtype in sorted(gene_types - {rmv_mtype} - rmv_mtypes):
             cmp_lvls = cmp_mtype.get_levels()
@@ -52,10 +59,52 @@ def process_gene(cdata, gene, lvl_lists, search_dict, max_samps):
 
     return local_test_mtypes
 
+
+def calculate_checksum(filename):
+    """Calculate the SHA256 checksum of a file."""
+    sha256_hash = hashlib.sha256()
+    with open(filename, "rb") as f:
+        # Read and update hash string value in blocks of 4K
+        for byte_block in iter(lambda: f.read(4096), b""):
+            sha256_hash.update(byte_block)
+    return sha256_hash.hexdigest()
+
+
+def save_checksum(filename, checksum):
+    """Save the checksum to a file."""
+    with open(f"{filename}.sha256", "w") as f:
+        f.write(checksum)
+
+
+def verify_checksum(filename):
+    """Verify the checksum of a file against the saved checksum."""
+    saved_checksum = ""
+    with open(f"{filename}.sha256", "r") as f:
+        saved_checksum = f.read().strip()
+    current_checksum = calculate_checksum(filename)
+    return saved_checksum == current_checksum
+
+
+def gene_already_processed(out_path, task_id):
+    """Check if the results for a specific task_id/gene already exist and are intact."""
+    temp_filename = os.path.join(out_path, f"test_mtypes_temp_{task_id}.p")
+    if not os.path.exists(temp_filename):
+        return False
+    
+    # Verify checksum
+    if not verify_checksum(temp_filename):
+        print(f"Checksum verification failed for task {task_id}. Re-processing.")
+        return False
+
+    # You can add more content verifications here, if needed.
+    
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(
-        'setup_analysis',
-        description="Load datasets and enumerate subgroupings to be tested."
+        'parallel_script',
+        description="Distributed analysis based on preprocessed data."
     )
 
     parser.add_argument('search_params', type=str)
@@ -64,27 +113,23 @@ def main():
 
     args = parser.parse_args()
     out_path = os.path.join(args.out_dir, 'setup')
-    print('out_path variable from setup_analysis.py script: ' + str(out_path))
+    
+    task_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', 0))
+    num_tasks = int(os.environ.get('SLURM_ARRAY_TASK_COUNT', 1))
+
+    # Check if this task/gene has already been processed and is intact
+    if gene_already_processed(out_path, task_id):
+        print(f"Task {task_id} has already been correctly processed. Skipping.")
+        return
 
     lvl_lists = [('Gene', ) + lvl_list for lvl_list in mut_lvls[args.mut_lvls]]
     search_dict = params[args.search_params]
-
     cdata = get_cohort_data('beatAMLwvs1to4', 'toil__gns', lvl_lists, vep_cache_dir, out_path, use_copies=False)
-    print('cdata variable: ' + str(cdata))
-    
-    with bz2.BZ2File(os.path.join(out_path, "cohort-data.p.gz"), 'w') as f:
-        pickle.dump(cdata, f, protocol=-1)
-
     sc_expr = load_scRNA_expr()
     use_feats = set(cdata.get_features()) & set(sc_expr.columns)
-    with open(os.path.join(out_path, "feat-list.p"), 'wb') as f:
-        pickle.dump(use_feats, f, protocol=-1)
-
+    
     total_samps = len(cdata.get_samples())
     max_samps = total_samps - search_dict['samp_cutoff']
-
-    task_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', 0))
-    num_tasks = int(os.environ.get('SLURM_ARRAY_TASK_COUNT', 1))
 
     local_test_mtypes = set()
     test_genes = {gene for gene, _ in tuple(cdata.mtrees.values())[0] if gene in cdata.gene_annot}
@@ -94,19 +139,16 @@ def main():
     gene_start = task_id * gene_partition
     gene_end = (task_id + 1) * gene_partition if task_id < num_tasks - 1 else len(test_genes)
 
-    current_iteration = 0
-
     for gene in list(test_genes)[gene_start:gene_end]:
-        print('gene_start:current_iteration:gene_end variables for this job: ' + str(gene_start) + ':' + str(current_iteration) + ':' + str(gene_end))
-
         gene_results = process_gene(cdata, gene, lvl_lists, search_dict, max_samps)
         local_test_mtypes.update(gene_results)
-        current_iteration += 1
 
     # Each node writes its results to a unique temporary file
     temp_filename = os.path.join(out_path, f"test_mtypes_temp_{task_id}.p")
     with open(temp_filename, 'wb') as f:
         pickle.dump(local_test_mtypes, f, protocol=-1)
+    
+    save_checksum(temp_filename, calculate_checksum(temp_filename))
 
     # For non-master nodes, just write a done flag and then finish.
     if task_id != 0:
@@ -129,6 +171,7 @@ def main():
             os.remove(temp_filename)
             if i != 0:  # Master node flag should not be removed yet, as its task is not done
                 os.remove(os.path.join(out_path, f"done_{i}.flag"))
+                os.remove(os.path.join(out_path, f"test_mtypes_temp_{i}.p.sha256"))
 
         # Writing final aggregated results to the output files
         with open(os.path.join(out_path, "muts-list.p"), 'wb') as f:
@@ -138,7 +181,12 @@ def main():
 
         print('Master node: Finished aggregating and writing results!')
 
+        if i == 0:
+            os.remove(os.path.join(out_path, f"done_{i}.flag"))
+            os.remove(os.path.join(out_path, f"test_mtypes_temp_{i}.p.sha256"))
+
     print(f'Finished task {task_id}')
+
 
 if __name__ == '__main__':
     main()

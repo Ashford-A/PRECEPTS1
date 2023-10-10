@@ -24,7 +24,7 @@ def process_gene(cdata, gene, lvl_lists, search_dict, max_samps):
         use_mtree = cdata.mtrees[lvls][gene]
         lvl_types = {
             mtype for mtype in use_mtree.combtypes(
-                comb_sizes=tuple(range(1, search_dict['branch_combs'] + 1)),
+                     comb_sizes=tuple(range(1, search_dict['branch_combs'] + 1)),
                 min_type_size=search_dict['samp_cutoff'],
                 min_branch_size=search_dict['min_branch']
             )
@@ -34,6 +34,9 @@ def process_gene(cdata, gene, lvl_lists, search_dict, max_samps):
 
     # Remove duplicate subgroupings
     rmv_mtypes = set()
+
+    current_iteration = 0
+
     for rmv_mtype in sorted(gene_types):
         # Output the counts of the "for rmv_mtype in sorted(gene_types):" loop. Want to see which tasks take longer 
         print('Current gene: ' + str(gene))
@@ -51,6 +54,7 @@ def process_gene(cdata, gene, lvl_lists, search_dict, max_samps):
                         or rmv_mtype > cmp_mtype)):
                 rmv_mtypes |= {rmv_mtype}
                 break
+        current_iteration += 1
 
     # Update the local_test_mtypes set
     local_test_mtypes = {MuType({('Gene', gene): mtype})
@@ -100,7 +104,6 @@ def gene_already_processed(out_path, task_id):
     
     return True
 
-
 def main():
     parser = argparse.ArgumentParser(
         'parallel_script',
@@ -113,7 +116,7 @@ def main():
 
     args = parser.parse_args()
     out_path = os.path.join(args.out_dir, 'setup')
-    
+
     task_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', 0))
     num_tasks = int(os.environ.get('SLURM_ARRAY_TASK_COUNT', 1))
 
@@ -122,33 +125,41 @@ def main():
         print(f"Task {task_id} has already been correctly processed. Skipping.")
         return
 
-    lvl_lists = [('Gene', ) + lvl_list for lvl_list in mut_lvls[args.mut_lvls]]
-    search_dict = params[args.search_params]
-    cdata = get_cohort_data('beatAMLwvs1to4', 'toil__gns', lvl_lists, vep_cache_dir, out_path, use_copies=False)
-    sc_expr = load_scRNA_expr()
-    use_feats = set(cdata.get_features()) & set(sc_expr.columns)
-    
-    total_samps = len(cdata.get_samples())
-    max_samps = total_samps - search_dict['samp_cutoff']
+    try:
+        lvl_lists = [('Gene', ) + lvl_list for lvl_list in mut_lvls[args.mut_lvls]]
+        search_dict = params[args.search_params]
+        cdata = get_cohort_data('beatAMLwvs1to4', 'toil__gns', lvl_lists, vep_cache_dir, out_path, use_copies=False)
+        sc_expr = load_scRNA_expr()
+        use_feats = set(cdata.get_features()) & set(sc_expr.columns)
 
-    local_test_mtypes = set()
-    test_genes = {gene for gene, _ in tuple(cdata.mtrees.values())[0] if gene in cdata.gene_annot}
+        total_samps = len(cdata.get_samples())
+        max_samps = total_samps - search_dict['samp_cutoff']
 
-    # Distribute genes among Slurm tasks
-    gene_partition = len(test_genes) // num_tasks
-    gene_start = task_id * gene_partition
-    gene_end = (task_id + 1) * gene_partition if task_id < num_tasks - 1 else len(test_genes)
+        local_test_mtypes = set()
+        test_genes = {gene for gene, _ in tuple(cdata.mtrees.values())[0] if gene in cdata.gene_annot}
 
-    for gene in list(test_genes)[gene_start:gene_end]:
-        gene_results = process_gene(cdata, gene, lvl_lists, search_dict, max_samps)
-        local_test_mtypes.update(gene_results)
+        # Distribute genes among Slurm tasks
+        gene_partition = len(test_genes) // num_tasks
+        gene_start = task_id * gene_partition
+        gene_end = (task_id + 1) * gene_partition if task_id < num_tasks - 1 else len(test_genes)
 
-    # Each node writes its results to a unique temporary file
-    temp_filename = os.path.join(out_path, f"test_mtypes_temp_{task_id}.p")
-    with open(temp_filename, 'wb') as f:
-        pickle.dump(local_test_mtypes, f, protocol=-1)
-    
-    save_checksum(temp_filename, calculate_checksum(temp_filename))
+        for gene in list(test_genes)[gene_start:gene_end]:
+            gene_results = process_gene(cdata, gene, lvl_lists, search_dict, max_samps)
+            local_test_mtypes.update(gene_results)
+
+        # Each node writes its results to a unique temporary file
+        temp_filename = os.path.join(out_path, f"test_mtypes_temp_{task_id}.p")
+        with open(temp_filename, 'wb') as f:
+            pickle.dump(local_test_mtypes, f, protocol=-1)
+
+        save_checksum(temp_filename, calculate_checksum(temp_filename))
+
+    except Exception as e:
+        print(f"Error in task {task_id}: {e}")
+        error_filename = os.path.join(out_path, f"error_{task_id}.flag")
+        with open(error_filename, 'w') as error_file:
+            error_file.write('error')
+        return  # Exit the task upon error
 
     # For non-master nodes, just write a done flag and then finish.
     if task_id != 0:
@@ -158,6 +169,10 @@ def main():
         # Master node waits for other nodes to finish and aggregates their results
         all_tasks_done = False
         while not all_tasks_done:
+            if any(os.path.exists(os.path.join(out_path, f"error_{i}.flag")) for i in range(1, num_tasks)):
+                print("Error detected in one or more tasks. Exiting...")
+                return  # Exit the main function upon detecting an error
+
             all_tasks_done = all(os.path.exists(os.path.join(out_path, f"done_{i}.flag")) for i in range(1, num_tasks))
             if not all_tasks_done:
                 time.sleep(10)
@@ -180,10 +195,6 @@ def main():
             fl.write(str(len(aggregated_test_mtypes)))
 
         print('Master node: Finished aggregating and writing results!')
-
-        if i == 0:
-            os.remove(os.path.join(out_path, f"done_{i}.flag"))
-            os.remove(os.path.join(out_path, f"test_mtypes_temp_{i}.p.sha256"))
 
     print(f'Finished task {task_id}')
 
