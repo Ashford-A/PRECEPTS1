@@ -35,6 +35,10 @@ def process_gene(cdata, gene, lvl_lists, search_dict, max_samps):
     # Remove duplicate subgroupings
     rmv_mtypes = set()
     for rmv_mtype in sorted(gene_types):
+        # Output the counts of the "for rmv_mtype in sorted(gene_types):" loop. Want to see which tasks take longer 
+        print('Current gene: ' + str(gene))
+        print('Current iteration of rmv_mtype for loop: ' + str(current_iteration) + '/' + str(len(gene_types)))
+        
         rmv_lvls = rmv_mtype.get_levels()
         for cmp_mtype in sorted(gene_types - {rmv_mtype} - rmv_mtypes):
             cmp_lvls = cmp_mtype.get_levels()
