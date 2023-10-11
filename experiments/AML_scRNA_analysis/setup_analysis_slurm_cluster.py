@@ -106,10 +106,17 @@ def gene_already_processed(out_path, task_id):
     if not verify_checksum(temp_filename):
         print(f"Checksum verification failed for task {task_id}. Re-processing.")
         return False
+
+    # Check for "done" flag, if it doesn't exist, remove the temporary file
+    done_flag_filename = os.path.join(out_path, f"done_{task_id}.flag")
+    if not os.path.exists(done_flag_filename):
+        os.remove(temp_filename)
+        return False
     
     # You can add more content verifications here, if needed.
     
     return True
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -186,11 +193,14 @@ def main():
             if not all_tasks_done:
                 time.sleep(10)
 
+        print("Aggregating temp files..")
         aggregated_test_mtypes = set()
         for i in range(num_tasks):  # Include the master node's results
             temp_filename = os.path.join(out_path, f"test_mtypes_temp_{i}.p")
             with open(temp_filename, 'rb') as f:
+                print("Current iteration: " + str(i))
                 node_test_mtypes = pickle.load(f)
+                print("Current node's test_mtypes variable: " + str(test_mtypes))
                 aggregated_test_mtypes.update(node_test_mtypes)
             
             if i != 0:  # Master node flag should not be removed yet, as its task is not done
