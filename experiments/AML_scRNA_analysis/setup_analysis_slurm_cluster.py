@@ -99,7 +99,14 @@ def gene_already_processed(out_path, task_id):
     if not verify_checksum(temp_filename):
         print(f"Checksum verification failed for task {task_id}. Re-processing.")
         return False
-
+    
+    # Check for error flag files so we can try to re-run the errored-out jobs
+    error_filename = os.path.join(out_path, f"error_{task_id}.flag")
+    if os.path.exists(error_filename):
+        # Remove the error file if it exists so it doesn't cause the jobs to cancel
+        os.remove(error_filename)
+        return False
+    
     # You can add more content verifications here, if needed.
     
     return True
@@ -184,9 +191,12 @@ def main():
                 node_test_mtypes = pickle.load(f)
                 aggregated_test_mtypes.update(node_test_mtypes)
             os.remove(temp_filename)
+            
+            '''
             if i != 0:  # Master node flag should not be removed yet, as its task is not done
-                os.remove(os.path.join(out_path, f"done_{i}.flag"))
-                os.remove(os.path.join(out_path, f"test_mtypes_temp_{i}.p.sha256"))
+            os.remove(os.path.join(out_path, f"done_{i}.flag"))
+            os.remove(os.path.join(out_path, f"test_mtypes_temp_{i}.p.sha256"))
+            '''
 
         # Writing final aggregated results to the output files
         with open(os.path.join(out_path, "muts-list.p"), 'wb') as f:
