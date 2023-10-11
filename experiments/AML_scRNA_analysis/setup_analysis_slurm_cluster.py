@@ -91,6 +91,13 @@ def verify_checksum(filename):
 
 def gene_already_processed(out_path, task_id):
     """Check if the results for a specific task_id/gene already exist and are intact."""
+    # Check for error flag files so we can try to re-run the errored-out jobs
+    error_filename = os.path.join(out_path, f"error_{task_id}.flag")
+    if os.path.exists(error_filename):
+        # Remove the error file if it exists so it doesn't cause the master job to cancel
+        os.remove(error_filename)
+        return False
+
     temp_filename = os.path.join(out_path, f"test_mtypes_temp_{task_id}.p")
     if not os.path.exists(temp_filename):
         return False
@@ -98,13 +105,6 @@ def gene_already_processed(out_path, task_id):
     # Verify checksum
     if not verify_checksum(temp_filename):
         print(f"Checksum verification failed for task {task_id}. Re-processing.")
-        return False
-    
-    # Check for error flag files so we can try to re-run the errored-out jobs
-    error_filename = os.path.join(out_path, f"error_{task_id}.flag")
-    if os.path.exists(error_filename):
-        # Remove the error file if it exists so it doesn't cause the jobs to cancel
-        os.remove(error_filename)
         return False
     
     # You can add more content verifications here, if needed.
@@ -128,7 +128,7 @@ def main():
     num_tasks = int(os.environ.get('SLURM_ARRAY_TASK_COUNT', 1))
 
     # Check if this task/gene has already been processed and is intact
-    if gene_already_processed(out_path, task_id):
+    if (task_id != 0) and gene_already_processed(out_path, task_id):
         print(f"Task {task_id} has already been correctly processed. Skipping.")
         return
 
