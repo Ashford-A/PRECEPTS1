@@ -131,6 +131,8 @@ def main():
     if (task_id != 0) and gene_already_processed(out_path, task_id):
         print(f"Task {task_id} has already been correctly processed. Skipping.")
         return
+    elif task_id == 0 and gene_already_processed(out_path, task_id):
+        print(f"Task {task_id} has already been correctly processed. Skipping processing but remaining open because this is the master node.")
 
     try:
         lvl_lists = [('Gene', ) + lvl_list for lvl_list in mut_lvls[args.mut_lvls]]
@@ -190,19 +192,22 @@ def main():
             with open(temp_filename, 'rb') as f:
                 node_test_mtypes = pickle.load(f)
                 aggregated_test_mtypes.update(node_test_mtypes)
-            os.remove(temp_filename)
             
-            '''
             if i != 0:  # Master node flag should not be removed yet, as its task is not done
-            os.remove(os.path.join(out_path, f"done_{i}.flag"))
-            os.remove(os.path.join(out_path, f"test_mtypes_temp_{i}.p.sha256"))
-            '''
+                os.remove(temp_filename)
+                os.remove(os.path.join(out_path, f"done_{i}.flag"))
+                os.remove(os.path.join(out_path, f"test_mtypes_temp_{i}.p.sha256"))
 
         # Writing final aggregated results to the output files
         with open(os.path.join(out_path, "muts-list.p"), 'wb') as f:
             pickle.dump(sorted(aggregated_test_mtypes), f, protocol=-1)
         with open(os.path.join(out_path, "muts-count.txt"), 'w') as fl:
             fl.write(str(len(aggregated_test_mtypes)))
+        
+        # Remove master node flags/temp files
+        os.remove(os.path.join(out_path, f"test_mtypes_temp_0.p"))
+        os.remove(os.path.join(out_path, f"done_0.flag"))
+        os.remove(os.path.join(out_path, f"test_mtypes_temp_0.p.sha256"))
 
         print('Master node: Finished aggregating and writing results!')
 
