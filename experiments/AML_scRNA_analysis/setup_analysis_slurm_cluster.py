@@ -200,7 +200,7 @@ def main():
             with open(temp_filename, 'rb') as f:
                 print("Current iteration: " + str(i))
                 node_test_mtypes = pickle.load(f)
-                print("Current node's test_mtypes variable: " + str(test_mtypes))
+                print("Current node's test_mtypes variable: " + str(node_test_mtypes))
                 aggregated_test_mtypes.update(node_test_mtypes)
             
             if i != 0:  # Master node flag should not be removed yet, as its task is not done
