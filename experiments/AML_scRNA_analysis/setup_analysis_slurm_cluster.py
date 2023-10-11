@@ -206,7 +206,6 @@ def main():
         
         # Remove master node flags/temp files
         os.remove(os.path.join(out_path, f"test_mtypes_temp_0.p"))
-        os.remove(os.path.join(out_path, f"done_0.flag"))
         os.remove(os.path.join(out_path, f"test_mtypes_temp_0.p.sha256"))
 
         print('Master node: Finished aggregating and writing results!')
